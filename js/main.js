@@ -109,10 +109,7 @@
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
 
-    const inFlight = (game.state === GAME_STATES.EVALUATING);
-    if (inFlight || game.state === GAME_STATES.ON_FIRE) {
-      Physics.step(dt);
-    }
+    Physics.step(dt); // always step — bottle settles on table during TURN_START too
 
     // Physics-based landing check
     if (evaluating) {

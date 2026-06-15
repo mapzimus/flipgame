@@ -11,7 +11,7 @@ const Renderer = (() => {
     H = canvas.height;
   }
 
-  function resize(w, h) { W = w; H = h; canvas.width = w; canvas.height = h; }
+  function resize(w, h) { W = w; H = h; }
 
   // ── Particle helpers ───────────────────────────────────────────────────────
   function spawnSplash(x, y, count, color) {
@@ -100,130 +100,122 @@ const Renderer = (() => {
   }
 
   // ── Bottle ─────────────────────────────────────────────────────────────────
-  // Gatorade bottle: clear frosted plastic, wide flat base, blue liquid, orange cap.
+  // Wide squat Gatorade bottle: 74px body, short neck, wide orange cap, blue fill.
+  // Local coords centered at bottle.position (physics CG, ~40px above visual base).
   function drawBottle(bottle, liquid, isOnFire) {
     const { x, y } = bottle.position;
-    const angle    = bottle.angle;
-    const offset   = liquid.renderOffset();
+    const angle  = bottle.angle;
+    const offset = liquid.renderOffset();
 
-    // ON FIRE ambient glow
+    // ON FIRE glow
     if (isOnFire) {
-      const glow = ctx.createRadialGradient(x, y, 10, x, y, 90);
+      const glow = ctx.createRadialGradient(x, y, 10, x, y, 95);
       glow.addColorStop(0, 'rgba(255,100,0,0.30)');
       glow.addColorStop(1, 'rgba(255,60,0,0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x, y, 90, 0, Math.PI * 2);
+      ctx.arc(x, y, 95, 0, Math.PI * 2);
       ctx.fill();
-      spawnFire(x, y - 95);
+      spawnFire(x, y - 100);
     }
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
 
-    // ── Blue Gatorade liquid (clipped to bottle body) ──────────────────────
-    ctx.save();
+    // Reusable body outline (wide, flat-bottomed Gatorade shape, y=-72..+43)
+    const traceBody = () => { ctx.beginPath(); ctx.roundRect(-37, -72, 74, 115, 10); };
+
+    // Clear-plastic glass tint — translucent so the blue liquid shows through
+    const glass = ctx.createLinearGradient(-37, 0, 37, 0);
+    glass.addColorStop(0,    'rgba(198, 224, 245, 0.30)');
+    glass.addColorStop(0.20, 'rgba(244, 251, 255, 0.46)');
+    glass.addColorStop(0.55, 'rgba(208, 234, 250, 0.32)');
+    glass.addColorStop(1,    'rgba(186, 218, 240, 0.26)');
+
+    // ── Shoulder + neck (drawn first, body covers the junction) ────────────
+    ctx.fillStyle   = glass;
+    ctx.strokeStyle = 'rgba(90, 150, 205, 0.55)';
+    ctx.lineWidth   = 1.6;
     ctx.beginPath();
-    ctx.rect(-30, -65, 60, 130);
-    ctx.clip();
-
-    // Liquid fill — bright electric blue, ~1/3 of body from bottom
-    ctx.fillStyle = 'rgba(0, 150, 255, 0.80)';
-    ctx.beginPath();
-    ctx.rect(offset - 29, 22, 58, 46);
-    ctx.fill();
-
-    // Surface meniscus
-    ctx.fillStyle = 'rgba(40, 180, 255, 0.90)';
-    ctx.beginPath();
-    ctx.ellipse(offset, 22, 28, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Surface sheen
-    ctx.strokeStyle = 'rgba(160, 230, 255, 0.80)';
-    ctx.lineWidth   = 1.5;
-    ctx.beginPath();
-    ctx.ellipse(offset, 22, 26, 5, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-
-    // ── Bottle body (clear frosted plastic) ───────────────────────────────
-    // Gatorade: wide cylindrical body, slight inward shoulder, short neck
-    const bodyGrad = ctx.createLinearGradient(-30, 0, 30, 0);
-    bodyGrad.addColorStop(0,    'rgba(180,215,245,0.75)');
-    bodyGrad.addColorStop(0.25, 'rgba(235,248,255,0.92)');
-    bodyGrad.addColorStop(0.65, 'rgba(200,232,252,0.80)');
-    bodyGrad.addColorStop(1,    'rgba(165,205,238,0.70)');
-
-    ctx.strokeStyle = 'rgba(100,160,215,0.70)';
-    ctx.lineWidth   = 1.5;
-
-    // Main body — wide, flat base feel (single radius, not array — broad compat)
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.roundRect(-30, -65, 60, 130, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    // Shoulder — inward taper from body to neck
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.moveTo(-30, -58);
-    ctx.lineTo(-11, -76);
-    ctx.lineTo( 11, -76);
-    ctx.lineTo( 30, -58);
+    ctx.moveTo(-37, -68);
+    ctx.lineTo(-22, -86);
+    ctx.lineTo( 22, -86);
+    ctx.lineTo( 37, -68);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = 'rgba(100,160,215,0.45)';
-    ctx.stroke();
-
-    // Neck
-    ctx.fillStyle = bodyGrad;
-    ctx.strokeStyle = 'rgba(100,160,215,0.70)';
     ctx.beginPath();
-    ctx.roundRect(-11, -112, 22, 40, 4);
+    ctx.roundRect(-22, -122, 44, 40, 7);
     ctx.fill();
     ctx.stroke();
 
-    // Label band (white strip — Gatorade style)
-    ctx.fillStyle = 'rgba(255,255,255,0.32)';
-    ctx.beginPath();
-    ctx.roundRect(-27, -28, 54, 40, 3);
+    // ── Body: clear glass fill ─────────────────────────────────────────────
+    traceBody();
+    ctx.fillStyle = glass;
     ctx.fill();
 
-    // Left-edge specular highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    // ── Vivid blue liquid, clipped to body, bottom ~40% ───────────────────
+    ctx.save();
+    traceBody();
+    ctx.clip();
+    ctx.fillStyle = 'rgba(0, 128, 255, 0.92)';
     ctx.beginPath();
-    ctx.roundRect(-24, -62, 6, 118, 3);
+    ctx.rect(offset - 38, 2, 76, 45);
     ctx.fill();
-
-    // Subtle right reflection
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    // brighter meniscus surface
+    ctx.fillStyle = 'rgba(45, 175, 255, 0.95)';
     ctx.beginPath();
-    ctx.roundRect(16, -50, 4, 90, 2);
+    ctx.ellipse(offset, 2, 37, 8, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(180, 235, 255, 0.90)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(offset, 2, 35, 5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
 
-    // ── Orange Gatorade cap ────────────────────────────────────────────────
+    // ── Specular highlights (clipped to body) ──────────────────────────────
+    ctx.save();
+    traceBody();
+    ctx.clip();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.fillRect(-30, -72, 6, 115);   // left bright strip
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.fillRect(23, -72, 4, 115);    // right faint reflection
+    ctx.restore();
+
+    // ── Crisp body outline ─────────────────────────────────────────────────
+    traceBody();
+    ctx.strokeStyle = 'rgba(85, 145, 200, 0.80)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    // ── Label band (upper body, above the waterline) ──────────────────────
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.90)';
+    ctx.beginPath();
+    ctx.roundRect(-35, -58, 70, 28, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ff6d00';        // brand stripe
+    ctx.fillRect(-35, -47, 70, 5);
+
+    // ── Wide orange Gatorade cap ───────────────────────────────────────────
     ctx.fillStyle = '#ff6d00';
     ctx.beginPath();
-    ctx.roundRect(-12, -124, 24, 16, 3);
+    ctx.roundRect(-24, -146, 48, 26, 6);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.20)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)';
     ctx.lineWidth = 1;
     ctx.stroke();
-
-    // Cap highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
     ctx.beginPath();
-    ctx.roundRect(-10, -123, 9, 5, 2);
+    ctx.roundRect(-21, -144, 12, 7, 2);
     ctx.fill();
 
     ctx.restore();
 
-    // Splash particles when liquid is sloshing hard — blue Gatorade color
+    // Blue splash on hard slosh
     if (Math.abs(liquid.vel) > 1.6) {
-      spawnSplash(x, y - 48, 2, 'rgba(0,180,255,0.85)');
+      spawnSplash(x, y - 30, 2, 'rgba(0, 170, 255, 0.85)');
     }
   }
 

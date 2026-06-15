@@ -1,8 +1,8 @@
 // input.js — pointer flick detection (mouse + touch unified)
 
 const Input = (() => {
-  const MIN_DRAG = 40;   // px — dead zone
-  const HISTORY_MS = 80; // rolling velocity window
+  const MIN_DRAG = 22;   // px — small dead zone so a quick flick registers
+  const HISTORY_MS = 70; // rolling velocity window (captures the snap at release)
 
   let canvas, onFlick;
   let dragging = false;

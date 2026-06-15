@@ -5,8 +5,15 @@ const Physics = (() => {
 
   let engine, world, bottle, ground;
   let stableFrames = 0, groundedFrames = 0;
+  let totalRotation = 0, hasFlipped = false, launchAngle = 0;
   let canvasW, canvasH;
   let groundY;
+
+  // Spin tuning (rad/step) — see applyFlick. Calibrated (config B sweep) so a
+  // medium flick lands a clean 360°, with a forgiving 6-wide MAKE band.
+  const SPIN_BASE   = 0.115;  // spin from a soft flick
+  const SPIN_RANGE  = 0.115;  // extra spin added at full-strength flick
+  const POWER_SPEED = 3500;   // flick speed (px/s) that maps to full power
 
   // ── Liquid oscillator ──────────────────────────────────────────────────────
   // Virtual pendulum — tracks the slosh of liquid inside the bottle.
@@ -58,10 +65,11 @@ const Physics = (() => {
     if (angVel < 0.04 && linSpeed < 15) {
       stableFrames++;
       if (stableFrames >= 12) {
-        // Bottle is fully at rest — now check the final angle
+        // Must have completed a full rotation AND land upright
+        if (!hasFlipped) return 'MISS';
         let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         if (angle > Math.PI) angle -= 2 * Math.PI;
-        return Math.abs(angle) < 0.52 ? 'MAKE' : 'MISS';  // ±30° window
+        return Math.abs(angle) < 0.61 ? 'MAKE' : 'MISS';  // ±35° window
       }
     } else {
       stableFrames = 0;
@@ -82,20 +90,19 @@ const Physics = (() => {
   // a tipping angle ≈ 40°. A landing within ~35° of vertical can right itself;
   // steeper than that and gravity wins — producing the "almost stuck" teeter.
   function createBottle() {
-    const cx  = canvasW / 2;
-    const cy  = groundY - 100;   // bottle center Y (centroid of compound)
+    const cx = canvasW / 2;
+    // Spawn resting on the table: base bottom edge (cy+73) sits ~3px above ground
+    const cy = groundY - 76;
 
-    // Bottle geometry (in upright position):
-    //   base bottom edge: cy + 65
-    //   base top:         cy - 65  (body rect = 130px tall, 50px wide)
-    //   neck top:         cy - 105 (neck rect = 40px tall, 18px wide)
-    //
-    //   liquid region:    cy+15 → cy+65  (bottom 50px, heavy)
-    //   upper body:       cy-65 → cy+15  (top 80px, light)
+    // Gatorade bottle — wide, squat, thick base:
+    //   liq:  74×70px heavy base (bottom 70px of body)
+    //   body: 70×50px upper body
+    //   neck: 44×35px wide short neck
+    // Compound CG ends up ~34px below cy → bottle.position.y ≈ groundY - 90
 
-    const liq  = Bodies.rectangle(cx, cy + 40, 60, 55, { density: 0.016 }); // thick Gatorade base — heavy, low CG
-    const body = Bodies.rectangle(cx, cy - 25, 58, 75, { density: 0.0015 });
-    const neck = Bodies.rectangle(cx, cy - 90, 22, 38, { density: 0.0004 });
+    const liq  = Bodies.rectangle(cx, cy + 38, 74, 70, { density: 0.018 }); // heavy liquid base
+    const body = Bodies.rectangle(cx, cy - 18, 70, 50, { density: 0.0015 });
+    const neck = Bodies.rectangle(cx, cy - 62, 44, 36, { density: 0.0004 });
 
     const b = Body.create({
       parts: [liq, body, neck],
@@ -136,41 +143,49 @@ const Physics = (() => {
     if (bottle) World.remove(world, bottle);
     stableFrames   = 0;
     groundedFrames = 0;
+    totalRotation  = 0;
+    hasFlipped     = false;
+    launchAngle    = 0;
     liquid.reset();
 
     bottle = createBottle();
     World.add(world, bottle);
   }
 
-  // Convert a screen-space flick vector (px/s) into a launch.
-  // Design target:
-  //   • vy  ≈ -1500 px/s → bottle rises ~250px (nice visible arc)
-  //   • ratio vx/|vy| ≈ 0.15 → ~1 clean rotation
-  // The player's skill is in finding that ~0.10-0.20 ratio sweet spot.
+  // Convert a flick gesture (px/s) into a launch — models a wrist snap.
+  //   • A quick UPWARD flick tosses the bottle up AND spins it forward.
+  //   • Flick STRENGTH (upward speed) drives the spin — harder snap = more
+  //     rotation. This is the skill: snap hard enough for one clean 360°.
+  //   • Sideways lean only nudges drift + which way it tumbles.
+  // Launch height stays in a tight band so airtime is steady and the player
+  // is really tuning the *spin* (rotation count) with their flick strength.
   function applyFlick(vx, vy) {
-    const vy_abs = Math.max(50, Math.abs(vy));
+    const upSpeed = Math.max(0, -vy);                  // upward flick speed (px/s)
+    const power   = Math.min(upSpeed / POWER_SPEED, 1.0); // 0..1 flick strength
 
-    // Vertical launch: map screen speed to physics speed, clamped
-    const power   = Math.min((vy_abs - 50) / 2200, 1.0); // 0..1
-    const launchY = -(5 + power * 20);                    // -5 (gentle) to -25 (strong)
+    // Modest launch-height variation — keeps airtime learnable
+    const launchY = -(15 + power * 7);                 // -15 (soft) .. -22 (hard)
+    const launchX = Math.max(-6, Math.min(6, vx / 280)); // gentle sideways drift
 
-    // Horizontal drift (smaller than vertical, just affects landing zone)
-    const launchX = (vx / vy_abs) * Math.abs(launchY) * 0.35;
+    // Wrist-snap spin scales with flick strength. Forward by default;
+    // a sideways lean flips the tumble direction.
+    // Calibrated: sweet spot ~power 0.5 → one full 360° landing upright.
+    const dir  = vx >= 0 ? 1 : -1;
+    const spin = dir * (SPIN_BASE + power * SPIN_RANGE);
 
-    // Spin: ratio of horizontal to vertical determines rotation count
-    // ratio ≈ 0.25 → ~1 rotation (sweet spot at frictionAir=0.025)
-    // frictionAir = 0.025 → each frame angVel *= 0.975
-    // Sum over 72 frames ≈ 33.6; so for 2π total: angVel_0 = 2π/33.6 ≈ 0.187
-    // At ratio=0.25: 0.187 = 0.25 * k → k ≈ 0.75
-    const ratio = Math.max(-1.5, Math.min(1.5, vx / vy_abs));
-    const spin  = ratio * 0.75;
-
+    launchAngle = bottle.angle;
     Body.setVelocity(bottle, { x: launchX, y: launchY });
     Body.setAngularVelocity(bottle, spin);
   }
 
   function step(dt) {
     Engine.update(engine, dt * 1000);
+    // Require a full 360° flip: track angle traveled since launch.
+    // Matter's body.angle accumulates (doesn't wrap) so this is exact.
+    if (!hasFlipped) {
+      totalRotation = Math.abs(bottle.angle - launchAngle);
+      if (totalRotation >= 5.6) hasFlipped = true; // ~320° ≈ a completed flip
+    }
     liquid.update(bottle.angularVelocity, dt);
   }
 
