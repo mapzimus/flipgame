@@ -13,6 +13,19 @@ const Renderer = (() => {
 
   function resize(w, h) { W = w; H = h; }
 
+  // ── Color helpers (per-player liquid flavor) ────────────────────────────────
+  function hexToRgba(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+  }
+  function lighten(hex, amt, a) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = Math.min(255, ((n >> 16) & 255) + amt);
+    const g = Math.min(255, ((n >> 8) & 255) + amt);
+    const b = Math.min(255, (n & 255) + amt);
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
   // ── Particle helpers ───────────────────────────────────────────────────────
   function spawnSplash(x, y, count, color) {
     for (let i = 0; i < count; i++) {
@@ -102,10 +115,11 @@ const Renderer = (() => {
   // ── Bottle ─────────────────────────────────────────────────────────────────
   // Wide squat Gatorade bottle: 74px body, short neck, wide orange cap, blue fill.
   // Local coords centered at bottle.position (physics CG, ~40px above visual base).
-  function drawBottle(bottle, liquid, isOnFire) {
+  function drawBottle(bottle, liquid, isOnFire, liquidColor) {
     const { x, y } = bottle.position;
     const angle  = bottle.angle;
-    const offset = liquid.renderOffset();
+    const fillCol = hexToRgba(liquidColor || '#0b86ff', 0.92);
+    const meniscusCol = lighten(liquidColor || '#0b86ff', 110, 0.9);
 
     // ON FIRE glow
     if (isOnFire) {
@@ -168,7 +182,7 @@ const Renderer = (() => {
     const tilt  = Math.max(-0.28, Math.min(0.28, liquid.slosh)); // slosh wobble (rad)
     const slope = Math.tan(tilt);
     const yL = surfaceY - 120 * slope, yR = surfaceY + 120 * slope;
-    ctx.fillStyle = 'rgba(0, 128, 255, 0.92)';
+    ctx.fillStyle = fillCol;
     ctx.beginPath();
     ctx.moveTo(-120, yL);
     ctx.lineTo( 120, yR);
@@ -177,7 +191,7 @@ const Renderer = (() => {
     ctx.closePath();
     ctx.fill();
     // bright meniscus line along the surface
-    ctx.strokeStyle = 'rgba(180, 235, 255, 0.9)';
+    ctx.strokeStyle = meniscusCol;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(-120, yL);
@@ -312,14 +326,14 @@ const Renderer = (() => {
 
   // ── Main frame ─────────────────────────────────────────────────────────────
   function frame(dt, state) {
-    const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire } = state;
+    const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire, liquidColor } = state;
     updateParticles(dt);
 
     drawBackground(groundY, isOnFire);
     drawWalls(groundY);
     drawFlickIndicator(drag, bottle);
     if (showGlow) drawLandingGlow(bottle, groundY);
-    drawBottle(bottle, liquid, isOnFire);
+    drawBottle(bottle, liquid, isOnFire, liquidColor);
     drawParticles();
 
     if (result) {

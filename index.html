@@ -25,17 +25,8 @@
       <h1><span class="emoji">🍾</span> Flip Game</h1>
 
       <div>
-        <div class="section-label">Players</div>
-        <div id="player-inputs">
-          <div class="player-input-row">
-            <span class="player-num">P1</span>
-            <input type="text" placeholder="Player 1" maxlength="14" value="Player 1">
-          </div>
-          <div class="player-input-row">
-            <span class="player-num">P2</span>
-            <input type="text" placeholder="Player 2" maxlength="14" value="Player 2">
-          </div>
-        </div>
+        <div class="section-label">Players — pick a name &amp; flavor (🧑 tap for CPU)</div>
+        <div id="player-inputs"><!-- rendered by main.js --></div>
         <button id="add-player-btn">+ Add Player</button>
       </div>
 
@@ -47,7 +38,17 @@
         </div>
       </div>
 
+      <div>
+        <div class="section-label">CPU difficulty</div>
+        <div class="direction-options">
+          <label><input type="radio" name="difficulty" value="easy"> 🟢 Easy</label>
+          <label><input type="radio" name="difficulty" value="medium" checked> 🟡 Medium</label>
+          <label><input type="radio" name="difficulty" value="hard"> 🔴 Hard</label>
+        </div>
+      </div>
+
       <button id="start-btn">Start Game</button>
+      <button id="practice-btn">🎯 Practice (solo)</button>
     </div>
   </div>
 

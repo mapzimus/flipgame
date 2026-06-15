@@ -31,9 +31,22 @@ const game = {
   fireEnded: false,      // last miss ended an ON FIRE run (no penalty)
   justEliminated: false, // last miss eliminated the current player
 
-  init(playerNames, direction) {
-    this.players = playerNames.map(name => ({
-      name,
+  // Modes
+  practice: false,       // solo free-flip practice (no lives/turns)
+  difficulty: 'medium',  // AI skill: 'easy' | 'medium' | 'hard'
+  practiceMakes: 0,
+  practiceAttempts: 0,
+  practiceStreak: 0,
+  practiceBest: 0,
+
+  // defs: [{ name, color, isAI }]
+  init(defs, direction, opts = {}) {
+    this.practice   = !!opts.practice;
+    this.difficulty = opts.difficulty || 'medium';
+    this.players = defs.map(d => ({
+      name: d.name,
+      color: d.color || '#0b86ff',
+      isAI: !!d.isAI,
       lives: 10,
       streak: 0,
       isHeatingUp: false,
@@ -46,9 +59,10 @@ const game = {
     this.lastResult = null;
     this.onFirePlayer = null;
     this.onFireBonus = 0;
+    this.practiceMakes = this.practiceAttempts = this.practiceStreak = this.practiceBest = 0;
 
-    // If there's a previous winner, start with them
-    if (this.previousWinnerName) {
+    // If there's a previous winner, start with them (skip in practice)
+    if (!this.practice && this.previousWinnerName) {
       const idx = this.players.findIndex(p => p.name === this.previousWinnerName);
       if (idx !== -1) this.currentPlayerIndex = idx;
     }
@@ -85,6 +99,20 @@ const game = {
     this.justIgnited    = false;
     this.fireEnded      = false;
     this.justEliminated = false;
+
+    // ── Practice: just track stats, no lives/streak stakes ──────────────────
+    if (this.practice) {
+      this.practiceAttempts++;
+      if (result === 'MAKE') {
+        this.practiceMakes++;
+        this.practiceStreak++;
+        this.practiceBest = Math.max(this.practiceBest, this.practiceStreak);
+      } else {
+        this.practiceStreak = 0;
+      }
+      this.setState(GAME_STATES.RESULT);
+      return;
+    }
 
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
@@ -137,6 +165,9 @@ const game = {
 
   // Called after result display to advance turn
   advanceTurn() {
+    // Practice: never ends — just keep flipping
+    if (this.practice) { this.setState(GAME_STATES.TURN_START); return; }
+
     // Win check first
     const active = this.activePlayers();
     if (active.length <= 1) {

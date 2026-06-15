@@ -5,6 +5,7 @@ const Physics = (() => {
 
   let engine, world, bottle, ground;
   let stableFrames = 0, groundedFrames = 0;
+  let angleWin = [];   // sliding window of recent angles (settle detection)
   let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
   let canvasW, canvasH;
   let groundY;
@@ -66,11 +67,17 @@ const Physics = (() => {
 
     groundedFrames++;
 
-    // Tight thresholds: the slow self-righting rotation (~0.02-0.03 rad/step)
-    // must read as "still moving" so we wait for it to finish.
-    if (angVel < 0.015 && linSpeed < 9) {
+    // Tight stillness thresholds AND an angle-stability guard: the slow
+    // self-righting rotation must read as "still moving" so we never judge
+    // mid-righting. We only call it once the angle has held steady (range
+    // < 0.03 rad) across a 22-frame window — i.e. the bottle has truly stopped.
+    if (angVel < 0.010 && linSpeed < 7) {
       stableFrames++;
-      if (stableFrames >= 18) {
+      angleWin.push(bottle.angle);
+      if (angleWin.length > 22) angleWin.shift();
+      let lo = Infinity, hi = -Infinity;
+      for (const a of angleWin) { if (a < lo) lo = a; if (a > hi) hi = a; }
+      if (angleWin.length >= 22 && (hi - lo) < 0.03) {
         // Must have completed a full rotation AND land upright
         if (!hasFlipped) return 'MISS';
         let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
@@ -79,8 +86,9 @@ const Physics = (() => {
       }
     } else {
       stableFrames = 0;
-      // Hard timeout: 8 seconds on ground and still moving → MISS
-      if (groundedFrames > 480) return 'MISS';
+      angleWin = [];
+      // Hard timeout: ~10s on ground and still moving → MISS
+      if (groundedFrames > 600) return 'MISS';
     }
 
     return null; // still evaluating
@@ -152,6 +160,7 @@ const Physics = (() => {
     if (bottle) World.remove(world, bottle);
     stableFrames   = 0;
     groundedFrames = 0;
+    angleWin       = [];
     totalRotation  = 0;
     hasFlipped     = false;
     launchAngle    = 0;
