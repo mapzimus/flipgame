@@ -158,19 +158,20 @@ const Renderer = (() => {
     ctx.save();
     traceBody();
     ctx.clip();
+    // Fill ~30%: body interior is y=-72..+43 (115px); surface at y=15 → bottom ~24%
     ctx.fillStyle = 'rgba(0, 128, 255, 0.92)';
     ctx.beginPath();
-    ctx.rect(offset - 38, 2, 76, 45);
+    ctx.rect(offset - 38, 15, 76, 32);
     ctx.fill();
     // brighter meniscus surface
     ctx.fillStyle = 'rgba(45, 175, 255, 0.95)';
     ctx.beginPath();
-    ctx.ellipse(offset, 2, 37, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(offset, 15, 37, 7, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(180, 235, 255, 0.90)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.ellipse(offset, 2, 35, 5, 0, 0, Math.PI * 2);
+    ctx.ellipse(offset, 15, 35, 5, 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
 

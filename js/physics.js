@@ -112,10 +112,6 @@ const Physics = (() => {
       label: 'bottle',
     });
 
-    // Keep bottle colliding only with ground, not itself
-    b.collisionFilter      = { category: 0x0001, mask: 0x0002 };
-    ground.collisionFilter = { category: 0x0002, mask: 0x0001 };
-
     return b;
   }
 
