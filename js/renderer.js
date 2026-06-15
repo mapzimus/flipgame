@@ -154,24 +154,34 @@ const Renderer = (() => {
     ctx.fillStyle = glass;
     ctx.fill();
 
-    // ── Vivid blue liquid, clipped to body, bottom ~40% ───────────────────
+    // ── Vivid blue liquid — surface stays LEVEL in world space ─────────────
+    // Clip to the (tilted) bottle interior, then UNDO the bottle's rotation so
+    // we fill in world-aligned axes. A world-horizontal fill ∩ the tilted bottle
+    // = liquid that finds its own level no matter how the bottle spins. The body
+    // interior is y=-72..+43 rel. to the CG; max corner distance ~81px, so the
+    // -120..120 / down-to-240 fill amply covers it once clipped.
     ctx.save();
     traceBody();
     ctx.clip();
-    // Fill ~30%: body interior is y=-72..+43 (115px); surface at y=15 → bottom ~24%
+    ctx.rotate(-angle);                                    // → world-aligned axes
+    const surfaceY = 15;                                   // ~30% full when upright
+    const tilt  = Math.max(-0.28, Math.min(0.28, liquid.slosh)); // slosh wobble (rad)
+    const slope = Math.tan(tilt);
+    const yL = surfaceY - 120 * slope, yR = surfaceY + 120 * slope;
     ctx.fillStyle = 'rgba(0, 128, 255, 0.92)';
     ctx.beginPath();
-    ctx.rect(offset - 38, 15, 76, 32);
+    ctx.moveTo(-120, yL);
+    ctx.lineTo( 120, yR);
+    ctx.lineTo( 120, 240);
+    ctx.lineTo(-120, 240);
+    ctx.closePath();
     ctx.fill();
-    // brighter meniscus surface
-    ctx.fillStyle = 'rgba(45, 175, 255, 0.95)';
+    // bright meniscus line along the surface
+    ctx.strokeStyle = 'rgba(180, 235, 255, 0.9)';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(offset, 15, 37, 7, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(180, 235, 255, 0.90)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.ellipse(offset, 15, 35, 5, 0, 0, Math.PI * 2);
+    ctx.moveTo(-120, yL);
+    ctx.lineTo( 120, yR);
     ctx.stroke();
     ctx.restore();
 

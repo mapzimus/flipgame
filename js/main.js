@@ -17,10 +17,18 @@
   const playerInputs = document.getElementById('player-inputs');
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
+  // Scale the backing store by devicePixelRatio so everything is crisp on a
+  // hi-DPI smartboard. We draw in LOGICAL (CSS) pixels — the transform maps
+  // them to physical pixels — so physics/renderer keep using logical coords.
   function resize() {
-    canvas.width  = window.innerWidth;
-    canvas.height = window.innerHeight;
-    Renderer.resize(canvas.width, canvas.height);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap at 2 (fill-rate)
+    const w = window.innerWidth, h = window.innerHeight;
+    canvas.width  = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width  = w + 'px';
+    canvas.style.height = h + 'px';
+    canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    Renderer.resize(w, h);
   }
   window.addEventListener('resize', resize);
 
@@ -35,7 +43,7 @@
     div.innerHTML = `
       <span class="player-num">P${playerCount}</span>
       <input type="text" placeholder="Player ${playerCount}" maxlength="14" value="Player ${playerCount}">
-      <button class="remove-btn" onclick="removePlayer(this)">✕</button>
+      <button class="remove-player-btn" onclick="removePlayer(this)">✕</button>
     `;
     playerInputs.appendChild(div);
     updateAddBtn();
@@ -65,6 +73,7 @@
     if (names.length < 2) { alert('Need at least 2 players!'); return; }
 
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
+    Sound.unlock();   // first user gesture — unlock audio
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     gameOverEl.classList.add('hidden');
@@ -87,9 +96,9 @@
   const RESULT_MS = 1500;
 
   function startGame(names, dir) {
-    resize();
-    Physics.init(canvas.width, canvas.height);
     Renderer.init(canvas);
+    resize();   // sets DPR transform + renderer logical dims (must run after init)
+    Physics.init(window.innerWidth, window.innerHeight);  // logical coords
 
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
@@ -117,7 +126,6 @@
       if (result) {
         evaluating = false;
         showGlow   = result === 'MAKE';
-        updateDebug(result);
         game.resolveFlip(result);
       }
     }
@@ -138,8 +146,6 @@
         game.advanceTurn();
       }
     }
-
-    updateHUD();
 
     Renderer.frame(dt, {
       bottle:      Physics.getBottle(),
@@ -167,6 +173,7 @@
     pointCountEl.textContent = game.pointCount > 1 ? `⚡ ×${game.pointCount}` : '';
     streakBannerEl.textContent = '';
     streakBannerEl.className = 'streak-banner';
+    updateHUD();
   }
 
   function onOnFire() {
@@ -181,6 +188,7 @@
     streakBannerEl.textContent = `+${game.onFireBonus} lives earned`;
     streakBannerEl.className   = 'streak-banner on-fire';
     pointCountEl.textContent   = '';
+    updateHUD();
   }
 
   function onResult() {
@@ -194,30 +202,39 @@
         // ON FIRE bonus make — gained a life
         streakBannerEl.textContent = `🔥 +1 life!  (+${game.onFireBonus} total)`;
         streakBannerEl.className   = 'streak-banner on-fire';
+        Sound.play('life');
       } else if (game.justIgnited) {
         streakBannerEl.textContent = '🔥 ON FIRE!';
         streakBannerEl.className   = 'streak-banner on-fire';
+        Sound.play('ignite');
       } else if (p.isHeatingUp) {
         streakBannerEl.textContent = '🌡 Heating up!';
         streakBannerEl.className   = 'streak-banner heating-up';
+        Sound.play('make');
       } else {
         streakBannerEl.textContent = '';
         streakBannerEl.className   = 'streak-banner';
+        Sound.play('make');
       }
     } else if (game.fireEnded) {
       // ON FIRE ended on a miss — no penalty
       streakBannerEl.textContent = '🔥 Streak over — no penalty';
       streakBannerEl.className   = 'streak-banner on-fire';
+      Sound.play('miss');
     } else {
       const n = game.lastPenalty;
       streakBannerEl.textContent = `−${n} ${n === 1 ? 'life' : 'lives'}`;
       streakBannerEl.className   = 'streak-banner miss-penalty';
+      Sound.play('miss');
     }
 
     updateHUD();
   }
 
   function onEliminated() {
+    const p = game.currentPlayer();
+    turnBannerEl.textContent = `❌ ${p.name} is out!`;
+    updateHUD();
     setTimeout(() => game.advanceTurn(), 1800);
   }
 
@@ -226,6 +243,7 @@
     gameOverEl.classList.remove('hidden');
     const active = game.activePlayers();
     winnerNameEl.textContent = active.length ? active[0].name : '???';
+    Sound.play('win');
     Input.disable();
   }
 
@@ -234,6 +252,8 @@
     if (game.state !== GAME_STATES.TURN_START &&
         game.state !== GAME_STATES.ON_FIRE) return;
 
+    Sound.unlock();
+    Sound.play('flick');
     Physics.applyFlick(vx, vy);
     Input.disable();
     flipHintEl.classList.add('hidden');
@@ -241,35 +261,26 @@
     game.setState(GAME_STATES.EVALUATING);
   }
 
-  // ── Temporary tuning readout (remove once flick feel is dialed in) ──────────
-  const debugEl = document.getElementById('debug-readout');
-  function updateDebug(result) {
-    if (!debugEl) return;
-    const f  = Input.getLastFlick();
-    const fi = Physics.getLastFlickInfo();
-    const rot = Physics.getRotations();
-    if (!f || !fi) return;
-    debugEl.textContent =
-      `flick vy:${-f.vy}  peak:${f.peak}px/s\n` +
-      `power:${fi.power}  spin:${fi.spin}\n` +
-      `rotations:${rot.toFixed(2)}  →  ${result}`;
+  // ── HUD ────────────────────────────────────────────────────────────────────
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
 
-  // ── HUD ────────────────────────────────────────────────────────────────────
   function updateHUD() {
     playerListEl.innerHTML = game.players.map((p, i) => {
       const active = i === game.currentPlayerIndex && !p.eliminated;
-      const dots   = '●'.repeat(Math.max(0, p.lives)) + '○'.repeat(Math.max(0, 10 - p.lives));
       let cls = 'player-card';
-      if (p.eliminated)     cls += ' eliminated';
-      else if (active)      cls += ' active';
-      if (p.isOnFire)       cls += ' on-fire';
+      if (p.eliminated)       cls += ' eliminated';
+      else if (active)        cls += ' active';
+      if (p.isOnFire)         cls += ' on-fire';
       else if (p.isHeatingUp) cls += ' heating-up';
+      if (!p.eliminated && p.lives <= 3) cls += ' low-lives';
 
       return `<div class="${cls}">
-        <span class="p-name">${p.name}</span>
-        <span class="p-dots">${dots}</span>
-        <span class="p-lives">${p.lives}</span>
+        <span class="p-name">${escapeHtml(p.name)}</span>
+        <span class="p-lives-num">${p.lives}</span>
+        <span class="p-lives-label">lives</span>
       </div>`;
     }).join('');
   }

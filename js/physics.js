@@ -175,8 +175,8 @@ const Physics = (() => {
 
     // Small randomness so the same flick isn't a guaranteed make — a centered
     // flick still usually lands, but a marginal one becomes a coin flip.
-    const jSpin   = 1 + (Math.random() - 0.5) * 0.18;  // ±9% spin
-    const jLaunch = 1 + (Math.random() - 0.5) * 0.08;  // ±4% launch
+    const jSpin   = 1 + (Math.random() - 0.5) * 0.24;  // ±12% spin (dominant lever)
+    const jLaunch = 1 + (Math.random() - 0.5) * 0.12;  // ±6% launch (scatters airtime)
     const jDrift  = (Math.random() - 0.5) * 2.4;       // ±1.2 px/frame stray drift
 
     // Fairly steady launch height so airtime is consistent — the player is
