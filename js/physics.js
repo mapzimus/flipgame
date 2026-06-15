@@ -5,7 +5,7 @@ const Physics = (() => {
 
   let engine, world, bottle, ground;
   let stableFrames = 0, groundedFrames = 0;
-  let totalRotation = 0, hasFlipped = false, launchAngle = 0;
+  let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
   let canvasW, canvasH;
   let groundY;
 
@@ -15,6 +15,7 @@ const Physics = (() => {
   const SPIN_BASE   = 0.140;  // spin from a soft flick (~0.8 turn)
   const SPIN_RANGE  = 0.100;  // extra spin at full-strength flick (~1.35 turn)
   const POWER_SPEED = 4000;   // flick speed (px/s) that maps to full power
+  const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
 
   let lastFlickInfo = null;   // debug: { upSpeed, power, spin }
 
@@ -133,7 +134,14 @@ const Physics = (() => {
       friction: 0.9,
       restitution: 0.01,
     });
-    World.add(world, ground);
+
+    // Side walls (inner faces at x=WALL_INSET and w-WALL_INSET). A bottle that
+    // drifts sideways caroms off them — clean vertical flicks never touch them.
+    const wallOpts = { isStatic: true, label: 'wall', friction: 0.3, restitution: 0.5 };
+    const leftWall  = Bodies.rectangle(WALL_INSET - 20, h / 2, 40, h * 3, wallOpts);
+    const rightWall = Bodies.rectangle(w - WALL_INSET + 20, h / 2, 40, h * 3, wallOpts);
+
+    World.add(world, [ground, leftWall, rightWall]);
 
     resetBottle();
   }
@@ -145,6 +153,7 @@ const Physics = (() => {
     totalRotation  = 0;
     hasFlipped     = false;
     launchAngle    = 0;
+    hasLanded      = false;
     liquid.reset();
 
     bottle = createBottle();
@@ -162,15 +171,21 @@ const Physics = (() => {
     const upSpeed = Math.max(0, -vy);                  // upward flick speed (px/s)
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0); // 0..1 flick strength
 
+    // Small randomness so the same flick isn't a guaranteed make — a centered
+    // flick still usually lands, but a marginal one becomes a coin flip.
+    const jSpin   = 1 + (Math.random() - 0.5) * 0.18;  // ±9% spin
+    const jLaunch = 1 + (Math.random() - 0.5) * 0.08;  // ±4% launch
+    const jDrift  = (Math.random() - 0.5) * 2.4;       // ±1.2 px/frame stray drift
+
     // Fairly steady launch height so airtime is consistent — the player is
     // really tuning the *spin* (rotation count) with their flick strength.
-    const launchY = -(16 + power * 5);                 // -16 (soft) .. -21 (hard)
-    const launchX = Math.max(-6, Math.min(6, vx / 280)); // gentle sideways drift
+    const launchY = -(16 + power * 5) * jLaunch;       // -16 (soft) .. -21 (hard)
+    const launchX = Math.max(-6, Math.min(6, vx / 280)) + jDrift; // sideways drift
 
     // Wrist-snap spin scales with flick strength. Forward by default;
     // a sideways lean flips the tumble direction.
     const dir  = vx >= 0 ? 1 : -1;
-    const spin = dir * (SPIN_BASE + power * SPIN_RANGE);
+    const spin = dir * (SPIN_BASE + power * SPIN_RANGE) * jSpin;
 
     lastFlickInfo = { upSpeed: Math.round(upSpeed), power: +power.toFixed(2), spin: +spin.toFixed(3) };
     launchAngle = bottle.angle;
@@ -186,6 +201,17 @@ const Physics = (() => {
       totalRotation = Math.abs(bottle.angle - launchAngle);
       if (totalRotation >= 5.6) hasFlipped = true; // ~320° ≈ a completed flip
     }
+
+    // Liquid-driven landing kick: the instant the bottle first comes down on
+    // the table, the still-sloshing liquid gives it a shove. Sometimes it
+    // sticks, sometimes that extra push tips it over — the "almost stuck then
+    // falls" moment. Keeps a good flick from being a guaranteed make.
+    if (hasFlipped && !hasLanded && bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
+      hasLanded = true;
+      const kick = liquid.vel * 0.06 + (Math.random() - 0.5) * 0.16;
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + kick);
+    }
+
     liquid.update(bottle.angularVelocity, dt);
   }
 

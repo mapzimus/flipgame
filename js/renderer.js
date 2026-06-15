@@ -232,43 +232,58 @@ const Renderer = (() => {
     ctx.fill();
   }
 
-  // ── Flick arrow ────────────────────────────────────────────────────────────
-  function drawFlickArrow(drag) {
-    if (!drag) return;
-    const { startX, startY, curX, curY } = drag;
-    const dx  = startX - curX;
-    const dy  = startY - curY;
+  // ── Flick indicator ─────────────────────────────────────────────────────────
+  // Points FROM the bottle in the direction you're flicking (the way it'll go),
+  // length grows with flick strength. Reads as "throw this way", not "pull back".
+  function drawFlickIndicator(drag, bottle) {
+    if (!drag || !bottle) return;
+    const dx  = drag.curX - drag.startX;   // flick direction = throw direction
+    const dy  = drag.curY - drag.startY;
     const len = Math.hypot(dx, dy);
-    if (len < 20) return;
+    if (len < 18) return;
 
-    // Strength indicator — grows with drag distance
-    const strength = Math.min(len / 250, 1);
-    const color    = `hsl(${200 - strength * 120}, 90%, 65%)`;
+    const strength = Math.min(len / 220, 1);
+    const ux = dx / len, uy = dy / len;
+    const reach = 28 + strength * 64;                 // 28..92px
+    const ox = bottle.position.x, oy = bottle.position.y - 40;
+    const ex = ox + ux * reach, ey = oy + uy * reach;
+    const color = `hsl(${190 - strength * 150}, 95%, 62%)`; // cyan → hot orange
 
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth   = 2.5;
-    ctx.setLineDash([7, 5]);
+    ctx.lineWidth   = 4;
     ctx.lineCap     = 'round';
-    ctx.globalAlpha = 0.75;
-
-    const endX = startX + dx * 1.4;
-    const endY = startY + dy * 1.4;
+    ctx.globalAlpha = 0.88;
     ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(ex, ey);
     ctx.stroke();
 
-    // Arrowhead
-    ctx.setLineDash([]);
-    const a = Math.atan2(dy, dx);
+    const a = Math.atan2(uy, ux);
     ctx.beginPath();
-    ctx.moveTo(endX, endY);
-    ctx.lineTo(endX - 14 * Math.cos(a - 0.4), endY - 14 * Math.sin(a - 0.4));
-    ctx.moveTo(endX, endY);
-    ctx.lineTo(endX - 14 * Math.cos(a + 0.4), endY - 14 * Math.sin(a + 0.4));
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 14 * Math.cos(a - 0.45), ey - 14 * Math.sin(a - 0.45));
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 14 * Math.cos(a + 0.45), ey - 14 * Math.sin(a + 0.45));
     ctx.stroke();
     ctx.restore();
+  }
+
+  // ── Side walls ───────────────────────────────────────────────────────────────
+  function drawWalls(groundY) {
+    const WALL = 14; // matches physics WALL_INSET
+    for (const x0 of [0, W - WALL]) {
+      const g = ctx.createLinearGradient(x0, 0, x0 + WALL, 0);
+      const flip = x0 === 0;
+      g.addColorStop(0, flip ? 'rgba(28,40,58,0.95)' : 'rgba(58,78,105,0.75)');
+      g.addColorStop(1, flip ? 'rgba(58,78,105,0.75)' : 'rgba(28,40,58,0.95)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, 0, WALL, groundY);
+    }
+    // inner edge highlights
+    ctx.fillStyle = 'rgba(150,185,215,0.30)';
+    ctx.fillRect(WALL - 2, 0, 2, groundY);
+    ctx.fillRect(W - WALL, 0, 2, groundY);
   }
 
   // ── Result text ────────────────────────────────────────────────────────────
@@ -291,7 +306,8 @@ const Renderer = (() => {
     updateParticles(dt);
 
     drawBackground(groundY, isOnFire);
-    drawFlickArrow(drag);
+    drawWalls(groundY);
+    drawFlickIndicator(drag, bottle);
     if (showGlow) drawLandingGlow(bottle, groundY);
     drawBottle(bottle, liquid, isOnFire);
     drawParticles();
