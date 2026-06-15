@@ -66,13 +66,26 @@ On the panel, open `https://mapzimus.github.io/flipgame/` in Chrome →
 offline after first load, auto-updates. Try this first — it's 10 seconds and needs
 no sideloading permission.
 
-## Option C — Fully self-contained offline APK (school-network-proof)
+## Option C — Fully self-contained offline APK (school-network-proof) ✅ READY
 
-If the school network blocks `github.io` outright, Options A/B can't even load once.
-The fix is an APK with the game files **bundled inside** (a native WebView wrapper),
-so it never touches the network. This is **not set up yet** — it needs a small
-Android build (via GitHub Actions, so no local Android SDK). Ask Claude to "set up
-the offline WebView APK build" and it can scaffold it.
+This APK has the game files **bundled inside** (a native WebView wrapper), so it
+**never touches the network** — immune to any school-WiFi block. It's auto-built in
+the cloud (GitHub Actions, no local Android SDK).
+
+**Download the latest build (do this at home / on open WiFi):**
+> https://github.com/mapzimus/flipgame/releases/download/apk-latest/flipgame-offline.apk
+
+Then sideload it onto the panel (email/Drive/USB → enable "Install unknown apps" →
+tap the `.apk`). It's debug-signed, which is fine for sideloading. It launches
+fullscreen, landscape, and keeps the screen awake.
+
+**How it rebuilds:** every push to `master` re-runs the build (or trigger it manually
+from the repo's **Actions → Build offline APK → Run workflow**). The download link
+above always points at the newest build (`apk-latest` release). Source lives in
+`android/` and `.github/workflows/build-apk.yml`.
+
+**This is the most robust option for a locked-down school network** — prefer it if
+you're unsure whether the panel can reach the internet.
 
 ## After it's installed — TEST THE FLICK ON THE PANEL
 
