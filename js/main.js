@@ -190,10 +190,11 @@
 
     const p = game.currentPlayer();
     if (game.lastResult === 'MAKE') {
-      if (p.isOnFire) {
-        streakBannerEl.textContent = `🔥 +${game.onFireBonus} lives`;
+      if (game.onFireGain > 0) {
+        // ON FIRE bonus make — gained a life
+        streakBannerEl.textContent = `🔥 +1 life!  (+${game.onFireBonus} total)`;
         streakBannerEl.className   = 'streak-banner on-fire';
-      } else if (p.isOnFire || p.streak >= 3) {
+      } else if (game.justIgnited) {
         streakBannerEl.textContent = '🔥 ON FIRE!';
         streakBannerEl.className   = 'streak-banner on-fire';
       } else if (p.isHeatingUp) {
@@ -201,9 +202,15 @@
         streakBannerEl.className   = 'streak-banner heating-up';
       } else {
         streakBannerEl.textContent = '';
+        streakBannerEl.className   = 'streak-banner';
       }
+    } else if (game.fireEnded) {
+      // ON FIRE ended on a miss — no penalty
+      streakBannerEl.textContent = '🔥 Streak over — no penalty';
+      streakBannerEl.className   = 'streak-banner on-fire';
     } else {
-      streakBannerEl.textContent = `−${game.pointCount} ${game.pointCount === 1 ? 'life' : 'lives'}`;
+      const n = game.lastPenalty;
+      streakBannerEl.textContent = `−${n} ${n === 1 ? 'life' : 'lives'}`;
       streakBannerEl.className   = 'streak-banner miss-penalty';
     }
 

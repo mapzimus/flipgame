@@ -46,11 +46,11 @@ const Physics = (() => {
     reset()        { this.slosh = 0; this.vel = 0; this.settleTimer = 0; },
   };
 
-  // ── Landing detection — wait for full settle ──────────────────────────────
-  // Don't judge the angle mid-roll. Instead, wait until the bottle has truly
-  // come to rest (both spin and drift near zero for 12 consecutive frames),
-  // then check the final angle. This lets the "bowling pin wobble" play out
-  // naturally: the bottle can teeter and rock before the verdict fires.
+  // ── Landing detection — wait for a TRUE full stop ─────────────────────────
+  // Don't judge mid-teeter. After landing the low-CG bottle slowly rights
+  // itself (or tips over) — a slow rotation that must NOT be mistaken for
+  // "settled". So we require very low spin + drift for a longer window before
+  // reading the final angle, so the bowling-pin wobble fully resolves first.
   function checkLanding() {
     if (!bottle) return null;
 
@@ -66,9 +66,11 @@ const Physics = (() => {
 
     groundedFrames++;
 
-    if (angVel < 0.04 && linSpeed < 15) {
+    // Tight thresholds: the slow self-righting rotation (~0.02-0.03 rad/step)
+    // must read as "still moving" so we wait for it to finish.
+    if (angVel < 0.015 && linSpeed < 9) {
       stableFrames++;
-      if (stableFrames >= 12) {
+      if (stableFrames >= 18) {
         // Must have completed a full rotation AND land upright
         if (!hasFlipped) return 'MISS';
         let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
@@ -77,8 +79,8 @@ const Physics = (() => {
       }
     } else {
       stableFrames = 0;
-      // Hard timeout: 6 seconds on ground and still thrashing → MISS
-      if (groundedFrames > 360) return 'MISS';
+      // Hard timeout: 8 seconds on ground and still moving → MISS
+      if (groundedFrames > 480) return 'MISS';
     }
 
     return null; // still evaluating

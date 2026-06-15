@@ -24,6 +24,13 @@ const game = {
   resultTimer: 0,        // countdown before advancing from RESULT state
   callbacks: {},
 
+  // Per-flip display flags (set in resolveFlip, read by the HUD/banner)
+  lastPenalty: 0,        // lives lost on the last miss (captured before reset)
+  onFireGain: 0,         // lives gained on the last ON FIRE bonus make
+  justIgnited: false,    // last make just triggered ON FIRE
+  fireEnded: false,      // last miss ended an ON FIRE run (no penalty)
+  justEliminated: false, // last miss eliminated the current player
+
   init(playerNames, direction) {
     this.players = playerNames.map(name => ({
       name,
@@ -70,41 +77,58 @@ const game = {
   resolveFlip(result) {
     this.lastResult = result;
     const player = this.currentPlayer();
+    const wasOnFire = player.isOnFire;   // capture BEFORE we mutate any flags
 
-    if (this.state === GAME_STATES.ON_FIRE) {
+    // reset per-flip display flags
+    this.lastPenalty    = 0;
+    this.onFireGain     = 0;
+    this.justIgnited    = false;
+    this.fireEnded      = false;
+    this.justEliminated = false;
+
+    // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
+    if (wasOnFire) {
       if (result === 'MAKE') {
         this.onFireBonus = Math.min(this.onFireBonus + 1, 10);
-        player.lives = Math.min(player.lives + 1, 20);
-        this.setState(GAME_STATES.RESULT);
+        player.lives     = Math.min(player.lives + 1, 20);
+        this.onFireGain  = 1;
       } else {
-        // Miss ends ON FIRE — no life loss, bonus already applied per-make
-        player.isOnFire = false;
-        this.onFirePlayer = null;
-        this.onFireBonus = 0;
-        this.setState(GAME_STATES.RESULT);
+        // Miss ends ON FIRE — NO life loss (that's the reward)
+        player.isOnFire    = false;
+        player.isHeatingUp = false;
+        player.streak      = 0;
+        this.onFirePlayer  = null;
+        this.onFireBonus   = 0;
+        this.pointCount    = 1;     // stake clears, but it costs no lives
+        this.fireEnded     = true;
       }
+      this.setState(GAME_STATES.RESULT);
       return;
     }
 
+    // ── Normal flip ─────────────────────────────────────────────────────────
     if (result === 'MAKE') {
       player.streak++;
       this.pointCount++;
-      player.isHeatingUp = player.streak >= 2;
-      if (player.streak >= 3 && !player.isOnFire) {
-        player.isOnFire = true;
+      player.isHeatingUp = player.streak === 2;
+      if (player.streak >= 3) {
+        player.isOnFire    = true;
         player.isHeatingUp = false;
-        this.onFirePlayer = player;
-        this.onFireBonus = 0;
+        this.onFirePlayer  = player;
+        this.onFireBonus   = 0;
+        this.justIgnited   = true;
       }
     } else {
-      player.lives -= this.pointCount;
-      player.streak = 0;
+      this.lastPenalty   = this.pointCount;   // capture before reset (for HUD)
+      player.lives      -= this.pointCount;
+      player.streak      = 0;
       player.isHeatingUp = false;
-      player.isOnFire = false;
-      this.pointCount = 1;
+      player.isOnFire    = false;
+      this.pointCount    = 1;
       if (player.lives <= 0) {
-        player.lives = 0;
+        player.lives      = 0;
         player.eliminated = true;
+        this.justEliminated = true;
       }
     }
 
@@ -113,25 +137,23 @@ const game = {
 
   // Called after result display to advance turn
   advanceTurn() {
-    const eliminated = this.players.find(p => p.eliminated && this.lastResult === 'MISS' && p === this.currentPlayer());
-    if (eliminated) {
+    // Win check first
+    const active = this.activePlayers();
+    if (active.length <= 1) {
+      if (active.length === 1) this.previousWinnerName = active[0].name;
+      this.setState(GAME_STATES.GAME_OVER);
+      return;
+    }
+
+    // Announce an elimination once, then re-enter to actually advance past it
+    if (this.justEliminated) {
+      this.justEliminated = false;
       this.setState(GAME_STATES.ELIMINATED);
       return;
     }
 
-    const active = this.activePlayers();
-    if (active.length === 1) {
-      this.previousWinnerName = active[0].name;
-      this.setState(GAME_STATES.GAME_OVER);
-      return;
-    }
-    if (active.length === 0) {
-      this.setState(GAME_STATES.GAME_OVER);
-      return;
-    }
-
-    // ON FIRE: same player keeps flipping
-    if (this.currentPlayer().isOnFire && this.lastResult === 'MAKE') {
+    // ON FIRE: same player keeps flipping until they miss
+    if (this.currentPlayer().isOnFire && !this.currentPlayer().eliminated) {
       this.setState(GAME_STATES.ON_FIRE);
       return;
     }
@@ -142,7 +164,7 @@ const game = {
     do {
       next = ((next + this.direction) + this.players.length) % this.players.length;
       attempts++;
-    } while (this.players[next].eliminated && attempts < this.players.length);
+    } while (this.players[next].eliminated && attempts <= this.players.length);
 
     this.currentPlayerIndex = next;
     this.setState(GAME_STATES.TURN_START);
