@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Flip Game</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ── Setup ───────────────────────────────────────── -->
+  <div id="setup-screen" class="screen hidden">
+    <div class="setup-card">
+      <h1><span class="emoji">🍾</span> Flip Game</h1>
+
+      <div>
+        <div class="section-label">Players</div>
+        <div id="player-inputs">
+          <div class="player-input-row">
+            <span class="player-num">P1</span>
+            <input type="text" placeholder="Player 1" maxlength="14" value="Player 1">
+          </div>
+          <div class="player-input-row">
+            <span class="player-num">P2</span>
+            <input type="text" placeholder="Player 2" maxlength="14" value="Player 2">
+          </div>
+        </div>
+        <button id="add-player-btn">+ Add Player</button>
+      </div>
+
+      <div>
+        <div class="section-label">Pass direction</div>
+        <div class="direction-options">
+          <label><input type="radio" name="direction" value="1" checked> ➡ Left → Right</label>
+          <label><input type="radio" name="direction" value="-1"> ⬅ Right → Left</label>
+        </div>
+      </div>
+
+      <button id="start-btn">Start Game</button>
+    </div>
+  </div>
+
+  <!-- ── Game ────────────────────────────────────────── -->
+  <div id="game-screen" class="screen hidden">
+    <canvas id="game-canvas"></canvas>
+    <div id="hud">
+      <div id="top-bar">
+        <span id="turn-banner"></span>
+        <span id="point-count"></span>
+      </div>
+      <div id="streak-banner"></div>
+    </div>
+    <div id="flip-hint">Swipe up to flip</div>
+    <div id="player-list"></div>
+  </div>
+
+  <!-- ── Game Over ────────────────────────────────────── -->
+  <div id="game-over" class="screen hidden">
+    <div class="game-over-card">
+      <div style="font-size:3rem">🏆</div>
+      <h2>Winner</h2>
+      <div id="winner-name"></div>
+      <button id="play-again-btn">Play Again</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/physics.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/main.js"></script>
+
+</body>
+</html>
