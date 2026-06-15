@@ -2,14 +2,15 @@
 
 const Input = (() => {
   const MIN_DRAG = 22;   // px — small dead zone so a quick flick registers
-  const HISTORY_MS = 70; // rolling velocity window (captures the snap at release)
 
   let canvas, onFlick;
   let dragging = false;
   let startX = 0, startY = 0;
   let curX = 0, curY = 0;
-  let history = [];
+  let lastX = 0, lastY = 0, lastT = 0;
+  let peakSpeed = 0, peakVx = 0, peakVy = 0;  // fastest instant of the gesture
   let enabled = false;
+  let lastFlick = null;                        // debug: last flick vector
 
   function attach(cvs, flickCallback) {
     canvas  = cvs;
@@ -22,54 +23,54 @@ const Input = (() => {
   }
 
   function enable()  { enabled = true;  }
-  function disable() { enabled = false; dragging = false; history = []; }
+  function disable() { enabled = false; dragging = false; }
 
   function onDown(e) {
     if (!enabled) return;
     e.preventDefault();
     dragging = true;
-    startX = curX = e.clientX - canvas.getBoundingClientRect().left;
-    startY = curY = e.clientY - canvas.getBoundingClientRect().top;
-    history = [{ x: startX, y: startY, t: performance.now() }];
+    const r = canvas.getBoundingClientRect();
+    startX = curX = lastX = e.clientX - r.left;
+    startY = curY = lastY = e.clientY - r.top;
+    lastT = performance.now();
+    peakSpeed = peakVx = peakVy = 0;
   }
 
   function onMove(e) {
     if (!dragging) return;
     e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    curX = e.clientX - rect.left;
-    curY = e.clientY - rect.top;
+    const r = canvas.getBoundingClientRect();
+    curX = e.clientX - r.left;
+    curY = e.clientY - r.top;
     const now = performance.now();
-    history.push({ x: curX, y: curY, t: now });
-    history = history.filter(p => now - p.t < HISTORY_MS * 1.5);
+    const dt = Math.max((now - lastT) / 1000, 0.001);
+    const ivx = (curX - lastX) / dt;   // instantaneous velocity this sample
+    const ivy = (curY - lastY) / dt;
+    const spd = Math.hypot(ivx, ivy);
+    // Capture the fastest instant — that's the "snap", robust to a pause
+    // before release (which would otherwise read as zero velocity).
+    if (spd > peakSpeed) { peakSpeed = spd; peakVx = ivx; peakVy = ivy; }
+    lastX = curX; lastY = curY; lastT = now;
   }
 
   function onUp(e) {
     if (!dragging || !enabled) return;
     dragging = false;
 
-    const dx = curX - startX;
-    const dy = curY - startY;
+    const dx = curX - startX, dy = curY - startY;
     const dist = Math.hypot(dx, dy);
+    if (dist < MIN_DRAG) return;
 
-    if (dist < MIN_DRAG) { history = []; return; }
+    // Use the gesture's peak velocity. Fall back to a distance estimate if
+    // we somehow captured almost no motion (e.g. one big jump then release).
+    let vx = peakVx, vy = peakVy;
+    if (peakSpeed < 80) { vx = dx * 10; vy = dy * 10; }
 
-    // Velocity from last HISTORY_MS of points
-    const now = performance.now();
-    const recent = history.filter(p => now - p.t < HISTORY_MS);
-    if (recent.length >= 2) {
-      const p1 = recent[0];
-      const p2 = recent[recent.length - 1];
-      const dt = Math.max((p2.t - p1.t) / 1000, 0.01);
-      const vx = (p2.x - p1.x) / dt;
-      const vy = (p2.y - p1.y) / dt;
-      onFlick(vx, vy);
-    } else {
-      // Fallback: total displacement
-      onFlick(dx * 12, dy * 12);
-    }
-    history = [];
+    lastFlick = { vx: Math.round(vx), vy: Math.round(vy), peak: Math.round(peakSpeed) };
+    onFlick(vx, vy);
   }
+
+  function getLastFlick() { return lastFlick; }
 
   // Returns drag vector for drawing the preview arrow
   function getDragState() {
@@ -77,5 +78,5 @@ const Input = (() => {
     return { startX, startY, curX, curY };
   }
 
-  return { attach, enable, disable, getDragState };
+  return { attach, enable, disable, getDragState, getLastFlick };
 })();

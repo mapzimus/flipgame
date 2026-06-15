@@ -117,6 +117,7 @@
       if (result) {
         evaluating = false;
         showGlow   = result === 'MAKE';
+        updateDebug(result);
         game.resolveFlip(result);
       }
     }
@@ -231,6 +232,20 @@
     flipHintEl.classList.add('hidden');
     evaluating = true;
     game.setState(GAME_STATES.EVALUATING);
+  }
+
+  // ── Temporary tuning readout (remove once flick feel is dialed in) ──────────
+  const debugEl = document.getElementById('debug-readout');
+  function updateDebug(result) {
+    if (!debugEl) return;
+    const f  = Input.getLastFlick();
+    const fi = Physics.getLastFlickInfo();
+    const rot = Physics.getRotations();
+    if (!f || !fi) return;
+    debugEl.textContent =
+      `flick vy:${-f.vy}  peak:${f.peak}px/s\n` +
+      `power:${fi.power}  spin:${fi.spin}\n` +
+      `rotations:${rot.toFixed(2)}  →  ${result}`;
   }
 
   // ── HUD ────────────────────────────────────────────────────────────────────

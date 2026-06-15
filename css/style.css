@@ -225,6 +225,23 @@ html, body {
 #streak-banner.on-fire     { color: var(--fire); text-shadow: 0 0 12px var(--fire); }
 #streak-banner.miss-penalty { color: var(--miss); }
 
+#debug-readout {
+  position: fixed;
+  top: 56px;
+  left: 12px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: #8fe;
+  background: rgba(0,0,0,0.45);
+  border-radius: 6px;
+  padding: 5px 9px;
+  pointer-events: none;
+  white-space: pre;
+  z-index: 50;
+}
+#debug-readout:empty { display: none; }
+
 #flip-hint {
   position: fixed;
   bottom: 140px;

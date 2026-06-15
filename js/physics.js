@@ -9,11 +9,14 @@ const Physics = (() => {
   let canvasW, canvasH;
   let groundY;
 
-  // Spin tuning (rad/step) — see applyFlick. Calibrated (config B sweep) so a
-  // medium flick lands a clean 360°, with a forgiving 6-wide MAKE band.
-  const SPIN_BASE   = 0.115;  // spin from a soft flick
-  const SPIN_RANGE  = 0.115;  // extra spin added at full-strength flick
-  const POWER_SPEED = 3500;   // flick speed (px/s) that maps to full power
+  // Spin tuning (rad/step) — see applyFlick. Single sweet spot near 1 turn:
+  // soft flick under-rotates (<360, fails), medium ≈ one clean turn (make),
+  // hard overshoots (~1.3 turns, miss). Rotation ranges ~0.8 to ~1.35.
+  const SPIN_BASE   = 0.140;  // spin from a soft flick (~0.8 turn)
+  const SPIN_RANGE  = 0.100;  // extra spin at full-strength flick (~1.35 turn)
+  const POWER_SPEED = 4000;   // flick speed (px/s) that maps to full power
+
+  let lastFlickInfo = null;   // debug: { upSpeed, power, spin }
 
   // ── Liquid oscillator ──────────────────────────────────────────────────────
   // Virtual pendulum — tracks the slosh of liquid inside the bottle.
@@ -159,16 +162,17 @@ const Physics = (() => {
     const upSpeed = Math.max(0, -vy);                  // upward flick speed (px/s)
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0); // 0..1 flick strength
 
-    // Modest launch-height variation — keeps airtime learnable
-    const launchY = -(15 + power * 7);                 // -15 (soft) .. -22 (hard)
+    // Fairly steady launch height so airtime is consistent — the player is
+    // really tuning the *spin* (rotation count) with their flick strength.
+    const launchY = -(16 + power * 5);                 // -16 (soft) .. -21 (hard)
     const launchX = Math.max(-6, Math.min(6, vx / 280)); // gentle sideways drift
 
     // Wrist-snap spin scales with flick strength. Forward by default;
     // a sideways lean flips the tumble direction.
-    // Calibrated: sweet spot ~power 0.5 → one full 360° landing upright.
     const dir  = vx >= 0 ? 1 : -1;
     const spin = dir * (SPIN_BASE + power * SPIN_RANGE);
 
+    lastFlickInfo = { upSpeed: Math.round(upSpeed), power: +power.toFixed(2), spin: +spin.toFixed(3) };
     launchAngle = bottle.angle;
     Body.setVelocity(bottle, { x: launchX, y: launchY });
     Body.setAngularVelocity(bottle, spin);
@@ -188,6 +192,8 @@ const Physics = (() => {
   function getBottle()  { return bottle; }
   function getLiquid()  { return liquid; }
   function getGroundY() { return groundY; }
+  function getRotations()    { return bottle ? Math.abs(bottle.angle - launchAngle) / (2 * Math.PI) : 0; }
+  function getLastFlickInfo() { return lastFlickInfo; }
 
-  return { init, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY };
+  return { init, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getRotations, getLastFlickInfo };
 })();
