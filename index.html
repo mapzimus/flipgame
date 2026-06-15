@@ -95,8 +95,9 @@
     };
 
     // Register the service worker for offline play — only on the deployed
-    // (non-localhost) site, so it never caches stale files during local dev.
-    if ('serviceWorker' in navigator &&
+    // (non-localhost) HTTP(S) site. Skipped on localhost (dev) and file://
+    // (the bundled WebView APK, which is already fully offline).
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http') &&
         location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js')
