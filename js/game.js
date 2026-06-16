@@ -20,7 +20,7 @@ const game = {
   lastResult: null,      // 'MAKE' | 'MISS'
   onFirePlayer: null,
   onFireBonus: 0,
-  previousWinnerName: null,
+  winnerIndex: 0,        // index of last game's winner (for "winner starts next")
   resultTimer: 0,        // countdown before advancing from RESULT state
   callbacks: {},
 
@@ -61,10 +61,11 @@ const game = {
     this.onFireBonus = 0;
     this.practiceMakes = this.practiceAttempts = this.practiceStreak = this.practiceBest = 0;
 
-    // If there's a previous winner, start with them (skip in practice)
-    if (!this.practice && this.previousWinnerName) {
-      const idx = this.players.findIndex(p => p.name === this.previousWinnerName);
-      if (idx !== -1) this.currentPlayerIndex = idx;
+    // Winner-starts-next: caller passes the winner's INDEX (not name, which is
+    // ambiguous when two players share a name). Ignored in practice.
+    if (!this.practice && Number.isInteger(opts.startIndex) &&
+        opts.startIndex >= 0 && opts.startIndex < this.players.length) {
+      this.currentPlayerIndex = opts.startIndex;
     }
 
     this.setState(GAME_STATES.TURN_START);
@@ -117,9 +118,10 @@ const game = {
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
+        const before = player.lives;
+        player.lives     = Math.min(player.lives + 1, 20);   // capped
+        this.onFireGain  = player.lives - before;            // 0 if already maxed
         this.onFireBonus = Math.min(this.onFireBonus + 1, 10);
-        player.lives     = Math.min(player.lives + 1, 20);
-        this.onFireGain  = 1;
       } else {
         // Miss ends ON FIRE — NO life loss (that's the reward)
         player.isOnFire    = false;
@@ -171,7 +173,7 @@ const game = {
     // Win check first
     const active = this.activePlayers();
     if (active.length <= 1) {
-      if (active.length === 1) this.previousWinnerName = active[0].name;
+      if (active.length === 1) this.winnerIndex = this.players.indexOf(active[0]);
       this.setState(GAME_STATES.GAME_OVER);
       return;
     }

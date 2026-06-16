@@ -177,7 +177,8 @@
       startGame([{ name: game.players[0].name, color: game.players[0].color, isAI: false }], 1, { practice: true });
     } else {
       const defs = game.players.map(p => ({ name: p.name, color: p.color, isAI: p.isAI }));
-      startGame(defs, game.direction, { difficulty: game.difficulty });
+      // Winner starts the next game (by index — robust to duplicate names).
+      startGame(defs, game.direction, { difficulty: game.difficulty, startIndex: game.winnerIndex });
     }
   });
 
@@ -195,8 +196,11 @@
   let resultTimer = 0;
   let resultAlpha = 0;
   let aiTimer     = null;
+  let elimTimer   = null;
   let gameStarted = false;
   const RESULT_MS = 1500;
+
+  function clearTimers() { clearTimeout(aiTimer); clearTimeout(elimTimer); }
 
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
   function aiFlick() {
@@ -210,6 +214,7 @@
   }
 
   function startGame(defs, dir, opts) {
+    clearTimers();
     Renderer.init(canvas);
     resize();   // sets DPR transform + renderer logical dims (must run after init)
     Physics.init(window.innerWidth, window.innerHeight);  // logical coords
@@ -365,6 +370,11 @@
         streakBannerEl.textContent = '🔥 ON FIRE!';
         streakBannerEl.className   = 'streak-banner on-fire';
         Sound.play('ignite');
+      } else if (p.isOnFire) {
+        // On fire but at the 20-life cap — no life granted, so don't claim one
+        streakBannerEl.textContent = '🔥 Maxed out!';
+        streakBannerEl.className   = 'streak-banner on-fire';
+        Sound.play('make');
       } else if (p.isHeatingUp) {
         streakBannerEl.textContent = '🌡 Heating up!';
         streakBannerEl.className   = 'streak-banner heating-up';
@@ -393,10 +403,12 @@
     const p = game.currentPlayer();
     turnBannerEl.textContent = `❌ ${p.name} is out!`;
     updateHUD();
-    setTimeout(() => game.advanceTurn(), 1800);
+    clearTimeout(elimTimer);
+    elimTimer = setTimeout(() => game.advanceTurn(), 1800);
   }
 
   function onGameOver() {
+    clearTimers();   // no stray advanceTurn/AI flick fires after the game ends
     gameScreen.classList.add('hidden');
     gameOverEl.classList.remove('hidden');
     const active = game.activePlayers();

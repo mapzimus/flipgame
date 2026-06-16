@@ -9,6 +9,7 @@ const Input = (() => {
   let curX = 0, curY = 0;
   let lastX = 0, lastY = 0, lastT = 0;
   let peakSpeed = 0, peakVx = 0, peakVy = 0;  // fastest instant of the gesture
+  let rect = null;                             // canvas rect, captured at gesture start
   let enabled = false;
   let lastFlick = null;                        // debug: last flick vector
 
@@ -29,19 +30,21 @@ const Input = (() => {
     if (!enabled) return;
     e.preventDefault();
     dragging = true;
-    const r = canvas.getBoundingClientRect();
-    startX = curX = lastX = e.clientX - r.left;
-    startY = curY = lastY = e.clientY - r.top;
+    // Capture the canvas rect ONCE at gesture start. Recomputing it per move
+    // event means a mid-gesture chrome shift (e.g. a mobile address bar
+    // collapsing) injects a fake dy and biases the flick's vertical speed.
+    rect = canvas.getBoundingClientRect();
+    startX = curX = lastX = e.clientX - rect.left;
+    startY = curY = lastY = e.clientY - rect.top;
     lastT = performance.now();
     peakSpeed = peakVx = peakVy = 0;
   }
 
   function onMove(e) {
-    if (!dragging) return;
+    if (!dragging || !rect) return;
     e.preventDefault();
-    const r = canvas.getBoundingClientRect();
-    curX = e.clientX - r.left;
-    curY = e.clientY - r.top;
+    curX = e.clientX - rect.left;
+    curY = e.clientY - rect.top;
     const now = performance.now();
     const dt = Math.max((now - lastT) / 1000, 0.001);
     const ivx = (curX - lastX) / dt;   // instantaneous velocity this sample
