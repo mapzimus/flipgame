@@ -11,6 +11,8 @@
   const pointCountEl = document.getElementById('point-count');
   const turnBannerEl = document.getElementById('turn-banner');
   const streakBannerEl = document.getElementById('streak-banner');
+  const turnTimerEl  = document.getElementById('turn-timer');
+  const turnTimerFillEl = document.getElementById('turn-timer-fill');
   const flipHintEl   = document.getElementById('flip-hint');
   const startBtn     = document.getElementById('start-btn');
   const practiceBtn  = document.getElementById('practice-btn');
@@ -202,7 +204,38 @@
   let elimTimer   = null;
   let gameStarted = false;
   let intenseTurn = false;   // "make it or break it" — a miss this flip eliminates the player
+  let timerActive = false, turnTimeLeft = 0, turnTimeLimit = 0, timedOut = false;
   const RESULT_MS = 1500;
+  const TURN_SECONDS = 10, FIRE_SECONDS = 4;   // flip clock (less when ON FIRE)
+
+  // Per-turn flip clock — only for HUMAN turns (CPU flicks on its own ~1.1s).
+  function startTurnTimer(seconds) {
+    turnTimeLimit = turnTimeLeft = seconds;
+    timerActive = true;
+    turnTimerEl.classList.add('active');
+    updateTimerBar();
+  }
+  function stopTurnTimer() {
+    timerActive = false;
+    turnTimerEl.classList.remove('active');
+  }
+  function updateTimerBar() {
+    const frac = Math.max(0, turnTimeLeft / turnTimeLimit);
+    turnTimerFillEl.style.width = (frac * 100) + '%';
+    // green → amber → red as it drains
+    turnTimerFillEl.style.background =
+      frac > 0.5 ? 'var(--make)' : frac > 0.25 ? 'var(--heat)' : 'var(--miss)';
+  }
+  // Ran out of time → forfeit the flip as a miss (you had your window).
+  function onTimeout() {
+    stopTurnTimer();
+    timedOut = true;
+    Input.disable();
+    flipHintEl.classList.add('hidden');
+    evaluating = false;
+    Sound.play('miss');
+    game.resolveFlip('MISS');
+  }
 
   function clearTimers() { clearTimeout(aiTimer); clearTimeout(elimTimer); }
 
@@ -265,6 +298,14 @@
       }
     }
 
+    // Per-turn flip clock (human turns only) — runs out → forfeited miss
+    if (timerActive && !evaluating &&
+        (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
+      turnTimeLeft -= dt;
+      updateTimerBar();
+      if (turnTimeLeft <= 0) onTimeout();
+    }
+
     // Result countdown + fade
     if (game.state === GAME_STATES.RESULT) {
       resultTimer -= dt * 1000;
@@ -304,6 +345,8 @@
     showGlow    = false;
     resultAlpha = 0;
     intenseTurn = false;
+    timedOut    = false;
+    stopTurnTimer();
     clearTimeout(aiTimer);
     Physics.resetBottle();
     flipHintEl.classList.remove('hidden');
@@ -332,6 +375,7 @@
     } else {
       turnBannerEl.textContent = `${p.name}'s turn`;
       Input.enable();
+      startTurnTimer(TURN_SECONDS);
     }
     updateHUD();
   }
@@ -339,6 +383,8 @@
   function onOnFire() {
     evaluating  = false;
     showGlow    = false;
+    timedOut    = false;
+    stopTurnTimer();
     clearTimeout(aiTimer);
     Physics.resetBottle();
     flipHintEl.classList.remove('hidden');
@@ -356,12 +402,14 @@
       aiTimer = setTimeout(aiFlick, 1000);
     } else {
       Input.enable();
+      startTurnTimer(FIRE_SECONDS);   // tighter clock when ON FIRE
     }
     updateHUD();
   }
 
   function onResult() {
     Input.disable();
+    stopTurnTimer();
     flipHintEl.classList.add('hidden');
     resultTimer = RESULT_MS;
 
@@ -407,12 +455,13 @@
       }
     } else if (game.fireEnded) {
       // ON FIRE ended on a miss — no penalty
-      streakBannerEl.textContent = '🔥 Streak over — no penalty';
+      streakBannerEl.textContent = timedOut ? '⏱ Out of time — streak over' : '🔥 Streak over — no penalty';
       streakBannerEl.className   = 'streak-banner on-fire';
       Sound.play('miss');
     } else {
       const n = game.lastPenalty;
-      streakBannerEl.textContent = `−${n} ${n === 1 ? 'life' : 'lives'}`;
+      const lives = `${n} ${n === 1 ? 'life' : 'lives'}`;
+      streakBannerEl.textContent = timedOut ? `⏱ Out of time!  −${lives}` : `−${lives}`;
       streakBannerEl.className   = 'streak-banner miss-penalty';
       Sound.play('miss');
     }
@@ -430,6 +479,7 @@
 
   function onGameOver() {
     clearTimers();   // no stray advanceTurn/AI flick fires after the game ends
+    stopTurnTimer();
     gameScreen.classList.add('hidden');
     gameOverEl.classList.remove('hidden');
     const active = game.activePlayers();
@@ -448,6 +498,7 @@
 
     // Lock input + mark in-flight BEFORE launching, closing the re-arm window.
     evaluating = true;
+    stopTurnTimer();
     Input.disable();
     flipHintEl.classList.add('hidden');
     Sound.unlock();
