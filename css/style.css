@@ -469,6 +469,35 @@ html, body {
   background-clip: text;
 }
 
+/* Multi-game series scoreboard */
+#scoreboard {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 4px;
+}
+#scoreboard:empty { display: none; }
+#scoreboard .sb-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 8px;
+}
+.score-row.leader { background: rgba(255,204,0,0.16); }
+.score-dot  { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.score-name { flex: 1; text-align: left; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.score-wins { font-weight: 900; font-variant-numeric: tabular-nums; }
+
 #play-again-btn {
   background: linear-gradient(135deg, #ff6600, #ff9100);
   border: none;

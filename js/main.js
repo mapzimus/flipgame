@@ -6,6 +6,7 @@
   const gameScreen   = document.getElementById('game-screen');
   const gameOverEl   = document.getElementById('game-over');
   const winnerNameEl = document.getElementById('winner-name');
+  const scoreboardEl = document.getElementById('scoreboard');
   const playAgainBtn = document.getElementById('play-again-btn');
   const playerListEl = document.getElementById('player-list');
   const pointCountEl = document.getElementById('point-count');
@@ -174,7 +175,7 @@
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     gameOverEl.classList.add('hidden');
-    startGame(defs, dir, { difficulty: chosenDifficulty() });
+    startGame(defs, dir, { difficulty: chosenDifficulty(), newMatch: true });
   });
 
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
@@ -185,7 +186,7 @@
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     gameOverEl.classList.add('hidden');
-    startGame([def], 1, { practice: true });
+    startGame([def], 1, { practice: true, newMatch: true });
   });
 
   playAgainBtn.addEventListener('click', () => {
@@ -217,6 +218,7 @@
   let elimTimer   = null;
   let gameStarted = false;
   let intenseTurn = false;   // "make it or break it" — a miss this flip eliminates the player
+  let matchWins   = [];      // wins per player across the current series (by index)
   let timerActive = false, turnTimeLeft = 0, turnTimeLimit = 0, timedOut = false;
   const RESULT_MS = 1500;
   const TURN_SECONDS = 10, FIRE_SECONDS = 4;   // flip clock (less when ON FIRE)
@@ -277,6 +279,7 @@
 
     game.init(defs, dir, opts || {});
     gameStarted = true;
+    if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
 
     if (loopId) cancelAnimationFrame(loopId);
     lastTime = performance.now();
@@ -500,6 +503,27 @@
     winnerNameEl.textContent = active.length ? active[0].name : '???';
     Sound.play('win');
     Input.disable();
+
+    // Series scoreboard: tally this game's win, then show the running totals.
+    if (matchWins.length !== game.players.length) matchWins = game.players.map(() => 0);
+    if (game.winnerIndex >= 0 && game.winnerIndex < matchWins.length) matchWins[game.winnerIndex]++;
+    renderScoreboard();
+  }
+
+  function renderScoreboard() {
+    const total = matchWins.reduce((a, c) => a + c, 0);
+    if (total < 1) { scoreboardEl.innerHTML = ''; return; }
+    const max = Math.max(...matchWins);
+    const rows = game.players
+      .map((p, i) => ({ p, w: matchWins[i] || 0 }))
+      .sort((a, b) => b.w - a.w)
+      .map(({ p, w }) => `
+        <div class="score-row${w === max && w > 0 ? ' leader' : ''}">
+          <span class="score-dot" style="background:${p.color}"></span>
+          <span class="score-name">${escapeHtml(p.name)}</span>
+          <span class="score-wins">${w}</span>
+        </div>`).join('');
+    scoreboardEl.innerHTML = `<div class="sb-title">Series — ${total} ${total === 1 ? 'game' : 'games'}</div>${rows}`;
   }
 
   // ── Flick ──────────────────────────────────────────────────────────────────
