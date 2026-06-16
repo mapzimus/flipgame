@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Flip Game</title>
+  <title>Bottle Game</title>
 
   <!-- PWA: installable, offline-capable app -->
   <link rel="manifest" href="manifest.json">
@@ -13,16 +13,16 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Flip Game">
+  <meta name="apple-mobile-web-app-title" content="Bottle Game">
 
-  <link rel="stylesheet" href="css/style.css?v=18">
+  <link rel="stylesheet" href="css/style.css?v=19">
 </head>
 <body>
 
   <!-- ── Setup ───────────────────────────────────────── -->
   <div id="setup-screen" class="screen hidden">
     <div class="setup-card">
-      <h1>Flip Game</h1>
+      <h1>Bottle Game</h1>
 
       <div>
         <div class="section-label">Players — pick a name &amp; flavor (tap Human/CPU to switch)</div>
@@ -45,11 +45,6 @@
           <label><input type="radio" name="difficulty" value="medium" checked> 🟡 Medium</label>
           <label><input type="radio" name="difficulty" value="hard"> 🔴 Hard</label>
         </div>
-      </div>
-
-      <div>
-        <div class="section-label">Options</div>
-        <label class="set-row"><input type="checkbox" id="reduce-motion-chk"> 🐢 Reduce motion</label>
       </div>
 
       <button id="start-btn">Start Game</button>
@@ -100,15 +95,15 @@
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=18"></script>
-  <script src="js/game.js?v=18"></script>
-  <script src="js/physics.js?v=18"></script>
-  <script src="js/input.js?v=18"></script>
-  <script src="js/renderer.js?v=18"></script>
-  <script src="js/audio.js?v=18"></script>
-  <script src="js/settings.js?v=18"></script>
-  <script src="js/records.js?v=18"></script>
-  <script src="js/main.js?v=18"></script>
+  <script src="js/polyfills.js?v=19"></script>
+  <script src="js/game.js?v=19"></script>
+  <script src="js/physics.js?v=19"></script>
+  <script src="js/input.js?v=19"></script>
+  <script src="js/renderer.js?v=19"></script>
+  <script src="js/audio.js?v=19"></script>
+  <script src="js/settings.js?v=19"></script>
+  <script src="js/records.js?v=19"></script>
+  <script src="js/main.js?v=19"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {

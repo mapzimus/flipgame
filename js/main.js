@@ -20,7 +20,6 @@
   const addPlayerBtn = document.getElementById('add-player-btn');
   const playerInputs = document.getElementById('player-inputs');
   const muteBtn      = document.getElementById('mute-btn');
-  const reduceMotionChk = document.getElementById('reduce-motion-chk');
   const recordsPanel = document.getElementById('records-panel');
   const passScreen   = document.getElementById('pass-screen');
   const passCardEl   = document.getElementById('pass-card');
@@ -712,13 +711,6 @@
     if (on) Sound.unlock();
     syncMuteBtn();
   });
-  if (reduceMotionChk) {
-    reduceMotionChk.checked = reduceMotionActive();
-    reduceMotionChk.addEventListener('change', () => {
-      Settings.setReduceMotion(reduceMotionChk.checked);
-      Renderer.setReduceMotion(reduceMotionActive());
-    });
-  }
   if (passGoBtn) passGoBtn.addEventListener('click', () => {
     passScreen.classList.add('hidden');
     Sound.unlock();
@@ -746,10 +738,7 @@
   if (homeBtn) homeBtn.addEventListener('click', backToMenu);
   if (window.matchMedia) {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onMq = () => {
-      Renderer.setReduceMotion(reduceMotionActive());
-      if (reduceMotionChk) reduceMotionChk.checked = reduceMotionActive();
-    };
+    const onMq = () => Renderer.setReduceMotion(reduceMotionActive());
     if (mq.addEventListener) mq.addEventListener('change', onMq);
     else if (mq.addListener) mq.addListener(onMq);
   }
