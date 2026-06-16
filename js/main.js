@@ -57,16 +57,21 @@
   window.addEventListener('resize', resize);
 
   // ── Gatorade flavors (liquid color = whose turn it is) ──────────────────────
+  // Names lightly twisted off the real Gatorade flavors. Ordered so the first 8
+  // (max players) are maximally distinct colors.
   const FLAVORS = [
-    { name: 'Cool Blue',      color: '#1f9bff' },
-    { name: 'Fruit Punch',    color: '#e23048' },
-    { name: 'Lemon-Lime',     color: '#86d40a' },
-    { name: 'Orange',         color: '#ff7a00' },
-    { name: 'Grape',          color: '#8a3ffc' },
-    { name: 'Glacier Freeze', color: '#56cfe1' },
-    { name: 'Riptide Rush',   color: '#00bfa5' },
-    { name: 'Strawberry',     color: '#ff4d8d' },
-    { name: 'Lemonade',       color: '#ffd21a' },
+    { name: 'Cool Blue',       color: '#1f9bff' },
+    { name: 'Fruit Punch',     color: '#e3263c' },
+    { name: 'Lemon-Lime',      color: '#8ed11a' },
+    { name: 'Orange',          color: '#ff7a00' },
+    { name: 'Grape',           color: '#8a3ffc' },
+    { name: 'Glacier Frost',   color: '#5fcfe6' },
+    { name: 'Green Apple',     color: '#3fae1a' },
+    { name: 'Strawberry Kiwi', color: '#ff5b86' },
+    { name: 'Riptide',         color: '#4f63e0' },
+    { name: 'Citrus Cooler',   color: '#ffc233' },
+    { name: 'Cherry',          color: '#c8203a' },
+    { name: 'Berry Frost',     color: '#ff9ecf' },
   ];
 
   // ── Player setup rows (name + flavor picker + Human/CPU) ────────────────────
@@ -82,7 +87,7 @@
     return `<div class="player-input-row" data-flavor="${def.flavor}" data-ai="${def.ai ? 1 : 0}">
       <div class="prow-top">
         <span class="player-num" style="color:${FLAVORS[def.flavor].color}">P${i + 1}</span>
-        <input type="text" placeholder="Player ${i + 1}" maxlength="14" value="${escapeHtml(def.name)}">
+        <input type="text" placeholder="${escapeHtml(FLAVORS[def.flavor].name)}" maxlength="14" value="${escapeHtml(def.name)}">
         <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? 'CPU' : 'Human'}</button>
         ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
       </div>
@@ -107,7 +112,8 @@
   function addPlayerInput() {
     if (playerCount >= 8) return;
     const defs = readRows();
-    defs.push({ name: `Player ${defs.length + 1}`, flavor: defs.length % FLAVORS.length, ai: false });
+    const fl = defs.length % FLAVORS.length;
+    defs.push({ name: FLAVORS[fl].name, flavor: fl, ai: false });
     renderFrom(defs);
   }
 
@@ -116,10 +122,17 @@
     const sw = e.target.closest('.flavor-swatch');
     if (sw) {
       const row = sw.closest('.player-input-row');
-      row.dataset.flavor = sw.dataset.idx;
+      const oldIdx = +row.dataset.flavor, newIdx = +sw.dataset.idx;
+      const input = row.querySelector('input');
+      // The name follows the flavor unless the player typed a custom one.
+      if (!input.value.trim() || input.value.trim() === FLAVORS[oldIdx].name) {
+        input.value = FLAVORS[newIdx].name;
+      }
+      row.dataset.flavor = newIdx;
       row.querySelectorAll('.flavor-swatch').forEach(s => s.classList.remove('selected'));
       sw.classList.add('selected');
-      row.querySelector('.player-num').style.color = FLAVORS[+sw.dataset.idx].color;
+      row.querySelector('.player-num').style.color = FLAVORS[newIdx].color;
+      input.placeholder = FLAVORS[newIdx].name;
       return;
     }
     const ai = e.target.closest('.ai-toggle');
@@ -142,8 +155,8 @@
   addPlayerBtn.addEventListener('click', addPlayerInput);
 
   function rowsToDefs(rows) {
-    return rows.map((r, i) => ({
-      name: (r.name || '').trim() || `Player ${i + 1}`,
+    return rows.map((r) => ({
+      name: (r.name || '').trim() || FLAVORS[r.flavor].name,
       color: FLAVORS[r.flavor].color,
       isAI: r.ai,
     }));
@@ -187,10 +200,10 @@
     }
   });
 
-  // initial two rows
+  // initial two rows — names default to the flavor (overridable)
   renderFrom([
-    { name: 'Player 1', flavor: 0, ai: false },
-    { name: 'Player 2', flavor: 1, ai: false },
+    { name: FLAVORS[0].name, flavor: 0, ai: false },
+    { name: FLAVORS[1].name, flavor: 1, ai: false },
   ]);
 
   // ── Game loop state ────────────────────────────────────────────────────────
