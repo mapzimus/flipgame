@@ -78,7 +78,7 @@
       <div class="prow-top">
         <span class="player-num" style="color:${FLAVORS[def.flavor].color}">P${i + 1}</span>
         <input type="text" placeholder="Player ${i + 1}" maxlength="14" value="${escapeHtml(def.name)}">
-        <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? '🤖' : '🧑'}</button>
+        <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? 'CPU' : 'Human'}</button>
         ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
       </div>
       <div class="flavor-picker">${swatchesHtml(def.flavor)}</div>
@@ -122,7 +122,7 @@
       const row = ai.closest('.player-input-row');
       const on = row.dataset.ai === '1';
       row.dataset.ai = on ? '0' : '1';
-      ai.textContent = on ? '🧑' : '🤖';
+      ai.textContent = on ? 'Human' : 'CPU';
       ai.classList.toggle('cpu', !on);
       return;
     }
@@ -306,7 +306,7 @@
 
     pointCountEl.textContent = game.pointCount > 1 ? `⚡ ×${game.pointCount}` : '';
     if (p.isAI) {
-      turnBannerEl.textContent = `🤖 ${p.name}`;
+      turnBannerEl.textContent = `${p.name}'s turn · CPU`;
       Input.disable();
       flipHintEl.classList.add('hidden');
       aiTimer = setTimeout(aiFlick, 1100);

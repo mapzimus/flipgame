@@ -117,12 +117,17 @@ html, body {
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 8px;
-  padding: 6px 9px;
-  font-size: 1.1rem;
+  padding: 7px 0;
+  min-width: 58px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text);
   cursor: pointer;
   line-height: 1;
 }
-.ai-toggle.cpu { background: rgba(255,179,0,0.2); border-color: var(--heat); }
+.ai-toggle.cpu { background: rgba(255,179,0,0.22); border-color: var(--heat); color: var(--heat); }
 
 /* Flavor swatches */
 .flavor-picker {
