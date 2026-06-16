@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Flip Game">
 
-  <link rel="stylesheet" href="css/style.css?v=16">
+  <link rel="stylesheet" href="css/style.css?v=17">
 </head>
 <body>
 
@@ -47,8 +47,14 @@
         </div>
       </div>
 
+      <div>
+        <div class="section-label">Options</div>
+        <label class="set-row"><input type="checkbox" id="reduce-motion-chk"> 🐢 Reduce motion</label>
+      </div>
+
       <button id="start-btn">Start Game</button>
       <button id="practice-btn">🎯 Practice (solo)</button>
+      <div id="records-panel"></div>
     </div>
   </div>
 
@@ -58,6 +64,7 @@
     <div id="hud">
       <div id="top-bar">
         <span id="turn-banner"></span>
+        <button id="mute-btn" aria-label="Mute">🔊</button>
         <span id="point-count"></span>
       </div>
       <div id="turn-timer"><div id="turn-timer-fill"></div></div>
@@ -67,6 +74,15 @@
     <div id="player-list"></div>
   </div>
 
+  <!-- ── Pass-and-play handoff ────────────────────────── -->
+  <div id="pass-screen" class="screen hidden">
+    <div id="pass-card" class="pass-card">
+      <div class="pass-label">PASS TO</div>
+      <div id="pass-name"></div>
+      <button id="pass-go-btn">Tap to flip ▶</button>
+    </div>
+  </div>
+
   <!-- ── Game Over ────────────────────────────────────── -->
   <div id="game-over" class="screen hidden">
     <div class="game-over-card">
@@ -74,6 +90,7 @@
       <h2>Winner</h2>
       <div id="winner-name"></div>
       <div id="scoreboard"></div>
+      <div id="game-stats"></div>
       <button id="play-again-btn">Play Again</button>
     </div>
   </div>
@@ -81,12 +98,15 @@
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/game.js?v=16"></script>
-  <script src="js/physics.js?v=16"></script>
-  <script src="js/input.js?v=16"></script>
-  <script src="js/renderer.js?v=16"></script>
-  <script src="js/audio.js?v=16"></script>
-  <script src="js/main.js?v=16"></script>
+  <script src="js/polyfills.js?v=17"></script>
+  <script src="js/game.js?v=17"></script>
+  <script src="js/physics.js?v=17"></script>
+  <script src="js/input.js?v=17"></script>
+  <script src="js/renderer.js?v=17"></script>
+  <script src="js/audio.js?v=17"></script>
+  <script src="js/settings.js?v=17"></script>
+  <script src="js/records.js?v=17"></script>
+  <script src="js/main.js?v=17"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {

@@ -19,6 +19,14 @@
   const practiceBtn  = document.getElementById('practice-btn');
   const addPlayerBtn = document.getElementById('add-player-btn');
   const playerInputs = document.getElementById('player-inputs');
+  const muteBtn      = document.getElementById('mute-btn');
+  const reduceMotionChk = document.getElementById('reduce-motion-chk');
+  const recordsPanel = document.getElementById('records-panel');
+  const passScreen   = document.getElementById('pass-screen');
+  const passCardEl   = document.getElementById('pass-card');
+  const passNameEl   = document.getElementById('pass-name');
+  const passGoBtn    = document.getElementById('pass-go-btn');
+  const gameStatsEl  = document.getElementById('game-stats');
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Scale the backing store by devicePixelRatio so everything is crisp on a
@@ -167,11 +175,33 @@
   }
 
   // ── Start game ─────────────────────────────────────────────────────────────
+  // ── Immersive mode: fullscreen + keep the screen awake (panel ergonomics) ──
+  // Best-effort + feature-detected; only works from a user gesture (the Start /
+  // Practice / Play-Again taps) and silently no-ops where unsupported (e.g. the
+  // bundled APK, which is already fullscreen + awake).
+  let wakeLock = null;
+  async function enterImmersive() {
+    const el = document.documentElement;
+    const reqFS = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    try { if (reqFS && !document.fullscreenElement) await reqFS.call(el); } catch (e) {}
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }
+    catch (e) { wakeLock = null; }
+  }
+  // Wake locks auto-release when the tab is hidden — re-acquire a held one on return.
+  document.addEventListener('visibilitychange', async () => {
+    try {
+      if (document.visibilityState === 'visible' && wakeLock && wakeLock.released) {
+        wakeLock = await navigator.wakeLock.request('screen');
+      }
+    } catch (e) {}
+  });
+
   startBtn.addEventListener('click', () => {
     const defs = rowsToDefs(readRows());
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
     Sound.unlock();   // first user gesture — unlock audio
+    enterImmersive();
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     gameOverEl.classList.add('hidden');
@@ -183,6 +213,7 @@
     const r0 = readRows()[0] || { name: 'You', flavor: 0 };
     const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false };
     Sound.unlock();
+    enterImmersive();
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     gameOverEl.classList.add('hidden');
@@ -190,6 +221,7 @@
   });
 
   playAgainBtn.addEventListener('click', () => {
+    enterImmersive();
     gameOverEl.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     if (game.practice) {
@@ -219,6 +251,7 @@
   let gameStarted = false;
   let intenseTurn = false;   // "make it or break it" — a miss this flip eliminates the player
   let matchWins   = [];      // wins per player across the current series (by index)
+  let gameStats   = null;    // per-game stats (reset each game), shown on game-over
   let timerActive = false, turnTimeLeft = 0, turnTimeLimit = 0, timedOut = false;
   const RESULT_MS = 1500;
   const TURN_SECONDS = 10, FIRE_SECONDS = 4;   // flip clock (less when ON FIRE)
@@ -267,7 +300,9 @@
 
   function startGame(defs, dir, opts) {
     clearTimers();
+    passScreen.classList.add('hidden');
     Renderer.init(canvas);
+    Renderer.setReduceMotion(reduceMotionActive());
     resize();   // sets DPR transform + renderer logical dims (must run after init)
     Physics.init(window.innerWidth, window.innerHeight);  // logical coords
 
@@ -279,6 +314,7 @@
 
     game.init(defs, dir, opts || {});
     gameStarted = true;
+    gameStats = { flips: 0, makes: 0, topStake: 0, bestStreak: 0, longestFire: 0 };
     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
 
     if (loopId) cancelAnimationFrame(loopId);
@@ -357,6 +393,24 @@
   }
 
   // ── State callbacks ────────────────────────────────────────────────────────
+  // Arm a human's turn: show the hint, fire the make-or-break sting (timed to
+  // when the player is actually ready), enable input, start the flip clock.
+  function armHumanTurn() {
+    passScreen.classList.add('hidden');
+    flipHintEl.classList.remove('hidden');
+    if (intenseTurn) Sound.play('tension');
+    Input.enable();
+    startTurnTimer(TURN_SECONDS);
+  }
+
+  // Big flavor-colored "PASS TO {name}" handoff card (a deferred-input gate).
+  function showPassGate(p) {
+    passNameEl.textContent = p.name;
+    passNameEl.style.color = p.color;
+    passCardEl.style.borderColor = p.color;
+    passScreen.classList.remove('hidden');
+  }
+
   function onTurnStart() {
     evaluating  = false;
     showGlow    = false;
@@ -365,6 +419,7 @@
     timedOut    = false;
     stopTurnTimer();
     clearTimeout(aiTimer);
+    passScreen.classList.add('hidden');
     Physics.resetBottle();
     flipHintEl.classList.remove('hidden');
 
@@ -381,20 +436,30 @@
     }
 
     intenseTurn = game.missWouldEliminate();   // make-it-or-break-it
-    if (intenseTurn) Sound.play('tension');
+    pointCountEl.textContent = '';   // stake shown big on the canvas (drawStake)
 
-    pointCountEl.textContent = '';   // stake now shown big on the canvas (drawStake)
     if (p.isAI) {
       turnBannerEl.textContent = `${p.name}'s turn · CPU`;
+      if (intenseTurn) Sound.play('tension');
       Input.disable();
       flipHintEl.classList.add('hidden');
       aiTimer = setTimeout(aiFlick, 1100);
-    } else {
-      turnBannerEl.textContent = `${p.name}'s turn`;
-      Input.enable();
-      startTurnTimer(TURN_SECONDS);
+      updateHUD();
+      return;
     }
+
+    turnBannerEl.textContent = `${p.name}'s turn`;
     updateHUD();
+    // "PASS TO {name}" handoff card — only with >2 players still alive (with 2
+    // it's obvious whose turn it is). Defers input + flip clock + the tension
+    // sting until the new player taps "Tap to flip".
+    if (game.activePlayers().length > 2) {
+      Input.disable();
+      flipHintEl.classList.add('hidden');
+      showPassGate(p);
+    } else {
+      armHumanTurn();
+    }
   }
 
   function onOnFire() {
@@ -403,6 +468,7 @@
     timedOut    = false;
     stopTurnTimer();
     clearTimeout(aiTimer);
+    passScreen.classList.add('hidden');
     Physics.resetBottle();
     flipHintEl.classList.remove('hidden');
 
@@ -427,10 +493,21 @@
   function onResult() {
     Input.disable();
     stopTurnTimer();
+    passScreen.classList.add('hidden');
     flipHintEl.classList.add('hidden');
     resultTimer = RESULT_MS;
+    Records.recordFlip(game);
 
     const p = game.currentPlayer();
+
+    if (!game.practice && gameStats) {
+      gameStats.flips++;
+      if (game.lastResult === 'MAKE') gameStats.makes++;
+      if (game.pointCount > gameStats.topStake) gameStats.topStake = game.pointCount;
+      const st = p ? p.streak : 0;
+      if (st > gameStats.bestStreak) gameStats.bestStreak = st;
+      if (game.onFireBonus > gameStats.longestFire) gameStats.longestFire = game.onFireBonus;
+    }
 
     if (game.practice) {
       if (game.lastResult === 'MAKE') {
@@ -492,6 +569,7 @@
   }
 
   function onEliminated() {
+    passScreen.classList.add('hidden');
     const p = game.currentPlayer();
     turnBannerEl.textContent = `❌ ${p.name} is out!`;
     updateHUD();
@@ -502,10 +580,13 @@
   function onGameOver() {
     clearTimers();   // no stray advanceTurn/AI flick fires after the game ends
     stopTurnTimer();
+    passScreen.classList.add('hidden');
     gameScreen.classList.add('hidden');
     gameOverEl.classList.remove('hidden');
     const active = game.activePlayers();
     winnerNameEl.textContent = active.length ? active[0].name : '???';
+    Records.recordWin(active.length ? active[0].name : null);
+    if (recordsPanel) recordsPanel.innerHTML = Records.renderHtml();
     Sound.play('win');
     Input.disable();
 
@@ -513,6 +594,25 @@
     if (matchWins.length !== game.players.length) matchWins = game.players.map(() => 0);
     if (game.winnerIndex >= 0 && game.winnerIndex < matchWins.length) matchWins[game.winnerIndex]++;
     renderScoreboard();
+    if (gameStatsEl) gameStatsEl.innerHTML = renderGameStats();
+  }
+
+  // Per-game stats panel on the game-over screen (this match, not all-time).
+  function renderGameStats() {
+    if (!gameStats) return '';
+    const s = gameStats;
+    const pct = s.flips ? Math.round(s.makes / s.flips * 100) : 0;
+    const cells = [
+      ['🎯', 'Make %',       pct + '%'],
+      ['✓',  'Makes',        `${s.makes}/${s.flips}`],
+      ['⚡', 'Top stake',    '×' + s.topStake],
+      ['🔥', 'Best streak',  s.bestStreak],
+      ['🔥', 'Longest fire', '+' + s.longestFire],
+    ];
+    return '<div class="gs-title">This game</div><div class="records-grid">' +
+      cells.map(([i, k, v]) =>
+        `<div class="rec-item"><span class="rec-val">${v}</span><span class="rec-key">${i} ${k}</span></div>`).join('') +
+      '</div>';
   }
 
   function renderScoreboard() {
@@ -584,7 +684,52 @@
     }).join('');
   }
 
+  // ── Settings / records wiring ───────────────────────────────────────────────
+  function reduceMotionActive() {
+    return Settings.reduceMotion ||
+      (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) || false;
+  }
+  function syncMuteBtn() {
+    if (!muteBtn) return;
+    muteBtn.textContent = Settings.sound ? '🔊' : '🔇';
+    muteBtn.setAttribute('aria-label', Settings.sound ? 'Mute' : 'Unmute');
+  }
+  if (muteBtn) muteBtn.addEventListener('click', () => {
+    const on = !Settings.sound;
+    Settings.setSound(on);
+    Sound.setMuted(!on);
+    if (on) Sound.unlock();
+    syncMuteBtn();
+  });
+  if (reduceMotionChk) {
+    reduceMotionChk.checked = reduceMotionActive();
+    reduceMotionChk.addEventListener('change', () => {
+      Settings.setReduceMotion(reduceMotionChk.checked);
+      Renderer.setReduceMotion(reduceMotionActive());
+    });
+  }
+  if (passGoBtn) passGoBtn.addEventListener('click', () => {
+    passScreen.classList.add('hidden');
+    Sound.unlock();
+    armHumanTurn();
+  });
+  if (window.matchMedia) {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onMq = () => {
+      Renderer.setReduceMotion(reduceMotionActive());
+      if (reduceMotionChk) reduceMotionChk.checked = reduceMotionActive();
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onMq);
+    else if (mq.addListener) mq.addListener(onMq);
+  }
+
   Input.attach(canvas, onFlick);
+
+  // Apply persisted prefs + render the hall-of-fame
+  Sound.setMuted(!Settings.sound);
+  Renderer.setReduceMotion(reduceMotionActive());
+  syncMuteBtn();
+  if (recordsPanel) recordsPanel.innerHTML = Records.renderHtml();
 
   // Show setup on load
   setupScreen.classList.remove('hidden');

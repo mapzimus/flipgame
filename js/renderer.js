@@ -3,6 +3,9 @@
 const Renderer = (() => {
   let canvas, ctx, W, H;
   const particles = [];
+  let reduceMotion = false;   // when on, suppress non-essential motion (particles, shake, pulses)
+
+  function setReduceMotion(v) { reduceMotion = !!v; }
 
   function init(cvs) {
     canvas = cvs;
@@ -130,7 +133,7 @@ const Renderer = (() => {
       ctx.beginPath();
       ctx.arc(x, y, 95, 0, Math.PI * 2);
       ctx.fill();
-      spawnFire(x, y - 100);
+      if (!reduceMotion) spawnFire(x, y - 100);
     }
 
     ctx.save();
@@ -239,7 +242,7 @@ const Renderer = (() => {
     ctx.restore();
 
     // Blue splash on hard slosh
-    if (Math.abs(liquid.vel) > 1.6) {
+    if (!reduceMotion && Math.abs(liquid.vel) > 1.6) {
       spawnSplash(x, y - 30, 2, 'rgba(0, 170, 255, 0.85)');
     }
   }
@@ -330,7 +333,7 @@ const Renderer = (() => {
     if (suddenDeath) {
       const fs = Math.round(Math.min(W, H) * 0.032);
       ctx.save();
-      ctx.globalAlpha = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(clock * 5));
+      ctx.globalAlpha = reduceMotion ? 0.85 : 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(clock * 5));
       ctx.fillStyle = '#ff3b3b';
       ctx.font = `bold ${fs}px system-ui, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -339,7 +342,7 @@ const Renderer = (() => {
       ctx.restore();
     }
     if (!intense) return;
-    const pulse = 0.5 + 0.5 * Math.sin(clock * 6);
+    const pulse = reduceMotion ? 0.6 : 0.5 + 0.5 * Math.sin(clock * 6);
     // Pulsing red vignette — darkens the edges, "time stands still" mood.
     const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.18, W / 2, H / 2, Math.max(W, H) * 0.72);
     g.addColorStop(0, 'rgba(110,0,0,0)');
@@ -366,10 +369,10 @@ const Renderer = (() => {
     const s = Math.min(stake, 12);
     const danger = Math.min(1, (stake - 1) / 7);          // 0 at 1 → 1 at 8+
     const fs = Math.min(W, H) * (0.075 + s * 0.017);      // grows with stake
-    const pulse = 1 + (0.04 + danger * 0.06) * Math.sin(clock * (5 + danger * 7));
+    const pulse = reduceMotion ? 1 : 1 + (0.04 + danger * 0.06) * Math.sin(clock * (5 + danger * 7));
     const g = Math.round(190 * (1 - danger));             // amber → red
     const col = `rgb(255,${g},40)`;
-    const shake = danger > 0.45 ? (danger - 0.45) * 14 : 0;
+    const shake = (!reduceMotion && danger > 0.45) ? (danger - 0.45) * 14 : 0;
     const ox = shake ? Math.sin(clock * 41) * shake : 0;
     const oy = shake ? Math.cos(clock * 37) * shake : 0;
 
@@ -412,5 +415,5 @@ const Renderer = (() => {
     }
   }
 
-  return { init, resize, frame };
+  return { init, resize, frame, setReduceMotion };
 })();

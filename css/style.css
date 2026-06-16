@@ -264,6 +264,7 @@ html, body {
   display: block;
   pointer-events: all;
   cursor: crosshair;
+  touch-action: none;   /* explicit on the pointer target — pairs with pointer capture */
 }
 
 /* HUD */
@@ -510,3 +511,127 @@ html, body {
   transition: opacity 0.2s;
 }
 #play-again-btn:hover { opacity: 0.88; }
+
+/* ── Mute button (HUD top-bar) ───────────────────────────── */
+#mute-btn {
+  margin-left: auto;            /* push to the right edge of the top bar */
+  pointer-events: auto;         /* #hud is pointer-events:none — re-enable here */
+  background: rgba(0,0,0,0.30);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: var(--text);
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#mute-btn:active { transform: scale(0.94); }
+
+/* ── Setup: simple option row (reduce-motion checkbox) ───── */
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.set-row input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+
+/* ── Hall-of-fame records panel (setup) ──────────────────── */
+#records-panel:empty { display: none; }
+.records-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 8px;
+}
+.records-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rec-item {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.rec-val { font-size: 1.1rem; font-weight: 900; color: var(--text); font-variant-numeric: tabular-nums; }
+.rec-key { font-size: 0.58rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+
+/* ── "PASS TO {name}" handoff overlay ────────────────────── */
+#pass-screen {
+  background: rgba(0,0,0,0.82);
+  backdrop-filter: blur(6px);
+  flex-direction: column;
+  z-index: 20;
+}
+.pass-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 44px;
+  border-radius: 22px;
+  background: var(--surface);
+  border: 3px solid var(--accent);   /* tinted to the player's flavor via JS */
+  box-shadow: 0 0 60px rgba(0,0,0,0.6);
+  width: min(440px, 92vw);
+}
+.pass-label {
+  font-size: 1rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+#pass-name {
+  font-size: clamp(2.6rem, 10vw, 5rem);
+  font-weight: 900;
+  line-height: 1.05;
+  text-align: center;
+  color: var(--accent);              /* tinted to the player's flavor via JS */
+  text-shadow: 0 2px 18px rgba(0,0,0,0.55);
+}
+#pass-go-btn {
+  margin-top: 14px;
+  pointer-events: auto;
+  background: linear-gradient(135deg, #0288d1, #4fc3f7);
+  border: none;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.2rem;
+  padding: 16px 40px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+#pass-go-btn:active { transform: scale(0.97); }
+
+/* ── Honor OS "reduce motion" (canvas juice gated in JS) ──── */
+@media (prefers-reduced-motion: reduce) {
+  #flip-hint { animation: none; opacity: 0.7; }
+  .player-card { transition: none; }
+  .player-card.active { transform: none; }
+  .player-card.on-fire { animation: none; }
+  .flavor-swatch { transition: none; }
+}
+
+/* ── Post-game stats panel (game-over) ───────────────────── */
+#game-stats { width: 100%; }
+#game-stats:empty { display: none; }
+.gs-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  margin: 2px 0 8px;
+}

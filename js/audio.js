@@ -81,6 +81,7 @@ const Sound = (() => {
   return {
     unlock,
     play: (name) => { if (sfx[name]) sfx[name](); buzz(name); },
+    setMuted: (v) => { muted = !!v; },
     toggleMute: () => (muted = !muted),
     isMuted: () => muted,
   };

@@ -2,17 +2,20 @@
 // Bump CACHE_NAME on every release so stale caches are purged and users get
 // the fresh build. All paths are RELATIVE so they resolve under /flipgame/
 // on GitHub Pages (the SW lives at repo root → scope is /flipgame/).
-const CACHE_NAME = 'flipgame-v16';
+const CACHE_NAME = 'flipgame-v17';
 
 const PRECACHE_URLS = [
   './',
   './index.html',
   './css/style.css',
+  './js/polyfills.js',
   './js/game.js',
   './js/physics.js',
   './js/input.js',
   './js/renderer.js',
   './js/audio.js',
+  './js/settings.js',
+  './js/records.js',
   './js/main.js',
   './js/vendor/matter.min.js',
   './manifest.json',
