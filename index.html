@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Flip Game">
 
-  <link rel="stylesheet" href="css/style.css?v=17">
+  <link rel="stylesheet" href="css/style.css?v=18">
 </head>
 <body>
 
@@ -63,6 +63,7 @@
     <canvas id="game-canvas"></canvas>
     <div id="hud">
       <div id="top-bar">
+        <button id="menu-btn" aria-label="Main menu">☰</button>
         <span id="turn-banner"></span>
         <button id="mute-btn" aria-label="Mute">🔊</button>
         <span id="point-count"></span>
@@ -92,21 +93,22 @@
       <div id="scoreboard"></div>
       <div id="game-stats"></div>
       <button id="play-again-btn">Play Again</button>
+      <button id="home-btn">Main Menu</button>
     </div>
   </div>
 
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=17"></script>
-  <script src="js/game.js?v=17"></script>
-  <script src="js/physics.js?v=17"></script>
-  <script src="js/input.js?v=17"></script>
-  <script src="js/renderer.js?v=17"></script>
-  <script src="js/audio.js?v=17"></script>
-  <script src="js/settings.js?v=17"></script>
-  <script src="js/records.js?v=17"></script>
-  <script src="js/main.js?v=17"></script>
+  <script src="js/polyfills.js?v=18"></script>
+  <script src="js/game.js?v=18"></script>
+  <script src="js/physics.js?v=18"></script>
+  <script src="js/input.js?v=18"></script>
+  <script src="js/renderer.js?v=18"></script>
+  <script src="js/audio.js?v=18"></script>
+  <script src="js/settings.js?v=18"></script>
+  <script src="js/records.js?v=18"></script>
+  <script src="js/main.js?v=18"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {

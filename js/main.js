@@ -27,6 +27,8 @@
   const passNameEl   = document.getElementById('pass-name');
   const passGoBtn    = document.getElementById('pass-go-btn');
   const gameStatsEl  = document.getElementById('game-stats');
+  const menuBtn      = document.getElementById('menu-btn');
+  const homeBtn      = document.getElementById('home-btn');
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Scale the backing store by devicePixelRatio so everything is crisp on a
@@ -314,7 +316,7 @@
 
     game.init(defs, dir, opts || {});
     gameStarted = true;
-    gameStats = { flips: 0, makes: 0, topStake: 0, bestStreak: 0, longestFire: 0 };
+    gameStats = { topStake: 0, longestFire: 0, perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0 })) };
     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
 
     if (loopId) cancelAnimationFrame(loopId);
@@ -501,11 +503,14 @@
     const p = game.currentPlayer();
 
     if (!game.practice && gameStats) {
-      gameStats.flips++;
-      if (game.lastResult === 'MAKE') gameStats.makes++;
-      if (game.pointCount > gameStats.topStake) gameStats.topStake = game.pointCount;
+      const pp = gameStats.perPlayer[game.currentPlayerIndex];
       const st = p ? p.streak : 0;
-      if (st > gameStats.bestStreak) gameStats.bestStreak = st;
+      if (pp) {
+        pp.flips++;
+        if (game.lastResult === 'MAKE') pp.makes++;
+        if (st > pp.bestStreak) pp.bestStreak = st;
+      }
+      if (game.pointCount > gameStats.topStake) gameStats.topStake = game.pointCount;
       if (game.onFireBonus > gameStats.longestFire) gameStats.longestFire = game.onFireBonus;
     }
 
@@ -597,22 +602,28 @@
     if (gameStatsEl) gameStatsEl.innerHTML = renderGameStats();
   }
 
-  // Per-game stats panel on the game-over screen (this match, not all-time).
+  // Per-game stats on the game-over screen (this match, not all-time): each
+  // player's make %, plus the game's peak stake and longest ON FIRE run.
   function renderGameStats() {
     if (!gameStats) return '';
-    const s = gameStats;
-    const pct = s.flips ? Math.round(s.makes / s.flips * 100) : 0;
+    const rows = game.players.map((p, i) => {
+      const pp = (gameStats.perPlayer && gameStats.perPlayer[i]) || { makes: 0, flips: 0, bestStreak: 0 };
+      const pct = pp.flips ? Math.round(pp.makes / pp.flips * 100) : 0;
+      return `<div class="gs-row">
+        <span class="score-dot" style="background:${p.color}"></span>
+        <span class="gs-name">${escapeHtml(p.name)}</span>
+        <span class="gs-pct">${pct}%</span>
+        <span class="gs-sub">${pp.makes}/${pp.flips} · 🔥${pp.bestStreak}</span>
+      </div>`;
+    }).join('');
     const cells = [
-      ['🎯', 'Make %',       pct + '%'],
-      ['✓',  'Makes',        `${s.makes}/${s.flips}`],
-      ['⚡', 'Top stake',    '×' + s.topStake],
-      ['🔥', 'Best streak',  s.bestStreak],
-      ['🔥', 'Longest fire', '+' + s.longestFire],
+      ['⚡', 'Top stake',    '×' + gameStats.topStake],
+      ['🔥', 'Longest fire', '+' + gameStats.longestFire],
     ];
-    return '<div class="gs-title">This game</div><div class="records-grid">' +
-      cells.map(([i, k, v]) =>
-        `<div class="rec-item"><span class="rec-val">${v}</span><span class="rec-key">${i} ${k}</span></div>`).join('') +
-      '</div>';
+    const grid = cells.map(([i, k, v]) =>
+      `<div class="rec-item"><span class="rec-val">${v}</span><span class="rec-key">${i} ${k}</span></div>`).join('');
+    return `<div class="gs-title">This game</div><div class="gs-players">${rows}</div>` +
+           `<div class="records-grid gs-grid2">${grid}</div>`;
   }
 
   function renderScoreboard() {
@@ -713,6 +724,26 @@
     Sound.unlock();
     armHumanTurn();
   });
+
+  // Exit to the main menu (setup): stop the loop + timers, show setup fresh.
+  function backToMenu() {
+    if (loopId) cancelAnimationFrame(loopId);
+    loopId = null;
+    clearTimers();
+    stopTurnTimer();
+    Input.disable();
+    gameStarted = false;
+    game.state = GAME_STATES.SETUP;
+    gameScreen.classList.add('hidden');
+    gameOverEl.classList.add('hidden');
+    passScreen.classList.add('hidden');
+    if (recordsPanel) recordsPanel.innerHTML = Records.renderHtml();
+    setupScreen.classList.remove('hidden');
+  }
+  if (menuBtn) menuBtn.addEventListener('click', () => {
+    if (confirm('Return to the main menu? The current game will end.')) backToMenu();
+  });
+  if (homeBtn) homeBtn.addEventListener('click', backToMenu);
   if (window.matchMedia) {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     const onMq = () => {

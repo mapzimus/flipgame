@@ -635,3 +635,35 @@ html, body {
   text-align: center;
   margin: 2px 0 8px;
 }
+.gs-players { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.gs-row {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.05); border-radius: 8px; padding: 6px 10px;
+}
+.gs-name { flex: 1; text-align: left; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gs-pct  { font-weight: 900; font-variant-numeric: tabular-nums; color: var(--make); }
+.gs-sub  { font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.gs-grid2 { grid-template-columns: repeat(2, 1fr); }
+
+/* ── Main-menu button (HUD) + Main Menu button (game-over) ── */
+#menu-btn {
+  pointer-events: auto;
+  background: rgba(0,0,0,0.30);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: var(--text);
+  border-radius: 10px;
+  width: 40px; height: 40px;
+  font-size: 1.2rem; line-height: 1; cursor: pointer; flex-shrink: 0;
+}
+#menu-btn:active { transform: scale(0.94); }
+#home-btn {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 12px 28px;
+  font-size: 0.95rem; font-weight: 600; cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+#home-btn:hover  { background: rgba(255,255,255,0.12); }
+#home-btn:active { transform: scale(0.98); }
