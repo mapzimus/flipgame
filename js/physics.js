@@ -18,6 +18,21 @@ const Physics = (() => {
   const POWER_SPEED = 4000;   // flick speed (px/s) that maps to full power
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
 
+  // ── Landing-detection knobs (the false-miss fix) ───────────────────────────
+  // A verdict is read ONLY once the bottle has truly come to rest. A make is
+  // called the instant it settles upright; an obvious miss (toppled flat, or
+  // never completed a 360°) the instant it settles in that pose. But a
+  // tipped-yet-recoverable pose — the bowling-pin bottle hovering near its ~40°
+  // tipping point — is NOT judged: it can still slowly RIGHT itself into a make,
+  // so we wait it out instead of calling a premature miss. Only if nothing
+  // resolves within MISS_CAP_FRAMES (the glitch / teeter-stall fallback) do we
+  // force a MISS so a turn can never soft-lock in EVALUATING.
+  const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
+  const SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
+  const MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
+  const FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
+  const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
+
 
   // ── Liquid oscillator ──────────────────────────────────────────────────────
   // Virtual pendulum — tracks the slosh of liquid inside the bottle.
@@ -46,11 +61,20 @@ const Physics = (() => {
     reset()        { this.slosh = 0; this.vel = 0; this.settleTimer = 0; },
   };
 
-  // ── Landing detection — wait for a TRUE full stop ─────────────────────────
-  // Don't judge mid-teeter. After landing the low-CG bottle slowly rights
-  // itself (or tips over) — a slow rotation that must NOT be mistaken for
-  // "settled". So we require very low spin + drift for a longer window before
-  // reading the final angle, so the bowling-pin wobble fully resolves first.
+  // ── Landing detection — judge only once the bottle has COMMITTED ──────────
+  // The low-CG "bowling pin" bottle can land tipped, hover near its ~40° tipping
+  // point, then slowly RIGHT itself into a make. The old logic judged the first
+  // moment it went still — so a bottle paused mid-teeter (tilted past the make
+  // window) was called a MISS even though it then stood up: a false miss.
+  //
+  // Fix: never call a miss on a pose that can still become a make. Once the
+  // bottle is genuinely at rest we read the pose:
+  //   • upright (≤ MAKE_ANGLE)         → MAKE   (it won't un-right — call it now)
+  //   • toppled past recovery (≥ FALLEN_ANGLE) or never flipped → MISS (certain)
+  //   • in between (the teeter zone)   → DON'T judge; wait for it to commit up
+  //     (→ MAKE) or fall over (→ MISS), or for the cap to fire.
+  // MISS_CAP_FRAMES (~5s grounded) is the fallback: a bottle that never resolves
+  // (a rare wall-lean / glitch) is forced to MISS so the turn can't soft-lock.
   function checkLanding() {
     if (!bottle) return null;
 
@@ -60,31 +84,34 @@ const Physics = (() => {
 
     if (!grounded) {
       groundedFrames = 0;
+      angleWin = [];
       return null;
     }
 
     groundedFrames++;
 
-    // Watchdog (BOTH branches): if the bottle has been grounded ~10s without a
-    // verdict — including the slow-creep case that never settles the angle
-    // window — call it a miss so a turn can never soft-lock in EVALUATING.
-    if (groundedFrames > 600) return 'MISS';
+    // Fallback cap: grounded this long without committing (a teeter that neither
+    // rights nor falls, a wall-lean, or a glitch) → force a MISS so EVALUATING
+    // can't soft-lock. This is the "wait ~5s, then it's a miss" safety net.
+    if (groundedFrames > MISS_CAP_FRAMES) return 'MISS';
 
-    // Tight stillness thresholds AND an angle-stability guard: the slow
-    // self-righting rotation must read as "still moving" so we never judge
-    // mid-righting. We only call it once the angle has held steady (range
-    // < 0.03 rad) across a 22-frame window — i.e. the bottle has truly stopped.
+    // Read the pose ONLY when truly at rest: very low spin + drift, held with a
+    // stable angle across the settle window. A momentary teeter pause can't fill
+    // the whole window, so we never judge mid-teeter.
     if (angVel < 0.010 && linSpeed < 7) {
       angleWin.push(bottle.angle);
-      if (angleWin.length > 22) angleWin.shift();
+      if (angleWin.length > SETTLE_FRAMES) angleWin.shift();
       let lo = Infinity, hi = -Infinity;
       for (const a of angleWin) { if (a < lo) lo = a; if (a > hi) hi = a; }
-      if (angleWin.length >= 22 && (hi - lo) < 0.03) {
-        // Must have completed a full rotation AND land upright
-        if (!hasFlipped) return 'MISS';
+      if (angleWin.length >= SETTLE_FRAMES && (hi - lo) < SETTLE_RANGE) {
+        if (!hasFlipped) return 'MISS';   // never completed a 360° — a certain miss
         let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         if (angle > Math.PI) angle -= 2 * Math.PI;
-        return Math.abs(angle) < 0.61 ? 'MAKE' : 'MISS';  // ±35° window
+        const tilt = Math.abs(angle);
+        if (tilt < MAKE_ANGLE)    return 'MAKE';   // upright & settled — won't un-right
+        if (tilt >= FALLEN_ANGLE) return 'MISS';   // toppled past recovery — certain miss
+        // else: settled in the teeter zone — still able to right itself into a
+        // make. Don't judge; wait for it to commit (or the cap to fire) below.
       }
     } else {
       angleWin = [];
