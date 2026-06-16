@@ -21,7 +21,7 @@ const game = {
   players: [],
   currentPlayerIndex: 0,
   direction: 1,          // 1 = forward through array, -1 = backward
-  pointCount: 1,         // current stakes
+  pointCount: 0,         // lives at risk on a miss; 0 = no stake built yet (free miss)
   lastResult: null,      // 'MAKE' | 'MISS'
   onFirePlayer: null,
   onFireBonus: 0,
@@ -60,7 +60,7 @@ const game = {
     }));
     this.direction = direction;
     this.currentPlayerIndex = 0;
-    this.pointCount = 1;
+    this.pointCount = 0;
     this.lastResult = null;
     this.onFirePlayer = null;
     this.onFireBonus = 0;
@@ -142,14 +142,13 @@ const game = {
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
-        // Your rule: +1 life per flip, capped at +10 PER run. Enforce that on the
-        // actual lives (it was only enforced on the display before), and only
-        // count a bonus when a life was truly granted (not blocked by the 20 cap).
-        // In SUDDEN DEATH, ON FIRE stops minting free lives (the deflation valve).
-        if (!sd && this.onFireBonus < 10) {
+        // +1 life per flip while ON FIRE — the ONLY ceiling is the 20-life cap
+        // (no separate per-run cap). In SUDDEN DEATH, ON FIRE stops minting free
+        // lives (the deflation valve that lets games end).
+        if (!sd) {
           const before = player.lives;
           player.lives    = Math.min(player.lives + 1, 20);
-          this.onFireGain = player.lives - before;
+          this.onFireGain = player.lives - before;   // 0 once at the 20 cap
           if (this.onFireGain > 0) this.onFireBonus++;
         } else {
           this.onFireGain = 0;
@@ -168,7 +167,7 @@ const game = {
         player.streak      = 0;
         this.onFirePlayer  = null;
         this.onFireBonus   = 0;
-        this.pointCount    = 1;
+        this.pointCount    = 0;
         this.fireEnded     = true;
       }
       this.setState(GAME_STATES.RESULT);
@@ -194,7 +193,7 @@ const game = {
       player.streak      = 0;
       player.isHeatingUp = false;
       player.isOnFire    = false;
-      this.pointCount    = 1;
+      this.pointCount    = 0;
       if (player.lives <= 0) {
         player.eliminated = true;
         this.justEliminated = true;

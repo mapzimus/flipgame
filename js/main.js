@@ -366,7 +366,8 @@
     intenseTurn = game.missWouldEliminate();   // make-it-or-break-it
     if (intenseTurn) Sound.play('tension');
 
-    pointCountEl.textContent = game.pointCount > 1 ? `⚡ ×${game.pointCount}` : '';
+    pointCountEl.textContent = game.pointCount >= 1
+      ? `⚡ ${game.pointCount} at risk` : '';
     if (p.isAI) {
       turnBannerEl.textContent = `${p.name}'s turn · CPU`;
       Input.disable();

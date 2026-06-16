@@ -61,9 +61,26 @@ const Sound = (() => {
     },
   };
 
+  // Haptic vibration patterns (ms) per event — no-op on devices without it
+  // (desktops, most smartboards). ON FIRE events get distinct, punchier patterns.
+  const HAPTICS = {
+    flick:   10,
+    make:    25,
+    miss:    [40, 30, 60],
+    life:    [12, 16, 12],              // ON FIRE +life — quick double tick
+    ignite:  [60, 40, 60, 40, 110],     // ON FIRE ignite — distinct rumble
+    win:     [70, 40, 70, 40, 130],
+    tension: [25, 70, 25, 70],          // ominous pulse
+  };
+  function buzz(name) {
+    if (muted || !navigator.vibrate) return;
+    const p = HAPTICS[name];
+    if (p) { try { navigator.vibrate(p); } catch (e) {} }
+  }
+
   return {
     unlock,
-    play: (name) => { if (sfx[name]) sfx[name](); },
+    play: (name) => { if (sfx[name]) sfx[name](); buzz(name); },
     toggleMute: () => (muted = !muted),
     isMuted: () => muted,
   };
