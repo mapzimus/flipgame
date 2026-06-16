@@ -16,6 +16,11 @@ const GAME_STATES = {
 const SD_THRESHOLD = 70;
 const SD_STEP = 20;   // flips per escalation level (+1 extra life lost each level)
 
+// In lobbies with MORE than this many players, an ON FIRE run is capped at
+// ONFIRE_CAP_LIVES gained then passes on — so others aren't kept waiting.
+const ONFIRE_CAP_PLAYERS = 4;
+const ONFIRE_CAP_LIVES = 5;
+
 const game = {
   state: GAME_STATES.SETUP,
   players: [],
@@ -33,6 +38,7 @@ const game = {
   onFireGain: 0,         // lives gained on the last ON FIRE bonus make
   justIgnited: false,    // last make just triggered ON FIRE
   fireEnded: false,      // last miss ended an ON FIRE run (no penalty)
+  fireCapped: false,     // ON FIRE run hit the big-lobby +cap and passed on (no penalty)
   justEliminated: false, // last miss eliminated the current player
 
   // Modes
@@ -121,6 +127,7 @@ const game = {
     this.onFireGain     = 0;
     this.justIgnited    = false;
     this.fireEnded      = false;
+    this.fireCapped     = false;
     this.justEliminated = false;
 
     // ── Practice: just track stats, no lives/streak stakes ──────────────────
@@ -142,9 +149,8 @@ const game = {
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
-        // +1 life per flip while ON FIRE — the ONLY ceiling is the 20-life cap
-        // (no separate per-run cap). In SUDDEN DEATH, ON FIRE stops minting free
-        // lives (the deflation valve that lets games end).
+        // +1 life per flip while ON FIRE — bounded by the 20-life cap. In SUDDEN
+        // DEATH, ON FIRE stops minting free lives (the deflation valve).
         if (!sd) {
           const before = player.lives;
           player.lives    = Math.min(player.lives + 1, 20);
@@ -152,6 +158,18 @@ const game = {
           if (this.onFireGain > 0) this.onFireBonus++;
         } else {
           this.onFireGain = 0;
+        }
+        // Big lobbies (>4 players): cap the ON FIRE run at +5 lives (or once it
+        // can't gain) and pass on — so 5-7 others aren't kept waiting through a
+        // long run. Graceful end: keep the gains, NO penalty, NOT a miss.
+        if (this.players.length > ONFIRE_CAP_PLAYERS &&
+            (this.onFireBonus >= ONFIRE_CAP_LIVES || this.onFireGain === 0)) {
+          player.isOnFire    = false;
+          player.isHeatingUp = false;
+          player.streak      = 0;
+          this.onFirePlayer  = null;
+          this.onFireBonus   = 0;
+          this.fireCapped    = true;
         }
       } else {
         // Miss ends ON FIRE — normally NO life loss (the reward); in sudden death

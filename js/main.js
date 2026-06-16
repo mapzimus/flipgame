@@ -447,7 +447,12 @@
     }
 
     if (game.lastResult === 'MAKE') {
-      if (game.onFireGain > 0) {
+      if (game.fireCapped) {
+        // Big-lobby ON FIRE cap — banked the gains, pass it on
+        streakBannerEl.textContent = '🔥 Fire maxed — pass it on!';
+        streakBannerEl.className   = 'streak-banner on-fire';
+        Sound.play('life');
+      } else if (game.onFireGain > 0) {
         // ON FIRE bonus make — gained a life
         streakBannerEl.textContent = `🔥 +1 life!  (+${game.onFireBonus} total)`;
         streakBannerEl.className   = 'streak-banner on-fire';
