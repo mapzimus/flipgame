@@ -3,7 +3,7 @@
 const Physics = (() => {
   const { Engine, Bodies, Body, World, Events } = Matter;
 
-  let engine, world, bottle, ground;
+  let engine, world, bottle, ground, leftWall, rightWall;
   let stableFrames = 0, groundedFrames = 0;
   let angleWin = [];   // sliding window of recent angles (settle detection)
   let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
@@ -67,6 +67,11 @@ const Physics = (() => {
 
     groundedFrames++;
 
+    // Watchdog (BOTH branches): if the bottle has been grounded ~10s without a
+    // verdict — including the slow-creep case that never settles the angle
+    // window — call it a miss so a turn can never soft-lock in EVALUATING.
+    if (groundedFrames > 600) return 'MISS';
+
     // Tight stillness thresholds AND an angle-stability guard: the slow
     // self-righting rotation must read as "still moving" so we never judge
     // mid-righting. We only call it once the angle has held steady (range
@@ -87,8 +92,6 @@ const Physics = (() => {
     } else {
       stableFrames = 0;
       angleWin = [];
-      // Hard timeout: ~10s on ground and still moving → MISS
-      if (groundedFrames > 600) return 'MISS';
     }
 
     return null; // still evaluating
@@ -148,12 +151,26 @@ const Physics = (() => {
     // Side walls (inner faces at x=WALL_INSET and w-WALL_INSET). A bottle that
     // drifts sideways caroms off them — clean vertical flicks never touch them.
     const wallOpts = { isStatic: true, label: 'wall', friction: 0.3, restitution: 0.5 };
-    const leftWall  = Bodies.rectangle(WALL_INSET - 20, h / 2, 40, h * 3, wallOpts);
-    const rightWall = Bodies.rectangle(w - WALL_INSET + 20, h / 2, 40, h * 3, wallOpts);
+    leftWall  = Bodies.rectangle(WALL_INSET - 20, h / 2, 40, h * 3, wallOpts);
+    rightWall = Bodies.rectangle(w - WALL_INSET + 20, h / 2, 40, h * 3, wallOpts);
 
     World.add(world, [ground, leftWall, rightWall]);
 
     resetBottle();
+  }
+
+  // Re-fit the static world to a new canvas size (resize / orientation change).
+  // Without this, groundY + walls keep their original dimensions and the bottle
+  // flips against an off-screen floor. Statics only — the caller decides whether
+  // to re-place the bottle (safe when it's at rest, not mid-flight).
+  function reflow(w, h) {
+    if (!engine) return;
+    canvasW = w;
+    canvasH = h;
+    groundY = h - 30;
+    Body.setPosition(ground,    { x: w / 2,                 y: groundY + 25 });
+    Body.setPosition(leftWall,  { x: WALL_INSET - 20,       y: h / 2 });
+    Body.setPosition(rightWall, { x: w - WALL_INSET + 20,   y: h / 2 });
   }
 
   function resetBottle() {
@@ -232,5 +249,5 @@ const Physics = (() => {
   function getRotations()    { return bottle ? Math.abs(bottle.angle - launchAngle) / (2 * Math.PI) : 0; }
   function getLastFlickInfo() { return lastFlickInfo; }
 
-  return { init, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getRotations, getLastFlickInfo };
+  return { init, reflow, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getRotations, getLastFlickInfo };
 })();

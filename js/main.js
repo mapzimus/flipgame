@@ -30,6 +30,24 @@
     canvas.style.height = h + 'px';
     canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     Renderer.resize(w, h);
+    scheduleReflow();
+  }
+
+  // Re-fit the physics world to the new size (debounced). Without this, the
+  // floor + walls keep their original dimensions after a resize/orientation
+  // change and the bottle flips against an off-screen floor. Re-place the
+  // bottle only when it's at rest (not mid-flight), so a stray resize can't
+  // void an in-progress flip.
+  let reflowTimer = null;
+  function scheduleReflow() {
+    clearTimeout(reflowTimer);
+    reflowTimer = setTimeout(() => {
+      if (!gameStarted) return;
+      Physics.reflow(window.innerWidth, window.innerHeight);
+      if (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE) {
+        Physics.resetBottle();
+      }
+    }, 150);
   }
   window.addEventListener('resize', resize);
 
@@ -177,6 +195,7 @@
   let resultTimer = 0;
   let resultAlpha = 0;
   let aiTimer     = null;
+  let gameStarted = false;
   const RESULT_MS = 1500;
 
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
@@ -202,6 +221,7 @@
     game.on(GAME_STATES.GAME_OVER,  onGameOver);
 
     game.init(defs, dir, opts || {});
+    gameStarted = true;
 
     if (loopId) cancelAnimationFrame(loopId);
     lastTime = performance.now();
@@ -209,6 +229,9 @@
   }
 
   function loop(now) {
+    // Stop stepping/rendering once the game is over (the game-over screen is a
+    // plain HTML overlay). startGame() restarts the loop for the next game.
+    if (game.state === GAME_STATES.GAME_OVER) { loopId = null; return; }
     loopId = requestAnimationFrame(loop);
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
