@@ -336,6 +336,7 @@
       intense:     intenseTurn,
       suddenDeath: game.inSuddenDeath(),
       awaitingFlick: game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE,
+      stake:       game.pointCount,
     });
   }
 
@@ -366,8 +367,7 @@
     intenseTurn = game.missWouldEliminate();   // make-it-or-break-it
     if (intenseTurn) Sound.play('tension');
 
-    pointCountEl.textContent = game.pointCount >= 1
-      ? `⚡ ${game.pointCount} at risk` : '';
+    pointCountEl.textContent = '';   // stake now shown big on the canvas (drawStake)
     if (p.isAI) {
       turnBannerEl.textContent = `${p.name}'s turn · CPU`;
       Input.disable();

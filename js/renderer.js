@@ -360,10 +360,40 @@ const Renderer = (() => {
     }
   }
 
+  // ── Stake display — lives at risk, grows bigger + scarier as it climbs ───────
+  function drawStake(stake) {
+    if (!stake || stake < 1) return;
+    const s = Math.min(stake, 12);
+    const danger = Math.min(1, (stake - 1) / 7);          // 0 at 1 → 1 at 8+
+    const fs = Math.min(W, H) * (0.075 + s * 0.017);      // grows with stake
+    const pulse = 1 + (0.04 + danger * 0.06) * Math.sin(clock * (5 + danger * 7));
+    const g = Math.round(190 * (1 - danger));             // amber → red
+    const col = `rgb(255,${g},40)`;
+    const shake = danger > 0.45 ? (danger - 0.45) * 14 : 0;
+    const ox = shake ? Math.sin(clock * 41) * shake : 0;
+    const oy = shake ? Math.cos(clock * 37) * shake : 0;
+
+    ctx.save();
+    ctx.translate(W / 2 + ox, H * 0.165 + oy);
+    ctx.scale(pulse, pulse);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 14 + danger * 46;
+    ctx.font = `900 ${fs}px system-ui, sans-serif`;
+    ctx.fillText(String(stake), 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `rgba(255,${g + 30},80,0.92)`;
+    ctx.font = `800 ${fs * 0.19}px system-ui, sans-serif`;
+    ctx.fillText(stake === 1 ? 'LIFE ON THE LINE' : 'LIVES ON THE LINE', 0, fs * 0.62);
+    ctx.restore();
+  }
+
   // ── Main frame ─────────────────────────────────────────────────────────────
   function frame(dt, state) {
     const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire,
-            liquidColor, intense, suddenDeath, awaitingFlick } = state;
+            liquidColor, intense, suddenDeath, awaitingFlick, stake } = state;
     clock += dt;
     updateParticles(dt);
 
@@ -373,6 +403,7 @@ const Renderer = (() => {
     if (showGlow) drawLandingGlow(bottle, groundY);
     drawBottle(bottle, liquid, isOnFire, liquidColor);
     drawParticles();
+    drawStake(stake);
     drawIntense(intense, suddenDeath, awaitingFlick);
 
     if (result) {
