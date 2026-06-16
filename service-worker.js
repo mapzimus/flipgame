@@ -22,8 +22,13 @@ const PRECACHE_URLS = [
 ];
 
 self.addEventListener('install', (event) => {
+  // Cache entries INDIVIDUALLY (not addAll, which is atomic). A single 404 or
+  // flaky fetch must not abort the whole precache and leave us with no offline
+  // cache at all — better a partial cache than none.
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(PRECACHE_URLS.map((u) => cache.add(u)))
+    )
   );
   self.skipWaiting();
 });
@@ -37,19 +42,22 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Cache-first: serve from cache, fall back to network (and cache the result).
+// Stale-while-revalidate: serve from cache instantly (works offline), and
+// refresh the cache from the network in the background. This makes deploys
+// self-healing — a new build applies on the next launch even if CACHE_NAME
+// wasn't bumped — without sacrificing offline play.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const req = event.request;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        if (response && response.status === 200 && response.type === 'basic') {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        }
-        return response;
-      });
-    })
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(req).then((cached) => {
+        const fromNetwork = fetch(req).then((res) => {
+          if (res && res.status === 200) cache.put(req, res.clone());
+          return res;
+        }).catch(() => cached);          // offline → fall back to whatever we cached
+        return cached || fromNetwork;    // instant if cached, else wait for network
+      })
+    )
   );
 });
