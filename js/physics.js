@@ -170,9 +170,13 @@ const Physics = (() => {
       restitution: 0.01,
     });
 
-    // Side walls (inner faces at x=WALL_INSET and w-WALL_INSET). A bottle that
-    // drifts sideways caroms off them — clean vertical flicks never touch them.
-    const wallOpts = { isStatic: true, label: 'wall', friction: 0.3, restitution: 0.5 };
+    // Side walls (inner faces at x=WALL_INSET and w-WALL_INSET) — pure inelastic
+    // CONTAINMENT only: friction 0 + restitution 0, so a bottle that reaches a
+    // wall neither bounces nor gets spin imparted. (Before, the springy carom
+    // could right a landing — and because the walls track screen WIDTH, a narrow
+    // phone got far more of that free correction than a wide panel, making
+    // difficulty inconsistent across devices. Neutralizing equalizes it.)
+    const wallOpts = { isStatic: true, label: 'wall', friction: 0, restitution: 0 };
     leftWall  = Bodies.rectangle(WALL_INSET - 20, h / 2, 40, h * 3, wallOpts);
     rightWall = Bodies.rectangle(w - WALL_INSET + 20, h / 2, 40, h * 3, wallOpts);
 
