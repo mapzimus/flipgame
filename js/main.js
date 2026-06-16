@@ -44,7 +44,10 @@
     reflowTimer = setTimeout(() => {
       if (!gameStarted) return;
       Physics.reflow(window.innerWidth, window.innerHeight);
-      if (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE) {
+      // B2: only re-place the bottle when one is genuinely at rest — never mid-flick
+      // (a stray resize must not reset a bottle in flight and void it as a MISS).
+      if (!evaluating &&
+          (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
         Physics.resetBottle();
       }
     }, 150);
@@ -419,15 +422,19 @@
 
   // ── Flick ──────────────────────────────────────────────────────────────────
   function onFlick(vx, vy) {
+    // B1: bail if a flip is already in flight (the `evaluating` flag is the
+    // authoritative signal) so a second pointer event can't fire a 2nd flick.
+    if (evaluating) return;
     if (game.state !== GAME_STATES.TURN_START &&
         game.state !== GAME_STATES.ON_FIRE) return;
 
+    // Lock input + mark in-flight BEFORE launching, closing the re-arm window.
+    evaluating = true;
+    Input.disable();
+    flipHintEl.classList.add('hidden');
     Sound.unlock();
     Sound.play('flick');
     Physics.applyFlick(vx, vy);
-    Input.disable();
-    flipHintEl.classList.add('hidden');
-    evaluating = true;
     game.setState(GAME_STATES.EVALUATING);
   }
 

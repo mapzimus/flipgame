@@ -117,10 +117,17 @@ const game = {
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
-        const before = player.lives;
-        player.lives     = Math.min(player.lives + 1, 20);   // capped
-        this.onFireGain  = player.lives - before;            // 0 if already maxed
-        this.onFireBonus = Math.min(this.onFireBonus + 1, 10);
+        // Your rule: +1 life per flip, capped at +10 PER run. Enforce that on the
+        // actual lives (it was only enforced on the display before), and only
+        // count a bonus when a life was truly granted (not blocked by the 20 cap).
+        if (this.onFireBonus < 10) {
+          const before = player.lives;
+          player.lives    = Math.min(player.lives + 1, 20);
+          this.onFireGain = player.lives - before;
+          if (this.onFireGain > 0) this.onFireBonus++;
+        } else {
+          this.onFireGain = 0;
+        }
       } else {
         // Miss ends ON FIRE — NO life loss (that's the reward)
         player.isOnFire    = false;
@@ -148,14 +155,14 @@ const game = {
         this.justIgnited   = true;
       }
     } else {
-      this.lastPenalty   = this.pointCount;   // capture before reset (for HUD)
-      player.lives      -= this.pointCount;
+      const before = player.lives;
+      player.lives       = Math.max(0, player.lives - this.pointCount);
+      this.lastPenalty   = before - player.lives;   // lives ACTUALLY lost (HUD-accurate)
       player.streak      = 0;
       player.isHeatingUp = false;
       player.isOnFire    = false;
       this.pointCount    = 1;
       if (player.lives <= 0) {
-        player.lives      = 0;
         player.eliminated = true;
         this.justEliminated = true;
       }
