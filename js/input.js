@@ -11,7 +11,6 @@ const Input = (() => {
   let peakSpeed = 0, peakVx = 0, peakVy = 0;  // fastest instant of the gesture
   let rect = null;                             // canvas rect, captured at gesture start
   let enabled = false;
-  let lastFlick = null;                        // debug: last flick vector
 
   function attach(cvs, flickCallback) {
     canvas  = cvs;
@@ -69,11 +68,8 @@ const Input = (() => {
     let vx = peakVx, vy = peakVy;
     if (peakSpeed < 80) { vx = dx * 10; vy = dy * 10; }
 
-    lastFlick = { vx: Math.round(vx), vy: Math.round(vy), peak: Math.round(peakSpeed) };
     onFlick(vx, vy);
   }
-
-  function getLastFlick() { return lastFlick; }
 
   // Returns drag vector for drawing the preview arrow
   function getDragState() {
@@ -81,5 +77,5 @@ const Input = (() => {
     return { startX, startY, curX, curY };
   }
 
-  return { attach, enable, disable, getDragState, getLastFlick };
+  return { attach, enable, disable, getDragState };
 })();

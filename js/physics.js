@@ -4,10 +4,10 @@ const Physics = (() => {
   const { Engine, Bodies, Body, World, Events } = Matter;
 
   let engine, world, bottle, ground, leftWall, rightWall;
-  let stableFrames = 0, groundedFrames = 0;
+  let groundedFrames = 0;
   let angleWin = [];   // sliding window of recent angles (settle detection)
   let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
-  let canvasW, canvasH;
+  let canvasW;
   let groundY;
 
   // Spin tuning (rad/step) — see applyFlick. Single sweet spot near 1 turn:
@@ -18,7 +18,6 @@ const Physics = (() => {
   const POWER_SPEED = 4000;   // flick speed (px/s) that maps to full power
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
 
-  let lastFlickInfo = null;   // debug: { upSpeed, power, spin }
 
   // ── Liquid oscillator ──────────────────────────────────────────────────────
   // Virtual pendulum — tracks the slosh of liquid inside the bottle.
@@ -60,7 +59,6 @@ const Physics = (() => {
     const grounded = bottle.position.y >= groundY - 80;
 
     if (!grounded) {
-      stableFrames  = 0;
       groundedFrames = 0;
       return null;
     }
@@ -77,7 +75,6 @@ const Physics = (() => {
     // mid-righting. We only call it once the angle has held steady (range
     // < 0.03 rad) across a 22-frame window — i.e. the bottle has truly stopped.
     if (angVel < 0.010 && linSpeed < 7) {
-      stableFrames++;
       angleWin.push(bottle.angle);
       if (angleWin.length > 22) angleWin.shift();
       let lo = Infinity, hi = -Infinity;
@@ -90,7 +87,6 @@ const Physics = (() => {
         return Math.abs(angle) < 0.61 ? 'MAKE' : 'MISS';  // ±35° window
       }
     } else {
-      stableFrames = 0;
       angleWin = [];
     }
 
@@ -135,7 +131,6 @@ const Physics = (() => {
   // ── Public API ─────────────────────────────────────────────────────────────
   function init(w, h) {
     canvasW = w;
-    canvasH = h;
     groundY = h - 30;          // top surface of the table
 
     engine = Engine.create({ gravity: { y: 1.5, scale: 0.001 } });
@@ -166,7 +161,6 @@ const Physics = (() => {
   function reflow(w, h) {
     if (!engine) return;
     canvasW = w;
-    canvasH = h;
     groundY = h - 30;
     Body.setPosition(ground,    { x: w / 2,                 y: groundY + 25 });
     Body.setPosition(leftWall,  { x: WALL_INSET - 20,       y: h / 2 });
@@ -175,7 +169,6 @@ const Physics = (() => {
 
   function resetBottle() {
     if (bottle) World.remove(world, bottle);
-    stableFrames   = 0;
     groundedFrames = 0;
     angleWin       = [];
     totalRotation  = 0;
@@ -215,7 +208,6 @@ const Physics = (() => {
     const dir  = vx >= 0 ? 1 : -1;
     const spin = dir * (SPIN_BASE + power * SPIN_RANGE) * jSpin;
 
-    lastFlickInfo = { upSpeed: Math.round(upSpeed), power: +power.toFixed(2), spin: +spin.toFixed(3) };
     launchAngle = bottle.angle;
     Body.setVelocity(bottle, { x: launchX, y: launchY });
     Body.setAngularVelocity(bottle, spin);
@@ -246,8 +238,6 @@ const Physics = (() => {
   function getBottle()  { return bottle; }
   function getLiquid()  { return liquid; }
   function getGroundY() { return groundY; }
-  function getRotations()    { return bottle ? Math.abs(bottle.angle - launchAngle) / (2 * Math.PI) : 0; }
-  function getLastFlickInfo() { return lastFlickInfo; }
 
-  return { init, reflow, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getRotations, getLastFlickInfo };
+  return { init, reflow, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY };
 })();

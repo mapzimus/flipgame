@@ -21,7 +21,6 @@ const game = {
   onFirePlayer: null,
   onFireBonus: 0,
   winnerIndex: 0,        // index of last game's winner (for "winner starts next")
-  resultTimer: 0,        // countdown before advancing from RESULT state
   callbacks: {},
 
   // Per-flip display flags (set in resolveFlip, read by the HUD/banner)
