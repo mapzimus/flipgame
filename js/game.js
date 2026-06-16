@@ -185,7 +185,10 @@ const game = {
         player.streak      = 0;
         this.onFirePlayer  = null;
         this.onFireBonus   = 0;
-        this.pointCount    = 0;
+        // Stake is PRESERVED across an ON FIRE run: the main game "pauses" while
+        // the hot player takes bonus shots, so the communal stake the table
+        // built up carries over to the next player. Only a NORMAL miss spends +
+        // resets the stake; the big-lobby fire-cap path likewise preserves it.
         this.fireEnded     = true;
       }
       this.setState(GAME_STATES.RESULT);
