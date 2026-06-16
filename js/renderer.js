@@ -324,9 +324,47 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  // ── "Make it or break it" intense overlay + sudden-death tag ─────────────────
+  let clock = 0;
+  function drawIntense(intense, suddenDeath, awaitingFlick) {
+    if (suddenDeath) {
+      const fs = Math.round(Math.min(W, H) * 0.032);
+      ctx.save();
+      ctx.globalAlpha = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(clock * 5));
+      ctx.fillStyle = '#ff3b3b';
+      ctx.font = `bold ${fs}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 16;
+      ctx.fillText('⚡ SUDDEN DEATH ⚡', W / 2, 10);
+      ctx.restore();
+    }
+    if (!intense) return;
+    const pulse = 0.5 + 0.5 * Math.sin(clock * 6);
+    // Pulsing red vignette — darkens the edges, "time stands still" mood.
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.18, W / 2, H / 2, Math.max(W, H) * 0.72);
+    g.addColorStop(0, 'rgba(110,0,0,0)');
+    g.addColorStop(1, `rgba(${90 + Math.round(70 * pulse)},0,0,${0.42 + 0.22 * pulse})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    if (awaitingFlick) {
+      const fs = Math.min(H * 0.115, W * 0.14);
+      ctx.save();
+      ctx.globalAlpha = 0.82 + 0.18 * pulse;
+      ctx.fillStyle = '#ff2e2e';
+      ctx.font = `900 ${fs}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 34;
+      ctx.fillText('MAKE IT', W / 2, H * 0.26);
+      ctx.fillText('OR BREAK IT', W / 2, H * 0.26 + fs * 1.05);
+      ctx.restore();
+    }
+  }
+
   // ── Main frame ─────────────────────────────────────────────────────────────
   function frame(dt, state) {
-    const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire, liquidColor } = state;
+    const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire,
+            liquidColor, intense, suddenDeath, awaitingFlick } = state;
+    clock += dt;
     updateParticles(dt);
 
     drawBackground(groundY, isOnFire);
@@ -335,6 +373,7 @@ const Renderer = (() => {
     if (showGlow) drawLandingGlow(bottle, groundY);
     drawBottle(bottle, liquid, isOnFire, liquidColor);
     drawParticles();
+    drawIntense(intense, suddenDeath, awaitingFlick);
 
     if (result) {
       const color = result === 'MAKE' ? '#69f0ae' : '#ff5252';

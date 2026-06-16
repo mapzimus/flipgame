@@ -11,6 +11,11 @@ const GAME_STATES = {
   GAME_OVER: 'GAME_OVER',
 };
 
+// Sudden death: after this many flips, ON FIRE stops minting free lives and every
+// miss costs an escalating extra penalty — guarantees even high-skill games end.
+const SD_THRESHOLD = 70;
+const SD_STEP = 20;   // flips per escalation level (+1 extra life lost each level)
+
 const game = {
   state: GAME_STATES.SETUP,
   players: [],
@@ -37,6 +42,7 @@ const game = {
   practiceAttempts: 0,
   practiceStreak: 0,
   practiceBest: 0,
+  turnCounter: 0,        // flips this game (drives sudden death)
 
   // defs: [{ name, color, isAI }]
   init(defs, direction, opts = {}) {
@@ -59,6 +65,7 @@ const game = {
     this.onFirePlayer = null;
     this.onFireBonus = 0;
     this.practiceMakes = this.practiceAttempts = this.practiceStreak = this.practiceBest = 0;
+    this.turnCounter = 0;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
     // ambiguous when two players share a name). Ignored in practice.
@@ -87,8 +94,24 @@ const game = {
     return this.players.filter(p => !p.eliminated);
   },
 
+  // ── Sudden death ────────────────────────────────────────────────────────
+  inSuddenDeath() { return !this.practice && this.turnCounter > SD_THRESHOLD; },
+  sdLevel()       { return this.inSuddenDeath() ? Math.floor((this.turnCounter - SD_THRESHOLD) / SD_STEP) + 1 : 0; },
+
+  // Would the current player be ELIMINATED if they miss this flip? Drives the
+  // "Make it or break it" intense finale. (No risk during a normal ON FIRE run,
+  // since a miss there costs nothing — unless sudden death has added a cost.)
+  missWouldEliminate() {
+    const p = this.currentPlayer();
+    if (!p || p.eliminated) return false;
+    const sd = this.sdLevel();
+    const penalty = p.isOnFire ? sd : this.pointCount + sd;
+    return penalty > 0 && p.lives - penalty <= 0;
+  },
+
   // Called by physics when bottle result is determined
   resolveFlip(result) {
+    this.turnCounter++;
     this.lastResult = result;
     const player = this.currentPlayer();
     const wasOnFire = player.isOnFire;   // capture BEFORE we mutate any flags
@@ -114,13 +137,16 @@ const game = {
       return;
     }
 
+    const sd = this.sdLevel();   // 0 normally; >0 once sudden death begins
+
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
         // Your rule: +1 life per flip, capped at +10 PER run. Enforce that on the
         // actual lives (it was only enforced on the display before), and only
         // count a bonus when a life was truly granted (not blocked by the 20 cap).
-        if (this.onFireBonus < 10) {
+        // In SUDDEN DEATH, ON FIRE stops minting free lives (the deflation valve).
+        if (!sd && this.onFireBonus < 10) {
           const before = player.lives;
           player.lives    = Math.min(player.lives + 1, 20);
           this.onFireGain = player.lives - before;
@@ -129,13 +155,20 @@ const game = {
           this.onFireGain = 0;
         }
       } else {
-        // Miss ends ON FIRE — NO life loss (that's the reward)
+        // Miss ends ON FIRE — normally NO life loss (the reward); in sudden death
+        // it costs the escalating penalty so a hot player can't stall forever.
+        if (sd) {
+          const before = player.lives;
+          player.lives     = Math.max(0, player.lives - sd);
+          this.lastPenalty = before - player.lives;
+          if (player.lives <= 0) { player.eliminated = true; this.justEliminated = true; }
+        }
         player.isOnFire    = false;
         player.isHeatingUp = false;
         player.streak      = 0;
         this.onFirePlayer  = null;
         this.onFireBonus   = 0;
-        this.pointCount    = 1;     // stake clears, but it costs no lives
+        this.pointCount    = 1;
         this.fireEnded     = true;
       }
       this.setState(GAME_STATES.RESULT);
@@ -156,7 +189,7 @@ const game = {
       }
     } else {
       const before = player.lives;
-      player.lives       = Math.max(0, player.lives - this.pointCount);
+      player.lives       = Math.max(0, player.lives - (this.pointCount + sd));  // +sd in sudden death
       this.lastPenalty   = before - player.lives;   // lives ACTUALLY lost (HUD-accurate)
       player.streak      = 0;
       player.isHeatingUp = false;

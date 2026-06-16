@@ -201,6 +201,7 @@
   let aiTimer     = null;
   let elimTimer   = null;
   let gameStarted = false;
+  let intenseTurn = false;   // "make it or break it" — a miss this flip eliminates the player
   const RESULT_MS = 1500;
 
   function clearTimers() { clearTimeout(aiTimer); clearTimeout(elimTimer); }
@@ -244,7 +245,15 @@
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
 
-    Physics.step(dt); // always step — bottle settles on table during TURN_START too
+    // "Time stands still": slow the bottle's FLIGHT during a make-or-break flip.
+    // Only while airborne — once it nears the table we resume normal speed so the
+    // settle/landing detection (frame-based) is unaffected.
+    let stepDt = dt;
+    if (intenseTurn && evaluating) {
+      const b = Physics.getBottle();
+      if (b && b.position.y < Physics.getGroundY() - 70) stepDt = dt * 0.4;
+    }
+    Physics.step(stepDt); // always step — bottle settles on table during TURN_START too
 
     // Physics-based landing check
     if (evaluating) {
@@ -283,6 +292,9 @@
       showGlow,
       isOnFire:    !!(game.onFirePlayer),
       liquidColor: game.currentPlayer()?.color,
+      intense:     intenseTurn,
+      suddenDeath: game.inSuddenDeath(),
+      awaitingFlick: game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE,
     });
   }
 
@@ -291,6 +303,7 @@
     evaluating  = false;
     showGlow    = false;
     resultAlpha = 0;
+    intenseTurn = false;
     clearTimeout(aiTimer);
     Physics.resetBottle();
     flipHintEl.classList.remove('hidden');
@@ -306,6 +319,9 @@
       updateHUD();
       return;
     }
+
+    intenseTurn = game.missWouldEliminate();   // make-it-or-break-it
+    if (intenseTurn) Sound.play('tension');
 
     pointCountEl.textContent = game.pointCount > 1 ? `⚡ ×${game.pointCount}` : '';
     if (p.isAI) {
@@ -328,6 +344,8 @@
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
+    intenseTurn = game.missWouldEliminate();   // only in sudden death (ON FIRE miss is otherwise free)
+    if (intenseTurn) Sound.play('tension');
     turnBannerEl.textContent  = `🔥 ${p.name} IS ON FIRE!`;
     streakBannerEl.textContent = `+${game.onFireBonus} lives earned`;
     streakBannerEl.className   = 'streak-banner on-fire';
