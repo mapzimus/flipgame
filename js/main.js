@@ -291,7 +291,7 @@
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
   function aiFlick() {
     if (game.state !== GAME_STATES.TURN_START && game.state !== GAME_STATES.ON_FIRE) return;
-    const sigma = { easy: 650, medium: 400, hard: 220 }[game.difficulty] || 400;
+    const sigma = { easy: 1000, medium: 400, hard: 220 }[game.difficulty] || 400;
     const u1 = Math.random() || 1e-6, u2 = Math.random();
     const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
     const up = Math.max(500, 2100 + gauss * sigma);   // sweet spot ~2100 px/s
@@ -323,6 +323,17 @@
     loop(lastTime);
   }
 
+  // Playback speed: AI turns run fast, and once every human is out we blitz to
+  // the end so the all-CPU finish + stats come up quickly. 1 = real-time.
+  function gameSpeed() {
+    if (game.practice) return 1;
+    const humansLeft = game.players.some(p => !p.eliminated && !p.isAI);
+    if (!humansLeft) return 25;            // all humans out → fast-forward to the end
+    const cur = game.currentPlayer();
+    if (cur && cur.isAI) return 4;         // an AI is shooting → speed it up
+    return 1;
+  }
+
   function loop(now) {
     // Stop stepping/rendering once the game is over (the game-over screen is a
     // plain HTML overlay). startGame() restarts the loop for the next game.
@@ -334,20 +345,26 @@
     // "Time stands still": slow the bottle's FLIGHT during a make-or-break flip.
     // Only while airborne — once it nears the table we resume normal speed so the
     // settle/landing detection (frame-based) is unaffected.
+    const speed = gameSpeed();
     let stepDt = dt;
-    if (intenseTurn && evaluating) {
+    // Make-or-break slow-mo only in real-time (human) turns — never while fast-forwarding.
+    if (speed === 1 && intenseTurn && evaluating) {
       const b = Physics.getBottle();
       if (b && b.position.y < Physics.getGroundY() - 70) stepDt = dt * 0.4;
     }
-    Physics.step(stepDt); // always step — bottle settles on table during TURN_START too
-
-    // Physics-based landing check
-    if (evaluating) {
-      const result = Physics.checkLanding();
-      if (result) {
-        evaluating = false;
-        showGlow   = result === 'MAKE';
-        game.resolveFlip(result);
+    // Run `speed` physics sub-steps this frame (fast-forward AI / all-CPU turns).
+    // Each sub-step uses a normal dt so the sim stays stable, and landing is polled
+    // per sub-step so verdicts + settle/cap windows behave identically at any speed.
+    for (let s = 0; s < speed; s++) {
+      Physics.step(stepDt);
+      if (evaluating) {
+        const result = Physics.checkLanding();
+        if (result) {
+          evaluating = false;
+          showGlow   = result === 'MAKE';
+          game.resolveFlip(result);
+          break;
+        }
       }
     }
 
@@ -361,7 +378,7 @@
 
     // Result countdown + fade
     if (game.state === GAME_STATES.RESULT) {
-      resultTimer -= dt * 1000;
+      resultTimer -= dt * 1000 * speed;
       if (resultTimer > RESULT_MS - 350) {
         resultAlpha = (RESULT_MS - resultTimer) / 350;
       } else if (resultTimer < 400) {
@@ -444,7 +461,7 @@
       if (intenseTurn) Sound.play('tension');
       Input.disable();
       flipHintEl.classList.add('hidden');
-      aiTimer = setTimeout(aiFlick, 1100);
+      aiTimer = setTimeout(aiFlick, 1100 / gameSpeed());
       updateHUD();
       return;
     }
@@ -483,7 +500,7 @@
     if (p.isAI) {
       Input.disable();
       flipHintEl.classList.add('hidden');
-      aiTimer = setTimeout(aiFlick, 1000);
+      aiTimer = setTimeout(aiFlick, 1000 / gameSpeed());
     } else {
       Input.enable();
       startTurnTimer(FIRE_SECONDS);   // tighter clock when ON FIRE
@@ -578,7 +595,7 @@
     turnBannerEl.textContent = `❌ ${p.name} is out!`;
     updateHUD();
     clearTimeout(elimTimer);
-    elimTimer = setTimeout(() => game.advanceTurn(), 1800);
+    elimTimer = setTimeout(() => game.advanceTurn(), 1800 / gameSpeed());
   }
 
   function onGameOver() {

@@ -162,8 +162,12 @@ const game = {
         // Big lobbies (>4 players): cap the ON FIRE run at +5 lives (or once it
         // can't gain) and pass on — so 5-7 others aren't kept waiting through a
         // long run. Graceful end: keep the gains, NO penalty, NOT a miss.
-        if (this.players.length > ONFIRE_CAP_PLAYERS &&
-            (this.onFireBonus >= ONFIRE_CAP_LIVES || this.onFireGain === 0)) {
+        // End the ON FIRE run gracefully (keep gains, NO penalty, NOT a miss) when
+        // the player hits the 20-life cap — no point flipping for nothing — or when
+        // a big lobby (>4) has handed out its +5 / can no longer gain.
+        if (player.lives >= 20 ||
+            (this.players.length > ONFIRE_CAP_PLAYERS &&
+             (this.onFireBonus >= ONFIRE_CAP_LIVES || this.onFireGain === 0))) {
           player.isOnFire    = false;
           player.isHeatingUp = false;
           player.streak      = 0;
