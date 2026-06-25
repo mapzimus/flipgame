@@ -45,13 +45,27 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Stale-while-revalidate: serve from cache instantly (works offline), and
-// refresh the cache from the network in the background. This makes deploys
-// self-healing — a new build applies on the next launch even if CACHE_NAME
-// wasn't bumped — without sacrificing offline play.
+// HTML/navigation is network-first so the main game URL updates as soon as a
+// deploy finishes. Other assets stay stale-while-revalidate for fast offline
+// starts, with query-string asset bumps pulling the matching release files.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const req = event.request;
+  const isPage = req.mode === 'navigate' ||
+    (req.headers.get('accept') || '').includes('text/html');
+
+  if (isPage) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then((cache) =>
+        fetch(req).then((res) => {
+          if (res && res.status === 200) cache.put(req, res.clone());
+          return res;
+        }).catch(() => cache.match(req).then((cached) => cached || cache.match('./')))
+      )
+    );
+    return;
+  }
+
   event.respondWith(
     caches.open(CACHE_NAME).then((cache) =>
       cache.match(req).then((cached) => {
