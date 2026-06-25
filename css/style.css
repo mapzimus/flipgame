@@ -342,7 +342,6 @@ html, body {
 #streak-banner.heating-up  { color: var(--heat); }
 #streak-banner.on-fire     { color: var(--fire); text-shadow: 0 0 12px var(--fire); }
 #streak-banner.miss-penalty { color: var(--miss); }
-#streak-banner.bonus       { color: #ffdc4a; text-shadow: 0 0 12px rgba(255,220,74,0.8); }
 
 /* Per-turn countdown bar */
 #turn-timer {

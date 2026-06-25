@@ -316,35 +316,6 @@ const Renderer = (() => {
   }
 
   // ── Side walls ───────────────────────────────────────────────────────────────
-  function drawBonusPickup(pickup, groundY) {
-    if (!pickup || (!pickup.active && !pickup.collected)) return;
-    const p = projectPoint(pickup.x, pickup.y, groundY);
-    const pulse = reduceMotion ? 0.45 : 0.5 + 0.5 * Math.sin(clock * 5.2);
-    const r = pickup.radius + pulse * 5;
-    const col = pickup.collected ? '#69f0ae' : '#ffdc4a';
-
-    ctx.save();
-    ctx.globalAlpha = pickup.collected ? 0.68 : 0.92;
-    ctx.shadowColor = col;
-    ctx.shadowBlur = pickup.collected ? 22 : 16 + pulse * 10;
-    ctx.fillStyle = pickup.collected ? 'rgba(105,240,174,0.18)' : 'rgba(255,220,74,0.16)';
-    ctx.strokeStyle = pickup.collected ? 'rgba(105,240,174,0.95)' : 'rgba(255,220,74,0.96)';
-    ctx.lineWidth = 3;
-    ctx.setLineDash(pickup.collected ? [] : [8, 8]);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = '#fff8c8';
-    ctx.font = `900 ${Math.round(pickup.radius * 0.72)}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('+1', p.x, p.y + 1);
-    ctx.restore();
-  }
-
   function drawWalls(groundY) {
     const WALL = 14; // matches physics WALL_INSET
     for (const x0 of [0, W - WALL]) {
@@ -444,13 +415,12 @@ const Renderer = (() => {
   // ── Main frame ─────────────────────────────────────────────────────────────
   function frame(dt, state) {
     const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire,
-            liquidColor, intense, suddenDeath, awaitingFlick, stake, bonusPickup } = state;
+            liquidColor, intense, suddenDeath, awaitingFlick, stake } = state;
     clock += dt;
     updateParticles(dt);
 
     drawBackground(groundY, isOnFire);
     drawWalls(groundY);
-    drawBonusPickup(bonusPickup, groundY);
     drawFlickIndicator(drag, bottle, groundY);
     if (showGlow) drawLandingGlow(bottle, groundY);
     drawBottle(bottle, liquid, isOnFire, liquidColor, groundY);

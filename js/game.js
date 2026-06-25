@@ -52,9 +52,6 @@ const game = {
   turnCounter: 0,        // flips this game (drives sudden death)
   startingLives: 10,
   maxLives: 20,
-  bonusMode: 'off',      // 'off' | 'simple'
-  bonusCollected: false,
-  bonusAwarded: false,
   perfectLanding: false,
 
   // defs: [{ name, color, isAI }]
@@ -63,7 +60,6 @@ const game = {
     this.difficulty = opts.difficulty || 'medium';
     this.startingLives = STARTING_LIFE_PRESETS.includes(+opts.startingLives) ? +opts.startingLives : 10;
     this.maxLives = Math.max(20, this.startingLives);
-    this.bonusMode = opts.bonusMode === 'simple' ? 'simple' : 'off';
     this.players = defs.map(d => ({
       name: d.name,
       color: d.color || '#0b86ff',
@@ -82,8 +78,6 @@ const game = {
     this.onFireBonus = 0;
     this.practiceMakes = this.practiceAttempts = this.practiceStreak = this.practiceBest = 0;
     this.turnCounter = 0;
-    this.bonusCollected = false;
-    this.bonusAwarded = false;
     this.perfectLanding = false;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
@@ -142,8 +136,6 @@ const game = {
     this.fireEnded      = false;
     this.fireCapped     = false;
     this.justEliminated = false;
-    this.bonusCollected = !!meta.bonusCollected;
-    this.bonusAwarded   = false;
     this.perfectLanding = result === 'MAKE' && !!meta.perfect;
 
     // ── Practice: just track stats, no lives/streak stakes ──────────────────
@@ -226,10 +218,6 @@ const game = {
         this.onFirePlayer  = player;
         this.onFireBonus   = 0;
         this.justIgnited   = true;
-      }
-      if (this.bonusMode === 'simple' && this.bonusCollected && !sd && player.lives < this.maxLives) {
-        player.lives = Math.min(player.lives + 1, this.maxLives);
-        this.bonusAwarded = true;
       }
     } else {
       const before = player.lives;

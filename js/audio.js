@@ -52,7 +52,6 @@ const Sound = (() => {
     make:   () => [523, 659, 784, 1047].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.2, gain: 0.28, delay: i * 0.07 })),
     miss:   () => { noise(0.10, 0.28, 900); tone({ freq: 380, slideTo: 110, type: 'sawtooth', dur: 0.4, gain: 0.2, delay: 0.04 }); },
     life:   () => tone({ freq: 880, slideTo: 1320, type: 'sine', dur: 0.16, gain: 0.22 }),
-    bonus:  () => [988, 1319, 1760].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.11, gain: 0.16, delay: i * 0.045 })),
     ignite: () => { tone({ freq: 200, slideTo: 900, type: 'sawtooth', dur: 0.4, gain: 0.22 });
                     [392, 494, 587, 784].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.12, gain: 0.16, delay: 0.12 + i * 0.06 })); },
     win:    () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.3, delay: i * 0.12 })),
@@ -72,7 +71,6 @@ const Sound = (() => {
     make:    25,
     miss:    [40, 30, 60],
     life:    [12, 16, 12],              // ON FIRE +life — quick double tick
-    bonus:   [8, 16, 8],
     ignite:  [60, 40, 60, 40, 110],     // ON FIRE ignite — distinct rumble
     win:     [70, 40, 70, 40, 130],
     tension: [25, 70, 25, 70],          // ominous pulse

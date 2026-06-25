@@ -65,8 +65,6 @@
       if (!evaluating &&
           (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
         Physics.resetBottle();
-        if (game.state === GAME_STATES.TURN_START) spawnBonusPickup();
-        else clearBonusPickup();
       }
     }, 150);
   }
@@ -184,9 +182,6 @@
     const v = parseInt(document.querySelector('input[name="starting-lives"]:checked')?.value || '10', 10);
     return [3, 5, 10, 20, 100].includes(v) ? v : 10;
   }
-  function chosenBonusMode() {
-    return document.querySelector('input[name="bonus-mode"]:checked')?.value === 'simple' ? 'simple' : 'off';
-  }
 
   // ── Start game ─────────────────────────────────────────────────────────────
   // ── Immersive mode: fullscreen + keep the screen awake (panel ergonomics) ──
@@ -222,7 +217,6 @@
     startGame(defs, dir, {
       difficulty: chosenDifficulty(),
       startingLives: chosenStartingLives(),
-      bonusMode: chosenBonusMode(),
       newMatch: true,
     });
   });
@@ -239,7 +233,6 @@
     startGame([def], 1, {
       practice: true,
       startingLives: chosenStartingLives(),
-      bonusMode: 'off',
       newMatch: true,
     });
   });
@@ -252,7 +245,7 @@
       startGame(
         [{ name: game.players[0].name, color: game.players[0].color, isAI: false }],
         1,
-        { practice: true, startingLives: game.startingLives, bonusMode: 'off' }
+        { practice: true, startingLives: game.startingLives }
       );
     } else {
       const defs = game.players.map(p => ({ name: p.name, color: p.color, isAI: p.isAI }));
@@ -260,7 +253,6 @@
       startGame(defs, game.direction, {
         difficulty: game.difficulty,
         startingLives: game.startingLives,
-        bonusMode: game.bonusMode,
         startIndex: game.winnerIndex,
       });
     }
@@ -286,10 +278,8 @@
   let matchWins   = [];      // wins per player across the current series (by index)
   let gameStats   = null;    // per-game stats (reset each game), shown on game-over
   let timerActive = false, turnTimeLeft = 0, turnTimeLimit = 0, timedOut = false;
-  let bonusPickup = null;
   const RESULT_MS = 1500;
   const TURN_SECONDS = 10, FIRE_SECONDS = 4;   // flip clock (less when ON FIRE)
-  const BONUS_RADIUS = 31;
 
   // Per-turn flip clock — only for HUMAN turns (CPU flicks on its own ~1.1s).
   function startTurnTimer(seconds) {
@@ -317,80 +307,15 @@
     flipHintEl.classList.add('hidden');
     evaluating = false;
     Sound.play('miss');
-    settleBonusPickup();
-    game.resolveFlip('MISS', currentFlipMeta());
+    game.resolveFlip('MISS');
   }
 
   function clearTimers() { clearTimeout(aiTimer); clearTimeout(elimTimer); }
 
-  function clearBonusPickup() {
-    bonusPickup = null;
-  }
-
-  function bonusTurnEligible() {
-    const p = game.currentPlayer();
-    return game.bonusMode === 'simple' &&
-      !game.practice &&
-      game.state === GAME_STATES.TURN_START &&
-      !game.inSuddenDeath() &&
-      p && !p.isOnFire &&
-      p.lives < game.maxLives;
-  }
-
-  function spawnBonusPickup() {
-    clearBonusPickup();
-    if (!bonusTurnEligible()) return;
-    const groundY = Physics.getGroundY();
-    const side = ((game.turnCounter + game.currentPlayerIndex) % 2 === 0) ? 1 : -1;
-    const reach = Math.min(95, Math.max(58, window.innerWidth * 0.11));
-    const x = Math.min(window.innerWidth - 58, Math.max(58, window.innerWidth / 2 + side * reach));
-    const y = Math.max(96, groundY - Math.min(255, Math.max(205, window.innerHeight * 0.34)));
-    bonusPickup = { active: true, collected: false, x, y, radius: BONUS_RADIUS };
-  }
-
-  function settleBonusPickup() {
-    if (bonusPickup) bonusPickup.active = false;
-  }
-
-  function currentFlipMeta(landingInfo = null) {
+  function landingMeta(landingInfo = null) {
     return {
-      bonusCollected: !!(bonusPickup && bonusPickup.collected),
       perfect: !!(landingInfo && landingInfo.perfect),
     };
-  }
-
-  function bottlePickupSamples(bottle, groundY) {
-    const center = Renderer.projectBottleCenter(bottle, groundY);
-    const scale = Renderer.bottleDrawScale ? Renderer.bottleDrawScale() : 1;
-    const ca = Math.cos(bottle.angle), sa = Math.sin(bottle.angle);
-    const local = [
-      [0, 0],
-      [0, -118],
-      [0, -64],
-      [0, 38],
-      [-34, -36],
-      [34, -36],
-    ];
-    return local.map(([lx, ly]) => ({
-      x: center.x + (lx * ca - ly * sa) * scale,
-      y: center.y + (lx * sa + ly * ca) * scale,
-    }));
-  }
-
-  function updateBonusPickup() {
-    if (!bonusPickup || !bonusPickup.active || bonusPickup.collected || !evaluating) return;
-    const bottle = Physics.getBottle();
-    if (!bottle) return;
-    const groundY = Physics.getGroundY();
-    const target = Renderer.projectPoint(bonusPickup.x, bonusPickup.y, groundY);
-    const hitRadius = bonusPickup.radius + 10;
-    const hit = bottlePickupSamples(bottle, groundY).some((p) =>
-      Math.hypot(p.x - target.x, p.y - target.y) <= hitRadius
-    );
-    if (!hit) return;
-    bonusPickup.collected = true;
-    bonusPickup.active = false;
-    Sound.play('bonus');
   }
 
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
@@ -406,7 +331,6 @@
 
   function startGame(defs, dir, opts) {
     clearTimers();
-    clearBonusPickup();
     Sound.setSuddenDeath(false);
     passScreen.classList.add('hidden');
     Renderer.init(canvas);
@@ -477,15 +401,13 @@
     // per sub-step so verdicts + settle/cap windows behave identically at any speed.
     for (let s = 0; s < speed; s++) {
       Physics.step(stepDt);
-      updateBonusPickup();
       if (evaluating) {
         const result = Physics.checkLanding();
         if (result) {
           evaluating = false;
           showGlow   = result === 'MAKE';
           const landingInfo = Physics.getLastLandingInfo();
-          settleBonusPickup();
-          game.resolveFlip(result, currentFlipMeta(landingInfo));
+          game.resolveFlip(result, landingMeta(landingInfo));
           break;
         }
       }
@@ -530,7 +452,6 @@
       suddenDeath: game.inSuddenDeath(),
       awaitingFlick: game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE,
       stake:       game.pointCount,
-      bonusPickup,
     });
   }
 
@@ -563,7 +484,6 @@
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
     Physics.resetBottle();
-    clearBonusPickup();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -580,7 +500,6 @@
 
     intenseTurn = game.missWouldEliminate();   // make-it-or-break-it
     pointCountEl.textContent = '';   // stake shown big on the canvas (drawStake)
-    spawnBonusPickup();
 
     if (p.isAI) {
       turnBannerEl.textContent = `${p.name}'s turn · CPU`;
@@ -614,7 +533,6 @@
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
     Physics.resetBottle();
-    clearBonusPickup();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -685,7 +603,7 @@
         streakBannerEl.className   = 'streak-banner on-fire';
         Sound.play('life');
       } else if (game.justIgnited) {
-        streakBannerEl.textContent = game.bonusAwarded ? '🔥 ON FIRE!  +1 bonus life' : '🔥 ON FIRE!';
+        streakBannerEl.textContent = '🔥 ON FIRE!';
         streakBannerEl.className   = 'streak-banner on-fire';
         Sound.play('ignite');
       } else if (p.isOnFire) {
@@ -694,16 +612,12 @@
         streakBannerEl.className   = 'streak-banner on-fire';
         Sound.play('make');
       } else if (p.isHeatingUp) {
-        streakBannerEl.textContent = game.bonusAwarded ? '🌡 Heating up!  +1 bonus life' : '🌡 Heating up!';
+        streakBannerEl.textContent = '🌡 Heating up!';
         streakBannerEl.className   = 'streak-banner heating-up';
         Sound.play('make');
-      } else if (game.bonusAwarded) {
-        streakBannerEl.textContent = game.perfectLanding ? 'Perfect + bonus life!' : '+1 bonus life!';
-        streakBannerEl.className   = 'streak-banner bonus';
-        Sound.play('life');
       } else {
         streakBannerEl.textContent = game.perfectLanding ? 'Perfect landing!' : '';
-        streakBannerEl.className   = game.perfectLanding ? 'streak-banner bonus' : 'streak-banner';
+        streakBannerEl.className   = game.perfectLanding ? 'streak-banner heating-up' : 'streak-banner';
         Sound.play('make');
       }
     } else if (game.fireEnded) {
@@ -724,7 +638,6 @@
 
   function onEliminated() {
     passScreen.classList.add('hidden');
-    clearBonusPickup();
     const p = game.currentPlayer();
     turnBannerEl.textContent = `❌ ${p.name} is out!`;
     updateHUD();
@@ -734,7 +647,6 @@
 
   function onGameOver() {
     clearTimers();   // no stray advanceTurn/AI flick fires after the game ends
-    clearBonusPickup();
     Sound.setSuddenDeath(false);
     stopTurnTimer();
     passScreen.classList.add('hidden');
@@ -876,7 +788,6 @@
     if (loopId) cancelAnimationFrame(loopId);
     loopId = null;
     clearTimers();
-    clearBonusPickup();
     Sound.setSuddenDeath(false);
     stopTurnTimer();
     Input.disable();
