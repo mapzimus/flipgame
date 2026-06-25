@@ -2,6 +2,9 @@
 // Must be unlocked from a user gesture (browsers block audio until then).
 const Sound = (() => {
   let ctx = null, master = null, muted = false;
+  let suddenDeathTimer = null;
+  let suddenDeathActive = false;
+  let suddenDeathLevel = 1;
 
   function unlock() {
     if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
@@ -49,6 +52,7 @@ const Sound = (() => {
     make:   () => [523, 659, 784, 1047].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.2, gain: 0.28, delay: i * 0.07 })),
     miss:   () => { noise(0.10, 0.28, 900); tone({ freq: 380, slideTo: 110, type: 'sawtooth', dur: 0.4, gain: 0.2, delay: 0.04 }); },
     life:   () => tone({ freq: 880, slideTo: 1320, type: 'sine', dur: 0.16, gain: 0.22 }),
+    bonus:  () => [988, 1319, 1760].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.11, gain: 0.16, delay: i * 0.045 })),
     ignite: () => { tone({ freq: 200, slideTo: 900, type: 'sawtooth', dur: 0.4, gain: 0.22 });
                     [392, 494, 587, 784].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.12, gain: 0.16, delay: 0.12 + i * 0.06 })); },
     win:    () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.3, delay: i * 0.12 })),
@@ -68,6 +72,7 @@ const Sound = (() => {
     make:    25,
     miss:    [40, 30, 60],
     life:    [12, 16, 12],              // ON FIRE +life — quick double tick
+    bonus:   [8, 16, 8],
     ignite:  [60, 40, 60, 40, 110],     // ON FIRE ignite — distinct rumble
     win:     [70, 40, 70, 40, 130],
     tension: [25, 70, 25, 70],          // ominous pulse
@@ -78,11 +83,62 @@ const Sound = (() => {
     if (p) { try { navigator.vibrate(p); } catch (e) {} }
   }
 
+  function clearSuddenDeathTimer() {
+    if (suddenDeathTimer) clearTimeout(suddenDeathTimer);
+    suddenDeathTimer = null;
+  }
+
+  function pressureTick() {
+    if (!ctx || muted || !suddenDeathActive) return;
+    const level = Math.max(1, suddenDeathLevel);
+    const gain = Math.min(0.18, 0.08 + level * 0.015);
+    tone({ freq: 54, type: 'sine', dur: 0.14, gain: gain });
+    tone({ freq: 760 + level * 34, slideTo: 520, type: 'square', dur: 0.075, gain: 0.045, delay: 0.035 });
+    if (level >= 2) tone({ freq: 54, type: 'sine', dur: 0.10, gain: gain * 0.75, delay: 0.22 });
+  }
+
+  function scheduleSuddenDeathTick() {
+    clearSuddenDeathTimer();
+    if (!ctx || muted || !suddenDeathActive) return;
+    const interval = Math.max(260, 720 - suddenDeathLevel * 85);
+    suddenDeathTimer = setTimeout(() => {
+      pressureTick();
+      scheduleSuddenDeathTick();
+    }, interval);
+  }
+
+  function setSuddenDeath(active, level = 1) {
+    const nextLevel = Math.max(1, Math.floor(level) || 1);
+    const shouldRun = !!active && !muted;
+    if (!shouldRun) {
+      suddenDeathActive = !!active;
+      suddenDeathLevel = nextLevel;
+      clearSuddenDeathTimer();
+      return;
+    }
+    if (suddenDeathActive && suddenDeathLevel === nextLevel && suddenDeathTimer) return;
+    suddenDeathActive = true;
+    suddenDeathLevel = nextLevel;
+    scheduleSuddenDeathTick();
+  }
+
+  function stopSuddenDeath() {
+    suddenDeathActive = false;
+    clearSuddenDeathTimer();
+  }
+
+  function setMuted(v) {
+    muted = !!v;
+    if (muted) clearSuddenDeathTimer();
+  }
+
   return {
     unlock,
     play: (name) => { if (sfx[name]) sfx[name](); buzz(name); },
-    setMuted: (v) => { muted = !!v; },
-    toggleMute: () => (muted = !muted),
+    setMuted,
+    toggleMute: () => { setMuted(!muted); return muted; },
     isMuted: () => muted,
+    setSuddenDeath,
+    stopSuddenDeath,
   };
 })();

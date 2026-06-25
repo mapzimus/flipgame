@@ -20,6 +20,7 @@ const SD_STEP = 20;   // flips per escalation level (+1 extra life lost each lev
 // ONFIRE_CAP_LIVES gained then passes on — so others aren't kept waiting.
 const ONFIRE_CAP_PLAYERS = 4;
 const ONFIRE_CAP_LIVES = 5;
+const STARTING_LIFE_PRESETS = [3, 5, 10, 20, 100];
 
 const game = {
   state: GAME_STATES.SETUP,
@@ -49,16 +50,25 @@ const game = {
   practiceStreak: 0,
   practiceBest: 0,
   turnCounter: 0,        // flips this game (drives sudden death)
+  startingLives: 10,
+  maxLives: 20,
+  bonusMode: 'off',      // 'off' | 'simple'
+  bonusCollected: false,
+  bonusAwarded: false,
+  perfectLanding: false,
 
   // defs: [{ name, color, isAI }]
   init(defs, direction, opts = {}) {
     this.practice   = !!opts.practice;
     this.difficulty = opts.difficulty || 'medium';
+    this.startingLives = STARTING_LIFE_PRESETS.includes(+opts.startingLives) ? +opts.startingLives : 10;
+    this.maxLives = Math.max(20, this.startingLives);
+    this.bonusMode = opts.bonusMode === 'simple' ? 'simple' : 'off';
     this.players = defs.map(d => ({
       name: d.name,
       color: d.color || '#0b86ff',
       isAI: !!d.isAI,
-      lives: 10,
+      lives: this.startingLives,
       streak: 0,
       isHeatingUp: false,
       isOnFire: false,
@@ -72,6 +82,9 @@ const game = {
     this.onFireBonus = 0;
     this.practiceMakes = this.practiceAttempts = this.practiceStreak = this.practiceBest = 0;
     this.turnCounter = 0;
+    this.bonusCollected = false;
+    this.bonusAwarded = false;
+    this.perfectLanding = false;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
     // ambiguous when two players share a name). Ignored in practice.
@@ -116,7 +129,7 @@ const game = {
   },
 
   // Called by physics when bottle result is determined
-  resolveFlip(result) {
+  resolveFlip(result, meta = {}) {
     this.turnCounter++;
     this.lastResult = result;
     const player = this.currentPlayer();
@@ -129,6 +142,9 @@ const game = {
     this.fireEnded      = false;
     this.fireCapped     = false;
     this.justEliminated = false;
+    this.bonusCollected = !!meta.bonusCollected;
+    this.bonusAwarded   = false;
+    this.perfectLanding = result === 'MAKE' && !!meta.perfect;
 
     // ── Practice: just track stats, no lives/streak stakes ──────────────────
     if (this.practice) {
@@ -149,12 +165,12 @@ const game = {
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
-        // +1 life per flip while ON FIRE — bounded by the 20-life cap. In SUDDEN
+        // +1 life per flip while ON FIRE — bounded by the match life cap. In SUDDEN
         // DEATH, ON FIRE stops minting free lives (the deflation valve).
         if (!sd) {
           const before = player.lives;
-          player.lives    = Math.min(player.lives + 1, 20);
-          this.onFireGain = player.lives - before;   // 0 once at the 20 cap
+          player.lives    = Math.min(player.lives + 1, this.maxLives);
+          this.onFireGain = player.lives - before;   // 0 once at the match cap
           if (this.onFireGain > 0) this.onFireBonus++;
         } else {
           this.onFireGain = 0;
@@ -163,9 +179,9 @@ const game = {
         // can't gain) and pass on — so 5-7 others aren't kept waiting through a
         // long run. Graceful end: keep the gains, NO penalty, NOT a miss.
         // End the ON FIRE run gracefully (keep gains, NO penalty, NOT a miss) when
-        // the player hits the 20-life cap — no point flipping for nothing — or when
+        // the player hits the match life cap — no point flipping for nothing — or when
         // a big lobby (>4) has handed out its +5 / can no longer gain.
-        if (player.lives >= 20 ||
+        if (player.lives >= this.maxLives ||
             (this.players.length > ONFIRE_CAP_PLAYERS &&
              (this.onFireBonus >= ONFIRE_CAP_LIVES || this.onFireGain === 0))) {
           player.isOnFire    = false;
@@ -210,6 +226,10 @@ const game = {
         this.onFirePlayer  = player;
         this.onFireBonus   = 0;
         this.justIgnited   = true;
+      }
+      if (this.bonusMode === 'simple' && this.bonusCollected && !sd && player.lives < this.maxLives) {
+        player.lives = Math.min(player.lives + 1, this.maxLives);
+        this.bonusAwarded = true;
       }
     } else {
       const before = player.lives;

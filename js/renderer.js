@@ -4,6 +4,8 @@ const Renderer = (() => {
   let canvas, ctx, W, H;
   const particles = [];
   let reduceMotion = false;   // when on, suppress non-essential motion (particles, shake, pulses)
+  const BOTTLE_DRAW_SCALE = 1.15;
+  const FLIGHT_LIFT = 0.18;
 
   function setReduceMotion(v) { reduceMotion = !!v; }
 
@@ -15,6 +17,21 @@ const Renderer = (() => {
   }
 
   function resize(w, h) { W = w; H = h; }
+
+  function projectPoint(x, y, groundY) {
+    const airborne = Math.max(0, groundY - y - 55);
+    return { x, y: y - airborne * FLIGHT_LIFT };
+  }
+
+  function projectBottleCenter(bottle, groundY) {
+    const p = projectPoint(bottle.position.x, bottle.position.y, groundY);
+    return {
+      x: p.x,
+      y: p.y - (BOTTLE_DRAW_SCALE - 1) * 43,
+    };
+  }
+
+  function bottleDrawScale() { return BOTTLE_DRAW_SCALE; }
 
   // ── Color helpers (per-player liquid flavor) ────────────────────────────────
   function hexToRgba(hex, a) {
@@ -118,27 +135,28 @@ const Renderer = (() => {
   // ── Bottle ─────────────────────────────────────────────────────────────────
   // Wide squat Gatorade bottle: 74px body, short neck, wide orange cap, blue fill.
   // Local coords centered at bottle.position (physics CG, ~40px above visual base).
-  function drawBottle(bottle, liquid, isOnFire, liquidColor) {
-    const { x, y } = bottle.position;
+  function drawBottle(bottle, liquid, isOnFire, liquidColor, groundY) {
+    const { x, y } = projectBottleCenter(bottle, groundY);
     const angle  = bottle.angle;
     const fillCol = hexToRgba(liquidColor || '#0b86ff', 0.92);
     const meniscusCol = lighten(liquidColor || '#0b86ff', 110, 0.9);
 
     // ON FIRE glow
     if (isOnFire) {
-      const glow = ctx.createRadialGradient(x, y, 10, x, y, 95);
+      const glow = ctx.createRadialGradient(x, y, 10, x, y, 95 * BOTTLE_DRAW_SCALE);
       glow.addColorStop(0, 'rgba(255,100,0,0.30)');
       glow.addColorStop(1, 'rgba(255,60,0,0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x, y, 95, 0, Math.PI * 2);
+      ctx.arc(x, y, 95 * BOTTLE_DRAW_SCALE, 0, Math.PI * 2);
       ctx.fill();
-      if (!reduceMotion) spawnFire(x, y - 100);
+      if (!reduceMotion) spawnFire(x, y - 100 * BOTTLE_DRAW_SCALE);
     }
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
+    ctx.scale(BOTTLE_DRAW_SCALE, BOTTLE_DRAW_SCALE);
 
     // Reusable body outline (wide, flat-bottomed Gatorade shape, y=-72..+43)
     const traceBody = () => { ctx.beginPath(); ctx.roundRect(-37, -72, 74, 115, 10); };
@@ -243,7 +261,7 @@ const Renderer = (() => {
 
     // Blue splash on hard slosh
     if (!reduceMotion && Math.abs(liquid.vel) > 1.6) {
-      spawnSplash(x, y - 30, 2, 'rgba(0, 170, 255, 0.85)');
+      spawnSplash(x, y - 30 * BOTTLE_DRAW_SCALE, 2, 'rgba(0, 170, 255, 0.85)');
     }
   }
 
@@ -262,7 +280,7 @@ const Renderer = (() => {
   // ── Flick indicator ─────────────────────────────────────────────────────────
   // Points FROM the bottle in the direction you're flicking (the way it'll go),
   // length grows with flick strength. Reads as "throw this way", not "pull back".
-  function drawFlickIndicator(drag, bottle) {
+  function drawFlickIndicator(drag, bottle, groundY) {
     if (!drag || !bottle) return;
     const dx  = drag.curX - drag.startX;   // flick direction = throw direction
     const dy  = drag.curY - drag.startY;
@@ -272,7 +290,8 @@ const Renderer = (() => {
     const strength = Math.min(len / 220, 1);
     const ux = dx / len, uy = dy / len;
     const reach = 28 + strength * 64;                 // 28..92px
-    const ox = bottle.position.x, oy = bottle.position.y - 40;
+    const p = projectBottleCenter(bottle, groundY);
+    const ox = p.x, oy = p.y - 40 * BOTTLE_DRAW_SCALE;
     const ex = ox + ux * reach, ey = oy + uy * reach;
     const color = `hsl(${190 - strength * 150}, 95%, 62%)`; // cyan → hot orange
 
@@ -297,6 +316,35 @@ const Renderer = (() => {
   }
 
   // ── Side walls ───────────────────────────────────────────────────────────────
+  function drawBonusPickup(pickup, groundY) {
+    if (!pickup || (!pickup.active && !pickup.collected)) return;
+    const p = projectPoint(pickup.x, pickup.y, groundY);
+    const pulse = reduceMotion ? 0.45 : 0.5 + 0.5 * Math.sin(clock * 5.2);
+    const r = pickup.radius + pulse * 5;
+    const col = pickup.collected ? '#69f0ae' : '#ffdc4a';
+
+    ctx.save();
+    ctx.globalAlpha = pickup.collected ? 0.68 : 0.92;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = pickup.collected ? 22 : 16 + pulse * 10;
+    ctx.fillStyle = pickup.collected ? 'rgba(105,240,174,0.18)' : 'rgba(255,220,74,0.16)';
+    ctx.strokeStyle = pickup.collected ? 'rgba(105,240,174,0.95)' : 'rgba(255,220,74,0.96)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash(pickup.collected ? [] : [8, 8]);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#fff8c8';
+    ctx.font = `900 ${Math.round(pickup.radius * 0.72)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('+1', p.x, p.y + 1);
+    ctx.restore();
+  }
+
   function drawWalls(groundY) {
     const WALL = 14; // matches physics WALL_INSET
     for (const x0 of [0, W - WALL]) {
@@ -396,15 +444,16 @@ const Renderer = (() => {
   // ── Main frame ─────────────────────────────────────────────────────────────
   function frame(dt, state) {
     const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire,
-            liquidColor, intense, suddenDeath, awaitingFlick, stake } = state;
+            liquidColor, intense, suddenDeath, awaitingFlick, stake, bonusPickup } = state;
     clock += dt;
     updateParticles(dt);
 
     drawBackground(groundY, isOnFire);
     drawWalls(groundY);
-    drawFlickIndicator(drag, bottle);
+    drawBonusPickup(bonusPickup, groundY);
+    drawFlickIndicator(drag, bottle, groundY);
     if (showGlow) drawLandingGlow(bottle, groundY);
-    drawBottle(bottle, liquid, isOnFire, liquidColor);
+    drawBottle(bottle, liquid, isOnFire, liquidColor, groundY);
     drawParticles();
     drawStake(stake);
     drawIntense(intense, suddenDeath, awaitingFlick);
@@ -415,5 +464,5 @@ const Renderer = (() => {
     }
   }
 
-  return { init, resize, frame, setReduceMotion };
+  return { init, resize, frame, setReduceMotion, projectPoint, projectBottleCenter, bottleDrawScale };
 })();

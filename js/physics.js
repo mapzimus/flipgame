@@ -7,6 +7,7 @@ const Physics = (() => {
   let groundedFrames = 0;
   let angleWin = [];   // sliding window of recent angles (settle detection)
   let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
+  let lastLandingInfo = null;
   let canvasW;
   let groundY;
 
@@ -30,6 +31,7 @@ const Physics = (() => {
   const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
   const SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
   const MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
+  const PERFECT_ANGLE   = 0.16;  // ≤~9° upright = perfect landing flair
   const FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
   const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
 
@@ -75,6 +77,16 @@ const Physics = (() => {
   //     (→ MAKE) or fall over (→ MISS), or for the cap to fire.
   // MISS_CAP_FRAMES (~5s grounded) is the fallback: a bottle that never resolves
   // (a rare wall-lean / glitch) is forced to MISS so the turn can't soft-lock.
+  function recordLanding(result, tilt, reason) {
+    lastLandingInfo = {
+      result,
+      tilt,
+      perfect: result === 'MAKE' && tilt != null && tilt <= PERFECT_ANGLE,
+      reason,
+    };
+    return result;
+  }
+
   function checkLanding() {
     if (!bottle) return null;
 
@@ -93,7 +105,7 @@ const Physics = (() => {
     // Fallback cap: grounded this long without committing (a teeter that neither
     // rights nor falls, a wall-lean, or a glitch) → force a MISS so EVALUATING
     // can't soft-lock. This is the "wait ~5s, then it's a miss" safety net.
-    if (groundedFrames > MISS_CAP_FRAMES) return 'MISS';
+    if (groundedFrames > MISS_CAP_FRAMES) return recordLanding('MISS', null, 'timeout');
 
     // Read the pose ONLY when truly at rest: very low spin + drift, held with a
     // stable angle across the settle window. A momentary teeter pause can't fill
@@ -104,12 +116,12 @@ const Physics = (() => {
       let lo = Infinity, hi = -Infinity;
       for (const a of angleWin) { if (a < lo) lo = a; if (a > hi) hi = a; }
       if (angleWin.length >= SETTLE_FRAMES && (hi - lo) < SETTLE_RANGE) {
-        if (!hasFlipped) return 'MISS';   // never completed a 360° — a certain miss
+        if (!hasFlipped) return recordLanding('MISS', null, 'underrotated');   // never completed a 360° — a certain miss
         let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         if (angle > Math.PI) angle -= 2 * Math.PI;
         const tilt = Math.abs(angle);
-        if (tilt < MAKE_ANGLE)    return 'MAKE';   // upright & settled — won't un-right
-        if (tilt >= FALLEN_ANGLE) return 'MISS';   // toppled past recovery — certain miss
+        if (tilt < MAKE_ANGLE)    return recordLanding('MAKE', tilt, 'upright');   // upright & settled — won't un-right
+        if (tilt >= FALLEN_ANGLE) return recordLanding('MISS', tilt, 'fallen');   // toppled past recovery — certain miss
         // else: settled in the teeter zone — still able to right itself into a
         // make. Don't judge; wait for it to commit (or the cap to fire) below.
       }
@@ -156,9 +168,9 @@ const Physics = (() => {
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
-  function init(w, h) {
+  function init(w, h, bottomInset = 0) {
     canvasW = w;
-    groundY = h - 30;          // top surface of the table
+    groundY = h - 30 - bottomInset;          // top surface of the table
 
     engine = Engine.create({ gravity: { y: 1.5, scale: 0.001 } });
     world  = engine.world;
@@ -189,10 +201,10 @@ const Physics = (() => {
   // Without this, groundY + walls keep their original dimensions and the bottle
   // flips against an off-screen floor. Statics only — the caller decides whether
   // to re-place the bottle (safe when it's at rest, not mid-flight).
-  function reflow(w, h) {
+  function reflow(w, h, bottomInset = 0) {
     if (!engine) return;
     canvasW = w;
-    groundY = h - 30;
+    groundY = h - 30 - bottomInset;
     Body.setPosition(ground,    { x: w / 2,                 y: groundY + 25 });
     Body.setPosition(leftWall,  { x: WALL_INSET - 20,       y: h / 2 });
     Body.setPosition(rightWall, { x: w - WALL_INSET + 20,   y: h / 2 });
@@ -206,6 +218,7 @@ const Physics = (() => {
     hasFlipped     = false;
     launchAngle    = 0;
     hasLanded      = false;
+    lastLandingInfo = null;
     liquid.reset();
 
     bottle = createBottle();
@@ -269,6 +282,7 @@ const Physics = (() => {
   function getBottle()  { return bottle; }
   function getLiquid()  { return liquid; }
   function getGroundY() { return groundY; }
+  function getLastLandingInfo() { return lastLandingInfo; }
 
-  return { init, reflow, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY };
+  return { init, reflow, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getLastLandingInfo };
 })();

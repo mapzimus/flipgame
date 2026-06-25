@@ -33,6 +33,10 @@
   // Scale the backing store by devicePixelRatio so everything is crisp on a
   // hi-DPI smartboard. We draw in LOGICAL (CSS) pixels — the transform maps
   // them to physical pixels — so physics/renderer keep using logical coords.
+  function stageBottomInset() {
+    return Math.min(150, Math.max(92, Math.round(window.innerHeight * 0.18)));
+  }
+
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap at 2 (fill-rate)
     const w = window.innerWidth, h = window.innerHeight;
@@ -55,12 +59,14 @@
     clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => {
       if (!gameStarted) return;
-      Physics.reflow(window.innerWidth, window.innerHeight);
+      Physics.reflow(window.innerWidth, window.innerHeight, stageBottomInset());
       // B2: only re-place the bottle when one is genuinely at rest — never mid-flick
       // (a stray resize must not reset a bottle in flight and void it as a MISS).
       if (!evaluating &&
           (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
         Physics.resetBottle();
+        if (game.state === GAME_STATES.TURN_START) spawnBonusPickup();
+        else clearBonusPickup();
       }
     }, 150);
   }
@@ -174,6 +180,13 @@
   function chosenDifficulty() {
     return document.querySelector('input[name="difficulty"]:checked')?.value || 'medium';
   }
+  function chosenStartingLives() {
+    const v = parseInt(document.querySelector('input[name="starting-lives"]:checked')?.value || '10', 10);
+    return [3, 5, 10, 20, 100].includes(v) ? v : 10;
+  }
+  function chosenBonusMode() {
+    return document.querySelector('input[name="bonus-mode"]:checked')?.value === 'simple' ? 'simple' : 'off';
+  }
 
   // ── Start game ─────────────────────────────────────────────────────────────
   // ── Immersive mode: fullscreen + keep the screen awake (panel ergonomics) ──
@@ -206,7 +219,12 @@
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     gameOverEl.classList.add('hidden');
-    startGame(defs, dir, { difficulty: chosenDifficulty(), newMatch: true });
+    startGame(defs, dir, {
+      difficulty: chosenDifficulty(),
+      startingLives: chosenStartingLives(),
+      bonusMode: chosenBonusMode(),
+      newMatch: true,
+    });
   });
 
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
@@ -218,7 +236,12 @@
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     gameOverEl.classList.add('hidden');
-    startGame([def], 1, { practice: true, newMatch: true });
+    startGame([def], 1, {
+      practice: true,
+      startingLives: chosenStartingLives(),
+      bonusMode: 'off',
+      newMatch: true,
+    });
   });
 
   playAgainBtn.addEventListener('click', () => {
@@ -226,11 +249,20 @@
     gameOverEl.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     if (game.practice) {
-      startGame([{ name: game.players[0].name, color: game.players[0].color, isAI: false }], 1, { practice: true });
+      startGame(
+        [{ name: game.players[0].name, color: game.players[0].color, isAI: false }],
+        1,
+        { practice: true, startingLives: game.startingLives, bonusMode: 'off' }
+      );
     } else {
       const defs = game.players.map(p => ({ name: p.name, color: p.color, isAI: p.isAI }));
       // Winner starts the next game (by index — robust to duplicate names).
-      startGame(defs, game.direction, { difficulty: game.difficulty, startIndex: game.winnerIndex });
+      startGame(defs, game.direction, {
+        difficulty: game.difficulty,
+        startingLives: game.startingLives,
+        bonusMode: game.bonusMode,
+        startIndex: game.winnerIndex,
+      });
     }
   });
 
@@ -254,8 +286,10 @@
   let matchWins   = [];      // wins per player across the current series (by index)
   let gameStats   = null;    // per-game stats (reset each game), shown on game-over
   let timerActive = false, turnTimeLeft = 0, turnTimeLimit = 0, timedOut = false;
+  let bonusPickup = null;
   const RESULT_MS = 1500;
   const TURN_SECONDS = 10, FIRE_SECONDS = 4;   // flip clock (less when ON FIRE)
+  const BONUS_RADIUS = 31;
 
   // Per-turn flip clock — only for HUMAN turns (CPU flicks on its own ~1.1s).
   function startTurnTimer(seconds) {
@@ -283,10 +317,81 @@
     flipHintEl.classList.add('hidden');
     evaluating = false;
     Sound.play('miss');
-    game.resolveFlip('MISS');
+    settleBonusPickup();
+    game.resolveFlip('MISS', currentFlipMeta());
   }
 
   function clearTimers() { clearTimeout(aiTimer); clearTimeout(elimTimer); }
+
+  function clearBonusPickup() {
+    bonusPickup = null;
+  }
+
+  function bonusTurnEligible() {
+    const p = game.currentPlayer();
+    return game.bonusMode === 'simple' &&
+      !game.practice &&
+      game.state === GAME_STATES.TURN_START &&
+      !game.inSuddenDeath() &&
+      p && !p.isOnFire &&
+      p.lives < game.maxLives;
+  }
+
+  function spawnBonusPickup() {
+    clearBonusPickup();
+    if (!bonusTurnEligible()) return;
+    const groundY = Physics.getGroundY();
+    const side = ((game.turnCounter + game.currentPlayerIndex) % 2 === 0) ? 1 : -1;
+    const reach = Math.min(95, Math.max(58, window.innerWidth * 0.11));
+    const x = Math.min(window.innerWidth - 58, Math.max(58, window.innerWidth / 2 + side * reach));
+    const y = Math.max(96, groundY - Math.min(255, Math.max(205, window.innerHeight * 0.34)));
+    bonusPickup = { active: true, collected: false, x, y, radius: BONUS_RADIUS };
+  }
+
+  function settleBonusPickup() {
+    if (bonusPickup) bonusPickup.active = false;
+  }
+
+  function currentFlipMeta(landingInfo = null) {
+    return {
+      bonusCollected: !!(bonusPickup && bonusPickup.collected),
+      perfect: !!(landingInfo && landingInfo.perfect),
+    };
+  }
+
+  function bottlePickupSamples(bottle, groundY) {
+    const center = Renderer.projectBottleCenter(bottle, groundY);
+    const scale = Renderer.bottleDrawScale ? Renderer.bottleDrawScale() : 1;
+    const ca = Math.cos(bottle.angle), sa = Math.sin(bottle.angle);
+    const local = [
+      [0, 0],
+      [0, -118],
+      [0, -64],
+      [0, 38],
+      [-34, -36],
+      [34, -36],
+    ];
+    return local.map(([lx, ly]) => ({
+      x: center.x + (lx * ca - ly * sa) * scale,
+      y: center.y + (lx * sa + ly * ca) * scale,
+    }));
+  }
+
+  function updateBonusPickup() {
+    if (!bonusPickup || !bonusPickup.active || bonusPickup.collected || !evaluating) return;
+    const bottle = Physics.getBottle();
+    if (!bottle) return;
+    const groundY = Physics.getGroundY();
+    const target = Renderer.projectPoint(bonusPickup.x, bonusPickup.y, groundY);
+    const hitRadius = bonusPickup.radius + 10;
+    const hit = bottlePickupSamples(bottle, groundY).some((p) =>
+      Math.hypot(p.x - target.x, p.y - target.y) <= hitRadius
+    );
+    if (!hit) return;
+    bonusPickup.collected = true;
+    bonusPickup.active = false;
+    Sound.play('bonus');
+  }
 
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
   function aiFlick() {
@@ -301,11 +406,13 @@
 
   function startGame(defs, dir, opts) {
     clearTimers();
+    clearBonusPickup();
+    Sound.setSuddenDeath(false);
     passScreen.classList.add('hidden');
     Renderer.init(canvas);
     Renderer.setReduceMotion(reduceMotionActive());
     resize();   // sets DPR transform + renderer logical dims (must run after init)
-    Physics.init(window.innerWidth, window.innerHeight);  // logical coords
+    Physics.init(window.innerWidth, window.innerHeight, stageBottomInset());  // logical coords
 
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
@@ -334,11 +441,24 @@
     return 1;
   }
 
+  function syncSuddenDeathAudio() {
+    const active = gameStarted &&
+      !game.practice &&
+      game.state !== GAME_STATES.GAME_OVER &&
+      game.inSuddenDeath();
+    Sound.setSuddenDeath(active, game.sdLevel());
+  }
+
   function loop(now) {
     // Stop stepping/rendering once the game is over (the game-over screen is a
     // plain HTML overlay). startGame() restarts the loop for the next game.
-    if (game.state === GAME_STATES.GAME_OVER) { loopId = null; return; }
+    if (game.state === GAME_STATES.GAME_OVER) {
+      Sound.setSuddenDeath(false);
+      loopId = null;
+      return;
+    }
     loopId = requestAnimationFrame(loop);
+    syncSuddenDeathAudio();
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
 
@@ -357,12 +477,15 @@
     // per sub-step so verdicts + settle/cap windows behave identically at any speed.
     for (let s = 0; s < speed; s++) {
       Physics.step(stepDt);
+      updateBonusPickup();
       if (evaluating) {
         const result = Physics.checkLanding();
         if (result) {
           evaluating = false;
           showGlow   = result === 'MAKE';
-          game.resolveFlip(result);
+          const landingInfo = Physics.getLastLandingInfo();
+          settleBonusPickup();
+          game.resolveFlip(result, currentFlipMeta(landingInfo));
           break;
         }
       }
@@ -407,6 +530,7 @@
       suddenDeath: game.inSuddenDeath(),
       awaitingFlick: game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE,
       stake:       game.pointCount,
+      bonusPickup,
     });
   }
 
@@ -439,6 +563,7 @@
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
     Physics.resetBottle();
+    clearBonusPickup();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -455,6 +580,7 @@
 
     intenseTurn = game.missWouldEliminate();   // make-it-or-break-it
     pointCountEl.textContent = '';   // stake shown big on the canvas (drawStake)
+    spawnBonusPickup();
 
     if (p.isAI) {
       turnBannerEl.textContent = `${p.name}'s turn · CPU`;
@@ -488,6 +614,7 @@
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
     Physics.resetBottle();
+    clearBonusPickup();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -532,7 +659,9 @@
 
     if (game.practice) {
       if (game.lastResult === 'MAKE') {
-        streakBannerEl.textContent = game.practiceStreak > 1 ? `✓ ${game.practiceStreak} in a row!` : '✓ Make!';
+        streakBannerEl.textContent = game.practiceStreak > 1
+          ? `${game.practiceStreak} in a row!`
+          : (game.perfectLanding ? 'Perfect make!' : 'Make!');
         streakBannerEl.className = 'streak-banner on-fire';
         Sound.play('make');
       } else {
@@ -556,21 +685,25 @@
         streakBannerEl.className   = 'streak-banner on-fire';
         Sound.play('life');
       } else if (game.justIgnited) {
-        streakBannerEl.textContent = '🔥 ON FIRE!';
+        streakBannerEl.textContent = game.bonusAwarded ? '🔥 ON FIRE!  +1 bonus life' : '🔥 ON FIRE!';
         streakBannerEl.className   = 'streak-banner on-fire';
         Sound.play('ignite');
       } else if (p.isOnFire) {
-        // On fire but at the 20-life cap — no life granted, so don't claim one
+        // On fire but at the match life cap — no life granted, so don't claim one
         streakBannerEl.textContent = '🔥 Maxed out!';
         streakBannerEl.className   = 'streak-banner on-fire';
         Sound.play('make');
       } else if (p.isHeatingUp) {
-        streakBannerEl.textContent = '🌡 Heating up!';
+        streakBannerEl.textContent = game.bonusAwarded ? '🌡 Heating up!  +1 bonus life' : '🌡 Heating up!';
         streakBannerEl.className   = 'streak-banner heating-up';
         Sound.play('make');
+      } else if (game.bonusAwarded) {
+        streakBannerEl.textContent = game.perfectLanding ? 'Perfect + bonus life!' : '+1 bonus life!';
+        streakBannerEl.className   = 'streak-banner bonus';
+        Sound.play('life');
       } else {
-        streakBannerEl.textContent = '';
-        streakBannerEl.className   = 'streak-banner';
+        streakBannerEl.textContent = game.perfectLanding ? 'Perfect landing!' : '';
+        streakBannerEl.className   = game.perfectLanding ? 'streak-banner bonus' : 'streak-banner';
         Sound.play('make');
       }
     } else if (game.fireEnded) {
@@ -591,6 +724,7 @@
 
   function onEliminated() {
     passScreen.classList.add('hidden');
+    clearBonusPickup();
     const p = game.currentPlayer();
     turnBannerEl.textContent = `❌ ${p.name} is out!`;
     updateHUD();
@@ -600,6 +734,8 @@
 
   function onGameOver() {
     clearTimers();   // no stray advanceTurn/AI flick fires after the game ends
+    clearBonusPickup();
+    Sound.setSuddenDeath(false);
     stopTurnTimer();
     passScreen.classList.add('hidden');
     gameScreen.classList.add('hidden');
@@ -702,6 +838,7 @@
       if (p.isOnFire)         cls += ' on-fire';
       else if (p.isHeatingUp) cls += ' heating-up';
       if (!p.eliminated && p.lives <= 3) cls += ' low-lives';
+      if (game.maxLives >= 100) cls += ' marathon-lives';
 
       return `<div class="${cls}">
         <span class="p-name">${escapeHtml(p.name)}</span>
@@ -739,6 +876,8 @@
     if (loopId) cancelAnimationFrame(loopId);
     loopId = null;
     clearTimers();
+    clearBonusPickup();
+    Sound.setSuddenDeath(false);
     stopTurnTimer();
     Input.disable();
     gameStarted = false;

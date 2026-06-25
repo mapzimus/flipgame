@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Bottle Game">
 
-  <link rel="stylesheet" href="css/style.css?v=20">
+  <link rel="stylesheet" href="css/style.css?v=21">
 </head>
 <body>
 
@@ -44,6 +44,25 @@
           <label><input type="radio" name="difficulty" value="easy"> 🟢 Easy</label>
           <label><input type="radio" name="difficulty" value="medium" checked> 🟡 Medium</label>
           <label><input type="radio" name="difficulty" value="hard"> 🔴 Hard</label>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Starting lives</div>
+        <div class="preset-options lives-options">
+          <label><input type="radio" name="starting-lives" value="3"> 3</label>
+          <label><input type="radio" name="starting-lives" value="5"> 5</label>
+          <label><input type="radio" name="starting-lives" value="10" checked> 10</label>
+          <label><input type="radio" name="starting-lives" value="20"> 20</label>
+          <label><input type="radio" name="starting-lives" value="100"> 100</label>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Bonuses</div>
+        <div class="direction-options">
+          <label><input type="radio" name="bonus-mode" value="off" checked> Off</label>
+          <label><input type="radio" name="bonus-mode" value="simple"> Simple</label>
         </div>
       </div>
 
@@ -95,15 +114,15 @@
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=20"></script>
-  <script src="js/game.js?v=20"></script>
-  <script src="js/physics.js?v=20"></script>
-  <script src="js/input.js?v=20"></script>
-  <script src="js/renderer.js?v=20"></script>
-  <script src="js/audio.js?v=20"></script>
-  <script src="js/settings.js?v=20"></script>
-  <script src="js/records.js?v=20"></script>
-  <script src="js/main.js?v=20"></script>
+  <script src="js/polyfills.js?v=21"></script>
+  <script src="js/game.js?v=21"></script>
+  <script src="js/physics.js?v=21"></script>
+  <script src="js/input.js?v=21"></script>
+  <script src="js/renderer.js?v=21"></script>
+  <script src="js/audio.js?v=21"></script>
+  <script src="js/settings.js?v=21"></script>
+  <script src="js/records.js?v=21"></script>
+  <script src="js/main.js?v=21"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {
