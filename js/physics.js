@@ -14,11 +14,19 @@ const Physics = (() => {
   // soft flick under-rotates (<360, fails), medium ≈ one clean turn (make),
   // hard overshoots (~1.3 turns, miss). Rotation ranges ~0.8 to ~1.35.
   const SPIN_BASE   = 0.140;  // spin from a soft flick (~0.8 turn)
-  const SPIN_RANGE  = 0.100;  // extra spin at full-strength flick (~1.35 turn)
+  const SPIN_RANGE_DEFAULT = 0.100;  // extra spin at full-strength flick (~1.35 turn)
+  let   spinRange   = SPIN_RANGE_DEFAULT;  // active range, mutated by setFeel()
   const POWER_SPEED = 4000;   // flick speed (px/s) that maps to full power
+
+  // "Feel" knob: a flatter spin range widens the make window (soft/hard flicks
+  // differ less), a steeper one narrows it. 'standard' == the original feel.
+  function setFeel(mode) {
+    spinRange = { forgiving: 0.07, standard: 0.10, pro: 0.13 }[mode] ?? SPIN_RANGE_DEFAULT;
+  }
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
 
   let lastFlickInfo = null;   // debug: { upSpeed, power, spin }
+  let lastLanding   = null;   // display-only: { flipped, finalAngle } of last judged stop
 
   // ── Liquid oscillator ──────────────────────────────────────────────────────
   // Virtual pendulum — tracks the slosh of liquid inside the bottle.
@@ -79,9 +87,10 @@ const Physics = (() => {
       for (const a of angleWin) { if (a < lo) lo = a; if (a > hi) hi = a; }
       if (angleWin.length >= 22 && (hi - lo) < 0.03) {
         // Must have completed a full rotation AND land upright
-        if (!hasFlipped) return 'MISS';
         let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         if (angle > Math.PI) angle -= 2 * Math.PI;
+        lastLanding = { flipped: hasFlipped, finalAngle: angle };  // display-only
+        if (!hasFlipped) return 'MISS';
         return Math.abs(angle) < 0.61 ? 'MAKE' : 'MISS';  // ±35° window
       }
     } else {
@@ -196,7 +205,7 @@ const Physics = (() => {
     // Wrist-snap spin scales with flick strength. Forward by default;
     // a sideways lean flips the tumble direction.
     const dir  = vx >= 0 ? 1 : -1;
-    const spin = dir * (SPIN_BASE + power * SPIN_RANGE) * jSpin;
+    const spin = dir * (SPIN_BASE + power * spinRange) * jSpin;
 
     lastFlickInfo = { upSpeed: Math.round(upSpeed), power: +power.toFixed(2), spin: +spin.toFixed(3) };
     launchAngle = bottle.angle;
@@ -230,7 +239,11 @@ const Physics = (() => {
   function getLiquid()  { return liquid; }
   function getGroundY() { return groundY; }
   function getRotations()    { return bottle ? Math.abs(bottle.angle - launchAngle) / (2 * Math.PI) : 0; }
+  // getRotations is a debug/console helper. getLastFlickInfo is also used by the
+  // optional post-flick strength readout in main.js (Item 7); getLandingInfo is
+  // used by the "So close!" near-miss banner.
   function getLastFlickInfo() { return lastFlickInfo; }
+  function getLandingInfo()   { return lastLanding; }
 
-  return { init, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getRotations, getLastFlickInfo };
+  return { init, setFeel, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getRotations, getLastFlickInfo, getLandingInfo };
 })();

@@ -1,8 +1,49 @@
 // renderer.js — canvas draw loop
 
+// roundRect polyfill — older Android System WebViews (the bundled offline APK
+// target) lack CanvasRenderingContext2D.roundRect; without this the draw loop
+// throws and the canvas renders blank. Manual arc/line fallback.
+if (typeof CanvasRenderingContext2D !== 'undefined' &&
+    !CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    let radii = typeof r === 'number' ? [r, r, r, r]
+              : (Array.isArray(r) ? r : [0, 0, 0, 0]);
+    if (radii.length === 1) radii = [radii[0], radii[0], radii[0], radii[0]];
+    if (radii.length === 2) radii = [radii[0], radii[1], radii[0], radii[1]];
+    let [tl, tr, br, bl] = radii;
+    const max = Math.min(Math.abs(w), Math.abs(h)) / 2;     // clamp oversized radii
+    tl = Math.min(tl, max); tr = Math.min(tr, max);
+    br = Math.min(br, max); bl = Math.min(bl, max);
+    this.moveTo(x + tl, y);
+    this.arcTo(x + w, y,     x + w, y + h, tr);
+    this.arcTo(x + w, y + h, x,     y + h, br);
+    this.arcTo(x,     y + h, x,     y,     bl);
+    this.arcTo(x,     y,     x + w, y,     tl);
+    this.closePath();
+    return this;
+  };
+}
+
 const Renderer = (() => {
   let canvas, ctx, W, H;
   const particles = [];
+
+  // Screen shake (decaying): amp in px, decays to 0 over shakeDecay px/s.
+  let shakeAmp = 0, shakeDecay = 0;
+  let reduceMotion = false;             // set via setReduceMotion()
+
+  function setReduceMotion(v) { reduceMotion = !!v; }
+
+  // Celebration burst (MAKE) / shake (MISS). Called once per result by main.js.
+  function kick(type, opts = {}) {
+    if (type === 'MAKE') {
+      const { x, y, color } = opts;
+      spawnSplash(x, y - 30, reduceMotion ? 8 : 26, color || '#69f0ae');
+    } else if (type === 'MISS') {
+      if (reduceMotion) return;
+      shakeAmp = 12; shakeDecay = 12 / 0.22;   // ~220ms to zero
+    }
+  }
 
   function init(cvs) {
     canvas = cvs;
@@ -312,15 +353,19 @@ const Renderer = (() => {
 
   // ── Result text ────────────────────────────────────────────────────────────
   function drawResult(text, color, alpha) {
+    // Pop: scale overshoots to ~1.18 as it appears, settles back to 1.0.
+    const pop = reduceMotion ? 1 : 1 + 0.18 * Math.sin(Math.min(alpha, 1) * Math.PI);
     ctx.save();
     ctx.globalAlpha   = alpha;
     ctx.fillStyle     = color;
-    ctx.font          = 'bold 76px system-ui, sans-serif';
     ctx.textAlign     = 'center';
     ctx.textBaseline  = 'middle';
     ctx.shadowColor   = color;
     ctx.shadowBlur    = 36;
-    ctx.fillText(text, W / 2, H / 2 - 60);
+    ctx.translate(W / 2, H / 2 - 60);
+    ctx.scale(pop, pop);
+    ctx.font          = 'bold 76px system-ui, sans-serif';
+    ctx.fillText(text, 0, 0);
     ctx.restore();
   }
 
@@ -328,6 +373,15 @@ const Renderer = (() => {
   function frame(dt, state) {
     const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire, liquidColor } = state;
     updateParticles(dt);
+
+    let sx = 0, sy = 0;
+    if (shakeAmp > 0.2) {
+      sx = (Math.random() - 0.5) * 2 * shakeAmp;
+      sy = (Math.random() - 0.5) * 2 * shakeAmp;
+      shakeAmp = Math.max(0, shakeAmp - shakeDecay * dt);
+    }
+    ctx.save();
+    ctx.translate(sx, sy);
 
     drawBackground(groundY, isOnFire);
     drawWalls(groundY);
@@ -340,7 +394,8 @@ const Renderer = (() => {
       const color = result === 'MAKE' ? '#69f0ae' : '#ff5252';
       drawResult(result === 'MAKE' ? 'MAKE!' : 'MISS', color, resultAlpha);
     }
+    ctx.restore();
   }
 
-  return { init, resize, frame };
+  return { init, resize, frame, kick, setReduceMotion };
 })();
