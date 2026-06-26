@@ -146,6 +146,8 @@ html, body {
   box-shadow: 0 0 0 2px rgba(0,0,0,0.4), 0 0 10px rgba(255,255,255,0.5);
   transform: scale(1.15);
 }
+/* Soft "already taken by another player" hint (not a hard block) */
+.flavor-swatch.taken:not(.selected) { opacity: 0.3; }
 
 .remove-player-btn {
   background: rgba(255,82,82,0.15);
@@ -196,6 +198,18 @@ html, body {
   background: var(--card-active);
   border-color: var(--accent);
 }
+
+/* Checkbox row (e.g. flick feedback toggle) */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.checkbox-row input { accent-color: var(--accent); }
 
 #start-btn {
   background: linear-gradient(135deg, #0288d1, #4fc3f7);
@@ -285,6 +299,12 @@ html, body {
   text-shadow: 0 1px 8px rgba(0,0,0,0.6);
 }
 
+#top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 #point-count {
   font-size: 1.4rem;
   font-weight: 800;
@@ -293,6 +313,20 @@ html, body {
   min-width: 60px;
   text-align: right;
 }
+
+/* HUD buttons (mute, etc.) — re-enable pointer events (#hud disables them) */
+.hud-btn {
+  pointer-events: all;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+}
+.hud-btn:active { transform: scale(0.95); }
 
 #streak-banner {
   text-align: center;
@@ -519,3 +553,11 @@ html, body {
   transition: opacity 0.2s;
 }
 #play-again-btn:hover { opacity: 0.88; }
+
+/* ── Reduced motion ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .player-card.on-fire { animation: none; }
+  #flip-hint { animation: none; opacity: 0.7; }
+  .handoff-tap { animation: none; }
+  #handoff-overlay { animation: none; }
+}
