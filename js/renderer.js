@@ -1,5 +1,29 @@
 // renderer.js — canvas draw loop
 
+// roundRect polyfill — older Android System WebViews (the bundled offline APK
+// target) lack CanvasRenderingContext2D.roundRect; without this the draw loop
+// throws and the canvas renders blank. Manual arc/line fallback.
+if (typeof CanvasRenderingContext2D !== 'undefined' &&
+    !CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    let radii = typeof r === 'number' ? [r, r, r, r]
+              : (Array.isArray(r) ? r : [0, 0, 0, 0]);
+    if (radii.length === 1) radii = [radii[0], radii[0], radii[0], radii[0]];
+    if (radii.length === 2) radii = [radii[0], radii[1], radii[0], radii[1]];
+    let [tl, tr, br, bl] = radii;
+    const max = Math.min(Math.abs(w), Math.abs(h)) / 2;     // clamp oversized radii
+    tl = Math.min(tl, max); tr = Math.min(tr, max);
+    br = Math.min(br, max); bl = Math.min(bl, max);
+    this.moveTo(x + tl, y);
+    this.arcTo(x + w, y,     x + w, y + h, tr);
+    this.arcTo(x + w, y + h, x,     y + h, br);
+    this.arcTo(x,     y + h, x,     y,     bl);
+    this.arcTo(x,     y,     x + w, y,     tl);
+    this.closePath();
+    return this;
+  };
+}
+
 const Renderer = (() => {
   let canvas, ctx, W, H;
   const particles = [];
