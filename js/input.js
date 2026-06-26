@@ -5,6 +5,7 @@ const Input = (() => {
 
   let canvas, onFlick;
   let dragging = false;
+  let activePointerId = null;                  // lock onto ONE pointer per gesture
   let startX = 0, startY = 0;
   let curX = 0, curY = 0;
   let lastX = 0, lastY = 0, lastT = 0;
@@ -16,18 +17,21 @@ const Input = (() => {
     canvas  = cvs;
     onFlick = flickCallback;
 
-    canvas.addEventListener('pointerdown',  onDown);
-    canvas.addEventListener('pointermove',  onMove);
-    canvas.addEventListener('pointerup',    onUp);
-    canvas.addEventListener('pointercancel', onUp);
+    canvas.addEventListener('pointerdown',   onDown);
+    canvas.addEventListener('pointermove',   onMove);
+    canvas.addEventListener('pointerup',     onUp);
+    canvas.addEventListener('pointercancel', onCancel);  // phantom-flick guard
   }
 
   function enable()  { enabled = true;  }
-  function disable() { enabled = false; dragging = false; }
+  function disable() { enabled = false; releaseGesture(); }
 
   function onDown(e) {
     if (!enabled) return;
+    if (activePointerId !== null) return;      // already tracking a finger — ignore the 2nd
     e.preventDefault();
+    activePointerId = e.pointerId;
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     dragging = true;
     const r = canvas.getBoundingClientRect();
     startX = curX = lastX = e.clientX - r.left;
@@ -37,7 +41,7 @@ const Input = (() => {
   }
 
   function onMove(e) {
-    if (!dragging) return;
+    if (!dragging || e.pointerId !== activePointerId) return;
     e.preventDefault();
     const r = canvas.getBoundingClientRect();
     curX = e.clientX - r.left;
@@ -54,12 +58,14 @@ const Input = (() => {
   }
 
   function onUp(e) {
-    if (!dragging || !enabled) return;
-    dragging = false;
+    if (!dragging || e.pointerId !== activePointerId) return;
 
     const dx = curX - startX, dy = curY - startY;
     const dist = Math.hypot(dx, dy);
-    if (dist < MIN_DRAG) return;
+    const wasEnabled = enabled;
+    releaseGesture(e);                 // clear capture/state BEFORE the callback
+
+    if (!wasEnabled || dist < MIN_DRAG) return;
 
     // Use the gesture's peak velocity. Fall back to a distance estimate if
     // we somehow captured almost no motion (e.g. one big jump then release).
@@ -68,6 +74,20 @@ const Input = (() => {
 
     lastFlick = { vx: Math.round(vx), vy: Math.round(vy), peak: Math.round(peakSpeed) };
     onFlick(vx, vy);
+  }
+
+  // pointercancel (palm rejection, OS gesture steal): reset, do NOT fire a flick.
+  function onCancel(e) {
+    if (e.pointerId !== activePointerId) return;
+    releaseGesture(e);
+  }
+
+  function releaseGesture(e) {
+    dragging = false;
+    if (activePointerId !== null) {
+      try { canvas.releasePointerCapture(activePointerId); } catch (_) {}
+    }
+    activePointerId = null;
   }
 
   function getLastFlick() { return lastFlick; }
