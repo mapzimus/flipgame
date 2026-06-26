@@ -260,6 +260,12 @@
       if (result) {
         evaluating = false;
         showGlow   = result === 'MAKE';
+        const b = Physics.getBottle();
+        Renderer.kick(result, {
+          x: b.position.x,
+          y: b.position.y,
+          color: game.currentPlayer()?.color || '#69f0ae',
+        });
         game.resolveFlip(result);
       }
     }
@@ -400,8 +406,11 @@
       streakBannerEl.className   = 'streak-banner on-fire';
       Sound.play('miss');
     } else {
+      const info = Physics.getLandingInfo();
+      const soClose = info && info.flipped && Math.abs(info.finalAngle) < 0.9;
       const n = game.lastPenalty;
-      streakBannerEl.textContent = `−${n} ${n === 1 ? 'life' : 'lives'}`;
+      const penalty = `−${n} ${n === 1 ? 'life' : 'lives'}`;
+      streakBannerEl.textContent = soClose ? `So close! ${penalty}` : penalty;
       streakBannerEl.className   = 'streak-banner miss-penalty';
       Sound.play('miss');
     }
