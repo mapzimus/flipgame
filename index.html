@@ -47,6 +47,16 @@
         </div>
       </div>
 
+      <div>
+        <div class="section-label">Feel</div>
+        <div class="direction-options">
+          <label><input type="radio" name="feel" value="forgiving"> 🟢 Forgiving</label>
+          <label><input type="radio" name="feel" value="standard" checked> 🟡 Standard</label>
+          <label><input type="radio" name="feel" value="pro"> 🔴 Pro</label>
+        </div>
+        <label class="checkbox-row"><input type="checkbox" id="flick-feedback-toggle"> Show flick feedback</label>
+      </div>
+
       <button id="start-btn">Start Game</button>
       <button id="practice-btn">🎯 Practice (solo)</button>
     </div>
@@ -58,7 +68,10 @@
     <div id="hud">
       <div id="top-bar">
         <span id="turn-banner"></span>
-        <span id="point-count"></span>
+        <span id="top-right">
+          <button id="mute-btn" class="hud-btn" title="Mute / unmute">🔊</button>
+          <span id="point-count"></span>
+        </span>
       </div>
       <div id="streak-banner"></div>
     </div>
