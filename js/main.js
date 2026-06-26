@@ -16,6 +16,10 @@
   const practiceBtn  = document.getElementById('practice-btn');
   const addPlayerBtn = document.getElementById('add-player-btn');
   const playerInputs = document.getElementById('player-inputs');
+  const handoffEl    = document.getElementById('handoff-overlay');
+  const handoffNameEl = document.getElementById('handoff-name');
+  const tutorialEl   = document.getElementById('tutorial-overlay');
+  const tutorialDoneBtn = document.getElementById('tutorial-done-btn');
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Scale the backing store by devicePixelRatio so everything is crisp on a
@@ -79,6 +83,21 @@
     playerCount = defs.length;
     playerInputs.innerHTML = defs.map((d, i) => rowHtml(i, d)).join('');
     addPlayerBtn.disabled = playerCount >= 8;
+    markTakenSwatches();
+  }
+
+  // Soft visual guidance only — dims flavors picked by another row. Duplicates
+  // remain legal (the liquid color is the turn indicator, so distinct is nicer).
+  function markTakenSwatches() {
+    const rows = [...playerInputs.querySelectorAll('.player-input-row')];
+    const taken = rows.map(r => parseInt(r.dataset.flavor));
+    rows.forEach((row, ri) => {
+      row.querySelectorAll('.flavor-swatch').forEach(sw => {
+        const idx = parseInt(sw.dataset.idx);
+        const usedByOther = taken.some((t, ti) => ti !== ri && t === idx);
+        sw.classList.toggle('taken', usedByOther);
+      });
+    });
   }
 
   function addPlayerInput() {
@@ -97,6 +116,7 @@
       row.querySelectorAll('.flavor-swatch').forEach(s => s.classList.remove('selected'));
       sw.classList.add('selected');
       row.querySelector('.player-num').style.color = FLAVORS[+sw.dataset.idx].color;
+      markTakenSwatches();
       return;
     }
     const ai = e.target.closest('.ai-toggle');
@@ -128,6 +148,31 @@
   function chosenDifficulty() {
     return document.querySelector('input[name="difficulty"]:checked')?.value || 'medium';
   }
+  function chosenFeel() {
+    return document.querySelector('input[name="feel"]:checked')?.value || 'standard';
+  }
+  function flickFeedbackOn() {
+    return !!document.getElementById('flick-feedback-toggle')?.checked;
+  }
+
+  // ── Kiosk mode: fullscreen + keep the panel awake during play ───────────────
+  let wakeLock = null;
+  async function acquireWakeLock() {
+    try {
+      if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+    } catch (_) {}
+  }
+  async function enterKioskMode() {
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (_) {}
+    await acquireWakeLock();
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && wakeLock === null) acquireWakeLock();
+  });
 
   // ── Start game ─────────────────────────────────────────────────────────────
   startBtn.addEventListener('click', () => {
@@ -135,10 +180,13 @@
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
     Sound.unlock();   // first user gesture — unlock audio
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
-    gameOverEl.classList.add('hidden');
-    startGame(defs, dir, { difficulty: chosenDifficulty() });
+    enterKioskMode();
+    maybeShowTutorial(() => {
+      setupScreen.classList.add('hidden');
+      gameScreen.classList.remove('hidden');
+      gameOverEl.classList.add('hidden');
+      startGame(defs, dir, { difficulty: chosenDifficulty(), feel: chosenFeel() });
+    });
   });
 
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
@@ -146,20 +194,23 @@
     const r0 = readRows()[0] || { name: 'You', flavor: 0 };
     const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false };
     Sound.unlock();
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
-    gameOverEl.classList.add('hidden');
-    startGame([def], 1, { practice: true });
+    enterKioskMode();
+    maybeShowTutorial(() => {
+      setupScreen.classList.add('hidden');
+      gameScreen.classList.remove('hidden');
+      gameOverEl.classList.add('hidden');
+      startGame([def], 1, { practice: true, feel: chosenFeel() });
+    });
   });
 
   playAgainBtn.addEventListener('click', () => {
     gameOverEl.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     if (game.practice) {
-      startGame([{ name: game.players[0].name, color: game.players[0].color, isAI: false }], 1, { practice: true });
+      startGame([{ name: game.players[0].name, color: game.players[0].color, isAI: false }], 1, { practice: true, feel: chosenFeel() });
     } else {
       const defs = game.players.map(p => ({ name: p.name, color: p.color, isAI: p.isAI }));
-      startGame(defs, game.direction, { difficulty: game.difficulty });
+      startGame(defs, game.direction, { difficulty: game.difficulty, feel: chosenFeel() });
     }
   });
 
@@ -190,10 +241,60 @@
     onFlick(vx, -up);
   }
 
+  // CPU pacing: harder CPUs commit a touch faster/steadier; add jitter + a brief
+  // wind-up so turns don't read as instant/robotic.
+  function aiThinkDelay() {
+    const base = { easy: 1300, medium: 1050, hard: 850 }[game.difficulty] || 1050;
+    return base + Math.random() * 500;
+  }
+  function scheduleAi() {
+    Input.disable();
+    flipHintEl.classList.add('hidden');
+    streakBannerEl.textContent = '🤖 lining up…';
+    streakBannerEl.className = 'streak-banner';
+    aiTimer = setTimeout(() => {
+      streakBannerEl.textContent = '';
+      aiFlick();
+    }, aiThinkDelay());
+  }
+
+  // ── Turn-handoff gate (pass-and-play clarity + no accidental flicks) ────────
+  let handoffCb = null;
+
+  function showHandoff(player, cb) {
+    handoffCb = cb;
+    handoffNameEl.textContent = player.name;
+    handoffNameEl.style.color = player.color;
+    handoffEl.classList.remove('hidden');
+  }
+
+  handoffEl.addEventListener('click', () => {
+    handoffEl.classList.add('hidden');
+    const cb = handoffCb; handoffCb = null;
+    if (cb) cb();
+  });
+
+  // ── First-launch tutorial (shown once, then never blocks) ───────────────────
+  const TUTORIAL_KEY = 'flipgame.tutorialSeen';
+
+  function maybeShowTutorial(after) {
+    let seen = false;
+    try { seen = localStorage.getItem(TUTORIAL_KEY) === '1'; } catch (_) {}
+    if (seen) { after(); return; }
+    tutorialEl.classList.remove('hidden');
+    tutorialDoneBtn.onclick = () => {
+      try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch (_) {}
+      tutorialEl.classList.add('hidden');
+      after();
+    };
+  }
+
   function startGame(defs, dir, opts) {
+    opts = opts || {};
     Renderer.init(canvas);
     resize();   // sets DPR transform + renderer logical dims (must run after init)
     Physics.init(window.innerWidth, window.innerHeight);  // logical coords
+    Physics.setFeel(opts.feel || 'standard');
 
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
@@ -201,7 +302,7 @@
     game.on(GAME_STATES.ELIMINATED, onEliminated);
     game.on(GAME_STATES.GAME_OVER,  onGameOver);
 
-    game.init(defs, dir, opts || {});
+    game.init(defs, dir, opts);
 
     if (loopId) cancelAnimationFrame(loopId);
     lastTime = performance.now();
@@ -221,6 +322,12 @@
       if (result) {
         evaluating = false;
         showGlow   = result === 'MAKE';
+        const b = Physics.getBottle();
+        Renderer.kick(result, {
+          x: b.position.x,
+          y: b.position.y,
+          color: game.currentPlayer()?.color || '#69f0ae',
+        });
         game.resolveFlip(result);
       }
     }
@@ -279,12 +386,14 @@
     pointCountEl.textContent = game.pointCount > 1 ? `⚡ ×${game.pointCount}` : '';
     if (p.isAI) {
       turnBannerEl.textContent = `🤖 ${p.name}`;
-      Input.disable();
-      flipHintEl.classList.add('hidden');
-      aiTimer = setTimeout(aiFlick, 1100);
+      scheduleAi();
     } else {
       turnBannerEl.textContent = `${p.name}'s turn`;
-      Input.enable();
+      flipHintEl.classList.add('hidden');           // hidden until they tap in
+      showHandoff(p, () => {
+        flipHintEl.classList.remove('hidden');
+        Input.enable();
+      });
     }
     updateHUD();
   }
@@ -302,9 +411,7 @@
     streakBannerEl.className   = 'streak-banner on-fire';
     pointCountEl.textContent   = '';
     if (p.isAI) {
-      Input.disable();
-      flipHintEl.classList.add('hidden');
-      aiTimer = setTimeout(aiFlick, 1000);
+      scheduleAi();
     } else {
       Input.enable();
     }
@@ -357,8 +464,11 @@
       streakBannerEl.className   = 'streak-banner on-fire';
       Sound.play('miss');
     } else {
+      const info = Physics.getLandingInfo();
+      const soClose = info && info.flipped && Math.abs(info.finalAngle) < 0.9;
       const n = game.lastPenalty;
-      streakBannerEl.textContent = `−${n} ${n === 1 ? 'life' : 'lives'}`;
+      const penalty = `−${n} ${n === 1 ? 'life' : 'lives'}`;
+      streakBannerEl.textContent = soClose ? `So close! ${penalty}` : penalty;
       streakBannerEl.className   = 'streak-banner miss-penalty';
       Sound.play('miss');
     }
@@ -390,10 +500,22 @@
     Sound.unlock();
     Sound.play('flick');
     Physics.applyFlick(vx, vy);
+
+    // Optional learning aid: flash how this flick's strength compares to the
+    // ~2100 px/s sweet spot. Shown during airtime; onResult overwrites it.
+    if (flickFeedbackOn()) {
+      const info = Physics.getLastFlickInfo();
+      if (info) {
+        const d = info.upSpeed - 2100;
+        streakBannerEl.textContent = Math.abs(d) < 250 ? '✦ Perfect snap' : (d < 0 ? 'Too soft' : 'Too hard');
+        streakBannerEl.className = 'streak-banner';
+      }
+    }
+
     Input.disable();
     flipHintEl.classList.add('hidden');
     evaluating = true;
-    game.setState(GAME_STATES.EVALUATING);
+    game.setState(GAME_STATES.EVALUATING);  // flag-only state (no callback registered)
   }
 
   // ── HUD ────────────────────────────────────────────────────────────────────
@@ -431,6 +553,26 @@
   }
 
   Input.attach(canvas, onFlick);
+
+  // ── Mute toggle (persisted) ─────────────────────────────────────────────────
+  const MUTE_KEY = 'flipgame.muted';
+  const muteBtn = document.getElementById('mute-btn');
+
+  function applyMute(v) {
+    Sound.setMuted(v);
+    muteBtn.textContent = v ? '🔇' : '🔊';
+    try { localStorage.setItem(MUTE_KEY, v ? '1' : '0'); } catch (_) {}
+  }
+  let muted0 = false;
+  try { muted0 = localStorage.getItem(MUTE_KEY) === '1'; } catch (_) {}
+  applyMute(muted0);
+  muteBtn.addEventListener('click', () => applyMute(!Sound.isMuted()));
+
+  // ── Reduced motion ──────────────────────────────────────────────────────────
+  const reduceMotion = !!(window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  Renderer.setReduceMotion(reduceMotion);
+  if (reduceMotion) document.body.classList.add('reduce-motion');
 
   // Show setup on load
   setupScreen.classList.remove('hidden');
