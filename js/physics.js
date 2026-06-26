@@ -19,6 +19,7 @@ const Physics = (() => {
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
 
   let lastFlickInfo = null;   // debug: { upSpeed, power, spin }
+  let lastLanding   = null;   // display-only: { flipped, finalAngle } of last judged stop
 
   // ── Liquid oscillator ──────────────────────────────────────────────────────
   // Virtual pendulum — tracks the slosh of liquid inside the bottle.
@@ -79,9 +80,10 @@ const Physics = (() => {
       for (const a of angleWin) { if (a < lo) lo = a; if (a > hi) hi = a; }
       if (angleWin.length >= 22 && (hi - lo) < 0.03) {
         // Must have completed a full rotation AND land upright
-        if (!hasFlipped) return 'MISS';
         let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         if (angle > Math.PI) angle -= 2 * Math.PI;
+        lastLanding = { flipped: hasFlipped, finalAngle: angle };  // display-only
+        if (!hasFlipped) return 'MISS';
         return Math.abs(angle) < 0.61 ? 'MAKE' : 'MISS';  // ±35° window
       }
     } else {
@@ -231,6 +233,7 @@ const Physics = (() => {
   function getGroundY() { return groundY; }
   function getRotations()    { return bottle ? Math.abs(bottle.angle - launchAngle) / (2 * Math.PI) : 0; }
   function getLastFlickInfo() { return lastFlickInfo; }
+  function getLandingInfo()   { return lastLanding; }
 
-  return { init, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getRotations, getLastFlickInfo };
+  return { init, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getRotations, getLastFlickInfo, getLandingInfo };
 })();
