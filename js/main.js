@@ -16,6 +16,10 @@
   const practiceBtn  = document.getElementById('practice-btn');
   const addPlayerBtn = document.getElementById('add-player-btn');
   const playerInputs = document.getElementById('player-inputs');
+  const handoffEl    = document.getElementById('handoff-overlay');
+  const handoffNameEl = document.getElementById('handoff-name');
+  const tutorialEl   = document.getElementById('tutorial-overlay');
+  const tutorialDoneBtn = document.getElementById('tutorial-done-btn');
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Scale the backing store by devicePixelRatio so everything is crisp on a
@@ -135,10 +139,12 @@
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
     Sound.unlock();   // first user gesture — unlock audio
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
-    gameOverEl.classList.add('hidden');
-    startGame(defs, dir, { difficulty: chosenDifficulty() });
+    maybeShowTutorial(() => {
+      setupScreen.classList.add('hidden');
+      gameScreen.classList.remove('hidden');
+      gameOverEl.classList.add('hidden');
+      startGame(defs, dir, { difficulty: chosenDifficulty() });
+    });
   });
 
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
@@ -146,10 +152,12 @@
     const r0 = readRows()[0] || { name: 'You', flavor: 0 };
     const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false };
     Sound.unlock();
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
-    gameOverEl.classList.add('hidden');
-    startGame([def], 1, { practice: true });
+    maybeShowTutorial(() => {
+      setupScreen.classList.add('hidden');
+      gameScreen.classList.remove('hidden');
+      gameOverEl.classList.add('hidden');
+      startGame([def], 1, { practice: true });
+    });
   });
 
   playAgainBtn.addEventListener('click', () => {
@@ -188,6 +196,37 @@
     const up = Math.max(500, 2100 + gauss * sigma);   // sweet spot ~2100 px/s
     const vx = (Math.random() - 0.5) * 420;           // slight lean
     onFlick(vx, -up);
+  }
+
+  // ── Turn-handoff gate (pass-and-play clarity + no accidental flicks) ────────
+  let handoffCb = null;
+
+  function showHandoff(player, cb) {
+    handoffCb = cb;
+    handoffNameEl.textContent = player.name;
+    handoffNameEl.style.color = player.color;
+    handoffEl.classList.remove('hidden');
+  }
+
+  handoffEl.addEventListener('click', () => {
+    handoffEl.classList.add('hidden');
+    const cb = handoffCb; handoffCb = null;
+    if (cb) cb();
+  });
+
+  // ── First-launch tutorial (shown once, then never blocks) ───────────────────
+  const TUTORIAL_KEY = 'flipgame.tutorialSeen';
+
+  function maybeShowTutorial(after) {
+    let seen = false;
+    try { seen = localStorage.getItem(TUTORIAL_KEY) === '1'; } catch (_) {}
+    if (seen) { after(); return; }
+    tutorialEl.classList.remove('hidden');
+    tutorialDoneBtn.onclick = () => {
+      try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch (_) {}
+      tutorialEl.classList.add('hidden');
+      after();
+    };
   }
 
   function startGame(defs, dir, opts) {
@@ -284,7 +323,11 @@
       aiTimer = setTimeout(aiFlick, 1100);
     } else {
       turnBannerEl.textContent = `${p.name}'s turn`;
-      Input.enable();
+      flipHintEl.classList.add('hidden');           // hidden until they tap in
+      showHandoff(p, () => {
+        flipHintEl.classList.remove('hidden');
+        Input.enable();
+      });
     }
     updateHUD();
   }

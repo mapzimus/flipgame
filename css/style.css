@@ -409,6 +409,68 @@ html, body {
 .player-card.low-lives .p-lives-num { color: var(--miss); }
 .player-card.on-fire   .p-lives-num { color: var(--fire); }
 
+/* ── Turn-handoff gate ───────────────────────────────────── */
+#handoff-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 12, 22, 0.82);
+  backdrop-filter: blur(4px);
+  pointer-events: all;                 /* re-enable: #game-screen disables them */
+  cursor: pointer;
+  animation: handoff-in 0.18s ease-out;
+}
+@keyframes handoff-in { from { opacity: 0; } to { opacity: 1; } }
+
+.handoff-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 48px;
+  text-align: center;
+}
+.handoff-label {
+  font-size: 1rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.handoff-name {
+  font-size: clamp(2.6rem, 11vw, 6rem);
+  font-weight: 900;
+  line-height: 1;
+  /* color set inline to the player's flavor in JS */
+  text-shadow: 0 0 32px currentColor;
+}
+.handoff-tap {
+  margin-top: 14px;
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.6);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* ── First-launch tutorial ───────────────────────────────── */
+#tutorial-overlay {
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(6px);
+  z-index: 30;
+}
+.tutorial-card { gap: 14px; }
+.tutorial-card h2 { font-size: 1.4rem; font-weight: 800; text-align: center; }
+.tut-list { display: flex; flex-direction: column; gap: 10px; padding-left: 18px; }
+.tut-list li { font-size: 0.98rem; line-height: 1.35; }
+#tutorial-done-btn {
+  margin-top: 4px;
+  background: linear-gradient(135deg, #0288d1, #4fc3f7);
+  border: none; color: #fff; border-radius: 10px; padding: 12px;
+  font-size: 1rem; font-weight: 700; cursor: pointer;
+}
+#tutorial-done-btn:active { transform: scale(0.98); }
+
 /* ── Game Over screen ────────────────────────────────────── */
 #game-over {
   background: rgba(0,0,0,0.8);

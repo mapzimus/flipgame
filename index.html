@@ -62,8 +62,29 @@
       </div>
       <div id="streak-banner"></div>
     </div>
-    <div id="flip-hint">Flick up to flip!</div>
+    <div id="flip-hint">Flick UP — harder = more spin. Land it upright!</div>
     <div id="player-list"></div>
+    <div id="handoff-overlay" class="hidden">
+      <div class="handoff-card">
+        <div class="handoff-label">Pass to</div>
+        <div id="handoff-name" class="handoff-name"></div>
+        <div class="handoff-tap">Tap anywhere to flip</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── First-launch tutorial ────────────────────────── -->
+  <div id="tutorial-overlay" class="screen hidden">
+    <div class="setup-card tutorial-card">
+      <h2>How to flip</h2>
+      <ul class="tut-list">
+        <li><b>Flick up</b> from the bottle to toss it.</li>
+        <li><b>Harder flick = more spin.</b> Find the snap that lands one clean turn.</li>
+        <li><b>Lean left/right</b> to change which way it tumbles.</li>
+        <li>Land it <b>upright</b> for a MAKE.</li>
+      </ul>
+      <button id="tutorial-done-btn">Got it</button>
+    </div>
   </div>
 
   <!-- ── Game Over ────────────────────────────────────── -->
