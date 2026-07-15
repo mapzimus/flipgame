@@ -52,11 +52,17 @@ const Sound = (() => {
     ignite: () => { tone({ freq: 200, slideTo: 900, type: 'sawtooth', dur: 0.4, gain: 0.22 });
                     [392, 494, 587, 784].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.12, gain: 0.16, delay: 0.12 + i * 0.06 })); },
     win:    () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.3, delay: i * 0.12 })),
+    // Physical contact — gain scales with impact speed (see main.js wiring)
+    thud:   (gain = 0.22) => noise(0.09, Math.min(0.4, gain), 700),
+    wall:   () => tone({ freq: 540, type: 'triangle', dur: 0.07, gain: 0.10 }),
+    // Elimination beat — a descending "you're out" + low rumble
+    eliminated: () => { tone({ freq: 330, slideTo: 130, type: 'sawtooth', dur: 0.6, gain: 0.22 });
+                        noise(0.18, 0.2, 500); },
   };
 
   return {
     unlock,
-    play: (name) => { if (sfx[name]) sfx[name](); },
+    play: (name, arg) => { if (sfx[name]) sfx[name](arg); },
     toggleMute: () => (muted = !muted),
     setMuted: (v) => (muted = !!v),
     isMuted: () => muted,
