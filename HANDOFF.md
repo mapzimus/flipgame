@@ -277,9 +277,12 @@ hybrid — **replay is for visuals, the flicking player's device is authoritativ
 the MAKE/MISS result.**
 
 **Prep already needed (cheap, do alongside other work):**
-1. Seed the RNG — replace `Math.random()` in `physics.js` (jitter + landing kick) with
-   a seeded PRNG (e.g. mulberry32); the flick broadcasts its seed.
-2. Switch the game loop to a **fixed-timestep accumulator** (currently variable dt).
+1. Seed the RNG — **DONE ✓** `physics.js` reseeds a mulberry32 stream per flick; the
+   seed is recorded in `getLastFlickInfo().seed`, and `applyFlick(vx, vy, seed)`
+   replays a flick's randomness exactly.
+2. Fixed-timestep accumulator — **DONE ✓** physics steps at a fixed 60Hz regardless
+   of display refresh (`FIXED_DT` in `physics.js`); same flick + seed = identical
+   outcome at any frame rate (verified headless at 60/120/144fps render loops).
 3. Matter.js is already pinned/vendored (0.19). ✓
 
 **Transport:** realtime over `wss://` — **Supabase Realtime** (already connected) or
