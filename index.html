@@ -76,6 +76,10 @@
       <div id="streak-banner"></div>
     </div>
     <div id="flip-hint">Flick UP — harder = more spin. Land it upright!</div>
+    <div id="practice-meter" class="hidden">
+      <div class="pm-track"><div class="pm-band"></div><div class="pm-marker"></div></div>
+      <div class="pm-label">flick strength — green zone ≈ one clean flip</div>
+    </div>
     <div id="player-list"></div>
     <div id="handoff-overlay" class="hidden">
       <div class="handoff-card">
@@ -102,10 +106,12 @@
 
   <!-- ── Game Over ────────────────────────────────────── -->
   <div id="game-over" class="screen hidden">
+    <canvas id="confetti-canvas"></canvas>
     <div class="game-over-card">
       <div style="font-size:3rem">🏆</div>
       <h2>Winner</h2>
       <div id="winner-name"></div>
+      <div id="match-summary"></div>
       <button id="play-again-btn">Play Again</button>
     </div>
   </div>

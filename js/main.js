@@ -20,6 +20,8 @@
   const handoffNameEl = document.getElementById('handoff-name');
   const tutorialEl   = document.getElementById('tutorial-overlay');
   const tutorialDoneBtn = document.getElementById('tutorial-done-btn');
+  const practiceMeterEl = document.getElementById('practice-meter');
+  const matchSummaryEl  = document.getElementById('match-summary');
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Scale the backing store by devicePixelRatio so everything is crisp on a
@@ -34,6 +36,7 @@
     canvas.style.height = h + 'px';
     canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     Renderer.resize(w, h);
+    Physics.resizeWorld(w, h);   // keep ground/walls in sync (no-op before init)
   }
   window.addEventListener('resize', resize);
 
@@ -155,6 +158,44 @@
     return !!document.getElementById('flick-feedback-toggle')?.checked;
   }
 
+  // ── Setup persistence — don't make the class re-type names every day ────────
+  const SETUP_KEY = 'flipgame.setup';
+
+  function setRadio(name, value) {
+    const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
+    if (el) el.checked = true;
+  }
+
+  function saveSetup() {
+    try {
+      localStorage.setItem(SETUP_KEY, JSON.stringify({
+        rows:       readRows(),
+        direction:  document.querySelector('input[name="direction"]:checked')?.value ?? '1',
+        difficulty: chosenDifficulty(),
+        feel:       chosenFeel(),
+        feedback:   flickFeedbackOn(),
+      }));
+    } catch (_) {}
+  }
+
+  function loadSetup() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SETUP_KEY));
+      if (!s || !Array.isArray(s.rows) || s.rows.length < 2) return false;
+      renderFrom(s.rows.slice(0, 8).map((r, i) => ({
+        name:   String(r.name ?? `Player ${i + 1}`).slice(0, 14),
+        flavor: Math.min(Math.max(parseInt(r.flavor) || 0, 0), FLAVORS.length - 1),
+        ai:     !!r.ai,
+      })));
+      setRadio('direction',  s.direction);
+      setRadio('difficulty', s.difficulty);
+      setRadio('feel',       s.feel);
+      const fb = document.getElementById('flick-feedback-toggle');
+      if (fb) fb.checked = !!s.feedback;
+      return true;
+    } catch (_) { return false; }
+  }
+
   // ── Kiosk mode: fullscreen + keep the panel awake during play ───────────────
   let wakeLock = null;
   async function acquireWakeLock() {
@@ -179,6 +220,7 @@
     const defs = rowsToDefs(readRows());
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
+    saveSetup();
     Sound.unlock();   // first user gesture — unlock audio
     enterKioskMode();
     maybeShowTutorial(() => {
@@ -193,6 +235,7 @@
   practiceBtn.addEventListener('click', () => {
     const r0 = readRows()[0] || { name: 'You', flavor: 0 };
     const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false };
+    saveSetup();
     Sound.unlock();
     enterKioskMode();
     maybeShowTutorial(() => {
@@ -214,11 +257,13 @@
     }
   });
 
-  // initial two rows
-  renderFrom([
-    { name: 'Player 1', flavor: 0, ai: false },
-    { name: 'Player 2', flavor: 1, ai: false },
-  ]);
+  // initial rows — restore the last saved roster, else defaults
+  if (!loadSetup()) {
+    renderFrom([
+      { name: 'Player 1', flavor: 0, ai: false },
+      { name: 'Player 2', flavor: 1, ai: false },
+    ]);
+  }
 
   // ── Game loop state ────────────────────────────────────────────────────────
   let lastTime    = 0;
@@ -228,6 +273,7 @@
   let resultTimer = 0;
   let resultAlpha = 0;
   let aiTimer     = null;
+  let matchStats  = null;   // per-player display-only tallies (index-aligned, null in practice)
   const RESULT_MS = 1500;
 
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
@@ -295,6 +341,10 @@
     resize();   // sets DPR transform + renderer logical dims (must run after init)
     Physics.init(window.innerWidth, window.innerHeight);  // logical coords
     Physics.setFeel(opts.feel || 'standard');
+    Physics.setImpactCallback((type, speed) => {
+      if (type === 'ground')     Sound.play('thud', 0.06 + speed * 0.015);
+      else if (type === 'wall')  Sound.play('wall');
+    });
 
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
@@ -303,6 +353,10 @@
     game.on(GAME_STATES.GAME_OVER,  onGameOver);
 
     game.init(defs, dir, opts);
+
+    matchStats = opts.practice ? null
+      : game.players.map(() => ({ attempts: 0, makes: 0, cur: 0, bestStreak: 0, bestFire: 0, worstLoss: 0 }));
+    practiceMeterEl.classList.add('hidden');   // revealed by the first practice flick
 
     if (loopId) cancelAnimationFrame(loopId);
     lastTime = performance.now();
@@ -372,6 +426,7 @@
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
+    turnBannerEl.style.color = p.color;   // HUD agrees with liquid + handoff color
     streakBannerEl.textContent = '';
     streakBannerEl.className = 'streak-banner';
 
@@ -383,7 +438,8 @@
       return;
     }
 
-    pointCountEl.textContent = game.pointCount > 1 ? `⚡ ×${game.pointCount}` : '';
+    // Spell the stake out for the room — "×4" is expert shorthand
+    pointCountEl.textContent = game.pointCount > 1 ? `⚡ Miss costs ${game.pointCount} lives` : '';
     if (p.isAI) {
       turnBannerEl.textContent = `🤖 ${p.name}`;
       scheduleAi();
@@ -407,6 +463,7 @@
 
     const p = game.currentPlayer();
     turnBannerEl.textContent  = `🔥 ${p.name} IS ON FIRE!`;
+    turnBannerEl.style.color  = '#ff6600';
     streakBannerEl.textContent = `+${game.onFireBonus} lives earned`;
     streakBannerEl.className   = 'streak-banner on-fire';
     pointCountEl.textContent   = '';
@@ -422,8 +479,24 @@
     Input.disable();
     flipHintEl.classList.add('hidden');
     resultTimer = RESULT_MS;
+    buzz(game.lastResult === 'MAKE' ? 30 : [60, 50, 90]);
 
     const p = game.currentPlayer();
+
+    // Display-only match tallies for the game-over summary
+    if (matchStats) {
+      const s = matchStats[game.currentPlayerIndex];
+      s.attempts++;
+      if (game.lastResult === 'MAKE') {
+        s.makes++;
+        s.cur++;
+        s.bestStreak = Math.max(s.bestStreak, s.cur);
+        s.bestFire   = Math.max(s.bestFire, game.onFireBonus);
+      } else {
+        s.cur = 0;
+        s.worstLoss = Math.max(s.worstLoss, game.lastPenalty);
+      }
+    }
 
     if (game.practice) {
       if (game.lastResult === 'MAKE') {
@@ -479,7 +552,12 @@
   function onEliminated() {
     const p = game.currentPlayer();
     turnBannerEl.textContent = `❌ ${p.name} is out!`;
+    turnBannerEl.style.color = '#ff5252';
+    Sound.play('eliminated');
+    buzz([80, 60, 80, 60, 160]);
     updateHUD();
+    // one-shot flash on the eliminated player's card (cards map 1:1 to players)
+    playerListEl.children[game.currentPlayerIndex]?.classList.add('just-out');
     setTimeout(() => game.advanceTurn(), 1800);
   }
 
@@ -488,8 +566,25 @@
     gameOverEl.classList.remove('hidden');
     const active = game.activePlayers();
     winnerNameEl.textContent = active.length ? active[0].name : '???';
+    renderMatchSummary(active[0]);
+    runConfetti(active[0] ? active[0].color : '#ffcc00');
     Sound.play('win');
     Input.disable();
+  }
+
+  function renderMatchSummary(winner) {
+    if (game.practice || !matchStats) { matchSummaryEl.innerHTML = ''; return; }
+    matchSummaryEl.innerHTML = game.players.map((p, i) => {
+      const s = matchStats[i];
+      const pct = s.attempts ? Math.round(s.makes / s.attempts * 100) : 0;
+      const bits = [`${s.makes}/${s.attempts} (${pct}%)`, `streak ${s.bestStreak}`];
+      if (s.bestFire > 0)  bits.push(`🔥 +${s.bestFire}`);
+      if (s.worstLoss > 1) bits.push(`worst −${s.worstLoss}`);
+      return `<div class="ms-row${winner && p === winner ? ' ms-winner' : ''}">
+        <span class="ms-name" style="color:${p.color}">${escapeHtml(p.name)}</span>
+        <span class="ms-stats">${bits.join(' · ')}</span>
+      </div>`;
+    }).join('');
   }
 
   // ── Flick ──────────────────────────────────────────────────────────────────
@@ -500,6 +595,9 @@
     Sound.unlock();
     Sound.play('flick');
     Physics.applyFlick(vx, vy);
+
+    // Practice trainer: show where this flick landed on the strength meter
+    if (game.practice) updatePracticeMeter(Physics.getLastFlickInfo());
 
     // Optional learning aid: flash how this flick's strength compares to the
     // ~2100 px/s sweet spot. Shown during airtime; onResult overwrites it.
@@ -553,6 +651,74 @@
   }
 
   Input.attach(canvas, onFlick);
+
+  // ── Haptics (phones; skipped under reduced motion) ──────────────────────────
+  function buzz(pattern) {
+    if (reduceMotion) return;
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (_) {}
+  }
+
+  // ── Practice strength meter ─────────────────────────────────────────────────
+  // Maps upSpeed 1000..3200 px/s onto the track; the green band is the make
+  // window (~1800–2400, sweet spot 2100 — see HANDOFF Part 6).
+  function updatePracticeMeter(info) {
+    if (!info) return;
+    practiceMeterEl.classList.remove('hidden');
+    const pct = Math.max(0, Math.min(1, (info.upSpeed - 1000) / 2200)) * 100;
+    practiceMeterEl.querySelector('.pm-marker').style.left = pct + '%';
+  }
+
+  // ── Winner confetti (game-over screen has its own small canvas) ─────────────
+  function runConfetti(color) {
+    if (reduceMotion) return;
+    const c = document.getElementById('confetti-canvas');
+    if (!c) return;
+    c.width = window.innerWidth;
+    c.height = window.innerHeight;
+    const cx = c.getContext('2d');
+    const colors = [color, '#ffcc00', '#ffffff'];
+    const parts = [];
+    for (let i = 0; i < 130; i++) {
+      parts.push({
+        x: c.width / 2 + (Math.random() - 0.5) * 220,
+        y: c.height * 0.35,
+        vx: (Math.random() - 0.5) * 520,
+        vy: -Math.random() * 560 - 120,
+        r: 3 + Math.random() * 4,
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 10,
+        life: 1.6 + Math.random() * 1.2,
+        c: colors[i % colors.length],
+      });
+    }
+    let last = performance.now(), elapsed = 0;
+    function tick(now) {
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now; elapsed += dt;
+      cx.clearRect(0, 0, c.width, c.height);
+      let alive = false;
+      for (const p of parts) {
+        p.life -= dt;
+        if (p.life <= 0) continue;
+        alive = true;
+        p.vy += 900 * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+        cx.save();
+        cx.translate(p.x, p.y);
+        cx.rotate(p.rot);
+        cx.globalAlpha = Math.min(1, p.life);
+        cx.fillStyle = p.c;
+        cx.fillRect(-p.r, -p.r * 0.6, p.r * 2, p.r * 1.2);
+        cx.restore();
+      }
+      if (alive && elapsed < 4 && !gameOverEl.classList.contains('hidden')) {
+        requestAnimationFrame(tick);
+      } else {
+        cx.clearRect(0, 0, c.width, c.height);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
 
   // ── Mute toggle (persisted) ─────────────────────────────────────────────────
   const MUTE_KEY = 'flipgame.muted';
