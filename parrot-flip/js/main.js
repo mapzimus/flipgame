@@ -40,41 +40,41 @@
   }
   window.addEventListener('resize', resize);
 
-  // ── Parrotts (color + personality = whose turn it is) ───────────────────────
+  // ── Parrots (color + personality = whose turn it is) ───────────────────────
   // Same physics body as the bottle — only the paint job changes.
-  const PARROTTS = [
-    { name: 'Captain Squawk', color: '#d62828', accent: '#2a9d8f', theme: 'Scarlet captain',
+  const PARROTS = [
+    { name: 'Captain Squawk', color: '#d62828', accent: '#2a9d8f', theme: 'Scarlet macaw',
       vibe: 'Bossy. Claims every make was intentional.' },
-    { name: 'Pegleg Polly',   color: '#ff4d8d', accent: '#ffe066', theme: 'Drama queen',
+    { name: 'Pegleg Polly',   color: '#ff4d8d', accent: '#ffe066', theme: 'Drama macaw',
       vibe: 'Dramatic. Screams on every miss.' },
-    { name: 'Doubloon Dave',  color: '#e9c46a', accent: '#9b4529', theme: 'Treasure hoarder',
+    { name: 'Doubloon Dave',  color: '#e9c46a', accent: '#9b4529', theme: 'Gold-feather macaw',
       vibe: 'Greedy. Only flips for gold.' },
-    { name: 'Stormy Beak',    color: '#457b9d', accent: '#1d3557', theme: 'Weather bird',
+    { name: 'Stormy Beak',    color: '#457b9d', accent: '#1d3557', theme: 'Blue macaw',
       vibe: 'Gloomy. Predicted this miss yesterday.' },
-    { name: 'Barnacle Bill',  color: '#2a9d8f', accent: '#264653', theme: 'Old salt',
+    { name: 'Barnacle Bill',  color: '#2a9d8f', accent: '#264653', theme: 'Sea-green macaw',
       vibe: 'Salty. Has notes on your flick form.' },
-    { name: 'Sir Chirpsalot', color: '#7b2cbf', accent: '#c59a4a', theme: 'Fancy lad',
+    { name: 'Sir Chirpsalot', color: '#7b2cbf', accent: '#c59a4a', theme: 'Royal macaw',
       vibe: 'Posh. Tips a tiny hat after makes.' },
-    { name: 'Cannonball Carl',color: '#f4a261', accent: '#e76f51', theme: 'Loose cannon',
+    { name: 'Cannonball Carl',color: '#f4a261', accent: '#e76f51', theme: 'Sunrise macaw',
       vibe: 'Explosive. Zero chill, maximum spin.' },
-    { name: 'Whisper Wing',   color: '#2ec4b6', accent: '#142f4b', theme: 'Ship mystic',
+    { name: 'Whisper Wing',   color: '#2ec4b6', accent: '#142f4b', theme: 'Teal macaw',
       vibe: 'Mysterious. Knows what the bottle knows.' },
-    { name: 'Hardtack Helen', color: '#bc6c25', accent: '#fefae0', theme: 'Galley gremlin',
+    { name: 'Hardtack Helen', color: '#bc6c25', accent: '#fefae0', theme: 'Amber macaw',
       vibe: 'Hungry. Flips better after crackers.' },
   ];
-  const FLAVORS = PARROTTS; // keep old variable name for minimal churn below
+  const FLAVORS = PARROTS; // keep old variable name for minimal churn below
 
   // ── Player setup rows (name + parrot picker + Human/CPU) ────────────────────
   let playerCount = 2;
 
   function swatchesHtml(sel) {
-    return PARROTTS.map((f, i) =>
+    return PARROTS.map((f, i) =>
       `<button type="button" class="flavor-swatch${i === sel ? ' selected' : ''}" data-idx="${i}" style="background:${f.color}" title="${f.name} — ${f.theme}"></button>`
     ).join('');
   }
 
   function rowHtml(i, def) {
-    const p = PARROTTS[def.flavor];
+    const p = PARROTS[def.flavor];
     return `<div class="player-input-row" data-flavor="${def.flavor}" data-ai="${def.ai ? 1 : 0}">
       <div class="prow-top">
         <span class="player-num" style="color:${p.color}">P${i + 1}</span>
@@ -119,8 +119,8 @@
   function addPlayerInput() {
     if (playerCount >= 8) return;
     const defs = readRows();
-    const idx = defs.length % PARROTTS.length;
-    defs.push({ name: PARROTTS[idx].name, flavor: idx, ai: false });
+    const idx = defs.length % PARROTS.length;
+    defs.push({ name: PARROTS[idx].name, flavor: idx, ai: false });
     renderFrom(defs);
   }
 
@@ -129,8 +129,8 @@
     const sw = e.target.closest('.flavor-swatch');
     if (sw) {
       const row = sw.closest('.player-input-row');
-      const prev = PARROTTS[parseInt(row.dataset.flavor) || 0];
-      const next = PARROTTS[+sw.dataset.idx];
+      const prev = PARROTS[parseInt(row.dataset.flavor) || 0];
+      const next = PARROTS[+sw.dataset.idx];
       const input = row.querySelector('input');
       const cur = (input.value || '').trim();
       // Auto-fill the parrot's default name unless the player typed a custom one
@@ -167,7 +167,7 @@
 
   function rowsToDefs(rows) {
     return rows.map((r, i) => {
-      const bird = PARROTTS[r.flavor] || PARROTTS[0];
+      const bird = PARROTS[r.flavor] || PARROTS[0];
       return {
         name: (r.name || '').trim() || bird.name,
         color: bird.color,
@@ -186,7 +186,7 @@
   }
 
   // ── Setup persistence — don't make the class re-type names every day ────────
-  const SETUP_KEY = 'parrottflip.setup';
+  const SETUP_KEY = 'parrotflip.setup';
 
   function setRadio(name, value) {
     const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
@@ -261,7 +261,7 @@
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
   practiceBtn.addEventListener('click', () => {
     const r0 = readRows()[0] || { name: 'You', flavor: 0 };
-    const bird = PARROTTS[r0.flavor] || PARROTTS[0];
+    const bird = PARROTS[r0.flavor] || PARROTS[0];
     const def = { name: (r0.name || '').trim() || bird.name, color: bird.color, isAI: false };
     saveSetup();
     Sound.unlock();
@@ -288,8 +288,8 @@
   // initial rows — restore the last saved roster, else defaults
   if (!loadSetup()) {
     renderFrom([
-      { name: PARROTTS[0].name, flavor: 0, ai: false },
-      { name: PARROTTS[1].name, flavor: 1, ai: false },
+      { name: PARROTS[0].name, flavor: 0, ai: false },
+      { name: PARROTS[1].name, flavor: 1, ai: false },
     ]);
   }
 

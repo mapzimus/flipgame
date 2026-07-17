@@ -158,7 +158,7 @@ html, body {
 }
 .parrot-vibe b { color: var(--text); font-weight: 700; }
 
-/* Parrott swatches */
+/* Parrot swatches */
 .flavor-picker {
   display: flex;
   flex-wrap: wrap;

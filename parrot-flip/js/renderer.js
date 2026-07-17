@@ -183,9 +183,9 @@ const Renderer = (() => {
     ctx.fillRect(0, groundY - 4, W, 1);
   }
 
-  // ── Parrott ────────────────────────────────────────────────────────────────
+  // ── Parrot (Caribbean macaw look) ─────────────────────────────────────────
   // Drawn in the SAME local footprint as the bottle physics body (CG at 0,0;
-  // body ~y=-72..+43, head/hat up near y=-140). Looks like a pirate parrot;
+  // body ~y=-72..+43, head/hat up near y=-140). Long-tailed macaw silhouette;
   // still lands/tips with bottle physics.
   function drawBottle(bottle, liquid, isOnFire, liquidColor) {
     const { x, y } = bottle.position;
@@ -214,21 +214,21 @@ const Renderer = (() => {
     ctx.fillStyle = wingCol;
     ctx.beginPath();
     ctx.moveTo(-8, 20);
-    ctx.quadraticCurveTo(-38, 55, -22, 78);
-    ctx.quadraticCurveTo(-6, 52, 0, 40);
+    ctx.quadraticCurveTo(-42, 62, -26, 92);
+    ctx.quadraticCurveTo(-6, 58, 0, 40);
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
     ctx.moveTo(8, 20);
-    ctx.quadraticCurveTo(38, 55, 22, 78);
-    ctx.quadraticCurveTo(6, 52, 0, 40);
+    ctx.quadraticCurveTo(42, 62, 26, 92);
+    ctx.quadraticCurveTo(6, 58, 0, 40);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = bodyCol;
     ctx.beginPath();
     ctx.moveTo(0, 18);
-    ctx.quadraticCurveTo(0, 70, 0, 82);
-    ctx.quadraticCurveTo(14, 58, 10, 28);
+    ctx.quadraticCurveTo(0, 78, 0, 96);
+    ctx.quadraticCurveTo(14, 62, 10, 28);
     ctx.closePath();
     ctx.fill();
 

@@ -1,6 +1,6 @@
 {
-  "name": "Parrott Flip",
-  "short_name": "Parrott Flip",
+  "name": "Parrot Flip",
+  "short_name": "Parrot Flip",
   "description": "Flip pirate parrots with bottle-flip physics. Eye patches mandatory.",
   "start_url": "./",
   "scope": "./",
