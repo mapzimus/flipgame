@@ -1,7 +1,7 @@
 {
-  "name": "Grog Flip",
-  "short_name": "Grog Flip",
-  "description": "A pirate-themed bottle-flip physics game for WhydahStory — flip, stack streaks, catch fire.",
+  "name": "Parrott Flip",
+  "short_name": "Parrott Flip",
+  "description": "Flip pirate parrots with bottle-flip physics. Eye patches mandatory.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

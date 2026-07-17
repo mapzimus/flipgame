@@ -1,6 +1,5 @@
-// service-worker.js — offline precache for Grog Flip.
-// Bump CACHE_NAME on every release so stale caches are purged.
-const CACHE_NAME = 'grog-flip-v1';
+// service-worker.js — offline precache for Parrott Flip.
+const CACHE_NAME = 'parrott-flip-v1';
 
 const PRECACHE_URLS = [
   './',

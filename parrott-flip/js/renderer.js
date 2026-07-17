@@ -183,16 +183,18 @@ const Renderer = (() => {
     ctx.fillRect(0, groundY - 4, W, 1);
   }
 
-  // ── Bottle ─────────────────────────────────────────────────────────────────
-  // Wide squat rum/grog bottle: same silhouette as the physics hitbox (74×115 body).
-  // Local coords centered at bottle.position (physics CG, ~40px above visual base).
+  // ── Parrott ────────────────────────────────────────────────────────────────
+  // Drawn in the SAME local footprint as the bottle physics body (CG at 0,0;
+  // body ~y=-72..+43, head/hat up near y=-140). Looks like a pirate parrot;
+  // still lands/tips with bottle physics.
   function drawBottle(bottle, liquid, isOnFire, liquidColor) {
     const { x, y } = bottle.position;
     const angle  = bottle.angle;
-    const fillCol = hexToRgba(liquidColor || '#c59a4a', 0.92);
-    const meniscusCol = lighten(liquidColor || '#c59a4a', 110, 0.9);
+    const bodyCol = liquidColor || '#d62828';
+    const bellyCol = lighten(bodyCol, 90, 1);
+    const wingCol = lighten(bodyCol, -30, 1);
+    const flap = Math.max(-0.45, Math.min(0.45, (liquid.slosh || 0) * 0.55));
 
-    // ON FIRE glow
     if (isOnFire) {
       const glow = ctx.createRadialGradient(x, y, 10, x, y, 95);
       glow.addColorStop(0, 'rgba(255,100,0,0.30)');
@@ -208,117 +210,140 @@ const Renderer = (() => {
     ctx.translate(x, y);
     ctx.rotate(angle);
 
-    // Reusable body outline (wide, flat-bottomed Gatorade shape, y=-72..+43)
-    const traceBody = () => { ctx.beginPath(); ctx.roundRect(-37, -72, 74, 115, 10); };
-
-    // Amber glass tint — translucent so the grog color shows through
-    const glass = ctx.createLinearGradient(-37, 0, 37, 0);
-    glass.addColorStop(0,    'rgba(120, 72, 28, 0.34)');
-    glass.addColorStop(0.20, 'rgba(230, 190, 120, 0.42)');
-    glass.addColorStop(0.55, 'rgba(160, 100, 40, 0.30)');
-    glass.addColorStop(1,    'rgba(90, 50, 20, 0.28)');
-
-    // ── Shoulder + neck (drawn first, body covers the junction) ────────────
-    ctx.fillStyle   = glass;
-    ctx.strokeStyle = 'rgba(120, 80, 40, 0.55)';
-    ctx.lineWidth   = 1.6;
+    // Tail feathers (behind body)
+    ctx.fillStyle = wingCol;
     ctx.beginPath();
-    ctx.moveTo(-37, -68);
-    ctx.lineTo(-22, -86);
-    ctx.lineTo( 22, -86);
-    ctx.lineTo( 37, -68);
+    ctx.moveTo(-8, 20);
+    ctx.quadraticCurveTo(-38, 55, -22, 78);
+    ctx.quadraticCurveTo(-6, 52, 0, 40);
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
-    ctx.roundRect(-22, -122, 44, 40, 7);
-    ctx.fill();
-    ctx.stroke();
-
-    // ── Body: clear glass fill ─────────────────────────────────────────────
-    traceBody();
-    ctx.fillStyle = glass;
-    ctx.fill();
-
-    // ── Vivid blue liquid — surface stays LEVEL in world space ─────────────
-    // Clip to the (tilted) bottle interior, then UNDO the bottle's rotation so
-    // we fill in world-aligned axes. A world-horizontal fill ∩ the tilted bottle
-    // = liquid that finds its own level no matter how the bottle spins. The body
-    // interior is y=-72..+43 rel. to the CG; max corner distance ~81px, so the
-    // -120..120 / down-to-240 fill amply covers it once clipped.
-    ctx.save();
-    traceBody();
-    ctx.clip();
-    ctx.rotate(-angle);                                    // → world-aligned axes
-    const surfaceY = 15;                                   // ~30% full when upright
-    const tilt  = Math.max(-0.28, Math.min(0.28, liquid.slosh)); // slosh wobble (rad)
-    const slope = Math.tan(tilt);
-    const yL = surfaceY - 120 * slope, yR = surfaceY + 120 * slope;
-    ctx.fillStyle = fillCol;
-    ctx.beginPath();
-    ctx.moveTo(-120, yL);
-    ctx.lineTo( 120, yR);
-    ctx.lineTo( 120, 240);
-    ctx.lineTo(-120, 240);
+    ctx.moveTo(8, 20);
+    ctx.quadraticCurveTo(38, 55, 22, 78);
+    ctx.quadraticCurveTo(6, 52, 0, 40);
     ctx.closePath();
     ctx.fill();
-    // bright meniscus line along the surface
-    ctx.strokeStyle = meniscusCol;
-    ctx.lineWidth = 2;
+    ctx.fillStyle = bodyCol;
     ctx.beginPath();
-    ctx.moveTo(-120, yL);
-    ctx.lineTo( 120, yR);
-    ctx.stroke();
-    ctx.restore();
-
-    // ── Specular highlights (clipped to body) ──────────────────────────────
-    ctx.save();
-    traceBody();
-    ctx.clip();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.fillRect(-30, -72, 6, 115);   // left bright strip
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-    ctx.fillRect(23, -72, 4, 115);    // right faint reflection
-    ctx.restore();
-
-    // ── Crisp body outline ─────────────────────────────────────────────────
-    traceBody();
-    ctx.strokeStyle = 'rgba(110, 70, 35, 0.80)';
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
-
-    // ── Parchment label band ──────────────────────────────────────────────
-    ctx.fillStyle = 'rgba(244, 239, 227, 0.92)';
-    ctx.beginPath();
-    ctx.roundRect(-35, -58, 70, 28, 4);
+    ctx.moveTo(0, 18);
+    ctx.quadraticCurveTo(0, 70, 0, 82);
+    ctx.quadraticCurveTo(14, 58, 10, 28);
+    ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = '#9b4529';        // rust stripe
-    ctx.fillRect(-35, -47, 70, 5);
+
+    // Feet (at visual base ≈ bottle bottom)
+    ctx.strokeStyle = '#e9c46a';
+    ctx.lineWidth = 3.2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-14, 40); ctx.lineTo(-22, 52); ctx.moveTo(-14, 40); ctx.lineTo(-8, 54); ctx.moveTo(-14, 40); ctx.lineTo(-16, 54);
+    ctx.moveTo( 14, 40); ctx.lineTo( 22, 52); ctx.moveTo( 14, 40); ctx.lineTo( 8, 54); ctx.moveTo( 14, 40); ctx.lineTo( 16, 54);
+    ctx.stroke();
+
+    // Body
+    ctx.fillStyle = bodyCol;
+    ctx.beginPath();
+    ctx.ellipse(0, -8, 34, 48, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Belly
+    ctx.fillStyle = bellyCol;
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 20, 30, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Wing (flaps a bit from the old liquid-slosh signal)
+    ctx.save();
+    ctx.translate(6, -6);
+    ctx.rotate(flap);
+    ctx.fillStyle = wingCol;
+    ctx.beginPath();
+    ctx.ellipse(18, 8, 16, 28, -0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(10, -8); ctx.quadraticCurveTo(28, 8, 14, 30);
+    ctx.stroke();
+    ctx.restore();
+
+    // Head
+    ctx.fillStyle = bodyCol;
+    ctx.beginPath();
+    ctx.arc(0, -78, 26, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Beak
+    ctx.fillStyle = '#f4a261';
+    ctx.beginPath();
+    ctx.moveTo(10, -78);
+    ctx.quadraticCurveTo(38, -72, 18, -62);
+    ctx.quadraticCurveTo(12, -70, 10, -78);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#e76f51';
+    ctx.beginPath();
+    ctx.moveTo(10, -74);
+    ctx.quadraticCurveTo(30, -68, 16, -64);
+    ctx.closePath();
+    ctx.fill();
+
+    // Visible eye (right side) — left eye always covered by the patch
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(8, -82, 6.5, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = '#142f4b';
-    ctx.font = 'bold 9px Georgia, serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('GROG', 0, -52);
+    ctx.beginPath();
+    ctx.arc(9.5, -82, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(11, -84, 1.2, 0, Math.PI * 2);
+    ctx.fill();
 
-    // ── Cork stopper ──────────────────────────────────────────────────────
-    ctx.fillStyle = '#8b5a2b';
+    // ── Eye patch (EVERY parrot) ──────────────────────────────────────────
+    // Black patch over the left eye + thin strap around the head.
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.roundRect(-18, -146, 36, 24, 5);
-    ctx.fill();
-    ctx.fillStyle = '#c4a574';
-    ctx.beginPath();
-    ctx.roundRect(-16, -144, 32, 8, 3);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(-18, -146, 36, 24, 5);
+    ctx.moveTo(-24, -90);
+    ctx.quadraticCurveTo(0, -100, 24, -88);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-22, -70);
+    ctx.quadraticCurveTo(0, -62, 20, -72);
+    ctx.stroke();
+    // Patch oval
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.ellipse(-9, -82, 9.5, 8, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    // Tiny highlight so it reads as cloth, not a hole
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.ellipse(-12, -85, 3, 2, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tiny pirate bandana tuft on top
+    ctx.fillStyle = '#9b4529';
+    ctx.beginPath();
+    ctx.arc(0, -100, 12, Math.PI, 0);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(10, -100);
+    ctx.quadraticCurveTo(28, -118, 8, -112);
+    ctx.quadraticCurveTo(14, -104, 10, -100);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.restore();
 
-    // Blue splash on hard slosh
+    // Feather puff when "sloshing" hard
     if (Math.abs(liquid.vel) > 1.6) {
-      spawnSplash(x, y - 30, 2, 'rgba(197, 154, 74, 0.85)');
+      spawnSplash(x, y - 30, 2, hexToRgba(bodyCol, 0.85));
     }
   }
 

@@ -150,7 +150,15 @@ html, body {
 }
 .ai-toggle.cpu { background: rgba(255,179,0,0.2); border-color: var(--heat); }
 
-/* Flavor swatches */
+.parrot-vibe {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted);
+  padding: 0 2px 2px;
+}
+.parrot-vibe b { color: var(--text); font-weight: 700; }
+
+/* Parrott swatches */
 .flavor-picker {
   display: flex;
   flex-wrap: wrap;

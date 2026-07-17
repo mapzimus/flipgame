@@ -40,37 +40,50 @@
   }
   window.addEventListener('resize', resize);
 
-  // ── Grog colors (liquid color = whose turn it is) ───────────────────────────
-  const FLAVORS = [
-    { name: 'Caribbean Blue', color: '#1f8fbf' },
-    { name: 'Crimson Flag',   color: '#c23b22' },
-    { name: 'Lime Cordial',   color: '#7cb518' },
-    { name: 'Spiced Amber',   color: '#d4782e' },
-    { name: 'Grape Shot',     color: '#7a3fb0' },
-    { name: 'Sea Glass',      color: '#3db8a8' },
-    { name: 'Doubloon Gold',  color: '#c59a4a' },
-    { name: 'Ruby Port',      color: '#b02050' },
-    { name: "Ship's Lemon",   color: '#e6c200' },
+  // ── Parrotts (color + personality = whose turn it is) ───────────────────────
+  // Same physics body as the bottle — only the paint job changes.
+  const PARROTTS = [
+    { name: 'Captain Squawk', color: '#d62828', accent: '#2a9d8f', theme: 'Scarlet captain',
+      vibe: 'Bossy. Claims every make was intentional.' },
+    { name: 'Pegleg Polly',   color: '#ff4d8d', accent: '#ffe066', theme: 'Drama queen',
+      vibe: 'Dramatic. Screams on every miss.' },
+    { name: 'Doubloon Dave',  color: '#e9c46a', accent: '#9b4529', theme: 'Treasure hoarder',
+      vibe: 'Greedy. Only flips for gold.' },
+    { name: 'Stormy Beak',    color: '#457b9d', accent: '#1d3557', theme: 'Weather bird',
+      vibe: 'Gloomy. Predicted this miss yesterday.' },
+    { name: 'Barnacle Bill',  color: '#2a9d8f', accent: '#264653', theme: 'Old salt',
+      vibe: 'Salty. Has notes on your flick form.' },
+    { name: 'Sir Chirpsalot', color: '#7b2cbf', accent: '#c59a4a', theme: 'Fancy lad',
+      vibe: 'Posh. Tips a tiny hat after makes.' },
+    { name: 'Cannonball Carl',color: '#f4a261', accent: '#e76f51', theme: 'Loose cannon',
+      vibe: 'Explosive. Zero chill, maximum spin.' },
+    { name: 'Whisper Wing',   color: '#2ec4b6', accent: '#142f4b', theme: 'Ship mystic',
+      vibe: 'Mysterious. Knows what the bottle knows.' },
+    { name: 'Hardtack Helen', color: '#bc6c25', accent: '#fefae0', theme: 'Galley gremlin',
+      vibe: 'Hungry. Flips better after crackers.' },
   ];
+  const FLAVORS = PARROTTS; // keep old variable name for minimal churn below
 
-  // ── Player setup rows (name + flavor picker + Human/CPU) ────────────────────
+  // ── Player setup rows (name + parrot picker + Human/CPU) ────────────────────
   let playerCount = 2;
 
   function swatchesHtml(sel) {
-    return FLAVORS.map((f, i) =>
-      `<button type="button" class="flavor-swatch${i === sel ? ' selected' : ''}" data-idx="${i}" style="background:${f.color}" title="${f.name}"></button>`
+    return PARROTTS.map((f, i) =>
+      `<button type="button" class="flavor-swatch${i === sel ? ' selected' : ''}" data-idx="${i}" style="background:${f.color}" title="${f.name} — ${f.theme}"></button>`
     ).join('');
   }
 
   function rowHtml(i, def) {
+    const p = PARROTTS[def.flavor];
     return `<div class="player-input-row" data-flavor="${def.flavor}" data-ai="${def.ai ? 1 : 0}">
       <div class="prow-top">
-        <span class="player-num" style="color:${FLAVORS[def.flavor].color}">P${i + 1}</span>
-        <input type="text" placeholder="Player ${i + 1}" maxlength="14" value="${escapeHtml(def.name)}">
+        <span class="player-num" style="color:${p.color}">P${i + 1}</span>
+        <input type="text" placeholder="${escapeHtml(p.name)}" maxlength="16" value="${escapeHtml(def.name)}">
         <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? '🤖' : '🧑'}</button>
         ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
       </div>
       <div class="flavor-picker">${swatchesHtml(def.flavor)}</div>
+      <div class="parrot-vibe"><b>${escapeHtml(p.name)}</b> · ${escapeHtml(p.theme)} — ${escapeHtml(p.vibe)}</div>
     </div>`;
   }
 
@@ -106,7 +119,8 @@
   function addPlayerInput() {
     if (playerCount >= 8) return;
     const defs = readRows();
-    defs.push({ name: `Player ${defs.length + 1}`, flavor: defs.length % FLAVORS.length, ai: false });
+    const idx = defs.length % PARROTTS.length;
+    defs.push({ name: PARROTTS[idx].name, flavor: idx, ai: false });
     renderFrom(defs);
   }
 
@@ -115,10 +129,20 @@
     const sw = e.target.closest('.flavor-swatch');
     if (sw) {
       const row = sw.closest('.player-input-row');
+      const prev = PARROTTS[parseInt(row.dataset.flavor) || 0];
+      const next = PARROTTS[+sw.dataset.idx];
+      const input = row.querySelector('input');
+      const cur = (input.value || '').trim();
+      // Auto-fill the parrot's default name unless the player typed a custom one
+      if (!cur || cur === prev.name || /^Player \d+$/.test(cur)) {
+        input.value = next.name;
+      }
       row.dataset.flavor = sw.dataset.idx;
       row.querySelectorAll('.flavor-swatch').forEach(s => s.classList.remove('selected'));
       sw.classList.add('selected');
-      row.querySelector('.player-num').style.color = FLAVORS[+sw.dataset.idx].color;
+      row.querySelector('.player-num').style.color = next.color;
+      const vibe = row.querySelector('.parrot-vibe');
+      if (vibe) vibe.innerHTML = `<b>${escapeHtml(next.name)}</b> · ${escapeHtml(next.theme)} — ${escapeHtml(next.vibe)}`;
       markTakenSwatches();
       return;
     }
@@ -142,11 +166,14 @@
   addPlayerBtn.addEventListener('click', addPlayerInput);
 
   function rowsToDefs(rows) {
-    return rows.map((r, i) => ({
-      name: (r.name || '').trim() || `Player ${i + 1}`,
-      color: FLAVORS[r.flavor].color,
-      isAI: r.ai,
-    }));
+    return rows.map((r, i) => {
+      const bird = PARROTTS[r.flavor] || PARROTTS[0];
+      return {
+        name: (r.name || '').trim() || bird.name,
+        color: bird.color,
+        isAI: r.ai,
+      };
+    });
   }
   function chosenDifficulty() {
     return document.querySelector('input[name="difficulty"]:checked')?.value || 'medium';
@@ -159,7 +186,7 @@
   }
 
   // ── Setup persistence — don't make the class re-type names every day ────────
-  const SETUP_KEY = 'flipgame.setup';
+  const SETUP_KEY = 'parrottflip.setup';
 
   function setRadio(name, value) {
     const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
@@ -234,7 +261,8 @@
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
   practiceBtn.addEventListener('click', () => {
     const r0 = readRows()[0] || { name: 'You', flavor: 0 };
-    const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false };
+    const bird = PARROTTS[r0.flavor] || PARROTTS[0];
+    const def = { name: (r0.name || '').trim() || bird.name, color: bird.color, isAI: false };
     saveSetup();
     Sound.unlock();
     enterKioskMode();
@@ -260,8 +288,8 @@
   // initial rows — restore the last saved roster, else defaults
   if (!loadSetup()) {
     renderFrom([
-      { name: 'Player 1', flavor: 0, ai: false },
-      { name: 'Player 2', flavor: 1, ai: false },
+      { name: PARROTTS[0].name, flavor: 0, ai: false },
+      { name: PARROTTS[1].name, flavor: 1, ai: false },
     ]);
   }
 
@@ -296,7 +324,7 @@
   function scheduleAi() {
     Input.disable();
     flipHintEl.classList.add('hidden');
-    streakBannerEl.textContent = '🤖 rival lining up…';
+    streakBannerEl.textContent = '🤖 lining up…';
     streakBannerEl.className = 'streak-banner';
     aiTimer = setTimeout(() => {
       streakBannerEl.textContent = '';
@@ -431,7 +459,7 @@
     streakBannerEl.className = 'streak-banner';
 
     if (game.practice) {
-      turnBannerEl.textContent = '🎯 Solo practice';
+      turnBannerEl.textContent = '🎯 Practice';
       pointCountEl.textContent = '';
       Input.enable();
       updateHUD();
