@@ -3,11 +3,9 @@
 Caribbean pirate parrots — including the bright macaws sailors actually traded —
 with bottle-flip physics. Eye patches on every bird.
 
-**Play:** https://mapzimus.github.io/flipgame/parrot-flip/
+**Play:** https://mapzimus.github.io/flipgame/parrot-flip/?v=4
 
-Historically, Golden Age sailors and pirates did carry exotic New World parrots
-(often just called “parrots,” which includes macaws) as pets and cargo. The
-shoulder-parrot stereotype got locked in later by *Treasure Island*.
+**Full handover (start here if you’re new):** [HANDOFF.md](./HANDOFF.md)
 
 Pick a colored bird (Captain Squawk, Pegleg Polly, Doubloon Dave, …). Same
 Matter.js flick physics as Flip Game — rendered as a standing pirate parrot.
@@ -15,3 +13,6 @@ Matter.js flick physics as Flip Game — rendered as a standing pirate parrot.
 Menu stays normal: Easy / Medium / Hard, Forgiving / Standard / Pro.
 
 No build step — open `index.html` or serve the folder.
+
+**Known gap:** procedural Canvas birds look rough; HANDOFF.md lists sprite /
+art options to fix that without touching physics.
