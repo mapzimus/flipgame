@@ -13,7 +13,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Parrot Flip">
 
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
   <a class="back-link" href="../">← Flip Game</a>
@@ -116,13 +116,13 @@
     </div>
   </div>
 
-  <script src="js/vendor/matter.min.js"></script>
-  <script src="js/game.js"></script>
-  <script src="js/physics.js"></script>
-  <script src="js/input.js"></script>
-  <script src="js/renderer.js"></script>
-  <script src="js/audio.js"></script>
-  <script src="js/main.js"></script>
+  <script src="js/vendor/matter.min.js?v=4"></script>
+  <script src="js/game.js?v=4"></script>
+  <script src="js/physics.js?v=4"></script>
+  <script src="js/input.js?v=4"></script>
+  <script src="js/renderer.js?v=4"></script>
+  <script src="js/audio.js?v=4"></script>
+  <script src="js/main.js?v=4"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {
@@ -134,12 +134,21 @@
       el.textContent += `[${src?.split('/').pop()}:${line}] ${msg}\n`;
     };
 
+    // Bust sticky offline caches from earlier broken builds, then (re)register SW.
     if ('serviceWorker' in navigator && location.protocol.startsWith('http') &&
         location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js')
-          .then(reg => console.log('SW registered, scope:', reg.scope))
-          .catch(err => console.error('SW registration failed:', err));
+      window.addEventListener('load', async () => {
+        try {
+          const keys = await caches.keys();
+          const stale = keys.filter((k) =>
+            /^(parrot|parrott|grog|flip)/i.test(k) && k !== 'parrot-flip-v4');
+          if (stale.length) await Promise.all(stale.map((k) => caches.delete(k)));
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((r) => r.unregister()));
+        } catch (_) {}
+        navigator.serviceWorker.register('service-worker.js?v=4')
+          .then((reg) => console.log('SW registered, scope:', reg.scope))
+          .catch((err) => console.error('SW registration failed:', err));
       });
     }
   </script>

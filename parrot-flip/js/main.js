@@ -1,4 +1,5 @@
 // main.js — game loop, wires everything together (loaded last)
+// build: parrot-flip-v4 (uses Physics.reflow, not resizeWorld)
 
 (function () {
   const canvas       = document.getElementById('game-canvas');
