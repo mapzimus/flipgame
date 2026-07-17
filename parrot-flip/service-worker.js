@@ -1,5 +1,5 @@
 // service-worker.js — offline precache for Parrot Flip.
-const CACHE_NAME = 'parrot-flip-v2';
+const CACHE_NAME = 'parrot-flip-v3';
 
 const PRECACHE_URLS = [
   './',

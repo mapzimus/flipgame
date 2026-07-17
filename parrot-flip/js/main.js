@@ -36,7 +36,7 @@
     canvas.style.height = h + 'px';
     canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     Renderer.resize(w, h);
-    Physics.resizeWorld(w, h);   // keep ground/walls in sync (no-op before init)
+    Physics.reflow(w, h);        // keep ground/walls in sync (no-op before init)
   }
   window.addEventListener('resize', resize);
 
@@ -368,11 +368,6 @@
     Renderer.init(canvas);
     resize();   // sets DPR transform + renderer logical dims (must run after init)
     Physics.init(window.innerWidth, window.innerHeight);  // logical coords
-    Physics.setFeel(opts.feel || 'standard');
-    Physics.setImpactCallback((type, speed) => {
-      if (type === 'ground')     Sound.play('thud', 0.06 + speed * 0.015);
-      else if (type === 'wall')  Sound.play('wall');
-    });
 
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
@@ -565,8 +560,9 @@
       streakBannerEl.className   = 'streak-banner on-fire';
       Sound.play('miss');
     } else {
-      const info = Physics.getLandingInfo();
-      const soClose = info && info.flipped && Math.abs(info.finalAngle) < 0.9;
+      const info = Physics.getLastLandingInfo();
+      // tipped but nearly upright after completing a flip
+      const soClose = info && info.reason !== 'no-flip' && info.tilt != null && info.tilt < 0.9;
       const n = game.lastPenalty;
       const penalty = `−${n} ${n === 1 ? 'life' : 'lives'}`;
       streakBannerEl.textContent = soClose ? `So close! ${penalty}` : penalty;
