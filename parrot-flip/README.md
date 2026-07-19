@@ -3,7 +3,7 @@
 Caribbean pirate parrots — including the bright macaws sailors actually traded —
 with bottle-flip physics. Eye patches on every bird.
 
-**Play:** https://mapzimus.github.io/flipgame/parrot-flip/?v=5
+**Play:** https://mapzimus.github.io/flipgame/parrot-flip/?v=6
 
 **Full handover (start here if you’re new):** [HANDOFF.md](./HANDOFF.md)
 
@@ -14,5 +14,6 @@ Menu stays normal: Easy / Medium / Hard, Forgiving / Standard / Pro.
 
 No build step — open `index.html` or serve the folder.
 
-**Known gap:** procedural Canvas birds look rough; HANDOFF.md lists sprite /
-art options to fix that without touching physics.
+The birds are hand-authored SVG macaws (side profile, hooked ivory beak, white
+facial patch, golden wing band, long tail — and the mandatory pirate eye
+patch), baked per player color at runtime. See HANDOFF.md → “Art pipeline.”
