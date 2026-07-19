@@ -247,95 +247,128 @@ const Renderer = (() => {
     ctx.ellipse(0, -8, 34, 48, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Belly
+    // Wing — drawn UNDER the belly (belly trims its front edge) so it reads as
+    // a tucked wing at the bird's side, not a blob floating on top of it.
+    ctx.save();
+    ctx.translate(4, -4);
+    ctx.rotate(flap);
+    ctx.fillStyle = wingCol;
+    ctx.beginPath();
+    ctx.moveTo(-4, -18);
+    ctx.quadraticCurveTo(26, -14, 30, 14);
+    ctx.quadraticCurveTo(24, 34, 4, 32);
+    ctx.quadraticCurveTo(16, 10, -4, -18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(4, -8); ctx.quadraticCurveTo(20, 4, 10, 26);
+    ctx.moveTo(-2, -2); ctx.quadraticCurveTo(12, 8, 5, 28);
+    ctx.stroke();
+    ctx.restore();
+
+    // Belly (drawn after the wing so it overlaps the wing's inner edge)
     ctx.fillStyle = bellyCol;
     ctx.beginPath();
     ctx.ellipse(0, 2, 20, 30, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Wing (flaps a bit from the old liquid-slosh signal)
-    ctx.save();
-    ctx.translate(6, -6);
-    ctx.rotate(flap);
-    ctx.fillStyle = wingCol;
-    ctx.beginPath();
-    ctx.ellipse(18, 8, 16, 28, -0.35, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.moveTo(10, -8); ctx.quadraticCurveTo(28, 8, 14, 30);
-    ctx.stroke();
-    ctx.restore();
-
     // Head
     ctx.fillStyle = bodyCol;
     ctx.beginPath();
-    ctx.arc(0, -78, 26, 0, Math.PI * 2);
+    ctx.arc(0, -80, 27, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
 
-    // Beak
-    ctx.fillStyle = '#f4a261';
+    // ── Beak ────────────────────────────────────────────────────────────────
+    // A single bold, level hook, anchored at eye height right on the face's
+    // edge (not buried inside the head) so it reads clearly as a beak: a
+    // straight ridge out from the face, then one clean downward hook at the
+    // tip — the classic macaw silhouette.
+    const bx = 22, by = -84;  // anchor: face edge, level with the eye
+    // Pale horn tone, fixed regardless of plumage color — a couple of the
+    // roster's feather colors (gold, amber) are close enough to a "beak tan"
+    // that a matching beak nearly disappears into the head (e.g. Doubloon
+    // Dave). Desaturated ivory reads as "beak material" against all of them.
+    ctx.fillStyle = '#f5e6bf';
     ctx.beginPath();
-    ctx.moveTo(10, -78);
-    ctx.quadraticCurveTo(38, -72, 18, -62);
-    ctx.quadraticCurveTo(12, -70, 10, -78);
+    ctx.moveTo(bx - 6, by - 7);
+    ctx.quadraticCurveTo(bx + 24, by - 8, bx + 30, by + 6);
+    ctx.quadraticCurveTo(bx + 26, by + 16, bx + 12, by + 12);
+    ctx.quadraticCurveTo(bx - 4, by + 6, bx - 10, by - 2);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = '#e76f51';
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // culmen ridge highlight along the top of the hook
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1.4;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(10, -74);
-    ctx.quadraticCurveTo(30, -68, 16, -64);
+    ctx.moveTo(bx - 2, by - 4);
+    ctx.quadraticCurveTo(bx + 20, by - 5, bx + 27, by + 5);
+    ctx.stroke();
+    // lower mandible, smaller and darker, tucked under the hook
+    ctx.fillStyle = '#8a6239';
+    ctx.beginPath();
+    ctx.moveTo(bx - 8, by + 2);
+    ctx.quadraticCurveTo(bx + 8, by + 4, bx + 10, by + 14);
+    ctx.quadraticCurveTo(bx - 2, by + 15, bx - 10, by + 8);
     ctx.closePath();
     ctx.fill();
+    // nostril (cere)
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.arc(bx - 1, by - 3, 1.6, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Visible eye (right side) — left eye always covered by the patch
+    // Eye — sits just above/behind the beak base
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(8, -82, 6.5, 0, Math.PI * 2);
+    ctx.arc(4, -94, 6.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#142f4b';
     ctx.beginPath();
-    ctx.arc(9.5, -82, 3.2, 0, Math.PI * 2);
+    ctx.arc(5.5, -94, 3.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(11, -84, 1.2, 0, Math.PI * 2);
+    ctx.arc(7, -96, 1.2, 0, Math.PI * 2);
     ctx.fill();
 
     // ── Eye patch (EVERY parrot) ──────────────────────────────────────────
-    // Black patch over the left eye + thin strap around the head.
-    ctx.strokeStyle = '#1a1a1a';
-    ctx.lineWidth = 3.5;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(-24, -90);
-    ctx.quadraticCurveTo(0, -100, 24, -88);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-22, -70);
-    ctx.quadraticCurveTo(0, -62, 20, -72);
-    ctx.stroke();
-    // Patch oval
+    // Set back on the crown, away from the real eye/beak, with a single
+    // diagonal strap — reads as "pirate patch", not a second eye.
     ctx.fillStyle = '#111';
     ctx.beginPath();
-    ctx.ellipse(-9, -82, 9.5, 8, -0.25, 0, Math.PI * 2);
+    ctx.ellipse(-13, -88, 8, 7, -0.35, 0, Math.PI * 2);
     ctx.fill();
-    // Tiny highlight so it reads as cloth, not a hole
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
     ctx.beginPath();
-    ctx.ellipse(-12, -85, 3, 2, -0.3, 0, Math.PI * 2);
+    ctx.ellipse(-16, -90, 2.6, 1.8, -0.4, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-24, -98);
+    ctx.quadraticCurveTo(-13, -88, -6, -74);
+    ctx.stroke();
 
     // Tiny pirate bandana tuft on top
     ctx.fillStyle = '#9b4529';
     ctx.beginPath();
-    ctx.arc(0, -100, 12, Math.PI, 0);
+    ctx.arc(0, -102, 12, Math.PI, 0);
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(10, -100);
-    ctx.quadraticCurveTo(28, -118, 8, -112);
-    ctx.quadraticCurveTo(14, -104, 10, -100);
+    ctx.moveTo(10, -102);
+    ctx.quadraticCurveTo(28, -120, 8, -114);
+    ctx.quadraticCurveTo(14, -106, 10, -102);
     ctx.closePath();
     ctx.fill();
 
