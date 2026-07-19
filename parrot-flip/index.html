@@ -8,12 +8,13 @@
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#142f4b">
 
+  <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Parrot Flip">
 
-  <link rel="stylesheet" href="css/style.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body>
   <a class="back-link" href="../">← Flip Game</a>
@@ -116,13 +117,13 @@
     </div>
   </div>
 
-  <script src="js/vendor/matter.min.js?v=5"></script>
-  <script src="js/game.js?v=5"></script>
-  <script src="js/physics.js?v=5"></script>
-  <script src="js/input.js?v=5"></script>
-  <script src="js/renderer.js?v=5"></script>
-  <script src="js/audio.js?v=5"></script>
-  <script src="js/main.js?v=5"></script>
+  <script src="js/vendor/matter.min.js?v=6"></script>
+  <script src="js/game.js?v=6"></script>
+  <script src="js/physics.js?v=6"></script>
+  <script src="js/input.js?v=6"></script>
+  <script src="js/renderer.js?v=6"></script>
+  <script src="js/audio.js?v=6"></script>
+  <script src="js/main.js?v=6"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {
@@ -134,19 +135,17 @@
       el.textContent += `[${src?.split('/').pop()}:${line}] ${msg}\n`;
     };
 
-    // Bust sticky offline caches from earlier broken builds, then (re)register SW.
+    // Register the offline service worker (gated off localhost for dev).
     if ('serviceWorker' in navigator && location.protocol.startsWith('http') &&
         location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-      window.addEventListener('load', async () => {
-        try {
-          const keys = await caches.keys();
-          const stale = keys.filter((k) =>
-            /^(parrot|parrott|grog|flip)/i.test(k) && k !== 'parrot-flip-v4');
-          if (stale.length) await Promise.all(stale.map((k) => caches.delete(k)));
-          const regs = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(regs.map((r) => r.unregister()));
-        } catch (_) {}
-        navigator.serviceWorker.register('service-worker.js?v=5')
+      // NOTE: this used to also purge caches + unregister every SW on each
+      // load — a one-time "unstick the v3 cache" hack. Left in place, it
+      // deleted the CURRENT cache and killed the service worker on every
+      // visit, which broke offline support. The SW's own activate handler
+      // already deletes caches that don't match CACHE_NAME; plain
+      // registration is all that's needed here.
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js?v=6')
           .then((reg) => console.log('SW registered, scope:', reg.scope))
           .catch((err) => console.error('SW registration failed:', err));
       });

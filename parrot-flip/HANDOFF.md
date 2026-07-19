@@ -7,7 +7,7 @@
 | **What it is** | A pirate-parrot reskin of the bottle-flip party game |
 | **Repo** | https://github.com/mapzimus/flipgame |
 | **Folder** | `parrot-flip/` (sibling to the original game at repo root) |
-| **Live demo** | https://mapzimus.github.io/flipgame/parrot-flip/?v=5 |
+| **Live demo** | https://mapzimus.github.io/flipgame/parrot-flip/?v=6 |
 | **Parent game** | https://mapzimus.github.io/flipgame/ (original Gatorade bottle flip) |
 | **Intended home** | Eventually [whydahstory.com](https://whydahstory.com) / [Whydah-Unit](https://github.com/mapzimus/Whydah-Unit) as a classroom game |
 | **Stack** | Vanilla JS + Canvas 2D + Matter.js 0.19 (vendored). No build step, no npm. |
@@ -60,7 +60,7 @@ parrot-flip/
     physics.js             Bottle compound body + flick + landing judge  ← DO NOT CHANGE for art work
     game.js                Lives, streaks, ON FIRE, turns, AI difficulty
     input.js               Pointer flick → velocity
-    renderer.js            ★ Draws the “parrot” (currently procedural Canvas) ← ART LIVES HERE
+    renderer.js            ★ Draws the parrot (authored SVG sprite, baked per color) ← ART LIVES HERE
     audio.js               WebAudio SFX
     main.js                Wires UI + loop; PARROTS roster (names/colors/vibes)
 ```
@@ -107,7 +107,7 @@ The Matter.js body is a **compound bottle**:
 
 - Heavy wide base + lighter body + neck
 - CG at `bottle.position`
-- Renderer local space: body roughly `y ≈ -72 … +43`, head/hat up near `y ≈ -140`, feet near `y ≈ +40…+54`
+- Renderer local space: ground-contact plane at `y ≈ +39` (foot soles), head top near `y ≈ -119`, tail draping to `y ≈ +52` behind the feet
 - Function is still named `drawBottle(...)` in `renderer.js` — rename only if you update the call site in `frame()`
 
 If the drawn parrot’s **visual base** drifts away from the physics feet, landings look wrong (hovering or sinking). Keep the silhouette roughly bottle-tall and feet-on-ground when `angle ≈ 0`.
@@ -116,57 +116,36 @@ If the drawn parrot’s **visual base** drifts away from the physics feet, landi
 
 ---
 
-## Known issue: the parrots look bad
+## Art pipeline: authored SVG sprites (Option C — shipped)
 
-Honest status: the birds are **quick procedural Canvas ellipses/curves** — readable as “a bird with an eye patch,” not as good character art. This is the #1 open product complaint.
+The old “quick procedural ellipses” complaint is resolved. The bird is now a
+**hand-authored SVG macaw illustration** living entirely inside
+`js/renderer.js` — no asset files, no network, still offline-safe:
 
-### Recommended ways to make them look better (pick one)
+- `parrotBodySVG(palette)` / `parrotWingSVG(palette)` return SVG documents in a
+  300×420 viewBox (side profile facing right, foot soles on svg y=376).
+- `parrotPalette(color)` derives each player's full plumage from their roster
+  color: crown/chest/deep shades plus two real-macaw accents — a **golden
+  greater-covert wing band** (`mix(color, gold)`) and **blue-slate primaries/
+  tail** (`mix(color, navy)`). Beak/eye/feet/patch tones are fixed (`ANAT`) so
+  they read as anatomy on every plumage, including the gold + amber birds.
+- Each color's two layers are baked once into `Image`s via
+  `data:image/svg+xml` URIs and cached (`getParrotSprite`); the wing layer is
+  drawn on top, rotated a few degrees by `liquid.slosh` so the bird flaps.
+- `SPR` maps the svg ground line to **local y=+39** — the physics contact
+  plane (base bottom 73px under the spawn anchor, CG 34px under that). If you
+  re-author the SVG, keep foot soles on svg y=376 or landings will look like
+  hovering/sinking.
+- `Renderer.preloadParrots(colors)` (called from `startGame` in `main.js`)
+  warms the cache; an unloaded color falls back to a simple silhouette for the
+  1–2 frames the Image needs to decode.
+- `Renderer.drawBottle` is exported for the art-iteration harness: render one
+  bird per pose/color to a canvas grid, screenshot, adjust paths, repeat.
 
-#### Option A — Sprite sheets (best quality / classroom polish) ★ recommended
-
-1. Draw or commission **one macaw pose** per bird (or one master + recolors), facing camera, upright, eye patch on.
-2. Export transparent PNGs ~200–300px tall.
-3. In `drawBottle`, `ctx.drawImage(img, -w/2, -h/2, w, h)` after `translate`/`rotate`, scaled so feet sit on the physics base.
-4. Optional: 2–3 frames (idle / flap / squash) swapped from `liquid.slosh` or angular velocity.
-
-**Pros:** Looks intentional. Easy for a human artist. Recolor via separate assets or `destination-in` masks.  
-**Cons:** Asset pipeline; need one image per parrot (or palette-swap).
-
-Suggested layout:
-
-```
-parrot-flip/assets/parrots/
-  captain-squawk.png
-  pegleg-polly.png
-  ...
-```
-
-Pass `liquidColor` / player id → pick the right image. Preload in `main.js` before `Start Game`.
-
-#### Option B — Better procedural Canvas (no assets)
-
-Stay code-only but stop using plain ellipses:
-
-- Layered feathers (fan of strokes)
-- Proper macaw beak (upper/lower mandible)
-- Head crest / longer graduated tail
-- Outline + inner shade + rim light
-- Bandana + eye patch as clear shapes (patch is mandatory)
-- Distinct belly / wing / face values per bird (use `accent` from `PARROTS`, currently mostly unused in the draw path)
-
-**Pros:** No binaries. Instant iterate.  
-**Cons:** Hard to make *cute*; easy to stay in “programmer art.”
-
-#### Option C — SVG path characters
-
-Author each parrot as SVG (or one SVG with CSS/`currentColor` fills), draw via `Path2D` or offscreen canvas.
-
-**Pros:** Crisp at any size; recolor with fill.  
-**Cons:** SVG authoring skill; still art work.
-
-#### Option D — External generator → sprites
-
-Generate macaw PNGs (AI or Figma), then Option A. Keep license/classroom-safe assets only.
+**To tweak the art:** edit the path data in `parrotBodySVG`/`parrotWingSVG`
+(plain SVG), bump `?v=` + `CACHE_NAME`, and eyeball a grid of all 9 roster
+colors at several angles before shipping — a shape that reads at scale 1 can
+break at phone size or mid-tumble.
 
 ### What *not* to do
 
@@ -176,12 +155,10 @@ Generate macaw PNGs (AI or Figma), then Option A. Keep license/classroom-safe as
 
 ### Small immediate wins (if you only have an hour)
 
-1. Use each parrot’s `accent` color on wing/tail tips and bandana.
-2. Add a dark outline around body/head (`stroke` after fills).
-3. Make the beak bigger and more macaw-hook shaped.
-4. Stretch the tail longer and use 3 feather layers.
-5. Draw a tiny pupil highlight + thicker eye-patch strap so the patch reads at phone size.
-6. Replace setup swatches with mini thumbnails once sprites exist.
+1. Replace setup swatches with mini sprite thumbnails (the SVG images already
+   exist per color — `getParrotSprite(color).body` is a ready `Image`).
+2. Use each parrot’s `accent` color somewhere visible (it’s still unused).
+3. A second wing pose (spread) swapped in while airborne would sell the flip.
 
 ---
 
@@ -196,12 +173,12 @@ Generate macaw PNGs (AI or Figma), then Option A. Keep license/classroom-safe as
 After changing JS/CSS:
 
 1. Commit + push to `master` (or merge a PR into `master`).
-2. Bump `CACHE_NAME` in `service-worker.js` (e.g. `parrot-flip-v5`).
-3. Bump `?v=` query on script/link tags in `index.html` (currently `?v=5`).
+2. Bump `CACHE_NAME` in `service-worker.js` (e.g. `parrot-flip-v6`).
+3. Bump `?v=` query on script/link tags in `index.html` (currently `?v=6`).
 4. Wait ~30s for Pages; if a phone still shows old bugs, open with a fresh query:  
-   `https://mapzimus.github.io/flipgame/parrot-flip/?v=5`
+   `https://mapzimus.github.io/flipgame/parrot-flip/?v=6`
 
-**Bug history:** An early build called `Physics.resizeWorld` but physics only exports `reflow`. Fixed on the server; phones still showed the error because the **service worker cache-first** served stale `main.js`. Mitigations now in place: network-first for HTML/JS/CSS, cache wipe of old `parrot*` / `grog*` caches on load, script `?v=5`.
+**Bug history:** An early build called `Physics.resizeWorld` but physics only exports `reflow`. Fixed on the server; phones still showed the error because the **service worker cache-first** served stale `main.js`. Mitigation in place: network-first for HTML/JS/CSS + `?v=` script queries. (An emergency on-load cache-wipe + SW-unregister hack from that incident survived until v6 — it deleted the *current* cache and killed the SW on every visit, breaking offline support. Removed; the SW's activate handler already cleans old caches.)
 
 ---
 
@@ -238,7 +215,8 @@ If you improve physics in the parent game and want Parrot Flip to match, copy `p
 
 ## Suggested next tasks (priority order)
 
-1. **Replace procedural parrot with real art** (Option A sprites) — product blocker for “looks good.”
+1. ~~Replace procedural parrot with real art~~ **DONE (v6)** — authored SVG
+   sprites; see “Art pipeline” above.
 2. Custom PWA icons (parrot, not bottle).
 3. Port folder into Whydah-Unit + link from whydahstory.com.
 4. Optional: mute bandana/eye-patch variants per bird for more personality without new physics.
