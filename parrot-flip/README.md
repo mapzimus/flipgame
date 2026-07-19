@@ -3,7 +3,7 @@
 Caribbean pirate parrots — including the bright macaws sailors actually traded —
 with bottle-flip physics. Eye patches on every bird.
 
-**Play:** https://mapzimus.github.io/flipgame/parrot-flip/?v=4
+**Play:** https://mapzimus.github.io/flipgame/parrot-flip/?v=5
 
 **Full handover (start here if you’re new):** [HANDOFF.md](./HANDOFF.md)
 

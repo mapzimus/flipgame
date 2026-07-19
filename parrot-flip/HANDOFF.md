@@ -7,7 +7,7 @@
 | **What it is** | A pirate-parrot reskin of the bottle-flip party game |
 | **Repo** | https://github.com/mapzimus/flipgame |
 | **Folder** | `parrot-flip/` (sibling to the original game at repo root) |
-| **Live demo** | https://mapzimus.github.io/flipgame/parrot-flip/?v=4 |
+| **Live demo** | https://mapzimus.github.io/flipgame/parrot-flip/?v=5 |
 | **Parent game** | https://mapzimus.github.io/flipgame/ (original Gatorade bottle flip) |
 | **Intended home** | Eventually [whydahstory.com](https://whydahstory.com) / [Whydah-Unit](https://github.com/mapzimus/Whydah-Unit) as a classroom game |
 | **Stack** | Vanilla JS + Canvas 2D + Matter.js 0.19 (vendored). No build step, no npm. |
@@ -197,11 +197,11 @@ After changing JS/CSS:
 
 1. Commit + push to `master` (or merge a PR into `master`).
 2. Bump `CACHE_NAME` in `service-worker.js` (e.g. `parrot-flip-v5`).
-3. Bump `?v=` query on script/link tags in `index.html` (currently `?v=4`).
+3. Bump `?v=` query on script/link tags in `index.html` (currently `?v=5`).
 4. Wait ~30s for Pages; if a phone still shows old bugs, open with a fresh query:  
    `https://mapzimus.github.io/flipgame/parrot-flip/?v=5`
 
-**Bug history:** An early build called `Physics.resizeWorld` but physics only exports `reflow`. Fixed on the server; phones still showed the error because the **service worker cache-first** served stale `main.js`. Mitigations now in place: network-first for HTML/JS/CSS, cache wipe of old `parrot*` / `grog*` caches on load, script `?v=4`.
+**Bug history:** An early build called `Physics.resizeWorld` but physics only exports `reflow`. Fixed on the server; phones still showed the error because the **service worker cache-first** served stale `main.js`. Mitigations now in place: network-first for HTML/JS/CSS, cache wipe of old `parrot*` / `grog*` caches on load, script `?v=5`.
 
 ---
 
