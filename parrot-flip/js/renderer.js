@@ -213,7 +213,7 @@ const Renderer = (() => {
     const VIEW_W = 300, VIEW_H = 420;
     const GROUND_SVG = 376;              // foot-sole line in svg coords
     const GROUND_LOCAL = 39;             // physics contact plane, local coords
-    const SCALE = 0.475;                 // svg px → local px
+    const SCALE = 0.62;                  // svg px → local px (bird size; feet stay anchored to GROUND_LOCAL)
     const destW = VIEW_W * SCALE, destH = VIEW_H * SCALE;
     const destX = -destW / 2;
     const destY = GROUND_LOCAL - GROUND_SVG * SCALE;

@@ -14,7 +14,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Parrot Flip">
 
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
 </head>
 <body>
   <a class="back-link" href="../">← Flip Game</a>
@@ -117,13 +117,13 @@
     </div>
   </div>
 
-  <script src="js/vendor/matter.min.js?v=6"></script>
-  <script src="js/game.js?v=6"></script>
-  <script src="js/physics.js?v=6"></script>
-  <script src="js/input.js?v=6"></script>
-  <script src="js/renderer.js?v=6"></script>
-  <script src="js/audio.js?v=6"></script>
-  <script src="js/main.js?v=6"></script>
+  <script src="js/vendor/matter.min.js?v=7"></script>
+  <script src="js/game.js?v=7"></script>
+  <script src="js/physics.js?v=7"></script>
+  <script src="js/input.js?v=7"></script>
+  <script src="js/renderer.js?v=7"></script>
+  <script src="js/audio.js?v=7"></script>
+  <script src="js/main.js?v=7"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {
@@ -145,7 +145,7 @@
       // already deletes caches that don't match CACHE_NAME; plain
       // registration is all that's needed here.
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js?v=6')
+        navigator.serviceWorker.register('service-worker.js?v=7')
           .then((reg) => console.log('SW registered, scope:', reg.scope))
           .catch((err) => console.error('SW registration failed:', err));
       });
