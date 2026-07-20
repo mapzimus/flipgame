@@ -1,6 +1,6 @@
 // service-worker.js — offline support for Parrot Flip.
 // Network-first for HTML/JS/CSS so fixes aren't stuck behind a stale cache.
-const CACHE_NAME = 'parrot-flip-v6';
+const CACHE_NAME = 'parrot-flip-v7';
 
 const PRECACHE_URLS = [
   './',
