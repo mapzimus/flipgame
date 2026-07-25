@@ -257,33 +257,37 @@ window.Skins = (function () {
   function trexPalette(base) {
     return { base, hi: shadeHex(base, 0.14), lo: shadeHex(base, -0.22), deep: shadeHex(base, -0.42), line: shadeHex(base, -0.55) };
   }
-  // Cartoon "toy dinosaur" proportions — an oversized head carrying most of
-  // the silhouette (teeth + open jaw read at a glance) over a smaller torso,
-  // rather than an anatomically-even split that reads as a generic blob.
+  // Upright "toy figurine" stance — torso stands roughly vertical with the
+  // head held up and forward, NOT leaning/diving forward — a forward-diving
+  // neck reads as a bird pecking the ground no matter how the head itself is
+  // detailed. Tail and legs are separate overlapping shapes (generous overlap
+  // at every join so there's no thin seam), and legs are single tapering
+  // curves (no hard-cornered boxes) so they read as limbs, not stovepipes.
   function trexBodySVG(p) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
-<linearGradient id="gT" x1="75" y1="65" x2="285" y2="280" gradientUnits="userSpaceOnUse">
+<linearGradient id="gT" x1="90" y1="70" x2="260" y2="290" gradientUnits="userSpaceOnUse">
 <stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
 </linearGradient>
 </defs>
 <g stroke-linecap="round" stroke-linejoin="round">
-<path d="M 96 204 C 58 194 20 198 -10 220 C 6 236 50 246 96 238 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 82 199 L 75 187 L 92 194 Z M 58 197 L 52 186 L 67 192 Z" fill="${TREX.spike}" stroke="${TREX.spikeLine}" stroke-width="1.2"/>
-<path d="M 128 258 L 126 340 M 126 340 L 106 372 M 126 340 L 124 378 M 126 340 L 143 374" fill="none" stroke="${p.lo}" stroke-width="16"/>
-<path d="M 88 273 C 78 238 93 203 133 188 C 158 178 176 183 183 198 C 190 216 183 243 163 260 C 138 278 103 283 88 273 Z" fill="url(#gT)" stroke="${p.line}" stroke-width="2.5"/>
-<ellipse cx="128" cy="228" rx="26" ry="34" fill="${TREX.belly}" transform="rotate(-20 128 228)"/>
-<path d="M 173 193 L 200 155 L 220 165 L 193 203 Z" fill="url(#gT)" stroke="${p.line}" stroke-width="2"/>
-<path d="M 190 166 C 174 126 190 84 232 70 C 258 61 282 73 288 96 C 292 114 280 130 260 135 C 240 139 214 141 195 154 Z" fill="url(#gT)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 200 170 C 225 180 253 176 274 157 C 259 170 235 177 213 174 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="1.5"/>
-<path d="M 218 154 L 224 145 M 232 151 L 238 141 M 246 148 L 251 138 M 260 145 L 264 136" fill="none" stroke="${TREX.tooth}" stroke-width="3.5"/>
-<path d="M 216 168 L 220 176 M 228 164 L 233 172 M 240 161 L 245 169" fill="none" stroke="${TREX.tooth}" stroke-width="3"/>
-<path d="M 200 145 L 190 122 L 212 132 Z M 214 118 L 206 96 L 226 106 Z M 226 92 L 220 72 L 238 82 Z" fill="${TREX.spike}" stroke="${TREX.spikeLine}" stroke-width="1.5"/>
-<circle cx="248" cy="97" r="8" fill="${TREX.eyeWhite}" stroke="${p.line}" stroke-width="1.2"/>
-<circle cx="251" cy="98" r="4.2" fill="${TREX.pupil}"/>
-<path d="M 175 205 C 184 210 190 217 192 227 M 190 221 L 184 232" fill="none" stroke="${p.deep}" stroke-width="7"/>
-<path d="M 158 262 L 163 345 M 163 345 L 141 378 M 163 345 L 164 382 M 163 345 L 184 376" fill="none" stroke="url(#gT)" stroke-width="18"/>
-<path d="M 163 345 L 141 378 M 163 345 L 164 382 M 163 345 L 184 376" fill="none" stroke="${p.deep}" stroke-width="7"/>
+<path d="M 100 366 L 88 375 L 100 377 L 106 368 Z M 106 366 L 108 378 L 116 378 L 112 368 Z M 112 366 L 124 374 L 115 377 L 110 368 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="1"/>
+<path d="M 108 296 C 100 315 98 340 102 362 C 103 368 108 370 114 368 C 120 366 122 358 120 340 C 122 320 126 305 128 296 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 108 250 C 70 245 35 255 8 285 C 4 295 8 302 18 300 C 45 292 78 278 105 268 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 110 175 C 100 200 96 230 100 258 C 102 275 108 288 122 296 L 178 296 C 190 288 194 275 194 258 C 196 230 188 200 172 178 C 160 165 140 162 126 165 C 118 167 113 170 110 175 Z" fill="url(#gT)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 118 190 C 122 165 130 145 145 128 C 158 113 172 98 190 85 C 205 74 222 65 242 60 C 258 56 272 56 285 64 C 296 71 302 82 300 95 C 298 104 294 110 288 114 L 228 138 L 284 162 C 270 168 254 170 238 170 C 220 170 206 166 195 178 C 185 188 178 200 172 212 L 145 205 C 135 198 125 194 118 190 Z" fill="url(#gT)" stroke="${p.line}" stroke-width="2.5"/>
+<ellipse cx="148" cy="197" rx="35" ry="21" fill="url(#gT)"/>
+<path d="M 288 114 L 228 138 L 284 162 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="1.5"/>
+<ellipse cx="148" cy="238" rx="19" ry="44" fill="${TREX.belly}" transform="rotate(-8 148 238)"/>
+<path d="M 163 112 L 156 96 L 175 104 Z M 193 92 L 187 75 L 206 84 Z M 220 74 L 215 57 L 233 66 Z" fill="${TREX.spike}" stroke="${TREX.spikeLine}" stroke-width="1.2"/>
+<circle cx="270" cy="80" r="8.5" fill="${TREX.eyeWhite}" stroke="${p.line}" stroke-width="1.2"/>
+<circle cx="273" cy="81" r="4.4" fill="${TREX.pupil}"/>
+<circle cx="296" cy="88" r="2" fill="${p.line}"/>
+<path d="M 279 118 L 275 130 M 264 124 L 261 136 M 249 130 L 247 142 M 237 134 L 236 146" fill="none" stroke="${TREX.tooth}" stroke-width="3.5"/>
+<path d="M 239 143 L 242 131 M 253 149 L 257 137 M 267 155 L 272 143" fill="none" stroke="${TREX.tooth}" stroke-width="3"/>
+<path d="M 158 212 C 168 216 174 224 176 234 M 174 228 L 168 238" fill="none" stroke="${p.deep}" stroke-width="6"/>
+<path d="M 142 370 L 128 379 L 141 381 L 148 372 Z M 149 370 L 151 382 L 159 382 L 155 372 Z M 156 370 L 169 378 L 159 381 L 154 372 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="1"/>
+<path d="M 148 296 C 140 317 138 344 142 366 C 143 372 149 374 156 372 C 163 370 165 361 163 342 C 165 321 170 305 172 296 Z" fill="url(#gT)" stroke="${p.line}" stroke-width="2"/>
 </g>
 </svg>`;
   }
@@ -329,11 +333,12 @@ window.Skins = (function () {
   }
 
   // ── Spaceship skin ─────────────────────────────────────────────────────────
-  // Player-tinted body, fixed white nose/fins, fixed engine flame.
+  // Player-tinted body, fixed white nose/fins. Landed, not launching — engine
+  // off, resting on splayed landing legs (no flame).
   const SHIP = {
     hullHi: '#f4f6f8', hullLo: '#c3c9cf', hullLine: '#7c838a',
     window: '#bfe7ff', windowRim: '#ffffff',
-    nozzle: '#3a3f44', flameHi: '#fff6c8', flameMid: '#ffb238', flameLo: '#ff5b1f',
+    nozzle: '#3a3f44',
   };
   function shipPalette(base) {
     return { base, hi: shadeHex(base, 0.20), lo: shadeHex(base, -0.22), line: shadeHex(base, -0.5) };
@@ -356,10 +361,11 @@ window.Skins = (function () {
 <path d="M 142 197 A 10 10 0 0 1 158 197" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.7"/>
 <path d="M 122 240 C 96 250 78 272 70 302 C 92 296 110 282 124 264 Z" fill="url(#gHull)" stroke="${SHIP.hullLine}" stroke-width="1.5"/>
 <path d="M 178 240 C 204 250 222 272 230 302 C 208 296 190 282 176 264 Z" fill="url(#gHull)" stroke="${SHIP.hullLine}" stroke-width="1.5"/>
+<path d="M 138 296 L 104 368 L 118 374 L 148 300 Z" fill="${SHIP.hullLo}" stroke="${SHIP.hullLine}" stroke-width="1.5"/>
+<rect x="90" y="368" width="30" height="8" rx="4" fill="${SHIP.hullLo}" stroke="${SHIP.hullLine}" stroke-width="1.5"/>
 <rect x="128" y="288" width="44" height="26" rx="6" fill="${SHIP.nozzle}"/>
-<path d="M 132 314 C 128 332 136 352 150 374 C 164 352 172 332 168 314 C 158 322 142 322 132 314 Z" fill="${SHIP.flameLo}"/>
-<path d="M 138 316 C 135 330 141 346 150 362 C 159 346 165 330 162 316 C 154 322 146 322 138 316 Z" fill="${SHIP.flameMid}"/>
-<path d="M 144 318 C 142 328 146 340 150 350 C 154 340 158 328 156 318 C 151 322 149 322 144 318 Z" fill="${SHIP.flameHi}"/>
+<path d="M 162 296 L 198 368 L 184 374 L 150 300 Z" fill="url(#gHull)" stroke="${SHIP.hullLine}" stroke-width="1.5"/>
+<rect x="180" y="368" width="30" height="8" rx="4" fill="url(#gHull)" stroke="${SHIP.hullLine}" stroke-width="1.5"/>
 </g>
 </svg>`;
   }
@@ -427,30 +433,35 @@ window.Skins = (function () {
         'Riptide Rover', 'Doubloon Dave', 'Cherry Corsair', 'Berry Bandit',
       ],
     },
+    // Superhero plumber squad — the plunger saves the day, one clog at a time.
     { id: 'plunger', name: 'Plunger', emoji: '🪠', unlock: 3, names: [
-      'Blue Blaster', 'Punch Plunge', 'Lime Leak-Stopper', 'Sir Plunge-a-Lot',
-      'Grape Gurgler', 'Frosty Flusher', 'Apple Auger', 'Kiwi Kaboom',
-      'Riptide Rooter', 'Citrus Sucker', 'Cherry Bomb', 'Berry Backup',
+      'Captain Plunge', 'Scarlet Sucker', 'Lime Justice', 'Sarge Suction',
+      'Grape Avenger', 'Frosty Flush', 'Apple Unclog', 'Kiwi Kaboom',
+      'Riptide Ranger', 'Citrus Sarge', 'Cherry Bomb', 'Berry Sidekick',
     ] },
+    // B-movie monster cast — kaiju-sized roars, not a science lecture.
     { id: 'trex', name: 'T-Rex', emoji: '🦖', unlock: 5, names: [
-      'Rex Blue', 'Punch Jaws', 'Lime Fang', 'Chompzilla',
-      'Grape Gnasher', 'Frosty Claws', 'Apple Stomper', 'Kiwi Roar',
-      'Riptide Rex', 'Citrus Chomper', 'Cherry Crusher', 'Berry Bite',
+      'Rex Rumble', 'Scarlet Chomp', 'Lime Fang', 'Orange Roarke',
+      'Grape Gnasher', 'Frosty Claws', 'Apple Stomper', 'Kiwi Rex',
+      'Riptide Fang', 'Citrus Chomper', 'Cherry Crusher', 'Berry Bite',
     ] },
+    // Blacksmith/viking crew — mighty, a little Thor-ish, all business.
     { id: 'hammer', name: 'Hammer', emoji: '🔨', unlock: 7, names: [
-      'Blue Basher', 'Punch Pounder', 'Lime Smasher', 'Orange Anvil',
+      'Thor Blue', 'Scarlet Smash', 'Lime Wrecker', 'Orange Anvil',
       'Grape Crusher', 'Frosty Forge', 'Apple Driver', 'Kiwi Knocker',
-      'Riptide Wrecker', 'Citrus Clang', 'Cherry Sledge', 'Berry Bonker',
+      'Riptide Smith', 'Citrus Clang', 'Cherry Sledge', 'Berry Bonker',
     ] },
+    // Astronaut call-signs — mission control chatter.
     { id: 'ship', name: 'Spaceship', emoji: '🚀', unlock: 9, names: [
-      'Blue Blastoff', 'Punch Rocket', 'Lime Comet', 'Orange Orbit',
+      'Major Blue', 'Captain Punch', 'Lime Comet', 'Orbit Orange',
       'Grape Galaxy', 'Frosty Nova', 'Apple Astro', 'Kiwi Nebula',
-      'Riptide Voyager', 'Citrus Cosmos', 'Cherry Meteor', 'Berry Starburst',
+      'Riptide Rocket', 'Citrus Cosmos', 'Cherry Meteor', 'Berry Star',
     ] },
+    // Over-the-top award-show titles.
     { id: 'trophy', name: 'Trophy', emoji: '🏆', unlock: 11, names: [
       'Blue Champion', 'Punch Podium', 'Lime Legend', 'Orange Ace',
-      'Grape Gold', 'Frosty First-Place', 'Apple All-Star', 'Kiwi Kingpin',
-      'Riptide Rockstar', 'Citrus Crown', 'Cherry Champ', 'Berry Best-in-Show',
+      'Grape Gold', 'Frosty First', 'Apple All-Star', 'Kiwi Kingpin',
+      'Riptide Champ', 'Citrus Crown', 'Cherry Champ', 'Berry Best',
     ] },
     // future: { id: 'taco', name: 'Taco', emoji: '🌮', unlock: 13, names: [...] }, ...
   ];
