@@ -238,6 +238,9 @@ window.Skins = (function () {
 <g stroke-linecap="round" stroke-linejoin="round">
 <path d="M 70 366 C 70 322 90 282 150 276 C 210 282 230 322 230 366 Z" fill="url(#gP)" stroke="${p.line}" stroke-width="2"/>
 <path d="M 82 352 C 88 318 112 292 150 286" fill="none" stroke="${p.hi}" stroke-width="3.5" opacity="0.55"/>
+<path d="M 218 352 C 212 318 190 294 156 287" fill="none" stroke="${p.lo}" stroke-width="4" opacity="0.5"/>
+<path d="M 58 296 L 62 306 L 52 302 L 60 312 L 49 309" fill="none" stroke="#fff6c8" stroke-width="2.5" opacity="0.9"/>
+<path d="M 244 320 L 248 328 L 240 325" fill="none" stroke="#fff6c8" stroke-width="2" opacity="0.8"/>
 <path d="M 76 354 C 72 364 64 372 56 376 L 244 376 C 236 372 228 364 224 354 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
 <path d="M 80 358 C 78 364 74 369 68 372" fill="none" stroke="${p.hi}" stroke-width="2.5" opacity="0.4"/>
 <rect x="118" y="266" width="64" height="20" rx="8" fill="${PLUNGER.ferrule}" stroke="${PLUNGER.ferruleDk}" stroke-width="1.5"/>
@@ -293,6 +296,8 @@ window.Skins = (function () {
 <path d="M 118 190 C 122 165 130 145 145 128 C 158 113 172 98 190 85 C 205 74 222 65 242 60 C 258 56 272 56 285 64 C 296 71 302 82 300 95 C 298 104 294 110 288 114 L 228 138 L 284 162 C 270 168 254 170 238 170 C 220 170 206 166 195 178 C 185 188 178 200 172 212 L 145 205 C 135 198 125 194 118 190 Z" fill="url(#gT)" stroke="${p.line}" stroke-width="2.5"/>
 <ellipse cx="148" cy="197" rx="35" ry="21" fill="url(#gT)"/>
 <ellipse cx="148" cy="238" rx="19" ry="44" fill="${TREX.belly}" transform="rotate(-8 148 238)"/>
+<path d="M 136 254 C 143 258 152 258 158 254 M 138 270 C 144 274 152 274 157 270" fill="none" stroke="${p.line}" stroke-width="2" opacity="0.3"/>
+<path d="M 64 250 L 57 237 L 74 245 Z M 44 256 L 38 245 L 54 251 Z" fill="${TREX.spike}" stroke="${TREX.spikeLine}" stroke-width="1.2"/>
 <path d="M 163 112 L 156 96 L 175 104 Z M 193 92 L 187 75 L 206 84 Z M 220 74 L 215 57 L 233 66 Z" fill="${TREX.spike}" stroke="${TREX.spikeLine}" stroke-width="1.2"/>
 <path d="M 261 71 L 280 66" fill="none" stroke="${p.line}" stroke-width="3.5"/>
 <circle cx="270" cy="80" r="8.5" fill="${TREX.eyeWhite}" stroke="${p.line}" stroke-width="1.2"/>
@@ -300,7 +305,8 @@ window.Skins = (function () {
 <circle cx="296" cy="88" r="2" fill="${p.line}"/>
 <path d="M 282 116 L 272 120 L 279 131 Z M 272 120 L 263 124 L 269 135 Z M 263 124 L 253 128 L 259 139 Z M 253 128 L 244 132 L 250 143 Z" fill="${TREX.tooth}" stroke="${TREX.spikeLine}" stroke-width="1"/>
 <path d="M 240 143 L 250 148 L 246 134 Z M 250 148 L 261 152 L 256 138 Z M 261 152 L 271 156 L 266 143 Z" fill="${TREX.tooth}" stroke="${TREX.spikeLine}" stroke-width="1"/>
-<path d="M 158 212 C 168 216 174 224 176 234 M 174 228 L 168 238" fill="none" stroke="${p.deep}" stroke-width="6"/>
+<path d="M 158 212 C 168 216 174 224 176 234 M 174 228 L 168 238 M 176 231 L 179 242" fill="none" stroke="${p.deep}" stroke-width="6"/>
+<circle cx="277" cy="120" r="1.8" fill="#ffffff" opacity="0.9"/>
 <path d="M 142 370 L 128 379 L 141 381 L 148 372 Z M 149 370 L 151 382 L 159 382 L 155 372 Z M 156 370 L 169 378 L 159 381 L 154 372 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="1"/>
 <path d="M 148 296 C 140 317 138 344 142 366 C 143 372 149 374 156 372 C 163 370 165 361 163 342 C 165 321 170 305 172 296 Z" fill="url(#gT)" stroke="${p.line}" stroke-width="2"/>
 </g>
@@ -356,9 +362,12 @@ window.Skins = (function () {
 <path d="M 94 114 L 128 114 M 136 114 L 164 114 M 172 114 L 206 114" fill="none" stroke="${p.lo}" stroke-width="4"/>
 <rect x="78" y="142" width="98" height="174" rx="6" fill="${VEND.glass}" stroke="${VEND.glassLine}" stroke-width="2"/>
 ${snacks}
+<rect x="82" y="145" width="90" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
 <path d="M 92 148 L 116 148 L 96 310 L 82 310 Z" fill="#ffffff" opacity="0.12"/>
+<path d="M 128 148 L 140 148 L 124 262 L 114 262 Z" fill="#ffffff" opacity="0.07"/>
 <rect x="184" y="142" width="44" height="96" rx="6" fill="${VEND.panel}" stroke="${VEND.panelLine}" stroke-width="1.5"/>
 ${keys}
+<circle cx="206" cy="248" r="6" fill="#f4d35e" stroke="#a8862a" stroke-width="1.5"/>
 <rect x="190" y="250" width="32" height="7" rx="3.5" fill="${VEND.slot}"/>
 <rect x="192" y="268" width="28" height="20" rx="3" fill="${VEND.panel}" stroke="${VEND.panelLine}" stroke-width="1.5"/>
 <rect x="78" y="322" width="146" height="32" rx="5" fill="${VEND.flap}" stroke="${p.line}" stroke-width="2"/>
@@ -374,11 +383,15 @@ ${keys}
 
   // ── People skin ────────────────────────────────────────────────────────────
   // The only edition whose SHAPE varies per player, not just its color: every
-  // flavor color maps to a different little person (see PERSONS). One shared
-  // chibi body carries the player's color as the outfit, and each variant adds
-  // a costume layer on top, so the twelve read as one cast rather than twelve
-  // unrelated sprites. Color is a safe key here because every FLAVORS entry in
-  // main.js has a distinct hex.
+  // flavor color maps to a different little person (see PERSONS).
+  //
+  // The unifying THEME is a toy-box figurine collection — all twelve are the
+  // same molded collectible: identical chibi body, glossy injection-mold
+  // highlight down one side, and the same face kit (dot eyes + glints +
+  // blush). Only the costume layer and one signature prop change per figure,
+  // so the cast reads as one boxed set rather than twelve unrelated sprites.
+  // No display stands — just the figures. Color is a safe key because every
+  // FLAVORS entry in main.js has a distinct hex.
   const PEOPLE = {
     skin: '#f4c9a2', skinLine: '#c1946b',
     eye: '#20160e', mouth: '#93413f',
@@ -429,8 +442,9 @@ ${keys}
         + `<circle cx="110" cy="152" r="6" fill="none" stroke="#f4d35e" stroke-width="3"/>`,
     },
     '#8ed11a': {                                          // Plastic army man
+      // The display stand every figure now has IS his old molded base — he
+      // just gets to keep being entirely one color.
       label: 'army man', plastic: true,
-      behind: (p) => `<ellipse cx="150" cy="368" rx="62" ry="11" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>`,
       head: (p) => `<path d="M 104 130 C 104 100 124 84 150 84 C 176 84 196 100 196 130 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>`
         + `<rect x="96" y="126" width="108" height="11" rx="5.5" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>`,
       front: (p) => `<rect x="126" y="224" width="48" height="20" rx="5" fill="${p.lo}" stroke="${p.line}" stroke-width="1.5"/>`
@@ -445,11 +459,14 @@ ${keys}
     '#ff7a00': {                                          // Construction worker
       label: 'builder',
       torso: () => `<path d="M 110 238 L 192 238 M 110 256 L 192 256" fill="none" stroke="#f7f36a" stroke-width="7"/>`
-        // Tool belt with a hanging wrench and a pouch.
+        // Tool belt with a pouch.
         + `<rect x="110" y="268" width="80" height="16" fill="#5b3a22" stroke="#331f10" stroke-width="1.5"/>`
-        + `<rect x="118" y="282" width="22" height="24" rx="3" fill="#7a4f2e" stroke="#331f10" stroke-width="1.5"/>`
-        + `<path d="M 170 282 L 174 312" fill="none" stroke="#c9d2d9" stroke-width="6"/>`
-        + `<circle cx="175" cy="316" r="6" fill="none" stroke="#c9d2d9" stroke-width="4"/>`,
+        + `<rect x="118" y="282" width="22" height="24" rx="3" fill="#7a4f2e" stroke="#331f10" stroke-width="1.5"/>`,
+      // Signature prop: the claw hammer — a keepsake from the retired edition.
+      front: () => `<rect x="215" y="216" width="9" height="72" rx="4" fill="#a9754a" stroke="#6f4526" stroke-width="1.5"/>`
+        + `<rect x="203" y="200" width="34" height="17" rx="4" fill="#c9d2d9" stroke="#5b6167" stroke-width="1.5"/>`
+        + `<path d="M 203 206 C 192 202 186 194 184 186 C 192 188 200 192 205 199 Z" fill="#c9d2d9" stroke="#5b6167" stroke-width="1.5"/>`
+        + `<path d="M 208 205 L 228 212" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.5"/>`,
       head: () => `<path d="M 106 126 C 106 96 126 80 150 80 C 174 80 194 96 194 126 Z" fill="#ffb020" stroke="#c07d0a" stroke-width="2"/>`
         + `<rect x="96" y="122" width="108" height="12" rx="6" fill="#ffb020" stroke="#c07d0a" stroke-width="2"/>`
         + `<path d="M 150 82 L 150 122" fill="none" stroke="#c07d0a" stroke-width="2.5" opacity="0.6"/>`,
@@ -482,7 +499,13 @@ ${keys}
         + `<path d="M 104 218 C 108 200 118 150 124 140" fill="none" stroke="#f0a03c" stroke-width="6"/>`
         + `<circle cx="98" cy="290" r="9" fill="#e7edf2" stroke="#8b9299" stroke-width="2"/>`
         + `<path d="M 98 290 L 102 285" fill="none" stroke="#43586b" stroke-width="2"/>`
-        + `<path d="M 116 128 L 184 122" fill="none" stroke="#1d5568" stroke-width="4" opacity="0.8"/>`,
+        + `<path d="M 116 128 L 184 122" fill="none" stroke="#1d5568" stroke-width="4" opacity="0.8"/>`
+        // Signature prop: a little fish friend tagging along.
+        + `<path d="M 216 176 C 224 168 234 166 242 170 C 236 178 226 182 218 180 Z" fill="#ff8a2b" stroke="#c25f12" stroke-width="1.5"/>`
+        + `<path d="M 242 170 L 250 164 L 249 176 Z" fill="#ff8a2b" stroke="#c25f12" stroke-width="1.5"/>`
+        + `<circle cx="223" cy="173" r="1.8" fill="#241c16"/>`
+        + `<circle cx="212" cy="164" r="2.5" fill="none" stroke="#9fd7e8" stroke-width="1.5"/>`
+        + `<circle cx="206" cy="155" r="3.5" fill="none" stroke="#9fd7e8" stroke-width="1.5"/>`,
     },
     '#3fae1a': {                                          // Chef
       label: 'chef',
@@ -591,12 +614,14 @@ ${keys}
 ${part(v.behind)}
 <rect x="110" y="352" width="40" height="24" rx="9" fill="${v.plastic ? p.lo : PEOPLE.boot}" stroke="${v.plastic ? p.line : PEOPLE.bootLine}" stroke-width="2"/>
 <rect x="150" y="352" width="40" height="24" rx="9" fill="${v.plastic ? p.lo : PEOPLE.boot}" stroke="${v.plastic ? p.line : PEOPLE.bootLine}" stroke-width="2"/>
-<path d="M 115 358 L 145 358 M 155 358 L 185 358" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.16"/>
+<path d="M 115 358 L 145 358 M 155 358 L 185 358" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.22"/>
 <rect x="120" y="286" width="26" height="72" rx="9" fill="url(#gPe)" stroke="${p.line}" stroke-width="2"/>
 <rect x="154" y="286" width="26" height="72" rx="9" fill="url(#gPe)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 126 292 L 126 344" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.16"/>
 <rect x="136" y="172" width="28" height="28" fill="${skin}" stroke="${skinLine}" stroke-width="2"/>
 <path d="M 110 210 C 110 197 123 190 150 190 C 177 190 190 197 190 210 L 194 292 L 106 292 Z" fill="url(#gPe)" stroke="${p.line}" stroke-width="2.5"/>
 <path d="M 178 206 C 186 232 188 264 186 290" fill="none" stroke="${p.line}" stroke-width="6" opacity="0.16"/>
+<path d="M 114 214 C 112 240 111 266 112 288" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.18"/>
 <path d="M 120 200 C 132 194 168 194 180 200" fill="none" stroke="${p.line}" stroke-width="5" opacity="0.22"/>
 ${part(v.torso)}
 <rect x="86" y="204" width="24" height="76" rx="12" fill="url(#gPe)" stroke="${p.line}" stroke-width="2" transform="rotate(14 98 204)"/>
@@ -604,8 +629,12 @@ ${part(v.torso)}
 <circle cx="80" cy="282" r="13" fill="${skin}" stroke="${skinLine}" stroke-width="2"/>
 <circle cx="220" cy="282" r="13" fill="${skin}" stroke="${skinLine}" stroke-width="2"/>
 <circle cx="150" cy="140" r="46" fill="${skin}" stroke="${skinLine}" stroke-width="2.5"/>
+<path d="M 116 116 C 124 102 137 95 150 94" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.25"/>
 <circle cx="134" cy="136" r="6.5" fill="${ink}"/>
 <circle cx="166" cy="136" r="6.5" fill="${ink}"/>
+<circle cx="131.5" cy="133" r="2.4" fill="#ffffff" opacity="0.9"/>
+<circle cx="163.5" cy="133" r="2.4" fill="#ffffff" opacity="0.9"/>
+${v.plastic ? '' : '<circle cx="120" cy="153" r="6.5" fill="#f79892" opacity="0.35"/><circle cx="180" cy="153" r="6.5" fill="#f79892" opacity="0.35"/>'}
 <path d="M 136 158 C 143 168 157 168 164 158" fill="none" stroke="${v.plastic ? p.line : PEOPLE.mouth}" stroke-width="3.5"/>
 ${part(v.head)}
 ${part(v.front)}
@@ -637,18 +666,28 @@ ${part(v.front)}
 </defs>
 <g stroke-linecap="round" stroke-linejoin="round">
 <path d="M 112 78 C 104 52 96 38 88 30" fill="none" stroke="${p.lo}" stroke-width="7"/>
+<circle cx="85" cy="24" r="17" fill="${ALIEN.bulb}" opacity="0.22"/>
 <circle cx="85" cy="24" r="10" fill="${ALIEN.bulb}" stroke="${ALIEN.bulbLine}" stroke-width="2"/>
+<circle cx="82" cy="21" r="3" fill="#ffffff" opacity="0.85"/>
 <path d="M 188 78 C 196 52 204 38 212 30" fill="none" stroke="${p.lo}" stroke-width="7"/>
+<circle cx="215" cy="24" r="17" fill="${ALIEN.bulb}" opacity="0.22"/>
 <circle cx="215" cy="24" r="10" fill="${ALIEN.bulb}" stroke="${ALIEN.bulbLine}" stroke-width="2"/>
+<circle cx="212" cy="21" r="3" fill="#ffffff" opacity="0.85"/>
 <path d="M 132 344 L 112 372 L 136 374 L 142 348 Z M 168 344 L 188 372 L 164 374 L 158 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
 <path d="M 136 288 L 134 350 L 148 350 L 148 288 Z M 164 288 L 166 350 L 152 350 L 152 288 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2"/>
 <path d="M 126 232 C 122 226 136 220 150 220 C 164 220 178 226 174 232 L 168 292 L 132 292 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 150 226 L 150 258" fill="none" stroke="${p.line}" stroke-width="2" opacity="0.5"/>
+<rect x="130" y="258" width="40" height="9" rx="4.5" fill="${p.lo}" stroke="${p.line}" stroke-width="1.5"/>
+<circle cx="150" cy="262" r="4.5" fill="${ALIEN.bulb}" stroke="${ALIEN.bulbLine}" stroke-width="1.5"/>
 <path d="M 128 238 C 106 250 92 268 86 288" fill="none" stroke="url(#gAl)" stroke-width="11"/>
 <path d="M 86 288 L 74 300 M 86 288 L 82 304 M 86 288 L 94 302" fill="none" stroke="${p.lo}" stroke-width="5"/>
 <path d="M 172 238 C 194 250 208 268 214 288" fill="none" stroke="url(#gAl)" stroke-width="11"/>
 <path d="M 214 288 L 226 300 M 214 288 L 218 304 M 214 288 L 206 302" fill="none" stroke="${p.lo}" stroke-width="5"/>
 <path d="M 150 56 C 100 56 68 96 68 138 C 68 174 98 202 120 214 C 133 222 150 228 150 228 C 150 228 167 222 180 214 C 202 202 232 174 232 138 C 232 96 200 56 150 56 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
 <path d="M 96 106 C 110 88 138 92 146 106" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.28"/>
+<circle cx="116" cy="94" r="2.5" fill="${p.lo}" opacity="0.55"/>
+<circle cx="132" cy="84" r="2" fill="${p.lo}" opacity="0.55"/>
+<circle cx="106" cy="112" r="2" fill="${p.lo}" opacity="0.55"/>
 <ellipse cx="115" cy="146" rx="24" ry="16" fill="${ALIEN.eye}" transform="rotate(-24 115 146)"/>
 <ellipse cx="185" cy="146" rx="24" ry="16" fill="${ALIEN.eye}" transform="rotate(24 185 146)"/>
 <ellipse cx="108" cy="140" rx="6" ry="4" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(-24 108 140)"/>
@@ -749,11 +788,15 @@ ${p.topSvg}
 <path d="M 186 148 C 204 154 214 168 210 184 C 206 202 190 212 172 214 L 172 200 C 184 196 194 188 196 176 C 198 166 192 158 182 154 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2"/>
 <path d="M 108 138 L 192 138 C 192 184 180 214 150 226 C 120 214 108 184 108 138 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2.5"/>
 <path d="M 120 148 L 180 148" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.4"/>
+<path d="M 130 154 L 121 206" fill="none" stroke="#ffffff" stroke-width="8" opacity="0.20"/>
+<path d="M 142 156 L 136 200" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.14"/>
 <path d="M 138 226 L 138 258 L 162 258 L 162 226 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2"/>
 <path d="M 112 258 L 188 258 L 198 282 L 102 282 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2.5"/>
 <rect x="88" y="282" width="124" height="94" rx="6" fill="${TROPHY.baseWood}" stroke="${TROPHY.baseWoodLine}" stroke-width="2.5"/>
 <rect x="88" y="282" width="124" height="12" fill="${TROPHY.baseWoodLine}" opacity="0.35"/>
 <rect x="102" y="306" width="96" height="34" rx="5" fill="url(#gRibbon)" stroke="${p.m.line}" stroke-width="1.5"/>
+<circle cx="109" cy="313" r="1.8" fill="${p.m.lo}"/><circle cx="191" cy="313" r="1.8" fill="${p.m.lo}"/>
+<circle cx="109" cy="333" r="1.8" fill="${p.m.lo}"/><circle cx="191" cy="333" r="1.8" fill="${p.m.lo}"/>
 <text x="150" y="329" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="16" font-weight="bold" fill="${p.m.ink}" opacity="0.85">${p.plaque}</text>
 <path d="M 74 158 L 80 170 L 68 166 L 78 178 L 64 174 Z" fill="${p.m.sparkle}"/>
 <path d="M 224 190 L 230 200 L 220 198 L 228 208 L 216 204 Z" fill="${p.m.sparkle}"/>
@@ -786,47 +829,52 @@ ${p.topSvg}
         'Riptide Rover', 'Doubloon Dave', 'Cherry Corsair', 'Berry Bandit',
       ],
     },
-    // Superhero plumber squad — the plunger saves the day, one clog at a time.
+    // Pun-forward plumbing heroics.
     { id: 'plunger', name: 'Plunger', emoji: '🪠', unlock: 3, names: [
-      'Captain Plunge', 'Scarlet Sucker', 'Lime Justice', 'Sarge Suction',
-      'Grape Avenger', 'Frosty Flush', 'Apple Unclog', 'Kiwi Kaboom',
-      'Riptide Ranger', 'Citrus Sarge', 'Cherry Bomb', 'Berry Sidekick',
+      'Flush Gordon', 'Plumb Fiction', 'Lime Clogzilla', 'Sir Plungelot',
+      'Count Suckula', 'Cold Plunge', 'Drain Bramage', 'Plungerella',
+      'The Unclogger', 'Potty Trained', 'Cherry Bomb', 'Loo-Tenant',
     ] },
-    // B-movie monster cast — kaiju-sized roars, not a science lecture.
+    // B-movie monster casting sheet.
     { id: 'trex', name: 'T-Rex', emoji: '🦖', unlock: 5, names: [
-      'Rex Rumble', 'Scarlet Chomp', 'Lime Fang', 'Orange Roarke',
-      'Grape Gnasher', 'Frosty Claws', 'Apple Stomper', 'Kiwi Rex',
-      'Riptide Fang', 'Citrus Chomper', 'Cherry Crusher', 'Berry Bite',
+      'Tea Rex', 'Jurassic Mark', 'Veloci-rapper', 'Tiny Arms Tony',
+      'Grape Chompsky', 'Chillasaurus', 'Applesaurus', 'Sue Nami',
+      'Dino Mite', 'Rexcalibur', 'Pit Spitter', 'Berry-dactyl',
     ] },
-    // Snack-machine gremlins — coin slots, stuck springs, vending mishaps.
+    // Everything that has ever gone wrong at a vending machine.
     { id: 'vending', name: 'Vending Machine', emoji: '🥤', unlock: 7, names: [
-      'Chill Vendor', 'Snack Attack', 'Lime Jammer', 'Coin Muncher',
-      'Grape Gulper', 'Frosty Fridge', 'Apple Vendo', 'Kiwi Kiosk',
-      'Riptide Vend', 'Citrus Coiler', 'Cherry Stuck', 'Berry Buttons',
+      'Ven Diesel', 'Vendetta', 'Vend Diagram', 'Quarter Back',
+      'Snacky Chan', 'Out of Order', 'Snack Overflow', 'Insert Coin',
+      'Press B4', 'Exact Change', 'Jammed Cherry', 'Snackzilla',
     ] },
     // One name per figure — this edition's sprite changes with the color, so
-    // the names are matched to the PERSONS costume at the same index.
+    // the names are matched to the PERSONS costume at the same index:
+    // astronaut, pirate, army man, builder, wizard, diver, chef, dancer,
+    // hero, cowpoke, firefighter, clown.
     { id: 'people', name: 'People', emoji: '🧑‍🚀', unlock: 9, names: [
-      'Major Blue', 'Captain Scar', 'Sarge Plastic', 'Hard Hat Hank',
-      'Wizard Grape', 'Frosty Fins', 'Chef Apple', 'Tutu Kiwi',
-      'Captain Tide', 'Citrus Kid', 'Cherry Hose', 'Berry Bozo',
+      'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
+      'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
+      'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
     ] },
     // Three trophy tiers. Kept as id 'trophy' so anyone who already unlocked
     // it at 11 wins keeps it when the silver/gold tiers land above.
+    // Third place, and coping about it.
     { id: 'trophy', name: 'Bronze Trophy', emoji: '🥉', unlock: 11, names: [
-      'Blue Bronze', 'Punch Plaque', 'Lime Laurel', 'Orange Third',
-      'Grape Bronze', 'Frosty Finish', 'Apple Podium', 'Kiwi Bronze',
-      'Riptide Third', 'Citrus Medal', 'Cherry Bronze', 'Berry Badge',
+      'Third Wheel', 'Patina Turner', 'Barely Bronze', 'Participation',
+      'Humble Brag', 'Shiny-ish', 'Effort Award', 'Nice Try Nigel',
+      'Consolation', 'Top Three-ish', 'Bronze Age', 'Almost Silver',
     ] },
+    // Second place, and NOT coping about it.
     { id: 'trophy_silver', name: 'Silver Trophy', emoji: '🥈', unlock: 13, names: [
-      'Blue Silver', 'Punch Runner', 'Lime Silver', 'Orange Second',
-      'Grape Silver', 'Frosty Second', 'Apple Silver', 'Kiwi Runner',
-      'Riptide Silver', 'Citrus Second', 'Cherry Silver', 'Berry Runner',
+      'First Loser', 'Second Fiddle', 'Almost Gold', 'Hi-Yo Silver',
+      'Silver Spoon', 'Silver Lining', 'Moral Victory', 'Runner-Up Rick',
+      'Second Best', 'So Close Simon', 'Not Quite Nate', 'Silver Fox',
     ] },
+    // First place, completely insufferable about it.
     { id: 'trophy_gold', name: 'Gold Trophy', emoji: '🥇', unlock: 15, names: [
-      'Blue Champion', 'Punch Podium', 'Lime Legend', 'Orange Ace',
-      'Grape Gold', 'Frosty First', 'Apple All-Star', 'Kiwi Kingpin',
-      'Riptide Champ', 'Citrus Crown', 'Cherry Champ', 'Berry Best',
+      'Sir Wins-a-Lot', 'The G.O.A.T.', 'Midas Touch', 'Top Banana',
+      'Numero Uno', 'Gold Standard', 'Golden Boy', 'Goldilocks',
+      'Victory Lap', 'Peaked Early', 'Big Cheese', 'Humble Winner',
     ] },
     // ── The secret one. Not a reskin: it brings its own physics. ─────────────
     // A bank shot instead of a flip — the alien is rubbery, the walls and
@@ -854,9 +902,9 @@ ${p.topSvg}
         saucerCount: 3,
       },
       names: [
-        'Zorp', 'Blip Scarlet', 'Lime Zeeb', 'Orange Xylo',
-        'Grape Gloop', 'Frosty Zib', 'Apple Blorp', 'Kiwi Krang',
-        'Riptide Zog', 'Citrus Quix', 'Cherry Vorp', 'Berry Nax',
+        'UFOh No', 'Beam Me Up Bob', 'Little Greenie', 'Crop Circler',
+        'Grey Matter', 'Not From Here', 'E.T. Cetera', 'Galaxy Brain',
+        'Roswell Rick', 'Cosmic Carl', 'Abducted Andy', 'Space Case',
       ],
     },
   ];
