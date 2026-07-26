@@ -442,7 +442,36 @@ const Renderer = (() => {
     }
   }
 
+  // Paint one upright object into some OTHER canvas (the setup-screen skin
+  // previews). Borrows the module ctx for the call and puts it back, so this
+  // must stay synchronous — it runs from setup, never from inside frame().
+  // groundY is pushed far below so projectPoint's airborne lift clamps to 0
+  // and the object is drawn flat-on rather than in flight perspective.
+  function drawPreview(target, skin, liquidColor) {
+    const prevCanvas = canvas, prevCtx = ctx, prevW = W, prevH = H;
+    canvas = target;
+    ctx = target.getContext('2d');
+    W = target.width;
+    H = target.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    // Fit box measured off the real drawn pixels of every edition (widest is
+    // the T-Rex at x≈±106, tallest the parrot at y≈-200..58), already including
+    // the BOTTLE_DRAW_SCALE drawBottle applies. The artwork sits well above the
+    // origin, so it centers on y≈-71, not 0.
+    const CONTENT_W = 216, CONTENT_H = 262, CONTENT_MID_Y = -71;
+    const scale = Math.min(W / CONTENT_W, H / CONTENT_H) * 0.95;
+    ctx.translate(W / 2, H / 2 - CONTENT_MID_Y * scale);
+    ctx.scale(scale, scale);
+    try {
+      drawBottle({ position: { x: 0, y: 0 }, angle: 0 }, { slosh: 0, vel: 0 },
+        false, liquidColor, -10000, skin);
+    } finally {
+      canvas = prevCanvas; ctx = prevCtx; W = prevW; H = prevH;
+    }
+  }
+
   // drawBottle is exported for the art-iteration harness (drawing one object
   // without the full scene); the game itself only calls frame().
-  return { init, resize, frame, setReduceMotion, projectPoint, projectBottleCenter, bottleDrawScale, drawBottle };
+  return { init, resize, frame, setReduceMotion, projectPoint, projectBottleCenter, bottleDrawScale, drawBottle, drawPreview };
 })();
