@@ -55,6 +55,16 @@
   // bottle only when it's at rest (not mid-flight), so a stray resize can't
   // void an in-progress flip.
   let reflowTimer = null;
+  // Editions may bring their own physics (see Skins.physicsFor / skins.js META).
+  // Applied per turn, so one player can be flipping a bottle while the next
+  // takes a bank shot with the alien. Must run AFTER Physics.resetBottle, which
+  // rebuilds the body.
+  function applyTurnPhysics() {
+    if (!Physics.setProfile) return;
+    const skin = (game && game.currentPlayer && game.currentPlayer()?.skin) || 'bottle';
+    Physics.setProfile(window.Skins && Skins.physicsFor ? Skins.physicsFor(skin) : null);
+  }
+
   function scheduleReflow() {
     clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => {
@@ -65,6 +75,7 @@
       if (!evaluating &&
           (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
         Physics.resetBottle();
+        applyTurnPhysics();
       }
     }, 150);
   }
@@ -530,6 +541,9 @@
       suddenDeath: game.inSuddenDeath(),
       awaitingFlick: game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE,
       stake:       game.pointCount,
+      // Both null unless the active edition runs a bounce profile.
+      target:      Physics.getTarget ? Physics.getTarget() : null,
+      obstacles:   Physics.getObstacles ? Physics.getObstacles() : null,
     });
   }
 
@@ -562,6 +576,7 @@
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
     Physics.resetBottle();
+    applyTurnPhysics();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -611,6 +626,7 @@
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
     Physics.resetBottle();
+    applyTurnPhysics();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
