@@ -81,22 +81,23 @@
   }
   window.addEventListener('resize', resize);
 
-  // ── Gatorade flavors (liquid color = whose turn it is) ──────────────────────
-  // Names lightly twisted off the real Gatorade flavors. Ordered so the first 8
-  // (max players) are maximally distinct colors.
+  // ── Flavors (liquid color = whose turn it is) ───────────────────────────────
+  // Pun-forward names, each riffing on its color. Ordered so the first 8
+  // (max players) are maximally distinct colors. NB: skins.js name rosters and
+  // FLAVOR_ORDER are index-aligned to this list — keep the colors in place.
   const FLAVORS = [
-    { name: 'Cool Blue',       color: '#1f9bff' },
-    { name: 'Fruit Punch',     color: '#e3263c' },
-    { name: 'Lemon-Lime',      color: '#8ed11a' },
-    { name: 'Orange',          color: '#ff7a00' },
-    { name: 'Grape',           color: '#8a3ffc' },
-    { name: 'Glacier Frost',   color: '#5fcfe6' },
-    { name: 'Green Apple',     color: '#3fae1a' },
-    { name: 'Strawberry Kiwi', color: '#ff5b86' },
-    { name: 'Riptide',         color: '#4f63e0' },
-    { name: 'Citrus Cooler',   color: '#ffc233' },
-    { name: 'Cherry',          color: '#c8203a' },
-    { name: 'Berry Frost',     color: '#ff9ecf' },
+    { name: 'Blue Steel',       color: '#1f9bff' },
+    { name: 'Sucker Punch',     color: '#e3263c' },
+    { name: 'Lime Light',       color: '#8ed11a' },
+    { name: 'Orange Crush',     color: '#ff7a00' },
+    { name: 'Grape Expectations', color: '#8a3ffc' },
+    { name: 'Ice Ice Baby',     color: '#5fcfe6' },
+    { name: 'Apple-solutely',   color: '#3fae1a' },
+    { name: 'Berry Nice',       color: '#ff5b86' },
+    { name: 'Making Waves',     color: '#4f63e0' },
+    { name: 'Lemon Aid',        color: '#ffc233' },
+    { name: 'Very Cherry',      color: '#c8203a' },
+    { name: 'Pink Fluff',       color: '#ff9ecf' },
   ];
 
   // ── Player setup rows (name + flavor picker + Human/CPU) ────────────────────
@@ -365,8 +366,15 @@
   let matchWins   = [];      // wins per player across the current series (by index)
   let gameStats   = null;    // per-game stats (reset each game), shown on game-over
   let timerActive = false, turnTimeLeft = 0, turnTimeLimit = 0, timedOut = false;
+  let lastFlickPower = null;   // 0..1 strength of the current flip's flick (achievements)
+  let greatSaveActive = false; // the RESULT being shown is a rare Great Save
   const RESULT_MS = 1500;
   const TURN_SECONDS = 10, FIRE_SECONDS = 4;   // flip clock (less when ON FIRE)
+  // Worst grounded tilt (rad) a MAKE must have survived to count as a Great
+  // Save. FALLEN_ANGLE in physics.js is 1.20 — beyond ~1.0 the bottle is deep
+  // in the teeter zone and almost never recovers, so this fires roughly
+  // once-in-a-thousand flips: exactly the freak comeback worth celebrating.
+  const GREAT_SAVE_TILT = 1.0;
 
   // Per-turn flip clock — only for HUMAN turns (CPU flicks on its own ~1.1s).
   function startTurnTimer(seconds) {
@@ -397,7 +405,7 @@
     game.resolveFlip('MISS');
   }
 
-  function clearTimers() { clearTimeout(aiTimer); clearTimeout(elimTimer); }
+  function clearTimers() { clearTimeout(aiTimer); clearTimeout(elimTimer); clearTimeout(gameOverTimer); }
 
   function landingMeta(landingInfo = null) {
     return {
@@ -434,7 +442,10 @@
 
     game.init(defs, dir, opts || {});
     gameStarted = true;
-    gameStats = { topStake: 0, longestFire: 0, perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0 })) };
+    gameStats = {
+      topStake: 0, longestFire: 0, sawSuddenDeath: false,
+      perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0, lowestLives: Infinity })),
+    };
     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
 
     if (loopId) cancelAnimationFrame(loopId);
@@ -533,6 +544,7 @@
       drag:        Input.getDragState(),
       result:      game.state === GAME_STATES.RESULT ? game.lastResult : null,
       resultAlpha,
+      specialLabel: game.state === GAME_STATES.RESULT && greatSaveActive ? '🧤 THE GREAT SAVE!' : null,
       showGlow,
       isOnFire:    !!(game.onFirePlayer),
       liquidColor: game.currentPlayer()?.color,
@@ -572,6 +584,8 @@
     resultAlpha = 0;
     intenseTurn = false;
     timedOut    = false;
+    greatSaveActive = false;
+    lastFlickPower  = null;
     stopTurnTimer();
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
@@ -622,6 +636,8 @@
     evaluating  = false;
     showGlow    = false;
     timedOut    = false;
+    greatSaveActive = false;
+    lastFlickPower  = null;
     stopTurnTimer();
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
@@ -653,7 +669,13 @@
     passScreen.classList.add('hidden');
     flipHintEl.classList.add('hidden');
     resultTimer = RESULT_MS;
-    Records.recordFlip(game);
+
+    // Rare-event + achievement wiring (display-only, never touches the rules).
+    const landing = Physics.getLastLandingInfo();
+    greatSaveActive = !!(game.lastResult === 'MAKE' && landing &&
+                         landing.maxTilt > GREAT_SAVE_TILT);
+    const rec = Records.recordFlip(game, { greatSave: greatSaveActive });
+    if (greatSaveActive) Sound.play('greatsave');
 
     const p = game.currentPlayer();
 
@@ -664,9 +686,30 @@
         pp.flips++;
         if (game.lastResult === 'MAKE') pp.makes++;
         if (st > pp.bestStreak) pp.bestStreak = st;
+        if (p) pp.lowestLives = Math.min(pp.lowestLives, p.lives);
       }
       if (game.pointCount > gameStats.topStake) gameStats.topStake = game.pointCount;
       if (game.onFireBonus > gameStats.longestFire) gameStats.longestFire = game.onFireBonus;
+      if (game.inSuddenDeath && game.inSuddenDeath()) gameStats.sawSuddenDeath = true;
+    }
+
+    // NB: achievements.js declares `const Achievements` (script scope, not on
+    // window) — same gotcha as Renderer above, so feature-detect via typeof.
+    if (typeof Achievements !== 'undefined') {
+      const fresh = Achievements.check({
+        result:        game.lastResult,
+        justIgnited:   game.justIgnited,
+        onFireBonus:   game.onFireBonus,
+        streak:        game.practice ? game.practiceStreak : (p ? p.streak : 0),
+        pointCount:    game.pointCount,
+        perfect:       !!game.perfectLanding,
+        power:         lastFlickPower,
+        greatSave:     greatSaveActive,
+        landingReason: landing ? landing.reason : null,
+        totalFlipsLifetime: rec.totalFlips,
+        totalMakesLifetime: rec.totalMakes,
+      });
+      announceAchievements(fresh);
     }
 
     if (game.practice) {
@@ -686,7 +729,11 @@
     }
 
     if (game.lastResult === 'MAKE') {
-      if (game.fireCapped) {
+      if (greatSaveActive) {
+        // The freak comeback — celebrate over everything else this flip.
+        streakBannerEl.textContent = '🧤 THE GREAT SAVE! It came back from the brink!';
+        streakBannerEl.className   = 'streak-banner on-fire';
+      } else if (game.fireCapped) {
         // Big-lobby ON FIRE cap — banked the gains, pass it on
         streakBannerEl.textContent = '🔥 Fire maxed — pass it on!';
         streakBannerEl.className   = 'streak-banner on-fire';
@@ -749,41 +796,91 @@
     showToast._t = setTimeout(() => t.classList.remove('show'), 4000);
   }
 
+  function announceAchievements(fresh) {
+    if (!fresh || !fresh.length) return;
+    const names = fresh.map((a) => `${a.emoji} ${a.name}`).join(' · ');
+    showToast(`🏅 Achievement${fresh.length > 1 ? 's' : ''} unlocked: ${names}`);
+    Sound.play(fresh.some((a) => a.rare) ? 'greatsave' : 'life');
+    renderRecordsPanel();
+  }
+
+  function renderRecordsPanel() {
+    if (!recordsPanel) return;
+    recordsPanel.innerHTML = Records.renderHtml() +
+      (typeof Achievements !== 'undefined' ? Achievements.renderGridHtml() : '');
+  }
+
+  // The finale deserves a beat. When the game-ending flip eliminates the last
+  // opponent, game.js jumps straight from RESULT to GAME_OVER and skips the
+  // usual "X is out!" elimination banner — so the winner card used to slam in
+  // the instant the object stopped moving. Hold on the settled scene (with the
+  // elimination beat) for a moment of suspense before the reveal. Display-only.
+  const GAME_OVER_HOLD_MS = 1500;
+  let gameOverTimer = null;
+
   function onGameOver() {
     clearTimers();   // no stray advanceTurn/AI flick fires after the game ends
     Sound.setSuddenDeath(false);
     stopTurnTimer();
-    passScreen.classList.add('hidden');
-    gameScreen.classList.add('hidden');
-    gameOverEl.classList.remove('hidden');
-    const active = game.activePlayers();
-    winnerNameEl.textContent = active.length ? active[0].name : '???';
-    Records.recordWin(active.length ? active[0].name : null);
-    if (recordsPanel) recordsPanel.innerHTML = Records.renderHtml();
-    // Skin unlock ladder: each edition's `unlock` is a total-win threshold
-    // (see skins.js META). Check every skin, not just one — a device that
-    // jumps several wins at once (e.g. a long practice-free session) can
-    // cross more than one threshold in the same game-over.
-    if (active.length && window.Skins) {
-      const wins = Records.totalWins();
-      const newlyUnlocked = Skins.list().filter((s) => {
-        const need = Skins.unlockRule(s.id);
-        return typeof need === 'number' && wins >= need && Records.unlockSkin(s.id);
-      });
-      if (newlyUnlocked.length) {
-        const names = newlyUnlocked.map((s) => `${s.emoji} ${s.name}`).join(', ');
-        showToast(`${names} unlocked! Pick per player in setup.`);
-        try { renderFrom(readRows()); } catch (_) {}
-      }
-    }
-    Sound.play('win');
     Input.disable();
+    passScreen.classList.add('hidden');
 
-    // Series scoreboard: tally this game's win, then show the running totals.
-    if (matchWins.length !== game.players.length) matchWins = game.players.map(() => 0);
-    if (game.winnerIndex >= 0 && game.winnerIndex < matchWins.length) matchWins[game.winnerIndex]++;
-    renderScoreboard();
-    if (gameStatsEl) gameStatsEl.innerHTML = renderGameStats();
+    const active = game.activePlayers();
+    const loser  = game.currentPlayer();
+    const finalElim = !game.practice && !!(loser && loser.eliminated);
+    if (finalElim) {
+      turnBannerEl.textContent = `❌ ${loser.name} is out!`;
+      Sound.play('miss');
+    }
+    // All-CPU blitz endings shouldn't sit through the theatrical pause.
+    const humansPlayed = game.players.some((p) => !p.isAI);
+    const holdMs = (finalElim && humansPlayed ? GAME_OVER_HOLD_MS : 400) / gameSpeed();
+
+    clearTimeout(gameOverTimer);
+    gameOverTimer = setTimeout(() => {
+      gameScreen.classList.add('hidden');
+      gameOverEl.classList.remove('hidden');
+      winnerNameEl.textContent = active.length ? active[0].name : '???';
+      const winRec = Records.recordWin(active.length ? active[0].name : null);
+      renderRecordsPanel();
+      // Skin unlock ladder: each edition's `unlock` is a total-win threshold
+      // (see skins.js META). Check every skin, not just one — a device that
+      // jumps several wins at once (e.g. a long practice-free session) can
+      // cross more than one threshold in the same game-over.
+      if (active.length && window.Skins) {
+        const wins = Records.totalWins();
+        const newlyUnlocked = Skins.list().filter((s) => {
+          const need = Skins.unlockRule(s.id);
+          return typeof need === 'number' && wins >= need && Records.unlockSkin(s.id);
+        });
+        if (newlyUnlocked.length) {
+          const names = newlyUnlocked.map((s) => `${s.emoji} ${s.name}`).join(', ');
+          showToast(`${names} unlocked! Pick per player in setup.`);
+          try { renderFrom(readRows()); } catch (_) {}
+        }
+      }
+      Sound.play('win');
+
+      // Win-based achievements (display-only).
+      if (typeof Achievements !== 'undefined' && active.length && gameStats) {
+        const winner = active[0];
+        const wIdx = game.players.indexOf(winner);
+        const pp = (gameStats.perPlayer && gameStats.perPlayer[wIdx]) || { makes: 0, flips: 0, lowestLives: Infinity };
+        announceAchievements(Achievements.check({
+          won:              true,
+          wonWithoutMiss:   pp.flips > 0 && pp.makes === pp.flips,
+          droppedToOneLife: pp.lowestLives <= 1,
+          sawSuddenDeath:   !!gameStats.sawSuddenDeath,
+          winnerWins:       (winRec && winRec.mostWins && winRec.mostWins[winner.name]) || 0,
+        }));
+      }
+
+      // Series scoreboard: tally this game's win, then show the running totals.
+      if (matchWins.length !== game.players.length) matchWins = game.players.map(() => 0);
+      if (game.winnerIndex >= 0 && game.winnerIndex < matchWins.length) matchWins[game.winnerIndex]++;
+      renderScoreboard();
+      if (gameStatsEl) gameStatsEl.innerHTML = renderGameStats();
+    }, holdMs);
   }
 
   // Per-game stats on the game-over screen (this match, not all-time): each
@@ -841,6 +938,7 @@
     flipHintEl.classList.add('hidden');
     Sound.unlock();
     Sound.play('flick');
+    lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);   // mirrors POWER_SPEED
     Physics.applyFlick(vx, vy);
     game.setState(GAME_STATES.EVALUATING);
   }
@@ -916,7 +1014,7 @@
     gameScreen.classList.add('hidden');
     gameOverEl.classList.add('hidden');
     passScreen.classList.add('hidden');
-    if (recordsPanel) recordsPanel.innerHTML = Records.renderHtml();
+    renderRecordsPanel();
     setupScreen.classList.remove('hidden');
   }
   if (menuBtn) menuBtn.addEventListener('click', () => {
@@ -936,7 +1034,7 @@
   Sound.setMuted(!Settings.sound);
   Renderer.setReduceMotion(reduceMotionActive());
   syncMuteBtn();
-  if (recordsPanel) recordsPanel.innerHTML = Records.renderHtml();
+  renderRecordsPanel();
 
   // ── Secret: tap the title 5× fast ──────────────────────────────────────────
   // A toggle. With anything still locked it unlocks every edition at once (for

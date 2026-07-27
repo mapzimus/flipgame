@@ -349,13 +349,15 @@ window.Skins = (function () {
         keys += `<circle cx="${196 + c * 18}" cy="${158 + r * 20}" r="6" fill="${VEND.button}"/>`;
       }
     }
+    // Scaled up 1.3× around bottom-center (150,376): a vending machine should
+    // LOOM. Same contact plane, so it lands exactly like every other edition.
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
 <linearGradient id="gV" x1="64" y1="0" x2="236" y2="0" gradientUnits="userSpaceOnUse">
 <stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
 </linearGradient>
 </defs>
-<g stroke-linecap="round" stroke-linejoin="round">
+<g stroke-linecap="round" stroke-linejoin="round" transform="translate(150 376) scale(1.3) translate(-150 -376)">
 <rect x="64" y="96" width="172" height="280" rx="14" fill="url(#gV)" stroke="${p.line}" stroke-width="2.5"/>
 <path d="M 64 130 L 236 130" fill="none" stroke="${p.line}" stroke-width="2"/>
 <rect x="82" y="106" width="136" height="17" rx="5" fill="${VEND.sign}" opacity="0.92"/>
@@ -701,19 +703,16 @@ ${part(v.front)}
     drawSingleSprite(ctx, 'alien', color, alienPalette(color), alienBodySVG);
   }
 
-  // ── Trophy skins (bronze / silver / gold tiers) ────────────────────────────
-  // Each tier gets its OWN metal — bronze, silver, gold — and the statuette on
-  // top is a metal cast of one of the other editions (including each of the
-  // twelve People figures), picked from TOPPER_ROSTER by tier + player color so
-  // all of them turn up across the three trophies. The player's own color shows
-  // up on the plaque band.
+  // ── Trophy skin (gold — the one true trophy) ───────────────────────────────
+  // The statuette on top is a gold cast of one of the other editions (including
+  // each of the twelve People figures), picked from TOPPER_ROSTER by player
+  // color so different players see different toppers. The player's own color
+  // shows up on the plaque band.
   const TROPHY = {
     baseWood: '#5b3a22', baseWoodLine: '#3a2414',
   };
   const METALS = {
-    bronze: { hi: '#f0b98a', mid: '#c1763c', lo: '#7a4318', line: '#4a2810', sparkle: '#ffd9b8', ink: '#3a1e0a' },
-    silver: { hi: '#f6f9fb', mid: '#b9c4cd', lo: '#78858f', line: '#4b545c', sparkle: '#ffffff', ink: '#2b3238' },
-    gold:   { hi: '#ffe27a', mid: '#e8b93f', lo: '#9c6a12', line: '#5e3d09', sparkle: '#fff6c8', ink: '#2a1c06' },
+    gold: { hi: '#ffe27a', mid: '#e8b93f', lo: '#9c6a12', line: '#5e3d09', sparkle: '#fff6c8', ink: '#2a1c06' },
   };
   // Recolor an edition's own artwork into a single-metal casting: every fill and
   // stroke becomes the metal, gradient references collapse to flat metal, and
@@ -745,6 +744,8 @@ ${part(v.front)}
     { svg: () => trexBodySVG(trexPalette('#8ed11a')) },
     { svg: () => vendBodySVG(vendPalette('#8ed11a')) },
     { svg: () => alienBodySVG(alienPalette('#8ed11a')) },
+    { svg: () => pineBodySVG(pinePalette('#8ed11a')) },
+    { svg: () => gorBodySVG(gorPalette('#8ed11a')) },
     ...FLAVOR_ORDER.map((hex) => ({ svg: () => peopleBodySVG(peoplePalette(hex)) })),
   ];
   // The bottle is drawn by renderer.js rather than from an SVG, so it's the one
@@ -757,11 +758,8 @@ ${part(v.front)}
 
   function trophyPalette(base, tier, plaque) {
     const idx = Math.max(0, FLAVOR_ORDER.indexOf(String(base).toLowerCase()));
-    const tierIdx = Math.max(0, ['bronze', 'silver', 'gold'].indexOf(tier));
-    // Keep the index non-negative: a negative one silently indexes past the end
-    // of the array and yields undefined.
     const n = TOPPER_ROSTER.length;
-    const pick = TOPPER_ROSTER[((tierIdx * 12 + idx) % n + n) % n];
+    const pick = TOPPER_ROSTER[((idx % n) + n) % n];
     const m = METALS[tier] || METALS.gold;
     return {
       base, plaque, m,
@@ -803,14 +801,103 @@ ${p.topSvg}
 </g>
 </svg>`;
   }
-  // Each tier is its own skin id so the sprite cache keeps them separate.
-  function drawTrophyTier(ctx, opts, id, tier, plaque) {
+  function drawTrophyGold(ctx, opts) {
     const color = opts.color || '#d62828';
-    drawSingleSprite(ctx, id, color, trophyPalette(color, tier, plaque), trophyBodySVG);
+    drawSingleSprite(ctx, 'trophy_gold', color, trophyPalette(color, 'gold', 'CHAMPION'), trophyBodySVG);
   }
-  function drawTrophyBronze(ctx, opts) { drawTrophyTier(ctx, opts, 'trophy', 'bronze', 'BRONZE'); }
-  function drawTrophySilver(ctx, opts) { drawTrophyTier(ctx, opts, 'trophy_silver', 'silver', 'SILVER'); }
-  function drawTrophyGold(ctx, opts) { drawTrophyTier(ctx, opts, 'trophy_gold', 'gold', 'GOLD'); }
+
+  // ── Pineapple skin ─────────────────────────────────────────────────────────
+  // A jaunty pineapple: player-tinted crown fronds over the classic golden
+  // diamond-lattice body, with a smug little face. Bottom of the fruit sits on
+  // the contact plane (svg y=376) like everything else.
+  const PINE = {
+    body: '#f4b93c', bodyHi: '#ffd76e', bodyLo: '#c78a1a', lattice: '#a86f10',
+    eye: '#241c16', mouth: '#93413f', cheek: '#f79892',
+  };
+  function pinePalette(base) {
+    return { base, hi: shadeHex(base, 0.20), lo: shadeHex(base, -0.28), line: shadeHex(base, -0.52) };
+  }
+  function pineBodySVG(p) {
+    // Diamond lattice over the fruit body.
+    let lattice = '';
+    for (let i = -3; i <= 6; i++) {
+      lattice += `<path d="M ${52 + i * 28} 160 L ${132 + i * 28} 372" fill="none" stroke="${PINE.lattice}" stroke-width="2.6" opacity="0.55"/>`;
+      lattice += `<path d="M ${248 - i * 28} 160 L ${168 - i * 28} 372" fill="none" stroke="${PINE.lattice}" stroke-width="2.6" opacity="0.55"/>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
+<defs>
+<linearGradient id="gPi" x1="70" y1="0" x2="230" y2="0" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${PINE.bodyHi}"/><stop offset="0.5" stop-color="${PINE.body}"/><stop offset="1" stop-color="${PINE.bodyLo}"/>
+</linearGradient>
+</defs>
+<g stroke-linecap="round" stroke-linejoin="round">
+<path d="M 150 118 C 138 84 122 60 96 44 C 118 46 136 56 148 72 C 146 48 138 26 124 10 C 146 20 160 40 164 66 C 174 44 190 28 212 20 C 200 40 192 62 190 84 C 206 70 226 62 248 62 C 230 76 214 94 204 114 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 150 118 C 144 96 134 78 118 64 M 158 112 C 158 84 152 58 140 36 M 168 108 C 174 84 186 62 202 46 M 182 110 C 194 92 210 78 228 70" fill="none" stroke="${p.lo}" stroke-width="2.5" opacity="0.6"/>
+<ellipse cx="150" cy="248" rx="94" ry="130" fill="url(#gPi)" stroke="${PINE.lattice}" stroke-width="3"/>
+<g clip-path="none">${lattice}</g>
+<path d="M 78 200 C 86 174 102 152 122 140" fill="none" stroke="#ffffff" stroke-width="7" opacity="0.35"/>
+<circle cx="118" cy="238" r="9" fill="${PINE.eye}"/>
+<circle cx="182" cy="238" r="9" fill="${PINE.eye}"/>
+<circle cx="114.5" cy="234" r="3.2" fill="#ffffff" opacity="0.9"/>
+<circle cx="178.5" cy="234" r="3.2" fill="#ffffff" opacity="0.9"/>
+<circle cx="104" cy="262" r="8" fill="${PINE.cheek}" opacity="0.4"/>
+<circle cx="196" cy="262" r="8" fill="${PINE.cheek}" opacity="0.4"/>
+<path d="M 128 272 C 138 286 162 286 172 272" fill="none" stroke="${PINE.mouth}" stroke-width="4.5"/>
+</g>
+</svg>`;
+  }
+  function drawPineapple(ctx, opts) {
+    const color = opts.color || '#3fae1a';
+    drawSingleSprite(ctx, 'pineapple', color, pinePalette(color), pineBodySVG);
+  }
+
+  // ── Gorilla skin ───────────────────────────────────────────────────────────
+  // Chunky sitting gorilla, knuckles down, player-tinted fur with a fixed
+  // gunmetal face/chest. Broad flat base = same contact plane as the bottle.
+  const GOR = {
+    face: '#8d8577', faceLo: '#6e6759', chest: '#7a7264',
+    eye: '#17110c', glint: '#ffffff', nostril: '#4a443c', brow: '#3a352e',
+  };
+  function gorPalette(base) {
+    return { base, hi: shadeHex(base, 0.14), lo: shadeHex(base, -0.26), line: shadeHex(base, -0.52) };
+  }
+  function gorBodySVG(p) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
+<defs>
+<linearGradient id="gG" x1="60" y1="80" x2="250" y2="360" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
+</linearGradient>
+</defs>
+<g stroke-linecap="round" stroke-linejoin="round">
+<path d="M 96 376 C 66 376 52 356 58 332 C 64 308 84 258 110 224 L 150 260 L 128 340 C 122 362 112 376 96 376 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 204 376 C 234 376 248 356 242 332 C 236 308 216 258 190 224 L 150 260 L 172 340 C 178 362 188 376 204 376 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 70 376 C 62 360 66 346 80 342 C 94 338 106 348 108 362 C 109 370 104 376 96 376 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 230 376 C 238 360 234 346 220 342 C 206 338 194 348 192 362 C 191 370 196 376 204 376 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 78 352 L 78 366 M 90 348 L 90 366 M 222 352 L 222 366 M 210 348 L 210 366" fill="none" stroke="${p.line}" stroke-width="2.5" opacity="0.6"/>
+<path d="M 150 96 C 96 96 72 140 76 196 C 80 252 96 312 116 348 L 184 348 C 204 312 220 252 224 196 C 228 140 204 96 150 96 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<ellipse cx="150" cy="280" rx="52" ry="72" fill="${GOR.chest}" opacity="0.85"/>
+<path d="M 122 250 C 132 246 168 246 178 250 M 118 286 C 130 282 170 282 182 286 M 124 320 C 134 316 166 316 176 320" fill="none" stroke="${GOR.faceLo}" stroke-width="2.5" opacity="0.7"/>
+<path d="M 116 348 L 184 348 L 178 376 L 122 376 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<circle cx="150" cy="120" r="52" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 108 92 C 98 84 96 72 104 66 C 112 60 122 64 126 74 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 192 92 C 202 84 204 72 196 66 C 188 60 178 64 174 74 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 112 128 C 108 100 124 82 150 82 C 176 82 192 100 188 128 C 196 138 198 152 190 164 C 180 178 164 184 150 184 C 136 184 120 178 110 164 C 102 152 104 138 112 128 Z" fill="${GOR.face}" stroke="${GOR.faceLo}" stroke-width="2.5"/>
+<path d="M 118 118 C 126 110 138 108 146 112 M 154 112 C 162 108 174 110 182 118" fill="none" stroke="${GOR.brow}" stroke-width="6"/>
+<circle cx="132" cy="128" r="7.5" fill="${GOR.eye}"/>
+<circle cx="168" cy="128" r="7.5" fill="${GOR.eye}"/>
+<circle cx="129" cy="125" r="2.6" fill="${GOR.glint}" opacity="0.9"/>
+<circle cx="165" cy="125" r="2.6" fill="${GOR.glint}" opacity="0.9"/>
+<ellipse cx="150" cy="156" rx="20" ry="14" fill="${GOR.faceLo}" opacity="0.55"/>
+<ellipse cx="142" cy="154" rx="4.5" ry="6" fill="${GOR.nostril}" transform="rotate(-12 142 154)"/>
+<ellipse cx="158" cy="154" rx="4.5" ry="6" fill="${GOR.nostril}" transform="rotate(12 158 154)"/>
+<path d="M 136 172 C 144 178 156 178 164 172" fill="none" stroke="${GOR.brow}" stroke-width="3.5"/>
+</g>
+</svg>`;
+  }
+  function drawGorilla(ctx, opts) {
+    const color = opts.color || '#4a4a4a';
+    drawSingleSprite(ctx, 'gorilla', color, gorPalette(color), gorBodySVG);
+  }
 
   // ── Registry ────────────────────────────────────────────────────────────────
   // Add a new edition by pushing META + a drawFns entry. `unlock`: null = always
@@ -856,22 +943,20 @@ ${p.topSvg}
       'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
       'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
     ] },
-    // Three trophy tiers. Kept as id 'trophy' so anyone who already unlocked
-    // it at 11 wins keeps it when the silver/gold tiers land above.
-    // Third place, and coping about it.
-    { id: 'trophy', name: 'Bronze Trophy', emoji: '🥉', unlock: 11, names: [
-      'Third Wheel', 'Patina Turner', 'Barely Bronze', 'Participation',
-      'Humble Brag', 'Shiny-ish', 'Effort Award', 'Nice Try Nigel',
-      'Consolation', 'Top Three-ish', 'Bronze Age', 'Almost Silver',
+    // Tropical, spiky, and extremely pleased about both.
+    { id: 'pineapple', name: 'Pineapple', emoji: '🍍', unlock: 11, names: [
+      'Piña Colossus', 'Spike Lee', 'Sir Prickles', 'Tropic Thunder',
+      'Juice Springsteen', 'Crown Jewel', 'Fine-apple', 'Pokey Dokey',
+      'Sweet & Spiky', 'Hula Hooper', 'Cherry on Top', 'Upside-Down Cake',
     ] },
-    // Second place, and NOT coping about it.
-    { id: 'trophy_silver', name: 'Silver Trophy', emoji: '🥈', unlock: 13, names: [
-      'First Loser', 'Second Fiddle', 'Almost Gold', 'Hi-Yo Silver',
-      'Silver Spoon', 'Silver Lining', 'Moral Victory', 'Runner-Up Rick',
-      'Second Best', 'So Close Simon', 'Not Quite Nate', 'Silver Fox',
+    // 400 pounds of gym membership.
+    { id: 'gorilla', name: 'Gorilla', emoji: '🦍', unlock: 13, names: [
+      'Hairy Styles', 'King Wrong', 'Chest Thumper', 'Banana Split',
+      'Grape Ape', 'Chill Gorilla', 'Silverback Sam', 'Monkey Business',
+      'Gorilla Warfare', 'Kong Fu', 'Jungle Gym', 'Ape Lincoln',
     ] },
     // First place, completely insufferable about it.
-    { id: 'trophy_gold', name: 'Gold Trophy', emoji: '🥇', unlock: 15, names: [
+    { id: 'trophy_gold', name: 'Gold Trophy', emoji: '🏆', unlock: 15, names: [
       'Sir Wins-a-Lot', 'The G.O.A.T.', 'Midas Touch', 'Top Banana',
       'Numero Uno', 'Gold Standard', 'Golden Boy', 'Goldilocks',
       'Victory Lap', 'Peaked Early', 'Big Cheese', 'Humble Winner',
@@ -911,7 +996,7 @@ ${p.topSvg}
   const drawFns = {
     parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,
     vending: drawVend, people: drawPeople, alien: drawAlien,
-    trophy: drawTrophyBronze, trophy_silver: drawTrophySilver, trophy_gold: drawTrophyGold,
+    pineapple: drawPineapple, gorilla: drawGorilla, trophy_gold: drawTrophyGold,
   };   // 'bottle' is drawn by renderer.js
 
   return {
@@ -933,9 +1018,9 @@ ${p.topSvg}
         getSingleSprite('vending', c, vendPalette(c), vendBodySVG);
         getSingleSprite('people', c, peoplePalette(c), peopleBodySVG);
         getSingleSprite('alien', c, alienPalette(c), alienBodySVG);
-        getSingleSprite('trophy', c, trophyPalette(c, 'bronze', 'BRONZE'), trophyBodySVG);
-        getSingleSprite('trophy_silver', c, trophyPalette(c, 'silver', 'SILVER'), trophyBodySVG);
-        getSingleSprite('trophy_gold', c, trophyPalette(c, 'gold', 'GOLD'), trophyBodySVG);
+        getSingleSprite('pineapple', c, pinePalette(c), pineBodySVG);
+        getSingleSprite('gorilla', c, gorPalette(c), gorBodySVG);
+        getSingleSprite('trophy_gold', c, trophyPalette(c, 'gold', 'CHAMPION'), trophyBodySVG);
       }
     },
   };

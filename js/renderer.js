@@ -285,9 +285,13 @@ const Renderer = (() => {
     ctx.fill();
   }
 
-  // ── Flick indicator ─────────────────────────────────────────────────────────
-  // Points FROM the bottle in the direction you're flicking (the way it'll go),
-  // length grows with flick strength. Reads as "throw this way", not "pull back".
+  // ── Flick indicator — "power gauge", not a thin arrow ───────────────────────
+  // A charging ring around the object reads "how hard" at a glance from across
+  // a room (a filling ring is a universal charge/cooldown language); bold
+  // thrust chevrons stacked in the throw direction read "which way" and
+  // reinforce "how hard" via count + brightness, like a throttle gauge. The
+  // raw gesture path is traced faintly underneath. Strength math is unchanged —
+  // this only repaints the same `drag` state, so the flick itself is untouched.
   function drawFlickIndicator(drag, bottle, groundY) {
     if (!drag || !bottle) return;
     const dx  = drag.curX - drag.startX;   // flick direction = throw direction
@@ -297,29 +301,56 @@ const Renderer = (() => {
 
     const strength = Math.min(len / 220, 1);
     const ux = dx / len, uy = dy / len;
-    const reach = 28 + strength * 64;                 // 28..92px
     const p = projectBottleCenter(bottle, groundY);
     const ox = p.x, oy = p.y - 40 * BOTTLE_DRAW_SCALE;
-    const ex = ox + ux * reach, ey = oy + uy * reach;
-    const color = `hsl(${190 - strength * 150}, 95%, 62%)`; // cyan → hot orange
+    const hue = 190 - strength * 150;                  // cyan → hot orange/red
+    const color = `hsl(${hue}, 95%, 60%)`;
 
     ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = 4;
-    ctx.lineCap     = 'round';
-    ctx.globalAlpha = 0.88;
+
+    // Faint raw gesture trail (the actual swipe path).
+    ctx.strokeStyle = `hsla(${hue}, 95%, 72%, 0.35)`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 5]);
     ctx.beginPath();
-    ctx.moveTo(ox, oy);
-    ctx.lineTo(ex, ey);
+    ctx.moveTo(drag.startX, drag.startY);
+    ctx.lineTo(drag.curX, drag.curY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Charging ring — the primary "how hard" readout, fills clockwise from
+    // straight up as strength climbs 0→1 (full power = full circle).
+    const ringR = 52;
+    ctx.lineWidth = 7;
+    ctx.lineCap   = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.beginPath();
+    ctx.arc(ox, oy, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.arc(ox, oy, ringR, -Math.PI / 2, -Math.PI / 2 + strength * Math.PI * 2);
     ctx.stroke();
 
+    // Thrust chevrons stacked outward in the throw direction — count and
+    // brightness climb with power, like a rocket-throttle gauge.
     const a = Math.atan2(uy, ux);
-    ctx.beginPath();
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - 14 * Math.cos(a - 0.45), ey - 14 * Math.sin(a - 0.45));
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - 14 * Math.cos(a + 0.45), ey - 14 * Math.sin(a + 0.45));
-    ctx.stroke();
+    const chevronCount = 1 + Math.round(strength * 2);   // 1..3
+    for (let i = 0; i < chevronCount; i++) {
+      const reach = ringR + 16 + i * 22;
+      const cx = ox + ux * reach, cy = oy + uy * reach;
+      const size = 11 + strength * 5;
+      ctx.globalAlpha = 0.5 + 0.5 * (i + 1) / chevronCount;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * size,              cy + Math.sin(a) * size);
+      ctx.lineTo(cx + Math.cos(a + 2.35) * size * 0.7, cy + Math.sin(a + 2.35) * size * 0.7);
+      ctx.lineTo(cx + Math.cos(a - 2.35) * size * 0.7, cy + Math.sin(a - 2.35) * size * 0.7);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
     ctx.restore();
   }
 
@@ -341,16 +372,29 @@ const Renderer = (() => {
   }
 
   // ── Result text ────────────────────────────────────────────────────────────
-  function drawResult(text, color, alpha) {
+  // `sub` is an optional second line under the verdict — the rare "Great Save"
+  // callout, big enough for the whole room, not just a corner banner.
+  function drawResult(text, color, alpha, sub) {
+    // Pop: scale overshoots to ~1.18 as it appears, settles back to 1.0.
+    const pop = reduceMotion ? 1 : 1 + 0.18 * Math.sin(Math.min(alpha, 1) * Math.PI);
     ctx.save();
     ctx.globalAlpha   = alpha;
     ctx.fillStyle     = color;
-    ctx.font          = 'bold 76px system-ui, sans-serif';
     ctx.textAlign     = 'center';
     ctx.textBaseline  = 'middle';
     ctx.shadowColor   = color;
     ctx.shadowBlur    = 36;
-    ctx.fillText(text, W / 2, H / 2 - 60);
+    ctx.translate(W / 2, H / 2 - 60);
+    ctx.scale(pop, pop);
+    ctx.font          = 'bold 76px system-ui, sans-serif';
+    ctx.fillText(text, 0, 0);
+    if (sub) {
+      ctx.font        = 'bold 30px system-ui, sans-serif';
+      ctx.fillStyle   = '#ffd21a';
+      ctx.shadowColor = '#ffd21a';
+      ctx.shadowBlur  = 22;
+      ctx.fillText(sub, 0, 60);
+    }
     ctx.restore();
   }
 
@@ -501,7 +545,7 @@ const Renderer = (() => {
   }
 
   function frame(dt, state) {
-    const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire,
+    const { bottle, liquid, drag, groundY, result, resultAlpha, specialLabel, showGlow, isOnFire,
             liquidColor, intense, suddenDeath, awaitingFlick, stake, skin,
             target, obstacles } = state;
     clock += dt;
@@ -520,7 +564,7 @@ const Renderer = (() => {
 
     if (result) {
       const color = result === 'MAKE' ? '#69f0ae' : '#ff5252';
-      drawResult(result === 'MAKE' ? 'MAKE!' : 'MISS', color, resultAlpha);
+      drawResult(result === 'MAKE' ? 'MAKE!' : 'MISS', color, resultAlpha, specialLabel);
     }
   }
 

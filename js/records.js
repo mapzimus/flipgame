@@ -8,6 +8,7 @@ const Records = (() => {
     totalMakes: 0,
     totalFlips: 0,
     longestOnFire: 0,   // most bonus makes in one ON FIRE run
+    greatSaves: 0,      // lifetime tip-past-the-brink-and-recover MAKEs
     mostWins: {},       // name -> win count
     totalWins: 0,       // wins on this device, across all players — drives skin unlocks
     unlockedSkins: ['bottle'],  // flippable editions earned on this device
@@ -24,20 +25,26 @@ const Records = (() => {
   function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} }
 
   // Call AFTER each game.resolveFlip() (normal play and practice).
-  function recordFlip(g) {
+  // `extra` carries display-only flip detail from main.js (e.g. greatSave).
+  // Returns a snapshot of the updated totals so achievement checks can read
+  // "lifetime count AFTER this flip" without a second load.
+  function recordFlip(g, extra) {
     data.totalFlips++;
     if (g.lastResult === 'MAKE') data.totalMakes++;
     const streak = g.practice ? g.practiceStreak : (g.currentPlayer()?.streak || 0);
     if (streak > data.bestStreak) data.bestStreak = streak;
     if (g.pointCount > data.highestStake) data.highestStake = g.pointCount;
     if (g.onFireBonus > data.longestOnFire) data.longestOnFire = g.onFireBonus;
+    if (extra && extra.greatSave) data.greatSaves = (data.greatSaves || 0) + 1;
     save();
+    return clone(data);
   }
   function recordWin(name) {
-    if (!name) return;
+    if (!name) return clone(data);
     data.mostWins[name] = (data.mostWins[name] || 0) + 1;
     data.totalWins = (data.totalWins || 0) + 1;
     save();
+    return clone(data);
   }
   function totalWins() { return data.totalWins || 0; }
   function topWinner() {
@@ -51,6 +58,7 @@ const Records = (() => {
       ['🔥', 'Best streak', data.bestStreak],
       ['⚡', 'Top stake',   '×' + data.highestStake],
       ['🔥', 'Hot run',     '+' + data.longestOnFire],
+      ['🧤', 'Great Saves', data.greatSaves || 0],
       ['✓',  'Total makes', data.totalMakes],
       ['Σ',  'Total flips', data.totalFlips],
     ];

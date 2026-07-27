@@ -88,6 +88,9 @@ const Physics = (() => {
   }
   let launched = false;    // a flick has been taken this turn
   let wasAirborne = false; // ...and the body actually left the floor
+  let floorTouched = false; // bounce mode: first touchdown happened (slide window open)
+  let slideFrames = 0;      // frames spent in the post-touchdown slide window
+  let maxGroundedTilt = 0;  // display-only: worst |tilt| seen while grounded this flip
 
   // Apply before the turn's flick (main.js calls this per turn). Safe to call
   // with null/undefined to go back to normal physics.
@@ -271,6 +274,10 @@ const Physics = (() => {
       tilt,
       perfect: result === 'MAKE' && tilt != null && tilt <= PERFECT_ANGLE,
       reason,
+      // Worst grounded tilt this flip — a MAKE that survived a huge tilt is
+      // the rare tip-then-recover "Great Save" (see main.js). Bounce mode
+      // slides on purpose, so its tilts don't count.
+      maxTilt: profile.floorResolve ? 0 : maxGroundedTilt,
     };
     return result;
   }
@@ -278,23 +285,48 @@ const Physics = (() => {
   function checkLanding() {
     if (!bottle) return null;
 
-    // Bounce mode: the floor ends the shot. The moment any part of the body
-    // comes back down to the table, that IS the landing — judged purely on
-    // whether it overlaps the pad, with no settle wait and no pose check.
+    // Bounce mode: the floor ends the FLIGHT, but not necessarily the shot.
+    // On-pad touchdown is an instant hit. An off-pad touchdown opens a slide
+    // window instead of an instant miss: the slick alien often skids along the
+    // table, and the kids ruled — correctly — that sliding into the pad still
+    // counts. So after first contact it keeps being judged while grounded:
+    // touch the pad at any point during the slide → MAKE; come to rest (or
+    // run out the clock) clear of it → MISS.
     // Requires wasAirborne so the at-rest spawn pose can't resolve instantly.
-    if (profile.floorResolve && launched && wasAirborne &&
-        bottle.bounds.max.y >= groundY - 2) {
-      // Stop it caroming away from the spot it was judged on.
-      for (const part of [bottle, ...bottle.parts]) part.restitution = 0.02;
-      if (profile.landOnTarget && targetX != null) {
-        const padL = targetX - targetHW;
-        const padR = targetX + targetHW;
-        const touching = bottle.bounds.max.x >= padL && bottle.bounds.min.x <= padR;
-        return touching
-          ? recordLanding('MAKE', 0, 'on-target')
-          : recordLanding('MISS', null, 'off-target');
+    if (profile.floorResolve && launched && wasAirborne) {
+      const grounded = bottle.bounds.max.y >= groundY - 6;
+      const overPad = () => {
+        if (!profile.landOnTarget || targetX == null) return false;
+        return bottle.bounds.max.x >= targetX - targetHW &&
+               bottle.bounds.min.x <= targetX + targetHW;
+      };
+
+      if (!floorTouched) {
+        if (bottle.bounds.max.y < groundY - 2) return null;   // still airborne
+        floorTouched = true;
+        slideFrames = 0;
+        // Kill the bounce AND give it real landing grip: with the alien's
+        // in-flight friction (0.02) a touchdown slides the full arena width and
+        // nearly every miss would coast onto the pad eventually. Moderate
+        // friction keeps the slide-in save real but finite (~1 in 6 shots
+        // instead of ~1 in 3, measured headless).
+        for (const part of [bottle, ...bottle.parts]) {
+          part.restitution = 0.02;
+          part.friction = 0.35;
+        }
+        if (overPad()) return recordLanding('MAKE', 0, 'on-target');
+        if (!profile.landOnTarget || targetX == null) return recordLanding('MISS', null, 'off-target');
+        return null;   // off the pad, but sliding — the shot isn't over yet
       }
-      return recordLanding('MISS', null, 'off-target');
+
+      // Slide window: still judged every step until it stops or times out.
+      slideFrames++;
+      if (grounded && overPad()) return recordLanding('MAKE', 0, 'slid-on');
+      const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
+      if ((grounded && speed < 0.35 && slideFrames > 20) || slideFrames > 360) {
+        return recordLanding('MISS', null, 'off-target');
+      }
+      return null;
     }
 
     const angVel   = Math.abs(bottle.angularVelocity);
@@ -308,6 +340,16 @@ const Physics = (() => {
     }
 
     groundedFrames++;
+
+    // Track the worst tilt seen at ANY grounded moment (not just when settled) —
+    // this is what notices "tipped way past the make window, then the bowling-pin
+    // wobble stood it back up".
+    {
+      let a = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      if (a > Math.PI) a -= 2 * Math.PI;
+      const t = Math.abs(a);
+      if (t > maxGroundedTilt) maxGroundedTilt = t;
+    }
 
     // Fallback cap: grounded this long without committing (a teeter that neither
     // rights nor falls, a wall-lean, or a glitch) → force a MISS so EVALUATING
@@ -440,6 +482,9 @@ const Physics = (() => {
     lastLandingInfo = null;
     launched       = false;
     wasAirborne    = false;
+    floorTouched   = false;
+    slideFrames    = 0;
+    maxGroundedTilt = 0;
     liquid.reset();
 
     bottle = createBottle();
