@@ -893,75 +893,78 @@ ${crown}
   }
 
   // ── Gorilla skin ───────────────────────────────────────────────────────────
-  // Side-profile silverback up on his knuckles, facing right (same convention as
-  // the parrot and T-Rex). A front-on ape refuses to read — symmetrical, it
-  // comes out as a teddy bear, and a dark face patch on a pale head just looks
-  // like a kid in a costume hood. The knuckle-walk profile is the silhouette
-  // everyone actually recognises: shoulder hump higher than the rump, back
-  // sloping down to small hips, long forelimb planted on its knuckles, and a
-  // crested skull with the brow and muzzle jutting forward. Fists + feet rest on
-  // the contact plane (svg y=376).
+  // Deliberately a CUTE CHUNKY figurine, not a realistic ape — same chibi
+  // language as the People edition (huge round head, stubby body, big friendly
+  // eyes), which is what actually reads at game size. Several attempts at an
+  // anatomical silverback all failed the same way: front-on and symmetrical it
+  // came out a teddy bear, in profile it went blobby, and upright with arms at
+  // its sides it just looked like a person in a costume. Charm beats accuracy
+  // here. The gorilla read is carried by four cues that survive being cute:
+  // big round ears out to the sides, the crest bump on top, a broad pale muzzle
+  // patch with a flat wide nose, and long arms ending in fists that hang below
+  // the body. Feet rest on the contact plane (svg y=376).
   const GOR = {
-    face: '#5f574e', faceLo: '#463f38', faceHi: '#736a5f',
-    chest: '#6b6259',
-    iris: '#7a4a1e', pupil: '#12100d', glint: '#ffffff',
-    nostril: '#241f1a', brow: '#2b2620', mouth: '#33291f',
+    face: '#c2b09a', faceLo: '#98866f',    // pale muzzle patch, so features read
+    innerEar: '#a08d76',
+    belly: 'rgba(255,255,255,0.26)',
+    eyeWhite: '#ffffff', pupil: '#2b2118',
+    nose: '#4a3c30', mouth: '#4a3c30', brow: '#4a3c30',
+    blush: '#f79892',
   };
   function gorPalette(base) {
     return {
       base,
-      hi:     shadeHex(base, 0.16),
-      lo:     shadeHex(base, -0.26),
-      deep:   shadeHex(base, -0.42),
-      line:   shadeHex(base, -0.56),
-      // The silverback saddle: a desaturated, lightened band of the fur color.
-      saddle: shadeHex(mixHex(base, '#c9c9c4', 0.55), 0.06),
+      hi:   shadeHex(base, 0.16),
+      lo:   shadeHex(base, -0.26),
+      deep: shadeHex(base, -0.42),
+      line: shadeHex(base, -0.56),
     };
   }
   function gorBodySVG(p) {
-    // Authored around x≈186, then re-centred on x=150 and scaled 1.2x about the
-    // ground point so it fills the frame like the other editions without any
-    // path needing to be re-authored.
+    // Front-on chibi: naturally centred on x=150, so no re-centring transform.
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
-<linearGradient id="gG" x1="80" y1="150" x2="290" y2="360" gradientUnits="userSpaceOnUse">
+<linearGradient id="gG" x1="96" y1="0" x2="204" y2="0" gradientUnits="userSpaceOnUse">
 <stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
 </linearGradient>
-<linearGradient id="gGs" x1="0" y1="160" x2="0" y2="228" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${p.saddle}"/><stop offset="1" stop-color="${p.base}"/>
-</linearGradient>
-<linearGradient id="gGa" x1="170" y1="0" x2="245" y2="0" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${p.base}"/><stop offset="0.45" stop-color="${p.hi}"/><stop offset="1" stop-color="${p.base}"/>
-</linearGradient>
 </defs>
-<g stroke-linecap="round" stroke-linejoin="round" transform="translate(150 376) scale(1.2) translate(-186.5 -376)">
-<path d="M 158 210 C 144 228 138 258 140 290 C 142 312 146 328 152 338 C 157 346 168 347 173 340 C 177 334 175 322 173 310 C 169 284 170 244 176 218 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 138 336 C 136 324 146 316 160 316 C 174 316 182 328 182 344 C 182 360 172 370 156 370 C 142 370 139 352 138 336 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 100 278 C 88 296 84 322 92 344 C 100 362 118 370 134 364 C 144 359 146 346 140 332 C 132 314 118 292 110 280 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 112 264 C 96 284 88 314 96 340 C 104 362 126 372 146 364 C 158 358 160 342 153 324 C 145 304 130 278 122 266 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 92 344 C 84 360 94 376 120 376 C 142 376 154 366 148 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 101 360 L 99 374 M 115 356 L 114 374 M 129 357 L 130 374" fill="none" stroke="${p.deep}" stroke-width="3" opacity="0.7"/>
-<path d="M 84 272 C 74 240 80 208 100 188 C 120 168 146 156 172 156 C 198 156 216 170 224 194 C 232 218 228 250 214 274 C 200 300 174 314 144 314 C 116 314 94 302 86 286 C 83 280 84 276 84 272 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 200 172 C 216 158 240 154 254 164 C 262 174 258 194 244 204 C 228 214 206 208 198 194 Z" fill="url(#gG)"/>
-<path d="M 92 226 C 106 192 138 166 174 164 C 202 163 218 178 224 200 C 206 184 178 182 150 189 C 122 196 102 214 92 226 Z" fill="url(#gGs)" opacity="0.9"/>
-<ellipse cx="150" cy="278" rx="52" ry="28" fill="${GOR.chest}" opacity="0.28"/>
-<path d="M 104 214 l 10 -6 M 130 194 l 11 -5 M 158 180 l 12 -3 M 98 246 l 11 -5 M 124 226 l 11 -5 M 152 212 l 12 -4 M 102 278 l 11 -4 M 130 260 l 11 -4 M 160 248 l 11 -3" fill="none" stroke="${p.deep}" stroke-width="3" opacity="0.3"/>
-<path d="M 200 194 C 226 202 242 228 244 260 C 246 292 242 324 236 344 C 231 360 210 366 196 358 C 183 351 179 335 182 318 C 188 288 188 246 180 216 Z" fill="url(#gGa)" stroke="${p.line}" stroke-width="3"/>
-<path d="M 206 226 C 214 254 214 292 210 320" fill="none" stroke="${p.deep}" stroke-width="3" opacity="0.25"/>
-<path d="M 176 342 C 174 320 192 308 212 308 C 232 308 244 328 244 350 C 244 368 230 376 208 376 C 187 376 177 360 176 342 Z" fill="url(#gGa)" stroke="${p.line}" stroke-width="3"/>
-<path d="M 190 336 L 188 362 M 208 330 L 207 361 M 226 336 L 227 361" fill="none" stroke="${p.deep}" stroke-width="3.5" opacity="0.75"/>
-<path d="M 216 180 C 222 152 246 138 268 144 C 290 150 302 174 300 200 C 298 224 290 244 276 256 C 262 268 240 268 227 259 C 214 250 209 232 209 210 C 209 196 212 188 216 180 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 222 168 C 232 138 268 138 276 162 C 262 150 236 152 222 168 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 216 208 C 204 204 197 214 201 226 C 205 237 216 239 222 232 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 222 176 C 236 160 256 156 270 162" fill="none" stroke="#ffffff" stroke-width="6" opacity="0.22"/>
-<path d="M 258 202 C 278 200 296 210 300 224 C 299 242 290 258 274 264 C 260 269 248 264 244 254 C 250 238 252 214 258 202 Z" fill="${GOR.face}" stroke="${GOR.faceLo}" stroke-width="2"/>
-<path d="M 246 194 C 264 180 288 184 300 202 C 286 196 266 197 254 205 Z" fill="${GOR.brow}"/>
-<circle cx="268" cy="212" r="7" fill="${GOR.iris}"/>
-<circle cx="268" cy="212" r="3.6" fill="${GOR.pupil}"/>
-<circle cx="266" cy="209.5" r="2" fill="${GOR.glint}" opacity="0.95"/>
-<ellipse cx="290" cy="232" rx="4.8" ry="6.2" fill="${GOR.nostril}" transform="rotate(20 290 232)"/>
-<path d="M 254 252 C 265 257 278 253 286 243" fill="none" stroke="${GOR.mouth}" stroke-width="3.5"/>
-<path d="M 258 257 C 267 261 276 257 282 251" fill="none" stroke="${GOR.faceHi}" stroke-width="1.8" opacity="0.4"/>
+<g stroke-linecap="round" stroke-linejoin="round">
+<rect x="116" y="286" width="32" height="68" rx="14" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<rect x="152" y="286" width="32" height="68" rx="14" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<rect x="102" y="342" width="50" height="34" rx="15" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
+<rect x="148" y="342" width="50" height="34" rx="15" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 112 352 L 111 372 M 126 350 L 126 372 M 140 352 L 141 372" fill="none" stroke="${p.deep}" stroke-width="2.5" opacity="0.5"/>
+<path d="M 160 352 L 159 372 M 174 350 L 174 372 M 188 352 L 189 372" fill="none" stroke="${p.deep}" stroke-width="2.5" opacity="0.5"/>
+<path d="M 106 226 C 106 204 124 190 150 190 C 176 190 194 204 194 226 C 196 254 194 282 190 302 C 176 313 124 313 110 302 C 106 282 104 254 106 226 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<ellipse cx="150" cy="256" rx="35" ry="38" fill="${GOR.belly}"/>
+<path d="M 128 236 C 138 227 147 227 150 238 M 172 238 C 163 228 154 228 150 238" fill="none" stroke="${p.deep}" stroke-width="3" opacity="0.28"/>
+<rect x="66" y="202" width="42" height="108" rx="21" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5" transform="rotate(10 87 202)"/>
+<rect x="192" y="202" width="42" height="108" rx="21" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5" transform="rotate(-10 213 202)"/>
+<circle cx="68" cy="310" r="24" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<circle cx="232" cy="310" r="24" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 56 305 L 54 322 M 68 302 L 68 324 M 80 305 L 82 322" fill="none" stroke="${p.deep}" stroke-width="2.5" opacity="0.5"/>
+<path d="M 220 305 L 218 322 M 232 302 L 232 324 M 244 305 L 246 322" fill="none" stroke="${p.deep}" stroke-width="2.5" opacity="0.5"/>
+<circle cx="104" cy="120" r="15" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<circle cx="196" cy="120" r="15" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<ellipse cx="150" cy="82" rx="34" ry="19" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<circle cx="150" cy="130" r="54" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<circle cx="99" cy="120" r="6.5" fill="${GOR.innerEar}" opacity="0.9"/>
+<circle cx="201" cy="120" r="6.5" fill="${GOR.innerEar}" opacity="0.9"/>
+<path d="M 116 102 C 124 88 138 80 152 79" fill="none" stroke="#ffffff" stroke-width="7" opacity="0.25"/>
+<ellipse cx="150" cy="158" rx="45" ry="26" fill="${GOR.face}" stroke="${GOR.faceLo}" stroke-width="2"/>
+<path d="M 110 112 C 122 96 140 92 150 98 C 160 92 178 96 190 112 C 176 104 160 104 150 108 C 140 104 124 104 110 112 Z" fill="${GOR.brow}"/>
+<circle cx="132" cy="127" r="12.5" fill="${GOR.eyeWhite}" stroke="${p.line}" stroke-width="1.4"/>
+<circle cx="168" cy="127" r="12.5" fill="${GOR.eyeWhite}" stroke="${p.line}" stroke-width="1.4"/>
+<circle cx="134" cy="129" r="6.4" fill="${GOR.pupil}"/>
+<circle cx="170" cy="129" r="6.4" fill="${GOR.pupil}"/>
+<circle cx="130" cy="124" r="3" fill="#ffffff"/>
+<circle cx="166" cy="124" r="3" fill="#ffffff"/>
+<ellipse cx="150" cy="152" rx="17" ry="9" fill="${GOR.nose}" opacity="0.35"/>
+<ellipse cx="142" cy="152" rx="3.6" ry="4.6" fill="${GOR.nose}"/>
+<ellipse cx="158" cy="152" rx="3.6" ry="4.6" fill="${GOR.nose}"/>
+<path d="M 132 168 C 141 179 159 179 168 168" fill="none" stroke="${GOR.mouth}" stroke-width="3.5"/>
+<circle cx="116" cy="146" r="8" fill="${GOR.blush}" opacity="0.28"/>
+<circle cx="184" cy="146" r="8" fill="${GOR.blush}" opacity="0.28"/>
 </g>
 </svg>`;
   }
