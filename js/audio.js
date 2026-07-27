@@ -58,6 +58,9 @@ const Sound = (() => {
     // Elimination beat — a descending "you're out" + low rumble
     eliminated: () => { tone({ freq: 330, slideTo: 130, type: 'sawtooth', dur: 0.6, gain: 0.22 });
                         noise(0.18, 0.2, 500); },
+    // Rare-event sparkle — the Great Save achievement + its toast
+    greatsave: () => [784, 988, 1175, 1568, 1976].forEach((f, i) =>
+      tone({ freq: f, type: 'sine', dur: 0.35, gain: 0.22, delay: i * 0.05 })),
   };
 
   return {

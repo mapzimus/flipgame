@@ -7,6 +7,7 @@ const Physics = (() => {
   let stableFrames = 0, groundedFrames = 0;
   let angleWin = [];   // sliding window of recent angles (settle detection)
   let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
+  let maxGroundedTilt = 0;   // display-only: peak |tilt| seen at any point while grounded
   let canvasW, canvasH;
   let groundY;
 
@@ -113,6 +114,17 @@ const Physics = (() => {
 
     groundedFrames++;
 
+    // Display-only: track the worst tilt seen at any point while grounded
+    // (not gated on "settled" like angleWin below) — this is what lets us
+    // notice the rare "tipped hard, then the low-CG bowling-pin wobble
+    // rights it back up" recovery, regardless of the eventual verdict.
+    {
+      let a = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      if (a > Math.PI) a -= 2 * Math.PI;
+      const tilt = Math.abs(a);
+      if (tilt > maxGroundedTilt) maxGroundedTilt = tilt;
+    }
+
     // Tight stillness thresholds AND an angle-stability guard: the slow
     // self-righting rotation must read as "still moving" so we never judge
     // mid-righting. We only call it once the angle has held steady (range
@@ -127,7 +139,8 @@ const Physics = (() => {
         // Must have completed a full rotation AND land upright
         let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         if (angle > Math.PI) angle -= 2 * Math.PI;
-        lastLanding = { flipped: hasFlipped, finalAngle: angle };  // display-only
+        // display-only — maxTilt feeds the rare "comeback" achievement upstream
+        lastLanding = { flipped: hasFlipped, finalAngle: angle, maxTilt: maxGroundedTilt };
         if (!hasFlipped) { pendingResult = 'MISS'; return; }
         pendingResult = Math.abs(angle) < 0.61 ? 'MAKE' : 'MISS';  // ±35° window
       }
@@ -255,6 +268,7 @@ const Physics = (() => {
     launched       = false;
     pendingResult  = null;
     groundContact  = false;
+    maxGroundedTilt = 0;
     liquid.reset();
 
     bottle = createBottle();

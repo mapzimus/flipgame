@@ -22,6 +22,11 @@
   const tutorialDoneBtn = document.getElementById('tutorial-done-btn');
   const practiceMeterEl = document.getElementById('practice-meter');
   const matchSummaryEl  = document.getElementById('match-summary');
+  const recordsBtn      = document.getElementById('records-btn');
+  const recordsOverlay  = document.getElementById('records-overlay');
+  const recordsContentEl = document.getElementById('records-content');
+  const recordsCloseBtn = document.getElementById('records-close-btn');
+  const toastContainerEl = document.getElementById('achievement-toasts');
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Scale the backing store by devicePixelRatio so everything is crisp on a
@@ -40,17 +45,17 @@
   }
   window.addEventListener('resize', resize);
 
-  // ── Gatorade flavors (liquid color = whose turn it is) ──────────────────────
+  // ── Flavors (liquid color = whose turn it is) — punnier names, same colors ──
   const FLAVORS = [
-    { name: 'Cool Blue',      color: '#1f9bff' },
-    { name: 'Fruit Punch',    color: '#e23048' },
-    { name: 'Lemon-Lime',     color: '#86d40a' },
-    { name: 'Orange',         color: '#ff7a00' },
-    { name: 'Grape',          color: '#8a3ffc' },
-    { name: 'Glacier Freeze', color: '#56cfe1' },
-    { name: 'Riptide Rush',   color: '#00bfa5' },
-    { name: 'Strawberry',     color: '#ff4d8d' },
-    { name: 'Lemonade',       color: '#ffd21a' },
+    { name: 'Blue Steel',       color: '#1f9bff' },
+    { name: 'Sucker Punch',     color: '#e23048' },
+    { name: 'Lime Light',       color: '#86d40a' },
+    { name: 'Orange Crush',     color: '#ff7a00' },
+    { name: 'Grape Expectations', color: '#8a3ffc' },
+    { name: 'Ice Ice Baby',     color: '#56cfe1' },
+    { name: 'Making Waves',     color: '#00bfa5' },
+    { name: 'Berry Nice',       color: '#ff4d8d' },
+    { name: 'Lemon Aid',        color: '#ffd21a' },
   ];
 
   // ── Player setup rows (name + flavor picker + Human/CPU) ────────────────────
@@ -196,6 +201,31 @@
     } catch (_) { return false; }
   }
 
+  // ── Records & Achievements (Hall of Fame + unlock grid, setup screen) ───────
+  recordsBtn?.addEventListener('click', () => {
+    recordsContentEl.innerHTML = Records.renderHtml() + Achievements.renderGridHtml();
+    recordsOverlay.classList.remove('hidden');
+  });
+  recordsCloseBtn?.addEventListener('click', () => recordsOverlay.classList.add('hidden'));
+
+  // Achievement-unlock toast — stacks if more than one fires at once (rare,
+  // e.g. the very first flip of the device also being an immediate MAKE).
+  function showAchievementToast(a) {
+    if (!toastContainerEl) return;
+    const el = document.createElement('div');
+    el.className = 'ach-toast' + (a.rare ? ' rare' : '');
+    el.innerHTML = `<span class="ach-toast-emoji">${a.emoji}</span>` +
+      `<span class="ach-toast-text"><span class="ach-toast-label">Achievement unlocked</span>` +
+      `<span class="ach-toast-name">${escapeHtml(a.name)}</span></span>`;
+    toastContainerEl.appendChild(el);
+    Sound.play(a.rare ? 'greatsave' : 'life');
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 400);
+    }, 3400);
+  }
+
   // ── Kiosk mode: fullscreen + keep the panel awake during play ───────────────
   let wakeLock = null;
   async function acquireWakeLock() {
@@ -274,7 +304,10 @@
   let resultAlpha = 0;
   let aiTimer     = null;
   let matchStats  = null;   // per-player display-only tallies (index-aligned, null in practice)
+  let flipMeta    = null;   // display-only detail on the just-judged flip (see loop())
+  let greatSaveActive = false;   // true while the current RESULT display is a Great Save
   const RESULT_MS = 1500;
+  const GREAT_SAVE_TILT = 1.0;   // rad — calibrated so it's ~1-in-1000 flips (see physics.js maxTilt)
 
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
   function aiFlick() {
@@ -355,7 +388,7 @@
     game.init(defs, dir, opts);
 
     matchStats = opts.practice ? null
-      : game.players.map(() => ({ attempts: 0, makes: 0, cur: 0, bestStreak: 0, bestFire: 0, worstLoss: 0 }));
+      : game.players.map(() => ({ attempts: 0, makes: 0, cur: 0, bestStreak: 0, bestFire: 0, worstLoss: 0, lowestLives: 10 }));
     practiceMeterEl.classList.add('hidden');   // revealed by the first practice flick
 
     if (loopId) cancelAnimationFrame(loopId);
@@ -376,6 +409,14 @@
       if (result) {
         evaluating = false;
         showGlow   = result === 'MAKE';
+        const info  = Physics.getLandingInfo();
+        const flick = Physics.getLastFlickInfo();
+        flipMeta = {
+          info, flick,
+          soClose:   !!(info && info.flipped && result !== 'MAKE' && Math.abs(info.finalAngle) < 0.9),
+          greatSave: !!(result === 'MAKE' && info && info.maxTilt > GREAT_SAVE_TILT),
+        };
+        greatSaveActive = flipMeta.greatSave;
         const b = Physics.getBottle();
         Renderer.kick(result, {
           x: b.position.x,
@@ -410,6 +451,7 @@
       drag:        Input.getDragState(),
       result:      game.state === GAME_STATES.RESULT ? game.lastResult : null,
       resultAlpha,
+      specialLabel: greatSaveActive ? '🧤 THE GREAT SAVE!' : null,
       showGlow,
       isOnFire:    !!(game.onFirePlayer),
       liquidColor: game.currentPlayer()?.color,
@@ -421,6 +463,7 @@
     evaluating  = false;
     showGlow    = false;
     resultAlpha = 0;
+    greatSaveActive = false;
     clearTimeout(aiTimer);
     Physics.resetBottle();
     flipHintEl.classList.remove('hidden');
@@ -457,6 +500,7 @@
   function onOnFire() {
     evaluating  = false;
     showGlow    = false;
+    greatSaveActive = false;
     clearTimeout(aiTimer);
     Physics.resetBottle();
     flipHintEl.classList.remove('hidden');
@@ -496,7 +540,34 @@
         s.cur = 0;
         s.worstLoss = Math.max(s.worstLoss, game.lastPenalty);
       }
+      s.lowestLives = Math.min(s.lowestLives, p.lives);
     }
+
+    // ── Lifetime records + achievements (display-only; never affects rules) ──
+    const curStreak = game.practice ? game.practiceStreak
+      : (matchStats ? matchStats[game.currentPlayerIndex].cur : 0);
+    const rec = Records.recordFlip({
+      result:      game.lastResult,
+      practice:    game.practice,
+      streak:      curStreak,
+      pointCount:  game.pointCount,
+      onFireBonus: game.onFireBonus,
+      soClose:     !game.practice && !!(flipMeta && flipMeta.soClose),
+      greatSave:   !!(flipMeta && flipMeta.greatSave),
+    });
+    Achievements.check({
+      result:       game.lastResult,
+      justIgnited:  game.justIgnited,
+      onFireBonus:  game.onFireBonus,
+      streak:       curStreak,
+      pointCount:   game.pointCount,
+      finalAngle:   flipMeta && flipMeta.info  ? flipMeta.info.finalAngle : null,
+      power:        flipMeta && flipMeta.flick ? flipMeta.flick.power    : null,
+      greatSave:    !!(flipMeta && flipMeta.greatSave),
+      soCloseCountLifetime: rec.soCloseCount,
+      totalFlipsLifetime:   rec.totalFlips,
+      totalMakesLifetime:   rec.totalMakes,
+    }).forEach(showAchievementToast);
 
     if (game.practice) {
       if (game.lastResult === 'MAKE') {
@@ -537,8 +608,7 @@
       streakBannerEl.className   = 'streak-banner on-fire';
       Sound.play('miss');
     } else {
-      const info = Physics.getLandingInfo();
-      const soClose = info && info.flipped && Math.abs(info.finalAngle) < 0.9;
+      const soClose = !!(flipMeta && flipMeta.soClose);
       const n = game.lastPenalty;
       const penalty = `−${n} ${n === 1 ? 'life' : 'lives'}`;
       streakBannerEl.textContent = soClose ? `So close! ${penalty}` : penalty;
@@ -561,15 +631,48 @@
     setTimeout(() => game.advanceTurn(), 1800);
   }
 
+  // The finale deserves a beat: a mid-game elimination normally gets its own
+  // "X is out!" banner (see onEliminated) before play continues — but when
+  // that elimination also ENDS the game, game.js's advanceTurn() jumps
+  // straight to GAME_OVER and skips it. Recreate the beat here, display-only,
+  // so the winner reveal doesn't cut in the instant the bottle stops moving.
+  const GAME_OVER_HOLD_MS = 1500;
+
   function onGameOver() {
-    gameScreen.classList.add('hidden');
-    gameOverEl.classList.remove('hidden');
-    const active = game.activePlayers();
-    winnerNameEl.textContent = active.length ? active[0].name : '???';
-    renderMatchSummary(active[0]);
-    runConfetti(active[0] ? active[0].color : '#ffcc00');
-    Sound.play('win');
     Input.disable();
+    const winner = game.activePlayers()[0] || null;
+    const loser  = game.currentPlayer();
+    const finalElim = !!(loser && loser.eliminated);
+
+    if (finalElim) {
+      turnBannerEl.textContent = `❌ ${loser.name} is out!`;
+      turnBannerEl.style.color = '#ff5252';
+      Sound.play('eliminated');
+      buzz([80, 60, 80, 60, 160]);
+    }
+
+    // Win-based records/achievements — computed now, revealed after the hold.
+    let winAchievements = [];
+    if (winner && matchStats) {
+      const winRec = Records.recordWin(winner.name);
+      const s = matchStats[game.players.indexOf(winner)];
+      winAchievements = Achievements.check({
+        won:              true,
+        wonWithoutMiss:   s.attempts > 0 && s.makes === s.attempts,
+        droppedToOneLife: s.lowestLives <= 1,
+        gamesWonLifetime: (winRec.mostWins[winner.name] || 0),
+      });
+    }
+
+    setTimeout(() => {
+      gameScreen.classList.add('hidden');
+      gameOverEl.classList.remove('hidden');
+      winnerNameEl.textContent = winner ? winner.name : '???';
+      renderMatchSummary(winner);
+      runConfetti(winner ? winner.color : '#ffcc00');
+      Sound.play('win');
+      winAchievements.forEach(showAchievementToast);
+    }, finalElim ? GAME_OVER_HOLD_MS : 900);
   }
 
   function renderMatchSummary(winner) {
