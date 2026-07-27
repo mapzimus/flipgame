@@ -807,42 +807,83 @@ ${p.topSvg}
   }
 
   // ── Pineapple skin ─────────────────────────────────────────────────────────
-  // A jaunty pineapple: player-tinted crown fronds over the classic golden
-  // diamond-lattice body, with a smug little face. Bottom of the fruit sits on
-  // the contact plane (svg y=376) like everything else.
+  // A jaunty pineapple wearing the plunger's googly-eyed face (same eye/brow/
+  // mouth kit, sized up for the bigger body) so the two read as the same cast.
+  // The crown fronds carry the player's color at full strength and a little of
+  // it is mixed into the golden fruit, so the whole thing shifts hue per player
+  // while still reading as a pineapple. Bottom of the fruit sits on the contact
+  // plane (svg y=376) like every other edition.
   const PINE = {
-    body: '#f4b93c', bodyHi: '#ffd76e', bodyLo: '#c78a1a', lattice: '#a86f10',
-    eye: '#241c16', mouth: '#93413f', cheek: '#f79892',
+    gold: '#f4b93c',
+    eyeWhite: '#ffffff', pupil: '#1a1a1a', mouth: '#6d2f1c', tongue: '#d9615f',
   };
   function pinePalette(base) {
-    return { base, hi: shadeHex(base, 0.20), lo: shadeHex(base, -0.28), line: shadeHex(base, -0.52) };
+    const body = mixHex(PINE.gold, base, 0.22);   // a hint of the player's color
+    return {
+      base,
+      hi:   shadeHex(base, 0.20),
+      lo:   shadeHex(base, -0.28),
+      line: shadeHex(base, -0.52),
+      body,
+      bodyHi:    shadeHex(body, 0.26),
+      bodyLo:    shadeHex(body, -0.28),
+      lattice:   shadeHex(body, -0.44),
+    };
   }
+  // Crown blades as [baseX, baseY, tipX, tipY]. Each is drawn as a two-curve
+  // lens (not a spike) so it reads as a leaf with a center vein.
+  const PINE_FRONDS = [
+    [128, 128, 56, 54], [134, 124, 86, 24], [142, 122, 120, 6],
+    [150, 121, 152, 2], [158, 122, 184, 8], [166, 124, 216, 28],
+    [172, 128, 244, 58],
+  ];
   function pineBodySVG(p) {
-    // Diamond lattice over the fruit body.
+    let crown = '';
+    for (const [bx, by, tx, ty] of PINE_FRONDS) {
+      const mx = (bx + tx) / 2, my = (by + ty) / 2;
+      let nx = -(ty - by), ny = tx - bx;                 // perpendicular to the blade
+      const nl = Math.hypot(nx, ny) || 1;
+      nx = (nx / nl) * 15; ny = (ny / nl) * 15;          // half-width bulge
+      crown +=
+        `<path d="M ${bx} ${by} Q ${(mx + nx).toFixed(1)} ${(my + ny).toFixed(1)} ${tx} ${ty} ` +
+        `Q ${(mx - nx).toFixed(1)} ${(my - ny).toFixed(1)} ${bx} ${by} Z" ` +
+        `fill="url(#gPiC)" stroke="${p.line}" stroke-width="1.8"/>` +
+        `<path d="M ${bx} ${by} L ${tx} ${ty}" fill="none" stroke="${p.lo}" stroke-width="1.6" opacity="0.5"/>`;
+    }
+    // Diamond lattice — CLIPPED to the fruit. Unclipped, the ends of these
+    // lines stick out past the body outline like whiskers.
     let lattice = '';
-    for (let i = -3; i <= 6; i++) {
-      lattice += `<path d="M ${52 + i * 28} 160 L ${132 + i * 28} 372" fill="none" stroke="${PINE.lattice}" stroke-width="2.6" opacity="0.55"/>`;
-      lattice += `<path d="M ${248 - i * 28} 160 L ${168 - i * 28} 372" fill="none" stroke="${PINE.lattice}" stroke-width="2.6" opacity="0.55"/>`;
+    for (let i = -4; i <= 7; i++) {
+      lattice += `<path d="M ${52 + i * 30} 150 L ${142 + i * 30} 384" fill="none" stroke="${p.lattice}" stroke-width="2.6" opacity="0.5"/>`;
+      lattice += `<path d="M ${248 - i * 30} 150 L ${158 - i * 30} 384" fill="none" stroke="${p.lattice}" stroke-width="2.6" opacity="0.5"/>`;
     }
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
-<linearGradient id="gPi" x1="70" y1="0" x2="230" y2="0" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${PINE.bodyHi}"/><stop offset="0.5" stop-color="${PINE.body}"/><stop offset="1" stop-color="${PINE.bodyLo}"/>
+<linearGradient id="gPi" x1="56" y1="0" x2="244" y2="0" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${p.bodyHi}"/><stop offset="0.5" stop-color="${p.body}"/><stop offset="1" stop-color="${p.bodyLo}"/>
 </linearGradient>
+<linearGradient id="gPiC" x1="0" y1="0" x2="0" y2="132" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${p.hi}"/><stop offset="1" stop-color="${p.lo}"/>
+</linearGradient>
+<clipPath id="pineClip"><ellipse cx="150" cy="250" rx="94" ry="128"/></clipPath>
 </defs>
 <g stroke-linecap="round" stroke-linejoin="round">
-<path d="M 150 118 C 138 84 122 60 96 44 C 118 46 136 56 148 72 C 146 48 138 26 124 10 C 146 20 160 40 164 66 C 174 44 190 28 212 20 C 200 40 192 62 190 84 C 206 70 226 62 248 62 C 230 76 214 94 204 114 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 150 118 C 144 96 134 78 118 64 M 158 112 C 158 84 152 58 140 36 M 168 108 C 174 84 186 62 202 46 M 182 110 C 194 92 210 78 228 70" fill="none" stroke="${p.lo}" stroke-width="2.5" opacity="0.6"/>
-<ellipse cx="150" cy="248" rx="94" ry="130" fill="url(#gPi)" stroke="${PINE.lattice}" stroke-width="3"/>
-<g clip-path="none">${lattice}</g>
-<path d="M 78 200 C 86 174 102 152 122 140" fill="none" stroke="#ffffff" stroke-width="7" opacity="0.35"/>
-<circle cx="118" cy="238" r="9" fill="${PINE.eye}"/>
-<circle cx="182" cy="238" r="9" fill="${PINE.eye}"/>
-<circle cx="114.5" cy="234" r="3.2" fill="#ffffff" opacity="0.9"/>
-<circle cx="178.5" cy="234" r="3.2" fill="#ffffff" opacity="0.9"/>
-<circle cx="104" cy="262" r="8" fill="${PINE.cheek}" opacity="0.4"/>
-<circle cx="196" cy="262" r="8" fill="${PINE.cheek}" opacity="0.4"/>
-<path d="M 128 272 C 138 286 162 286 172 272" fill="none" stroke="${PINE.mouth}" stroke-width="4.5"/>
+${crown}
+<ellipse cx="150" cy="250" rx="94" ry="128" fill="url(#gPi)" stroke="${p.lattice}" stroke-width="3"/>
+<g clip-path="url(#pineClip)">${lattice}
+<ellipse cx="150" cy="134" rx="92" ry="28" fill="${p.bodyHi}" opacity="0.45"/>
+<ellipse cx="150" cy="368" rx="92" ry="30" fill="${p.bodyLo}" opacity="0.45"/>
+</g>
+<path d="M 80 214 C 88 184 106 160 128 146" fill="none" stroke="#ffffff" stroke-width="9" opacity="0.28"/>
+<path d="M 98 210 L 124 219 M 202 210 L 176 219" fill="none" stroke="${p.lattice}" stroke-width="5"/>
+<circle cx="120" cy="240" r="21" fill="${PINE.eyeWhite}" stroke="${p.lattice}" stroke-width="2"/>
+<circle cx="125" cy="243" r="9" fill="${PINE.pupil}"/>
+<circle cx="114" cy="233" r="4.5" fill="#ffffff"/>
+<circle cx="180" cy="240" r="21" fill="${PINE.eyeWhite}" stroke="${p.lattice}" stroke-width="2"/>
+<circle cx="185" cy="243" r="9" fill="${PINE.pupil}"/>
+<circle cx="174" cy="233" r="4.5" fill="#ffffff"/>
+<ellipse cx="150" cy="298" rx="17" ry="13" fill="${PINE.mouth}"/>
+<ellipse cx="150" cy="304" rx="10" ry="6" fill="${PINE.tongue}"/>
 </g>
 </svg>`;
   }
@@ -852,45 +893,75 @@ ${p.topSvg}
   }
 
   // ── Gorilla skin ───────────────────────────────────────────────────────────
-  // Chunky sitting gorilla, knuckles down, player-tinted fur with a fixed
-  // gunmetal face/chest. Broad flat base = same contact plane as the bottle.
+  // Side-profile silverback up on his knuckles, facing right (same convention as
+  // the parrot and T-Rex). A front-on ape refuses to read — symmetrical, it
+  // comes out as a teddy bear, and a dark face patch on a pale head just looks
+  // like a kid in a costume hood. The knuckle-walk profile is the silhouette
+  // everyone actually recognises: shoulder hump higher than the rump, back
+  // sloping down to small hips, long forelimb planted on its knuckles, and a
+  // crested skull with the brow and muzzle jutting forward. Fists + feet rest on
+  // the contact plane (svg y=376).
   const GOR = {
-    face: '#8d8577', faceLo: '#6e6759', chest: '#7a7264',
-    eye: '#17110c', glint: '#ffffff', nostril: '#4a443c', brow: '#3a352e',
+    face: '#5f574e', faceLo: '#463f38', faceHi: '#736a5f',
+    chest: '#6b6259',
+    iris: '#7a4a1e', pupil: '#12100d', glint: '#ffffff',
+    nostril: '#241f1a', brow: '#2b2620', mouth: '#33291f',
   };
   function gorPalette(base) {
-    return { base, hi: shadeHex(base, 0.14), lo: shadeHex(base, -0.26), line: shadeHex(base, -0.52) };
+    return {
+      base,
+      hi:     shadeHex(base, 0.16),
+      lo:     shadeHex(base, -0.26),
+      deep:   shadeHex(base, -0.42),
+      line:   shadeHex(base, -0.56),
+      // The silverback saddle: a desaturated, lightened band of the fur color.
+      saddle: shadeHex(mixHex(base, '#c9c9c4', 0.55), 0.06),
+    };
   }
   function gorBodySVG(p) {
+    // Authored around x≈186, then re-centred on x=150 and scaled 1.2x about the
+    // ground point so it fills the frame like the other editions without any
+    // path needing to be re-authored.
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
-<linearGradient id="gG" x1="60" y1="80" x2="250" y2="360" gradientUnits="userSpaceOnUse">
+<linearGradient id="gG" x1="80" y1="150" x2="290" y2="360" gradientUnits="userSpaceOnUse">
 <stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
 </linearGradient>
+<linearGradient id="gGs" x1="0" y1="160" x2="0" y2="228" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${p.saddle}"/><stop offset="1" stop-color="${p.base}"/>
+</linearGradient>
+<linearGradient id="gGa" x1="170" y1="0" x2="245" y2="0" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${p.base}"/><stop offset="0.45" stop-color="${p.hi}"/><stop offset="1" stop-color="${p.base}"/>
+</linearGradient>
 </defs>
-<g stroke-linecap="round" stroke-linejoin="round">
-<path d="M 96 376 C 66 376 52 356 58 332 C 64 308 84 258 110 224 L 150 260 L 128 340 C 122 362 112 376 96 376 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 204 376 C 234 376 248 356 242 332 C 236 308 216 258 190 224 L 150 260 L 172 340 C 178 362 188 376 204 376 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 70 376 C 62 360 66 346 80 342 C 94 338 106 348 108 362 C 109 370 104 376 96 376 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 230 376 C 238 360 234 346 220 342 C 206 338 194 348 192 362 C 191 370 196 376 204 376 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 78 352 L 78 366 M 90 348 L 90 366 M 222 352 L 222 366 M 210 348 L 210 366" fill="none" stroke="${p.line}" stroke-width="2.5" opacity="0.6"/>
-<path d="M 150 96 C 96 96 72 140 76 196 C 80 252 96 312 116 348 L 184 348 C 204 312 220 252 224 196 C 228 140 204 96 150 96 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<ellipse cx="150" cy="280" rx="52" ry="72" fill="${GOR.chest}" opacity="0.85"/>
-<path d="M 122 250 C 132 246 168 246 178 250 M 118 286 C 130 282 170 282 182 286 M 124 320 C 134 316 166 316 176 320" fill="none" stroke="${GOR.faceLo}" stroke-width="2.5" opacity="0.7"/>
-<path d="M 116 348 L 184 348 L 178 376 L 122 376 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<circle cx="150" cy="120" r="52" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 108 92 C 98 84 96 72 104 66 C 112 60 122 64 126 74 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2"/>
-<path d="M 192 92 C 202 84 204 72 196 66 C 188 60 178 64 174 74 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2"/>
-<path d="M 112 128 C 108 100 124 82 150 82 C 176 82 192 100 188 128 C 196 138 198 152 190 164 C 180 178 164 184 150 184 C 136 184 120 178 110 164 C 102 152 104 138 112 128 Z" fill="${GOR.face}" stroke="${GOR.faceLo}" stroke-width="2.5"/>
-<path d="M 118 118 C 126 110 138 108 146 112 M 154 112 C 162 108 174 110 182 118" fill="none" stroke="${GOR.brow}" stroke-width="6"/>
-<circle cx="132" cy="128" r="7.5" fill="${GOR.eye}"/>
-<circle cx="168" cy="128" r="7.5" fill="${GOR.eye}"/>
-<circle cx="129" cy="125" r="2.6" fill="${GOR.glint}" opacity="0.9"/>
-<circle cx="165" cy="125" r="2.6" fill="${GOR.glint}" opacity="0.9"/>
-<ellipse cx="150" cy="156" rx="20" ry="14" fill="${GOR.faceLo}" opacity="0.55"/>
-<ellipse cx="142" cy="154" rx="4.5" ry="6" fill="${GOR.nostril}" transform="rotate(-12 142 154)"/>
-<ellipse cx="158" cy="154" rx="4.5" ry="6" fill="${GOR.nostril}" transform="rotate(12 158 154)"/>
-<path d="M 136 172 C 144 178 156 178 164 172" fill="none" stroke="${GOR.brow}" stroke-width="3.5"/>
+<g stroke-linecap="round" stroke-linejoin="round" transform="translate(150 376) scale(1.2) translate(-186.5 -376)">
+<path d="M 158 210 C 144 228 138 258 140 290 C 142 312 146 328 152 338 C 157 346 168 347 173 340 C 177 334 175 322 173 310 C 169 284 170 244 176 218 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 138 336 C 136 324 146 316 160 316 C 174 316 182 328 182 344 C 182 360 172 370 156 370 C 142 370 139 352 138 336 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 100 278 C 88 296 84 322 92 344 C 100 362 118 370 134 364 C 144 359 146 346 140 332 C 132 314 118 292 110 280 Z" fill="${p.deep}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 112 264 C 96 284 88 314 96 340 C 104 362 126 372 146 364 C 158 358 160 342 153 324 C 145 304 130 278 122 266 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 92 344 C 84 360 94 376 120 376 C 142 376 154 366 148 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 101 360 L 99 374 M 115 356 L 114 374 M 129 357 L 130 374" fill="none" stroke="${p.deep}" stroke-width="3" opacity="0.7"/>
+<path d="M 84 272 C 74 240 80 208 100 188 C 120 168 146 156 172 156 C 198 156 216 170 224 194 C 232 218 228 250 214 274 C 200 300 174 314 144 314 C 116 314 94 302 86 286 C 83 280 84 276 84 272 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 200 172 C 216 158 240 154 254 164 C 262 174 258 194 244 204 C 228 214 206 208 198 194 Z" fill="url(#gG)"/>
+<path d="M 92 226 C 106 192 138 166 174 164 C 202 163 218 178 224 200 C 206 184 178 182 150 189 C 122 196 102 214 92 226 Z" fill="url(#gGs)" opacity="0.9"/>
+<ellipse cx="150" cy="278" rx="52" ry="28" fill="${GOR.chest}" opacity="0.28"/>
+<path d="M 104 214 l 10 -6 M 130 194 l 11 -5 M 158 180 l 12 -3 M 98 246 l 11 -5 M 124 226 l 11 -5 M 152 212 l 12 -4 M 102 278 l 11 -4 M 130 260 l 11 -4 M 160 248 l 11 -3" fill="none" stroke="${p.deep}" stroke-width="3" opacity="0.3"/>
+<path d="M 200 194 C 226 202 242 228 244 260 C 246 292 242 324 236 344 C 231 360 210 366 196 358 C 183 351 179 335 182 318 C 188 288 188 246 180 216 Z" fill="url(#gGa)" stroke="${p.line}" stroke-width="3"/>
+<path d="M 206 226 C 214 254 214 292 210 320" fill="none" stroke="${p.deep}" stroke-width="3" opacity="0.25"/>
+<path d="M 176 342 C 174 320 192 308 212 308 C 232 308 244 328 244 350 C 244 368 230 376 208 376 C 187 376 177 360 176 342 Z" fill="url(#gGa)" stroke="${p.line}" stroke-width="3"/>
+<path d="M 190 336 L 188 362 M 208 330 L 207 361 M 226 336 L 227 361" fill="none" stroke="${p.deep}" stroke-width="3.5" opacity="0.75"/>
+<path d="M 216 180 C 222 152 246 138 268 144 C 290 150 302 174 300 200 C 298 224 290 244 276 256 C 262 268 240 268 227 259 C 214 250 209 232 209 210 C 209 196 212 188 216 180 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 222 168 C 232 138 268 138 276 162 C 262 150 236 152 222 168 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 216 208 C 204 204 197 214 201 226 C 205 237 216 239 222 232 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 222 176 C 236 160 256 156 270 162" fill="none" stroke="#ffffff" stroke-width="6" opacity="0.22"/>
+<path d="M 258 202 C 278 200 296 210 300 224 C 299 242 290 258 274 264 C 260 269 248 264 244 254 C 250 238 252 214 258 202 Z" fill="${GOR.face}" stroke="${GOR.faceLo}" stroke-width="2"/>
+<path d="M 246 194 C 264 180 288 184 300 202 C 286 196 266 197 254 205 Z" fill="${GOR.brow}"/>
+<circle cx="268" cy="212" r="7" fill="${GOR.iris}"/>
+<circle cx="268" cy="212" r="3.6" fill="${GOR.pupil}"/>
+<circle cx="266" cy="209.5" r="2" fill="${GOR.glint}" opacity="0.95"/>
+<ellipse cx="290" cy="232" rx="4.8" ry="6.2" fill="${GOR.nostril}" transform="rotate(20 290 232)"/>
+<path d="M 254 252 C 265 257 278 253 286 243" fill="none" stroke="${GOR.mouth}" stroke-width="3.5"/>
+<path d="M 258 257 C 267 261 276 257 282 251" fill="none" stroke="${GOR.faceHi}" stroke-width="1.8" opacity="0.4"/>
 </g>
 </svg>`;
   }
