@@ -1605,9 +1605,8 @@ ${crown}
       ],
     },
     // ── The 50-win capstone. Twelve deities, one per colour (see GOD_CAST). ──
-    // Olympus Bank: same skill band as Alien — sideways ricochet onto a STATIC
-    // golden altar. No flip requirement, no wind, no lightning, no moving pad.
-    // Clouds fill the UFO role so it still reads divine instead of sci-fi.
+    // Olympus Bank: IDENTICAL physics to Alien (same saucers/wedges/pad math) —
+    // only the paint changes (golden altar + storm-orb art over the UFO bodies).
     {
       id: 'gods', name: 'Gods', emoji: '⚡', unlock: 50,
       physics: {
@@ -1627,8 +1626,8 @@ ${crown}
         requireFlip: false,
         deflector: true,
         deflectorCount: 3,
-        saucerCount: 0,
-        cloudCount: 6,          // divine stand-ins for alien UFOs
+        saucerCount: 6,         // same mid-band floaters as Alien (not cloudCount)
+        cloudCount: 0,
         movingTarget: false,
         wind: false,
         lightning: false,

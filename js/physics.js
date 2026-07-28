@@ -406,6 +406,7 @@ const Physics = (() => {
 
   function getObstacles() {
     return {
+      theme: profile.targetStyle === 'altar' ? 'olympus' : 'alien',
       deflectors: deflectors.map((d) => ({ vertices: d.vertices.map((v) => ({ x: v.x, y: v.y })) })),
       // Back-compat single deflector for older renderers
       deflector: deflectors[0]

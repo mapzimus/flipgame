@@ -485,7 +485,12 @@ const Renderer = (() => {
     const altar = target.style === 'altar';
     ctx.save();
     if (altar) {
-      // Golden Olympus altar pedestal — outer plate is visual, inner disc is the score zone.
+      // Pedestal is decoration behind the floor score zone — the MAKE radius
+      // lives on the ground at the same Y as Alien so both modes play identical.
+      ctx.fillStyle = '#c8922a';
+      ctx.fillRect(x - hw * 0.42, groundY - 22, hw * 0.84, 20);
+      ctx.fillStyle = '#a87420';
+      ctx.fillRect(x - hw * 0.55, groundY - 8, hw * 1.1, 8);
       const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.35);
       glow.addColorStop(0, `rgba(255,210,60,${0.35 + pulse * 0.2})`);
       glow.addColorStop(1, 'rgba(255,210,60,0)');
@@ -493,28 +498,28 @@ const Renderer = (() => {
       ctx.beginPath();
       ctx.ellipse(x, groundY, hw * 1.3, hw * 0.38, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#c8922a';
-      ctx.fillRect(x - hw * 0.55, groundY - 18, hw * 1.1, 18);
-      ctx.fillStyle = '#f0d060';
+      // Outer visual ring
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(255,230,120,${0.45 + pulse * 0.15})`;
       ctx.beginPath();
-      ctx.ellipse(x, groundY - 18, hw, hw * 0.28, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, groundY, hw, hw * 0.29, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Inner scored bullseye (same geometry as Alien)
+      ctx.beginPath();
+      ctx.ellipse(x, groundY, hitHW, hitHW * 0.29, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${0.28 + pulse * 0.18})`;
       ctx.fill();
       ctx.lineWidth = 3;
-      ctx.strokeStyle = `rgba(255,230,120,${0.55 + pulse * 0.2})`;
-      ctx.stroke();
-      // Inner scored bullseye
-      ctx.beginPath();
-      ctx.ellipse(x, groundY - 18, hitHW, hitHW * 0.28, 0, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${0.35 + pulse * 0.2})`;
-      ctx.fill();
-      ctx.lineWidth = 2.5;
       ctx.strokeStyle = `rgba(255,255,255,${0.85 + pulse * 0.15})`;
       ctx.stroke();
-      ctx.fillStyle = 'rgba(255,250,200,0.9)';
-      ctx.font = `bold ${Math.max(12, hitHW * 0.45)}px system-ui, sans-serif`;
+      ctx.beginPath();
+      ctx.ellipse(x, groundY, hitHW * 0.35, hitHW * 0.12, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,250,200,0.95)';
+      ctx.font = `bold ${Math.max(12, hitHW * 0.5)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('⚡', x, groundY - 18);
+      ctx.fillText('⚡', x, groundY - hitHW * 0.55);
     } else {
       const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.15);
       glow.addColorStop(0, `rgba(105,240,174,${0.22 + pulse * 0.12})`);
@@ -570,28 +575,45 @@ const Renderer = (() => {
       ctx.save();
       ctx.translate(s.x, s.y);
       ctx.rotate(s.angle * 0.35);
-      ctx.beginPath();
-      ctx.ellipse(0, -s.ry * 0.55, s.rx * 0.46, s.ry * 0.85, 0, Math.PI, 0);
-      ctx.fillStyle = '#bfe7ff';
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#5d7f97';
-      ctx.stroke();
-      const g = ctx.createLinearGradient(0, -s.ry, 0, s.ry);
-      g.addColorStop(0, '#e7edf2');
-      g.addColorStop(1, '#8c99a5');
-      ctx.beginPath();
-      ctx.ellipse(0, 0, s.rx, s.ry * 0.62, 0, 0, Math.PI * 2);
-      ctx.fillStyle = g;
-      ctx.fill();
-      ctx.strokeStyle = '#43586b';
-      ctx.stroke();
-      const blink = 0.45 + 0.55 * Math.sin(clock * 5 + s.x * 0.05);
-      ctx.fillStyle = `rgba(255,210,63,${blink})`;
-      for (const lx of [-s.rx * 0.62, 0, s.rx * 0.62]) {
+      if (obstacles.theme === 'olympus') {
+        // Identical Matter body to Alien UFOs — storm-orb paint only.
+        ctx.globalAlpha = 0.92;
+        ctx.fillStyle = '#e8eef8';
         ctx.beginPath();
-        ctx.arc(lx, s.ry * 0.22, 3.6, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, s.rx, s.ry * 0.72, 0, 0, Math.PI * 2);
+        ctx.ellipse(-s.rx * 0.45, -s.ry * 0.15, s.rx * 0.55, s.ry * 0.55, 0, 0, Math.PI * 2);
+        ctx.ellipse(s.rx * 0.4, -s.ry * 0.2, s.rx * 0.5, s.ry * 0.5, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.globalAlpha = 1;
+        const blink = 0.45 + 0.55 * Math.sin(clock * 5 + s.x * 0.05);
+        ctx.fillStyle = `rgba(255,210,63,${blink})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.ellipse(0, -s.ry * 0.55, s.rx * 0.46, s.ry * 0.85, 0, Math.PI, 0);
+        ctx.fillStyle = '#bfe7ff';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#5d7f97';
+        ctx.stroke();
+        const g = ctx.createLinearGradient(0, -s.ry, 0, s.ry);
+        g.addColorStop(0, '#e7edf2');
+        g.addColorStop(1, '#8c99a5');
+        ctx.beginPath();
+        ctx.ellipse(0, 0, s.rx, s.ry * 0.62, 0, 0, Math.PI * 2);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.strokeStyle = '#43586b';
+        ctx.stroke();
+        const blink = 0.45 + 0.55 * Math.sin(clock * 5 + s.x * 0.05);
+        ctx.fillStyle = `rgba(255,210,63,${blink})`;
+        for (const lx of [-s.rx * 0.62, 0, s.rx * 0.62]) {
+          ctx.beginPath();
+          ctx.arc(lx, s.ry * 0.22, 3.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       ctx.restore();
     }
