@@ -1604,32 +1604,38 @@ ${crown}
       ],
     },
     // ── The 50-win capstone. Twelve deities, one per colour (see GOD_CAST). ──
-    // Olympus Judgment: still a 360° flip, but the floor is mostly void —
-    // settle upright on the moving golden altar while wind + lightning harass
-    // the shot. Soft cloud bumpers nudge you mid-flight.
+    // Olympus Bank: same skill band as Alien — sideways ricochet onto a STATIC
+    // golden altar. No flip requirement, no wind, no lightning, no moving pad.
+    // Clouds fill the UFO role so it still reads divine instead of sci-fi.
     {
       id: 'gods', name: 'Gods', emoji: '⚡', unlock: 50,
       physics: {
-        gravity: 0.95,
-        frictionAir: 0.02,
-        friction: 0.9,
-        restitution: 0.04,
-        spinScale: 1,
-        launchScale: 1.2,
-        horizDivisor: 240,
-        horizMax: 8,
-        wallBounce: 0.2,
+        gravity: 1.35,
+        frictionAir: 0.004,
+        friction: 0.02,
+        restitution: 0.92,
+        spinScale: 0.7,
+        launchScale: 1.55,
+        horizDivisor: 150,
+        horizMax: 15,
+        wallBounce: 0.98,
         ceiling: true,
-        floorResolve: false,
+        floorResolve: true,
         landOnTarget: true,
-        targetHalfWidth: 50,
-        requireFlip: true,
-        movingTarget: true,
-        wind: true,
-        windStrength: 0.014,
-        cloudCount: 4,
-        lightning: true,
+        targetHalfWidth: 40,
+        requireFlip: false,
+        deflector: true,
+        deflectorCount: 3,
+        saucerCount: 0,
+        cloudCount: 9,          // divine stand-ins for alien UFOs
+        movingTarget: false,
+        wind: false,
+        lightning: false,
         keepWalls: true,
+        minHorizRatio: 0.22,
+        strictTarget: true,
+        allowSlideIn: false,
+        targetStyle: 'altar',
       },
       names: [
         'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',

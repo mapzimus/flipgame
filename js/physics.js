@@ -65,9 +65,9 @@ const Physics = (() => {
   // and the FLOOR is dead: the first time it touches down is where it landed,
   // and it counts if any part of it is over the target pad.
   //
-  // OLYMPUS MODE (the 50-win gods) keeps the flip, but the floor is mostly
-  // void: you must settle upright on a moving golden altar while wind gusts
-  // and lightning bolts try to ruin the shot. Soft cloud bumpers nudge you.
+  // OLYMPUS BANK (the 50-win gods) mirrors alien difficulty: a sideways bank
+  // shot onto a static golden altar. Same ricochet rules, clouds instead of
+  // saucers, no flip / wind / lightning / moving-pad puzzle.
   const DEFAULT_PROFILE = {
     gravity: 1.5,
     frictionAir: 0.025,
@@ -88,7 +88,7 @@ const Physics = (() => {
     deflector: false,
     deflectorCount: 1,
     saucerCount: 0,
-    // Olympus furniture
+    // Olympus furniture (bank-shot clouds share saucer material when floorResolve)
     movingTarget: false,
     wind: false,
     windStrength: 0,
@@ -98,6 +98,7 @@ const Physics = (() => {
     minHorizRatio: 0,
     strictTarget: false,   // true = bottle CENTER must be on the pad (not any overlap)
     allowSlideIn: true,    // bounce mode: off-pad touchdown can still slide onto a MAKE
+    targetStyle: null,     // 'altar' | 'pad' | null (auto)
   };
   let profile = { ...DEFAULT_PROFILE };
   let targetX = null;      // pad center, only set when profile.landOnTarget
@@ -244,20 +245,26 @@ const Physics = (() => {
 
     for (let i = 0; i < profile.cloudCount; i++) {
       const lane = (i + 0.5) / Math.max(1, profile.cloudCount);
-      const x = WALL_INSET + 70 + lane * Math.max(40, canvasW - WALL_INSET * 2 - 140);
-      const y = groundY - 200 - (i % 3) * 95;
-      const rx = 52, ry = 24;
+      const x = WALL_INSET + 50 + lane * Math.max(40, canvasW - WALL_INSET * 2 - 100);
+      // Bank-mode clouds sit in the same mid-band as alien saucers so the shot
+      // difficulty matches; soft decorative clouds (legacy) hang higher.
+      const bank = !!profile.floorResolve;
+      const y = bank
+        ? groundY - 150 - (i % 4) * 70 - (i % 3) * 18
+        : groundY - 200 - (i % 3) * 95;
+      const rx = bank ? 38 + (i % 3) * 4 : 52;
+      const ry = bank ? 16 + (i % 2) * 3 : 24;
       const body = Bodies.rectangle(x, y, rx * 2, ry * 2, {
         label: 'cloud',
-        frictionAir: 0.08,
-        friction: 0.02,
-        restitution: 0.55,
-        density: 0.0005,
+        frictionAir: bank ? 0.05 : 0.08,
+        friction: bank ? 0 : 0.02,
+        restitution: bank ? Math.max(0.7, profile.wallBounce) : 0.55,
+        density: bank ? 0.0011 : 0.0005,
       });
       World.add(world, body);
       clouds.push({
         body,
-        vx: (i % 2 ? 1 : -1) * (0.35 + 0.2 * (i % 3)),
+        vx: (i % 2 ? 1 : -1) * (bank ? (0.85 + 0.55 * (i % 4)) : (0.35 + 0.2 * (i % 3))),
         phase: i * 2.1,
         rx, ry,
       });
@@ -298,18 +305,22 @@ const Physics = (() => {
   function updateClouds(dt) {
     if (!clouds.length) return;
     const gy = engine.gravity.y * engine.gravity.scale;
+    const bank = !!profile.floorResolve;
     for (const c of clouds) {
       const b = c.body;
       Body.applyForce(b, b.position, { x: 0, y: -b.mass * gy });
-      const bob = Math.sin(arenaTime * 1.1 + c.phase) * 0.22;
-      const lo = 40 + c.rx, hi = canvasW - 40 - c.rx;
+      const bob = Math.sin(arenaTime * (bank ? 1.6 : 1.1) + c.phase) * (bank ? 0.28 : 0.22);
+      const lo = (sideWallsEnabled ? WALL_INSET : 8) + c.rx + (bank ? 8 : 0);
+      const hi = canvasW - (sideWallsEnabled ? WALL_INSET : 8) - c.rx - (bank ? 8 : 0);
       if (b.position.x < lo) c.vx = Math.abs(c.vx);
       if (b.position.x > hi) c.vx = -Math.abs(c.vx);
+      // Bank-mode clouds ease like saucers so Gods matches Alien difficulty.
+      const ease = bank ? 0.04 : 0.03;
       Body.setVelocity(b, {
-        x: b.velocity.x + (c.vx - b.velocity.x) * 0.03,
-        y: b.velocity.y * 0.97 + bob * 0.25,
+        x: b.velocity.x + (c.vx - b.velocity.x) * ease,
+        y: b.velocity.y * (bank ? 0.96 : 0.97) + bob * (bank ? 0.3 : 0.25),
       });
-      Body.setAngularVelocity(b, b.angularVelocity * 0.92);
+      Body.setAngularVelocity(b, b.angularVelocity * (bank ? 0.9 : 0.92));
     }
   }
 
@@ -402,7 +413,7 @@ const Physics = (() => {
     return targetX == null ? null : {
       x: targetX,
       halfWidth: targetHW,
-      style: profile.movingTarget ? 'altar' : 'pad',
+      style: profile.targetStyle || (profile.movingTarget ? 'altar' : 'pad'),
     };
   }
 
