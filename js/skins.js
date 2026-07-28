@@ -938,12 +938,12 @@ ${crown}
 <path d="M 106 226 C 106 204 124 190 150 190 C 176 190 194 204 194 226 C 196 254 194 282 190 302 C 176 313 124 313 110 302 C 106 282 104 254 106 226 Z" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
 <ellipse cx="150" cy="256" rx="35" ry="38" fill="${GOR.belly}"/>
 <path d="M 128 236 C 138 227 147 227 150 238 M 172 238 C 163 228 154 228 150 238" fill="none" stroke="${p.deep}" stroke-width="3" opacity="0.28"/>
-<rect x="66" y="202" width="42" height="108" rx="21" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5" transform="rotate(10 87 202)"/>
-<rect x="192" y="202" width="42" height="108" rx="21" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5" transform="rotate(-10 213 202)"/>
-<circle cx="68" cy="310" r="24" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<circle cx="232" cy="310" r="24" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 56 305 L 54 322 M 68 302 L 68 324 M 80 305 L 82 322" fill="none" stroke="${p.deep}" stroke-width="2.5" opacity="0.5"/>
-<path d="M 220 305 L 218 322 M 232 302 L 232 324 M 244 305 L 246 322" fill="none" stroke="${p.deep}" stroke-width="2.5" opacity="0.5"/>
+<rect x="66" y="202" width="42" height="84" rx="21" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5" transform="rotate(10 87 202)"/>
+<rect x="192" y="202" width="42" height="84" rx="21" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5" transform="rotate(-10 213 202)"/>
+<circle cx="72" cy="285" r="24" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<circle cx="228" cy="285" r="24" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 60 280 L 58 297 M 72 277 L 72 299 M 84 280 L 86 297" fill="none" stroke="${p.deep}" stroke-width="2.5" opacity="0.5"/>
+<path d="M 216 280 L 214 297 M 228 277 L 228 299 M 240 280 L 242 297" fill="none" stroke="${p.deep}" stroke-width="2.5" opacity="0.5"/>
 <circle cx="104" cy="120" r="15" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
 <circle cx="196" cy="120" r="15" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
 <ellipse cx="150" cy="82" rx="34" ry="19" fill="url(#gG)" stroke="${p.line}" stroke-width="2.5"/>
@@ -1008,26 +1008,28 @@ ${crown}
       'Snacky Chan', 'Out of Order', 'Snack Overflow', 'Insert Coin',
       'Press B4', 'Exact Change', 'Jammed Cherry', 'Snackzilla',
     ] },
-    // One name per figure — this edition's sprite changes with the color, so
-    // the names are matched to the PERSONS costume at the same index:
-    // astronaut, pirate, army man, builder, wizard, diver, chef, dancer,
-    // hero, cowpoke, firefighter, clown.
-    { id: 'people', name: 'People', emoji: '🧑‍🚀', unlock: 9, names: [
-      'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
-      'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
-      'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
-    ] },
     // Tropical, spiky, and extremely pleased about both.
-    { id: 'pineapple', name: 'Pineapple', emoji: '🍍', unlock: 11, names: [
+    { id: 'pineapple', name: 'Pineapple', emoji: '🍍', unlock: 9, names: [
       'Piña Colossus', 'Spike Lee', 'Sir Prickles', 'Tropic Thunder',
       'Juice Springsteen', 'Crown Jewel', 'Fine-apple', 'Pokey Dokey',
       'Sweet & Spiky', 'Hula Hooper', 'Cherry on Top', 'Upside-Down Cake',
     ] },
     // 400 pounds of gym membership.
-    { id: 'gorilla', name: 'Gorilla', emoji: '🦍', unlock: 13, names: [
+    { id: 'gorilla', name: 'Gorilla', emoji: '🦍', unlock: 11, names: [
       'Hairy Styles', 'King Wrong', 'Chest Thumper', 'Banana Split',
       'Grape Ape', 'Chill Gorilla', 'Silverback Sam', 'Monkey Business',
       'Gorilla Warfare', 'Kong Fu', 'Jungle Gym', 'Ape Lincoln',
+    ] },
+    // The twelve-figure cast — the last of the ordinary editions, held back to
+    // just before the trophy because it's the biggest single unlock in the set.
+    // One name per figure — this edition's sprite changes with the color, so
+    // the names are matched to the PERSONS costume at the same index:
+    // astronaut, pirate, army man, builder, wizard, diver, chef, dancer,
+    // hero, cowpoke, firefighter, clown.
+    { id: 'people', name: 'People', emoji: '🧑‍🚀', unlock: 13, names: [
+      'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
+      'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
+      'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
     ] },
     // First place, completely insufferable about it.
     { id: 'trophy_gold', name: 'Gold Trophy', emoji: '🏆', unlock: 15, names: [
