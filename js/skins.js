@@ -1585,15 +1585,15 @@ ${crown}
         ceiling: true,
         floorResolve: true,     // first floor contact IS the landing
         landOnTarget: true,
-        targetHalfWidth: 40,    // tight pad — center must land here
+        targetHalfWidth: 58,    // eased — was 40 (too punishing on mobile)
         requireFlip: false,     // aim, not rotation
         deflector: true,
-        deflectorCount: 3,      // was 5 — still scramble, less ceiling chaos
-        saucerCount: 9,
+        deflectorCount: 3,
+        saucerCount: 6,         // eased — was 9
         keepWalls: true,        // bank shot needs walls even on mobile
         minHorizRatio: 0.22,
-        strictTarget: true,     // bottle CENTER on pad — no grazing makes
-        allowSlideIn: false,    // first touchdown is final — no slide-in saves
+        strictTarget: false,    // any overlap counts again (was center-only)
+        allowSlideIn: true,     // slide-into-pad saves are back
       },
       names: [
         // Index-aligned to FLAVORS / ALIEN_CAST: Grey, Greenie, Mantid, Cyclops,
