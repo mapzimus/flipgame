@@ -34,12 +34,17 @@ const Physics = (() => {
   // so we wait it out instead of calling a premature miss. Only if nothing
   // resolves within MISS_CAP_FRAMES (the glitch / teeter-stall fallback) do we
   // force a MISS so a turn can never soft-lock in EVALUATING.
+  //
+  // v54: ~10% more forgiving upright / settle thresholds so normal flips (esp.
+  // on mobile open-arena, where wall caroms no longer bail you out) feel fairer.
   const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
   const SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
-  const MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
+  const MAKE_ANGLE      = 0.67;  // ≤±~38° upright = MAKE (was 0.61 / ±35°)
   const PERFECT_ANGLE   = 0.16;  // ≤~9° upright = perfect landing flair
   const FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
   const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
+  const SETTLE_ANG_VEL  = 0.011; // was 0.010 — slightly looser "at rest" spin
+  const SETTLE_LIN_SPD  = 7.7;   // was 7 — slightly looser "at rest" slide
 
   // ── Seeded PRNG (mulberry32) ───────────────────────────────────────────────
   // All in-flight randomness (launch jitter + landing kick + pad placement)
@@ -685,9 +690,9 @@ const Physics = (() => {
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
 
-    const jSpin   = 1 + (rand() - 0.5) * 0.24;
-    const jLaunch = 1 + (rand() - 0.5) * 0.12;
-    const jDrift  = (rand() - 0.5) * 2.4;
+    const jSpin   = 1 + (rand() - 0.5) * 0.216; // was 0.24 — ~10% less spin noise
+    const jLaunch = 1 + (rand() - 0.5) * 0.108; // was 0.12 — ~10% less launch noise
+    const jDrift  = (rand() - 0.5) * 2.16;      // was 2.4
 
     const launchY = -(16 + power * 5) * jLaunch * profile.launchScale;
     let launchX = Math.max(-profile.horizMax,
