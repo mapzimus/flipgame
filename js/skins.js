@@ -989,29 +989,220 @@ ${part(v.front)}
   }
 
   // ── Alien skin ─────────────────────────────────────────────────────────────
-  // The 25-win secret: a proper Roswell "Grey" rather than a little green man —
-  // pale grey skin, oversized domed cranium tapering to a pointed chin, huge
-  // black wraparound eyes, and barely-there nose slits and mouth. (Antennae
-  // were dropped deliberately: they're the one feature that reads "cartoon
-  // martian" instead of Grey.) Flips under its own bounce physics profile —
-  // see META.physics — so it banks off the walls instead of flipping.
+  // The 25-win secret, and the third edition (after People + Gods) whose SPRITE
+  // CHANGES WITH THE PLAYER'S COLOUR — twelve sci-fi races on one shared spindly
+  // body. Same bounce-mode physics for every race (see META.physics); only the
+  // paint changes. Cast is keyed to FLAVORS hexes so each color summons a
+  // different visitor.
+  //
+  // Races are classroom-safe archetypes (no living-faith symbols, no trademarked
+  // franchise likenesses) chosen so no two share a silhouette at game size.
   const ALIEN = {
     eye: '#0b0b12', glint: '#ffffff',
     mouth: '#6b756e', nostril: '#6b756e',
     bulb: '#c9f9ff', bulbLine: '#57b4c4',
+    metal: '#c9d2d9', metalLo: '#6d767e',
+    led: '#69f0ae',
   };
+  const ALIEN_CAST = {
+    '#1f9bff': {                                          // Roswell Grey
+      label: 'grey',
+      skin: '#b3bdb7',
+      head: (p) => `
+<path d="M 150 44 C 96 44 62 88 62 136 C 62 168 84 194 108 208 C 126 218 142 230 150 242 C 158 230 174 218 192 208 C 216 194 238 168 238 136 C 238 88 204 44 150 44 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 92 104 C 108 82 138 86 148 102" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.3"/>
+<ellipse cx="112" cy="150" rx="31" ry="18" fill="${ALIEN.eye}" transform="rotate(-28 112 150)"/>
+<ellipse cx="188" cy="150" rx="31" ry="18" fill="${ALIEN.eye}" transform="rotate(28 188 150)"/>
+<ellipse cx="101" cy="142" rx="7.5" ry="4.5" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(-28 101 142)"/>
+<ellipse cx="177" cy="142" rx="7.5" ry="4.5" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(28 177 142)"/>
+<path d="M 145 190 L 144 196 M 155 190 L 156 196" fill="none" stroke="${ALIEN.nostril}" stroke-width="2.6" opacity="0.75"/>
+<path d="M 142 212 L 158 212" fill="none" stroke="${ALIEN.mouth}" stroke-width="2.6"/>`,
+    },
+    '#e3263c': {                                          // Little Green Man
+      label: 'greenie',
+      skin: '#6cbc3a',
+      head: (p) => `
+<path d="M 118 52 L 108 18 L 128 44 Z M 182 52 L 192 18 L 172 44 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<circle cx="108" cy="14" r="10" fill="${ALIEN.bulb}" stroke="${ALIEN.bulbLine}" stroke-width="2"/>
+<circle cx="192" cy="14" r="10" fill="${ALIEN.bulb}" stroke="${ALIEN.bulbLine}" stroke-width="2"/>
+<circle cx="150" cy="132" r="78" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 100 90 C 118 70 150 68 170 82" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.28"/>
+<ellipse cx="120" cy="128" rx="18" ry="24" fill="${ALIEN.eye}"/>
+<ellipse cx="180" cy="128" rx="18" ry="24" fill="${ALIEN.eye}"/>
+<circle cx="114" cy="118" r="5" fill="${ALIEN.glint}"/>
+<circle cx="174" cy="118" r="5" fill="${ALIEN.glint}"/>
+<path d="M 136 168 C 144 180 156 180 164 168" fill="none" stroke="${p.line}" stroke-width="3.5"/>
+<path d="M 150 148 L 150 158" fill="none" stroke="${p.line}" stroke-width="2.5" opacity="0.7"/>`,
+    },
+    '#8ed11a': {                                          // Mantid
+      label: 'mantid',
+      skin: '#8ed11a',
+      head: (p) => `
+<path d="M 150 36 C 96 52 70 110 86 170 C 98 210 130 236 150 246 C 170 236 202 210 214 170 C 230 110 204 52 150 36 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 118 28 L 104 0 M 182 28 L 196 0" fill="none" stroke="${p.lo}" stroke-width="5"/>
+<circle cx="104" cy="-2" r="7" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>
+<circle cx="196" cy="-2" r="7" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>
+<ellipse cx="118" cy="132" rx="28" ry="34" fill="${ALIEN.eye}"/>
+<ellipse cx="182" cy="132" rx="28" ry="34" fill="${ALIEN.eye}"/>
+<circle cx="124" cy="120" r="8" fill="#7CFF6A" opacity="0.55"/>
+<circle cx="188" cy="120" r="8" fill="#7CFF6A" opacity="0.55"/>
+<path d="M 138 188 C 144 204 156 204 162 188" fill="none" stroke="${p.line}" stroke-width="3"/>
+<path d="M 132 200 L 120 220 M 168 200 L 180 220" fill="none" stroke="${p.lo}" stroke-width="4"/>`,
+    },
+    '#ff7a00': {                                          // Cyclops
+      label: 'cyclops',
+      skin: '#e8a060',
+      head: (p) => `
+<path d="M 150 40 C 92 48 68 110 78 168 C 86 214 118 240 150 248 C 182 240 214 214 222 168 C 232 110 208 48 150 40 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 150 40 L 150 8 L 136 28 L 164 28 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<circle cx="150" cy="132" r="48" fill="${ALIEN.eye}" stroke="${p.line}" stroke-width="3"/>
+<circle cx="150" cy="132" r="22" fill="#1f9bff"/>
+<circle cx="150" cy="132" r="10" fill="${ALIEN.eye}"/>
+<circle cx="138" cy="118" r="8" fill="${ALIEN.glint}" opacity="0.85"/>
+<path d="M 130 198 C 140 210 160 210 170 198" fill="none" stroke="${p.line}" stroke-width="3.5"/>`,
+    },
+    '#8a3ffc': {                                          // Cephalopod
+      label: 'cephalopod',
+      skin: '#7a4fd1',
+      behind: (p) => `
+<path d="M 96 220 C 70 250 62 300 74 340" fill="none" stroke="${p.lo}" stroke-width="10"/>
+<path d="M 204 220 C 230 250 238 300 226 340" fill="none" stroke="${p.lo}" stroke-width="10"/>
+<path d="M 110 230 C 90 270 88 320 104 356" fill="none" stroke="${p.base}" stroke-width="8"/>
+<path d="M 190 230 C 210 270 212 320 196 356" fill="none" stroke="${p.base}" stroke-width="8"/>`,
+      head: (p) => `
+<path d="M 150 30 C 88 40 64 110 78 180 C 90 228 120 250 150 256 C 180 250 210 228 222 180 C 236 110 212 40 150 30 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 100 70 C 120 50 160 48 186 66" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.25"/>
+<ellipse cx="118" cy="130" rx="20" ry="28" fill="${ALIEN.eye}"/>
+<ellipse cx="182" cy="130" rx="20" ry="28" fill="${ALIEN.eye}"/>
+<circle cx="112" cy="118" r="6" fill="${ALIEN.glint}"/>
+<circle cx="176" cy="118" r="6" fill="${ALIEN.glint}"/>
+<path d="M 124 200 C 130 230 140 250 150 258 C 160 250 170 230 176 200" fill="none" stroke="${p.lo}" stroke-width="7"/>
+<path d="M 132 210 C 138 236 146 250 150 254 C 154 250 162 236 168 210" fill="none" stroke="${p.hi}" stroke-width="5"/>
+<circle cx="128" cy="248" r="6" fill="${p.hi}"/><circle cx="150" cy="256" r="6" fill="${p.hi}"/><circle cx="172" cy="248" r="6" fill="${p.hi}"/>`,
+    },
+    '#5fcfe6': {                                          // Nordic
+      label: 'nordic',
+      skin: '#e8f4f8',
+      head: (p) => `
+<path d="M 150 48 C 104 48 78 96 82 148 C 86 190 112 222 150 236 C 188 222 214 190 218 148 C 222 96 196 48 150 48 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 110 70 C 130 52 170 52 190 70 C 176 92 124 92 110 70 Z" fill="#f7e7a0" stroke="#c6b36a" stroke-width="1.5"/>
+<path d="M 120 78 C 136 68 164 68 180 78" fill="none" stroke="#fff6c8" stroke-width="3" opacity="0.7"/>
+<ellipse cx="124" cy="140" rx="16" ry="10" fill="#3a6a88" transform="rotate(-12 124 140)"/>
+<ellipse cx="176" cy="140" rx="16" ry="10" fill="#3a6a88" transform="rotate(12 176 140)"/>
+<circle cx="120" cy="138" r="4" fill="${ALIEN.eye}"/>
+<circle cx="172" cy="138" r="4" fill="${ALIEN.eye}"/>
+<path d="M 138 176 C 146 184 154 184 162 176" fill="none" stroke="#9ab0bc" stroke-width="2.5"/>`,
+    },
+    '#3fae1a': {                                          // Reptilian
+      label: 'reptilian',
+      skin: '#3a9a4a',
+      head: (p) => `
+<path d="M 150 50 C 100 58 74 110 84 168 C 92 210 118 236 150 250 C 182 236 208 210 216 168 C 226 110 200 58 150 50 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 110 64 L 124 34 L 140 60 M 190 64 L 176 34 L 160 60 M 150 50 L 150 24" fill="none" stroke="${p.lo}" stroke-width="5"/>
+<path d="M 118 168 L 150 210 L 182 168 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<ellipse cx="120" cy="128" rx="18" ry="14" fill="${ALIEN.eye}"/>
+<ellipse cx="180" cy="128" rx="18" ry="14" fill="${ALIEN.eye}"/>
+<path d="M 120 122 L 120 134 M 180 122 L 180 134" fill="none" stroke="#7CFF6A" stroke-width="3"/>
+<path d="M 108 100 C 130 88 170 88 192 100" fill="none" stroke="${p.hi}" stroke-width="3" opacity="0.45"/>
+<path d="M 130 200 C 140 214 160 214 170 200" fill="none" stroke="${p.line}" stroke-width="3"/>`,
+    },
+    '#ff5b86': {                                          // Blob
+      label: 'blob',
+      skin: '#ff7aa0',
+      head: (p) => `
+<path d="M 150 28 C 70 40 48 140 78 210 C 100 250 130 262 150 262 C 170 262 200 250 222 210 C 252 140 230 40 150 28 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 90 90 C 120 60 170 55 210 88" fill="none" stroke="#ffffff" stroke-width="8" opacity="0.25"/>
+<circle cx="118" cy="130" r="16" fill="${ALIEN.eye}"/>
+<circle cx="170" cy="118" r="12" fill="${ALIEN.eye}"/>
+<circle cx="156" cy="160" r="10" fill="${ALIEN.eye}"/>
+<circle cx="112" cy="122" r="5" fill="${ALIEN.glint}"/>
+<circle cx="166" cy="112" r="4" fill="${ALIEN.glint}"/>
+<circle cx="152" cy="154" r="3" fill="${ALIEN.glint}"/>
+<path d="M 124 200 C 140 220 168 216 180 196" fill="none" stroke="${p.line}" stroke-width="4"/>`,
+    },
+    '#4f63e0': {                                          // Android
+      label: 'android',
+      skin: '#9aa6b5',
+      head: (p) => `
+<rect x="86" y="52" width="128" height="170" rx="22" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 100 70 L 200 70" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.3"/>
+<rect x="104" y="110" width="40" height="28" rx="6" fill="${ALIEN.led}" stroke="${p.line}" stroke-width="2"/>
+<rect x="156" y="110" width="40" height="28" rx="6" fill="${ALIEN.led}" stroke="${p.line}" stroke-width="2"/>
+<circle cx="124" cy="124" r="6" fill="${ALIEN.eye}"/>
+<circle cx="176" cy="124" r="6" fill="${ALIEN.eye}"/>
+<rect x="126" y="168" width="48" height="10" rx="4" fill="${ALIEN.metalLo}"/>
+<path d="M 150 52 L 150 18" fill="none" stroke="${ALIEN.metal}" stroke-width="5"/>
+<circle cx="150" cy="12" r="12" fill="${ALIEN.metal}" stroke="${ALIEN.metalLo}" stroke-width="2"/>
+<circle cx="150" cy="12" r="5" fill="${ALIEN.led}"/>
+<path d="M 86 140 L 68 140 M 214 140 L 232 140" fill="none" stroke="${ALIEN.metal}" stroke-width="6"/>
+<circle cx="64" cy="140" r="8" fill="${ALIEN.metalLo}"/><circle cx="236" cy="140" r="8" fill="${ALIEN.metalLo}"/>`,
+    },
+    '#ffc233': {                                          // Conehead
+      label: 'conehead',
+      skin: '#d4c48a',
+      head: (p) => `
+<path d="M 150 8 L 230 200 L 70 200 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 150 8 L 170 120" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.25"/>
+<ellipse cx="124" cy="150" rx="22" ry="14" fill="${ALIEN.eye}" transform="rotate(-18 124 150)"/>
+<ellipse cx="176" cy="150" rx="22" ry="14" fill="${ALIEN.eye}" transform="rotate(18 176 150)"/>
+<ellipse cx="116" cy="144" rx="5" ry="3" fill="${ALIEN.glint}" transform="rotate(-18 116 144)"/>
+<ellipse cx="168" cy="144" rx="5" ry="3" fill="${ALIEN.glint}" transform="rotate(18 168 144)"/>
+<path d="M 136 182 L 164 182" fill="none" stroke="${p.line}" stroke-width="3"/>
+<path d="M 70 200 L 230 200 L 210 236 L 90 236 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>`,
+    },
+    '#c8203a': {                                          // Trioptic
+      label: 'trioptic',
+      skin: '#c45a6a',
+      head: (p) => `
+<path d="M 150 40 C 94 50 68 112 80 172 C 90 218 118 242 150 250 C 182 242 210 218 220 172 C 232 112 206 50 150 40 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 104 84 C 126 64 174 64 196 84" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.28"/>
+<circle cx="150" cy="100" r="22" fill="${ALIEN.eye}"/>
+<circle cx="116" cy="148" r="20" fill="${ALIEN.eye}"/>
+<circle cx="184" cy="148" r="20" fill="${ALIEN.eye}"/>
+<circle cx="144" cy="92" r="6" fill="${ALIEN.glint}"/>
+<circle cx="110" cy="140" r="5" fill="${ALIEN.glint}"/>
+<circle cx="178" cy="140" r="5" fill="${ALIEN.glint}"/>
+<path d="M 132 200 C 142 214 158 214 168 200" fill="none" stroke="${p.line}" stroke-width="3.5"/>`,
+    },
+    '#ff9ecf': {                                          // Fluffball
+      label: 'fluff',
+      skin: '#ffb6d9',
+      head: (p) => `
+<circle cx="150" cy="130" r="86" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 90 80 C 70 60 62 40 70 24 M 210 80 C 230 60 238 40 230 24" fill="none" stroke="${p.hi}" stroke-width="10"/>
+<circle cx="70" cy="20" r="12" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
+<circle cx="230" cy="20" r="12" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 84 70 C 100 40 130 28 150 28 C 170 28 200 40 216 70" fill="none" stroke="#ffffff" stroke-width="10" opacity="0.35"/>
+<circle cx="122" cy="128" r="16" fill="${ALIEN.eye}"/>
+<circle cx="178" cy="128" r="16" fill="${ALIEN.eye}"/>
+<circle cx="116" cy="120" r="5" fill="${ALIEN.glint}"/>
+<circle cx="172" cy="120" r="5" fill="${ALIEN.glint}"/>
+<circle cx="118" cy="160" r="8" fill="#ff8fb0" opacity="0.45"/>
+<circle cx="182" cy="160" r="8" fill="#ff8fb0" opacity="0.45"/>
+<path d="M 136 176 C 144 188 156 188 164 176" fill="none" stroke="${p.line}" stroke-width="3.5"/>`,
+    },
+  };
+  const ALIEN_FALLBACK = ALIEN_CAST['#1f9bff'];
   function alienPalette(base) {
-    // Mostly pale grey, with just enough of the player's colour mixed in to
-    // tell two aliens apart at a glance.
-    const skin = mixHex('#b3bdb7', base, 0.3);
+    const v = ALIEN_CAST[String(base).toLowerCase()] || ALIEN_FALLBACK;
+    // Race owns the skin tone; the player's color still tints it slightly so
+    // two greys (etc.) from different slots stay distinguishable in a lobby.
+    const skin = mixHex(v.skin || '#b3bdb7', base, 0.22);
     return {
       base: skin,
       hi:   shadeHex(skin, 0.20),
       lo:   shadeHex(skin, -0.24),
       line: shadeHex(skin, -0.5),
+      accent: base,
+      v,
     };
   }
   function alienBodySVG(p) {
+    const v = p.v;
+    const part = (f) => (typeof f === 'function' ? f(p) : '');
+    // Shared spindly body — thin limbs, narrow torso, three-toed feet. Contact
+    // plane sits at svg y≈376 like every other edition. Race art is the head
+    // (and optional behind/front props).
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
 <linearGradient id="gAl" x1="80" y1="60" x2="230" y2="330" gradientUnits="userSpaceOnUse">
@@ -1019,6 +1210,7 @@ ${part(v.front)}
 </linearGradient>
 </defs>
 <g stroke-linecap="round" stroke-linejoin="round" transform="translate(150 376) scale(1.08) translate(-150 -376)">
+${part(v.behind)}
 <path d="M 132 344 L 112 372 L 136 374 L 142 348 Z M 168 344 L 188 372 L 164 374 L 158 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
 <path d="M 136 288 L 134 350 L 148 350 L 148 288 Z M 164 288 L 166 350 L 152 350 L 152 288 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2"/>
 <path d="M 126 232 C 122 226 136 220 150 220 C 164 220 178 226 174 232 L 168 292 L 132 292 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
@@ -1030,19 +1222,13 @@ ${part(v.front)}
 <path d="M 172 238 C 194 250 208 268 214 288" fill="none" stroke="url(#gAl)" stroke-width="11"/>
 <path d="M 214 288 L 226 300 M 214 288 L 218 304 M 214 288 L 206 302" fill="none" stroke="${p.lo}" stroke-width="5"/>
 <path d="M 140 232 L 138 250 L 162 250 L 160 232 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 150 44 C 96 44 62 88 62 136 C 62 168 84 194 108 208 C 126 218 142 230 150 242 C 158 230 174 218 192 208 C 216 194 238 168 238 136 C 238 88 204 44 150 44 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 92 104 C 108 82 138 86 148 102" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.3"/>
-<ellipse cx="112" cy="150" rx="31" ry="18" fill="${ALIEN.eye}" transform="rotate(-28 112 150)"/>
-<ellipse cx="188" cy="150" rx="31" ry="18" fill="${ALIEN.eye}" transform="rotate(28 188 150)"/>
-<ellipse cx="101" cy="142" rx="7.5" ry="4.5" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(-28 101 142)"/>
-<ellipse cx="177" cy="142" rx="7.5" ry="4.5" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(28 177 142)"/>
-<path d="M 145 190 L 144 196 M 155 190 L 156 196" fill="none" stroke="${ALIEN.nostril}" stroke-width="2.6" opacity="0.75"/>
-<path d="M 142 212 L 158 212" fill="none" stroke="${ALIEN.mouth}" stroke-width="2.6"/>
+${part(v.head)}
+${part(v.front)}
 </g>
 </svg>`;
   }
   function drawAlien(ctx, opts) {
-    const color = opts.color || '#d62828';
+    const color = opts.color || '#1f9bff';
     drawSingleSprite(ctx, 'alien', color, alienPalette(color), alienBodySVG);
   }
 
@@ -1078,18 +1264,18 @@ ${part(v.front)}
   ];
 
   // Everything that can stand on a trophy: the base bottle, every unlockable
-  // object, and all twelve People figures. Toppers are picked from here by
-  // tier + color slot so all 18 show up across the three tiers.
+  // object, all twelve People figures, and all twelve Alien races. Toppers are
+  // picked from here by color slot so the cast shows up across wins.
   const TOPPER_ROSTER = [
     { svg: () => BOTTLE_STATUE },
     { svg: () => parrotBodySVG(parrotPalette('#8ed11a')) },
     { svg: () => plungerBodySVG(plungerPalette('#8ed11a')) },
     { svg: () => trexBodySVG(trexPalette('#8ed11a')) },
     { svg: () => vendBodySVG(vendPalette('#8ed11a')) },
-    { svg: () => alienBodySVG(alienPalette('#8ed11a')) },
     { svg: () => pineBodySVG(pinePalette('#8ed11a')) },
     { svg: () => gorBodySVG(gorPalette('#8ed11a')) },
     ...FLAVOR_ORDER.map((hex) => ({ svg: () => peopleBodySVG(peoplePalette(hex)) })),
+    ...FLAVOR_ORDER.map((hex) => ({ svg: () => alienBodySVG(alienPalette(hex)) })),
   ];
   // The bottle is drawn by renderer.js rather than from an SVG, so it's the one
   // topper that needs its own outline.
@@ -1381,10 +1567,8 @@ ${crown}
       'Victory Lap', 'Peaked Early', 'Big Cheese', 'Humble Winner',
     ] },
     // ── The secret one. Not a reskin: it brings its own physics. ─────────────
-    // A bank shot instead of a flip — the alien is rubbery, the walls and
-    // ceiling are springy, the floor is dead, and it only has to come down
-    // touching the pad. A wedge hangs over the launch spot so straight-up gets
-    // deflected, and drifting saucers are in the way to carom off.
+    // A bank shot instead of a flip — AND a twelve-race cast (see ALIEN_CAST),
+    // one visitor per player colour, same spindly body / bounce rules for all.
     {
       id: 'alien', name: 'Alien', emoji: '👽', unlock: 25,
       // Harder bank shot: smaller pad, a ceiling full of wedges, crowded UFOs.
@@ -1410,9 +1594,11 @@ ${crown}
         minHorizRatio: 0.22,
       },
       names: [
-        'UFOh No', 'Beam Me Up Bob', 'Little Greenie', 'Crop Circler',
-        'Grey Matter', 'Not From Here', 'E.T. Cetera', 'Galaxy Brain',
-        'Roswell Rick', 'Cosmic Carl', 'Abducted Andy', 'Space Case',
+        // Index-aligned to FLAVORS / ALIEN_CAST: Grey, Greenie, Mantid, Cyclops,
+        // Cephalopod, Nordic, Reptilian, Blob, Android, Conehead, Trioptic, Fluff.
+        'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
+        'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
+        'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
       ],
     },
     // ── The 50-win capstone. Twelve deities, one per colour (see GOD_CAST). ──
