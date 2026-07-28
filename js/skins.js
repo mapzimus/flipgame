@@ -648,6 +648,149 @@ ${part(v.front)}
     drawSingleSprite(ctx, 'people', color, peoplePalette(color), peopleBodySVG);
   }
 
+
+  // ── Gods skin ──────────────────────────────────────────────────────────────
+  // The 50-win capstone, and the second edition (after People) whose SPRITE
+  // CHANGES WITH THE PLAYER'S COLOUR — twelve deities drawn on one shared chibi
+  // body. People at 13 is twelve mortals; this is twelve gods, so the ladder
+  // ends on a real escalation rather than another object.
+  //
+  // Only HISTORICAL pantheons are used — Egyptian, Greek, Roman, Norse, Aztec,
+  // Celtic. Living faiths are deliberately left out: turning a currently
+  // worshipped deity into a flippable game object is the sort of thing a family
+  // could reasonably object to, and it is a classroom that would absorb that.
+  //
+  // The cast is chosen so no two share a silhouette at game size — three animal
+  // heads, two helmets, two beard-and-prop pairs, a serpent, a goggle mask,
+  // antlers and an eye patch.
+  //
+  // Costume slots, painted over the shared body in this order:
+  //   behind   — anything BEHIND the figure (capes, wings, staves)
+  //   torso    — collars, armour, drapes
+  //   headBase — replaces/recolours the skull itself (animal heads live here)
+  //   face     — optional; REPLACES the default eyes+mouth entirely
+  //   head     — crowns, helmets, ears, headdresses (over the face)
+  //   front    — hand props, drawn last
+  const GODS = {
+    skin: '#f4c9a2', skinLine: '#c1946b',
+    eye: '#20160e', eyeWhite: '#ffffff', mouth: '#93413f',
+    gold: '#f4d35e', goldLine: '#a8862a',
+    boot: '#39404a', bootLine: '#20252c',
+    white: '#f2f2ee', whiteLine: '#cfcfc9',
+    jackal: '#2f2a33', jackalLo: '#1a171d',
+    jade: '#3fae8f', jadeLo: '#2a7a63',
+  };
+  const GOD_CAST = {
+    '#1f9bff': {                                          // Zeus — Greek
+      label: 'Zeus',
+      torso: () => `<path d="M 112 200 L 150 224 L 188 200 L 192 292 L 108 292 Z" fill="${GODS.white}" opacity="0.93" stroke="${GODS.whiteLine}" stroke-width="1.5"/>`
+        + `<path d="M 126 214 L 150 232 L 174 214" fill="none" stroke="${GODS.goldLine}" stroke-width="3" opacity="0.55"/>`,
+      // Full white beard over the chest, then the laurel wreath above it.
+      head: () => `<path d="M 126 154 C 122 190 132 216 150 224 C 168 216 178 190 174 154 C 166 166 134 166 126 154 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.8"/>`
+        + `<path d="M 132 178 C 140 174 160 174 168 178 M 136 198 C 142 195 158 195 164 198" fill="none" stroke="${GODS.whiteLine}" stroke-width="1.8" opacity="0.8"/>`
+        + `<path d="M 130 154 C 138 147 162 147 170 154 C 162 161 138 161 130 154 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.5"/>`
+        + `<path d="M 104 116 C 116 100 184 100 196 116" fill="none" stroke="#4f8f3a" stroke-width="5"/>`
+        + `<path d="M 112 108 l -9 -6 M 128 100 l -7 -8 M 150 96 l 0 -9 M 172 100 l 7 -8 M 188 108 l 9 -6" fill="none" stroke="#4f8f3a" stroke-width="4.5"/>`,
+      front: () => `<path d="M 214 196 L 236 214 L 222 218 L 244 240 L 218 230 L 228 246 L 202 222 L 218 218 L 200 200 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2"/>`,
+    },
+    '#8a3ffc': {                                          // Anubis — Egyptian
+      label: 'Anubis',
+      headBase: () => `<circle cx="150" cy="140" r="48" fill="${GODS.jackal}"/>`
+        + `<path d="M 124 158 C 124 146 176 146 176 158 C 178 176 168 190 150 194 C 132 190 122 176 124 158 Z" fill="${GODS.jackalLo}"/>`,
+      // Amber eyes: the default ink would vanish on a black skull.
+      face: () => `<path d="M 122 126 C 132 118 142 118 148 124 M 178 126 C 168 118 158 118 152 124" fill="none" stroke="${GODS.gold}" stroke-width="3"/>`
+        + `<ellipse cx="132" cy="140" rx="8" ry="6.5" fill="${GODS.gold}" transform="rotate(-12 132 140)"/>`
+        + `<ellipse cx="168" cy="140" rx="8" ry="6.5" fill="${GODS.gold}" transform="rotate(12 168 140)"/>`
+        + `<circle cx="132" cy="140" r="3" fill="#1a1208"/><circle cx="168" cy="140" r="3" fill="#1a1208"/>`
+        + `<ellipse cx="150" cy="172" rx="9" ry="6" fill="#0f0d12"/>`
+        + `<path d="M 138 186 C 144 191 156 191 162 186" fill="none" stroke="#0f0d12" stroke-width="2.5"/>`,
+      head: () => `<path d="M 118 108 L 108 44 L 146 92 Z" fill="${GODS.jackal}" stroke="${GODS.jackalLo}" stroke-width="2"/>`
+        + `<path d="M 182 108 L 192 44 L 154 92 Z" fill="${GODS.jackal}" stroke="${GODS.jackalLo}" stroke-width="2"/>`
+        + `<path d="M 122 100 L 116 62 L 138 92 Z" fill="${GODS.gold}" opacity="0.45"/>`
+        + `<path d="M 178 100 L 184 62 L 162 92 Z" fill="${GODS.gold}" opacity="0.45"/>`,
+      torso: () => `<path d="M 110 196 C 122 226 178 226 190 196 C 196 210 194 224 186 232 C 166 244 134 244 114 232 C 106 224 104 210 110 196 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2"/>`
+        + `<path d="M 118 208 C 132 226 168 226 182 208" fill="none" stroke="#2f6fb0" stroke-width="4"/>`
+        + `<path d="M 124 220 C 136 234 164 234 176 220" fill="none" stroke="${GODS.jade}" stroke-width="3.5"/>`,
+      front: () => `<g transform="translate(214 236)">`
+        + `<circle cx="0" cy="-26" r="13" fill="none" stroke="${GODS.gold}" stroke-width="5"/>`
+        + `<path d="M 0 -13 L 0 34 M -15 -2 L 15 -2" fill="none" stroke="${GODS.gold}" stroke-width="5"/></g>`,
+    },
+    '#4f63e0': {                                          // Tlaloc — Aztec
+      label: 'Tlaloc',
+      headBase: () => `<circle cx="150" cy="140" r="48" fill="${GODS.jade}"/>`
+        + `<path d="M 106 128 C 118 118 182 118 194 128" fill="none" stroke="${GODS.jadeLo}" stroke-width="3" opacity="0.7"/>`
+        + `<path d="M 110 160 C 124 168 176 168 190 160" fill="none" stroke="${GODS.jadeLo}" stroke-width="3" opacity="0.5"/>`,
+      // The signature goggle eyes and fangs.
+      face: () => `<circle cx="130" cy="140" r="17" fill="none" stroke="${GODS.gold}" stroke-width="5"/>`
+        + `<circle cx="170" cy="140" r="17" fill="none" stroke="${GODS.gold}" stroke-width="5"/>`
+        + `<circle cx="130" cy="140" r="9" fill="${GODS.eyeWhite}"/><circle cx="170" cy="140" r="9" fill="${GODS.eyeWhite}"/>`
+        + `<circle cx="131" cy="141" r="4.6" fill="${GODS.eye}"/><circle cx="171" cy="141" r="4.6" fill="${GODS.eye}"/>`
+        + `<path d="M 126 172 C 136 182 164 182 174 172 L 174 178 C 164 190 136 190 126 178 Z" fill="#2a1d16"/>`
+        + `<path d="M 134 178 L 138 190 L 143 179 Z M 157 179 L 162 190 L 166 178 Z" fill="${GODS.white}"/>`,
+      head: (p) => `<path d="M 150 92 L 150 48 M 122 98 L 106 58 M 178 98 L 194 58 M 136 94 L 126 52 M 164 94 L 174 52" fill="none" stroke="${p.lo}" stroke-width="9"/>`
+        + `<path d="M 150 48 l -7 12 l 14 0 Z M 106 58 l -3 14 l 13 -6 Z M 194 58 l 3 14 l -13 -6 Z" fill="${GODS.gold}"/>`
+        + `<path d="M 100 106 C 118 88 182 88 200 106 C 182 100 118 100 100 106 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2"/>`
+        + `<circle cx="120" cy="102" r="4" fill="${GODS.jade}"/><circle cx="150" cy="99" r="4" fill="#c8203a"/><circle cx="180" cy="102" r="4" fill="${GODS.jade}"/>`,
+      torso: () => `<path d="M 112 198 C 126 222 174 222 188 198 C 192 212 188 226 178 232 C 160 242 140 242 122 232 C 112 226 108 212 112 198 Z" fill="${GODS.jade}" stroke="${GODS.jadeLo}" stroke-width="2"/>`
+        + `<circle cx="150" cy="220" r="7" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`,
+      front: () => `<path d="M 210 250 l -4 22 M 224 246 l -4 24 M 238 252 l -4 20" fill="none" stroke="#8fd3ff" stroke-width="4" opacity="0.85"/>`,
+    },
+  };
+  const GOD_FALLBACK = GOD_CAST['#1f9bff'];
+  function godPalette(base) {
+    return {
+      base,
+      hi: shadeHex(base, 0.18), lo: shadeHex(base, -0.26), line: shadeHex(base, -0.52),
+      v: GOD_CAST[String(base).toLowerCase()] || GOD_FALLBACK,
+    };
+  }
+  function godBodySVG(p) {
+    const v = p.v;
+    const part = (f) => (typeof f === 'function' ? f(p) : '');
+    // Default face — used unless the costume supplies its own (animal heads and
+    // masks do, because ink-on-black or ink-on-mask would vanish).
+    const face = v.face ? part(v.face) : `
+<circle cx="133" cy="136" r="11.5" fill="${GODS.eyeWhite}" stroke="${GODS.skinLine}" stroke-width="1.3"/>
+<circle cx="167" cy="136" r="11.5" fill="${GODS.eyeWhite}" stroke="${GODS.skinLine}" stroke-width="1.3"/>
+<circle cx="135" cy="138" r="5.8" fill="${GODS.eye}"/>
+<circle cx="169" cy="138" r="5.8" fill="${GODS.eye}"/>
+<circle cx="131" cy="133" r="2.6" fill="#ffffff"/>
+<circle cx="165" cy="133" r="2.6" fill="#ffffff"/>
+<path d="M 137 160 C 143 169 157 169 163 160" fill="none" stroke="${GODS.mouth}" stroke-width="3.2"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
+<defs>
+<linearGradient id="gGo" x1="106" y1="0" x2="194" y2="0" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
+</linearGradient>
+</defs>
+<g stroke-linecap="round" stroke-linejoin="round">
+${part(v.behind)}
+<rect x="108" y="350" width="42" height="26" rx="10" fill="${GODS.boot}" stroke="${GODS.bootLine}" stroke-width="2"/>
+<rect x="150" y="350" width="42" height="26" rx="10" fill="${GODS.boot}" stroke="${GODS.bootLine}" stroke-width="2"/>
+<rect x="118" y="284" width="28" height="74" rx="10" fill="url(#gGo)" stroke="${p.line}" stroke-width="2"/>
+<rect x="154" y="284" width="28" height="74" rx="10" fill="url(#gGo)" stroke="${p.line}" stroke-width="2"/>
+<rect x="136" y="170" width="28" height="30" fill="${GODS.skin}" stroke="${GODS.skinLine}" stroke-width="2"/>
+<path d="M 108 210 C 108 196 122 188 150 188 C 178 188 192 196 192 210 L 196 292 L 104 292 Z" fill="url(#gGo)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 114 214 C 112 240 111 268 112 288" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.18"/>
+${part(v.torso)}
+<rect x="82" y="202" width="28" height="80" rx="14" fill="url(#gGo)" stroke="${p.line}" stroke-width="2" transform="rotate(13 96 202)"/>
+<rect x="190" y="202" width="28" height="80" rx="14" fill="url(#gGo)" stroke="${p.line}" stroke-width="2" transform="rotate(-13 204 202)"/>
+<circle cx="78" cy="288" r="15" fill="${GODS.skin}" stroke="${GODS.skinLine}" stroke-width="2"/>
+<circle cx="222" cy="288" r="15" fill="${GODS.skin}" stroke="${GODS.skinLine}" stroke-width="2"/>
+<circle cx="150" cy="140" r="48" fill="${GODS.skin}" stroke="${GODS.skinLine}" stroke-width="2.5"/>
+${part(v.headBase)}
+<path d="M 116 114 C 124 100 138 92 151 91" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.22"/>
+${face}
+${part(v.head)}
+${part(v.front)}
+</g>
+</svg>`;
+  }
+  function drawGods(ctx, opts) {
+    const color = opts.color || '#1f9bff';
+    drawSingleSprite(ctx, 'gods', color, godPalette(color), godBodySVG);
+  }
+
   // ── Alien skin ─────────────────────────────────────────────────────────────
   // The 25-win secret: a proper Roswell "Grey" rather than a little green man —
   // pale grey skin, oversized domed cranium tapering to a pointed chin, huge
@@ -1071,11 +1214,20 @@ ${crown}
         'Roswell Rick', 'Cosmic Carl', 'Abducted Andy', 'Space Case',
       ],
     },
+    // ── The 50-win capstone. Twelve deities, one per colour (see GOD_CAST). ──
+    // Names are index-aligned to FLAVORS, so each pun matches the god that
+    // colour actually summons.
+    { id: 'gods', name: 'Gods', emoji: '⚡', unlock: 50, names: [
+      'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
+      'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
+      'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
+    ] },
   ];
   const drawFns = {
     parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,
     vending: drawVend, people: drawPeople, alien: drawAlien,
     pineapple: drawPineapple, gorilla: drawGorilla, trophy_gold: drawTrophyGold,
+    gods: drawGods,
   };   // 'bottle' is drawn by renderer.js
 
   return {
@@ -1099,6 +1251,7 @@ ${crown}
         getSingleSprite('alien', c, alienPalette(c), alienBodySVG);
         getSingleSprite('pineapple', c, pinePalette(c), pineBodySVG);
         getSingleSprite('gorilla', c, gorPalette(c), gorBodySVG);
+        getSingleSprite('gods', c, godPalette(c), godBodySVG);
         getSingleSprite('trophy_gold', c, trophyPalette(c, 'gold', 'CHAMPION'), trophyBodySVG);
       }
     },
