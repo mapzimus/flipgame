@@ -65,6 +65,7 @@ const game = {
       color: d.color || '#0b86ff',
       isAI: !!d.isAI,
       skin: d.skin || 'bottle',   // which flippable edition this player throws
+      netId: d.netId || null,    // online multiplayer peer id (null = local/pass-and-play)
       lives: this.startingLives,
       streak: 0,
       isHeatingUp: false,

@@ -321,6 +321,102 @@ html, body {
 #practice-btn:hover  { background: rgba(255,255,255,0.12); }
 #practice-btn:active { transform: scale(0.98); }
 
+#online-btn {
+  background: linear-gradient(135deg, #5b2be0, #9b6dff);
+  border: none;
+  color: #fff;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+#online-btn:hover  { opacity: 0.92; }
+#online-btn:active { transform: scale(0.98); }
+
+.online-card .online-blurb {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  text-align: center;
+}
+.online-input {
+  width: 100%;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 1rem;
+}
+.online-input:focus { outline: 1px solid var(--accent); }
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 800;
+  text-align: center;
+  font-size: 1.2rem;
+}
+.online-actions { display: flex; flex-direction: column; gap: 10px; }
+.online-join-row { display: flex; gap: 8px; }
+.online-join-row .online-input { flex: 1; }
+#online-create-btn, #online-join-btn, #online-start-btn {
+  background: linear-gradient(135deg, #0288d1, #4fc3f7);
+  border: none;
+  color: #fff;
+  border-radius: 10px;
+  padding: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+#online-join-btn { flex: 0 0 auto; padding: 12px 16px; }
+.ghost-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.18);
+  color: var(--muted);
+  border-radius: 10px;
+  padding: 10px;
+  cursor: pointer;
+}
+.room-code {
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: 0.28em;
+  text-align: center;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.online-status {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  min-height: 1.2em;
+}
+#online-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.online-peer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.online-peer .dot {
+  width: 12px; height: 12px; border-radius: 50%;
+}
+.online-peer .host-tag {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--heat);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* Practice stats panel (replaces player cards in solo practice) */
 .practice-stats {
   flex: 1;

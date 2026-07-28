@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Bottle Game">
 
-  <link rel="stylesheet" href="css/style.css?v=41">
+  <link rel="stylesheet" href="css/style.css?v=42">
 </head>
 <body>
 
@@ -60,7 +60,40 @@
 
       <button id="start-btn">Start Game</button>
       <button id="practice-btn">🎯 Practice (solo)</button>
+      <button id="online-btn">🌐 Online Multiplayer</button>
       <div id="records-panel"></div>
+    </div>
+  </div>
+
+  <!-- ── Online lobby ─────────────────────────────────── -->
+  <div id="online-screen" class="screen hidden">
+    <div class="setup-card online-card">
+      <h1>Online</h1>
+      <p class="online-blurb">Same rules, different devices. Create a room, share the code, take turns flicking. School-WiFi friendly (no WebRTC).</p>
+
+      <div id="online-form">
+        <div class="section-label">Your name</div>
+        <input id="online-name" type="text" maxlength="14" placeholder="Player name" class="online-input">
+
+        <div class="online-actions">
+          <button id="online-create-btn">Create Room</button>
+          <div class="online-join-row">
+            <input id="online-code" type="text" maxlength="6" placeholder="CODE" class="online-input code-input" autocomplete="off" autocapitalize="characters">
+            <button id="online-join-btn">Join</button>
+          </div>
+        </div>
+        <button id="online-back-btn" class="ghost-btn">← Back</button>
+      </div>
+
+      <div id="online-lobby" class="hidden">
+        <div class="section-label">Room code</div>
+        <div id="online-room-code" class="room-code">----</div>
+        <div id="online-status" class="online-status"></div>
+        <div class="section-label">Players</div>
+        <div id="online-roster"></div>
+        <button id="online-start-btn" class="hidden">Start Match</button>
+        <button id="online-leave-btn" class="ghost-btn">Leave Room</button>
+      </div>
     </div>
   </div>
 
@@ -106,17 +139,18 @@
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=41"></script>
-  <script src="js/game.js?v=41"></script>
-  <script src="js/physics.js?v=41"></script>
-  <script src="js/input.js?v=41"></script>
-  <script src="js/renderer.js?v=41"></script>
-  <script src="js/audio.js?v=41"></script>
-  <script src="js/settings.js?v=41"></script>
-  <script src="js/records.js?v=41"></script>
-  <script src="js/achievements.js?v=41"></script>
-  <script src="js/skins.js?v=41"></script>
-  <script src="js/main.js?v=41"></script>
+  <script src="js/polyfills.js?v=42"></script>
+  <script src="js/game.js?v=42"></script>
+  <script src="js/physics.js?v=42"></script>
+  <script src="js/input.js?v=42"></script>
+  <script src="js/renderer.js?v=42"></script>
+  <script src="js/audio.js?v=42"></script>
+  <script src="js/settings.js?v=42"></script>
+  <script src="js/records.js?v=42"></script>
+  <script src="js/achievements.js?v=42"></script>
+  <script src="js/skins.js?v=42"></script>
+  <script src="js/net.js?v=42"></script>
+  <script src="js/main.js?v=42"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {

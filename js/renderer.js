@@ -6,6 +6,8 @@ const Renderer = (() => {
   let reduceMotion = false;   // when on, suppress non-essential motion (particles, shake, pulses)
   const BOTTLE_DRAW_SCALE = 1.15;
   const FLIGHT_LIFT = 0.18;
+  // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
+  let camZoom = 1, camX = 0, camY = 0;
 
   function setReduceMotion(v) { reduceMotion = !!v; }
 
@@ -14,6 +16,7 @@ const Renderer = (() => {
     ctx    = canvas.getContext('2d');
     W = canvas.width;
     H = canvas.height;
+    camZoom = 1; camX = W / 2; camY = H / 2;
   }
 
   function resize(w, h) { W = w; H = h; }
@@ -101,35 +104,39 @@ const Renderer = (() => {
   }
 
   // ── Background & scene ─────────────────────────────────────────────────────
-  function drawBackground(groundY, isOnFire) {
-    const sky = ctx.createLinearGradient(0, 0, 0, H);
-    if (isOnFire) {
-      sky.addColorStop(0, '#140400');
-      sky.addColorStop(1, '#2e0800');
-    } else {
-      sky.addColorStop(0, '#0a1628');
-      sky.addColorStop(1, '#112240');
+  function drawBackground(groundY, isOnFire, opts) {
+    const skyOnly = opts && opts.skyOnly;
+    const tableOnly = opts && opts.tableOnly;
+    if (!tableOnly) {
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      if (isOnFire) {
+        sky.addColorStop(0, '#140400');
+        sky.addColorStop(1, '#2e0800');
+      } else {
+        sky.addColorStop(0, '#0a1628');
+        sky.addColorStop(1, '#112240');
+      }
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
     }
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, H);
+    if (skyOnly) return;
 
-    // Table surface
+    // Extra-wide table so open-arena zoom-outs still show a floor.
+    const x0 = -W * 2, tw = W * 5;
     ctx.fillStyle = '#3e2723';
-    ctx.fillRect(0, groundY, W, H - groundY);
+    ctx.fillRect(x0, groundY, tw, Math.max(H, 800));
 
-    // Subtle wood grain lines
     ctx.strokeStyle = 'rgba(0,0,0,0.18)';
     ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 48) {
+    for (let x = x0; x < x0 + tw; x += 48) {
       ctx.beginPath();
       ctx.moveTo(x, groundY);
-      ctx.lineTo(x + 20, H);
+      ctx.lineTo(x + 20, groundY + 200);
       ctx.stroke();
     }
 
-    // Table edge highlight
     ctx.fillStyle = '#5d4037';
-    ctx.fillRect(0, groundY - 3, W, 4);
+    ctx.fillRect(x0, groundY - 3, tw, 4);
   }
 
   // ── Bottle ─────────────────────────────────────────────────────────────────
@@ -355,7 +362,8 @@ const Renderer = (() => {
   }
 
   // ── Side walls ───────────────────────────────────────────────────────────────
-  function drawWalls(groundY) {
+  function drawWalls(groundY, sideWalls) {
+    if (sideWalls === false) return; // mobile open arena — no painted walls
     const WALL = 14; // matches physics WALL_INSET
     for (const x0 of [0, W - WALL]) {
       const g = ctx.createLinearGradient(x0, 0, x0 + WALL, 0);
@@ -473,48 +481,79 @@ const Renderer = (() => {
     if (!target) return;
     const { x, halfWidth: hw } = target;
     const pulse = 0.5 + 0.5 * Math.sin(clock * 3);
+    const altar = target.style === 'altar';
     ctx.save();
-    const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.15);
-    glow.addColorStop(0, `rgba(105,240,174,${0.30 + pulse * 0.16})`);
-    glow.addColorStop(1, 'rgba(105,240,174,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.ellipse(x, groundY, hw * 1.15, hw * 0.34, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = `rgba(105,240,174,${0.75 + pulse * 0.25})`;
-    for (const r of [hw, hw * 0.62, hw * 0.28]) {
+    if (altar) {
+      // Golden Olympus altar pedestal
+      const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.35);
+      glow.addColorStop(0, `rgba(255,210,60,${0.35 + pulse * 0.2})`);
+      glow.addColorStop(1, 'rgba(255,210,60,0)');
+      ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.ellipse(x, groundY, r, r * 0.29, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, groundY, hw * 1.3, hw * 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#c8922a';
+      ctx.fillRect(x - hw * 0.55, groundY - 18, hw * 1.1, 18);
+      ctx.fillStyle = '#f0d060';
+      ctx.beginPath();
+      ctx.ellipse(x, groundY - 18, hw, hw * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = `rgba(255,230,120,${0.75 + pulse * 0.25})`;
       ctx.stroke();
+      ctx.fillStyle = 'rgba(255,250,200,0.9)';
+      ctx.font = `bold ${Math.max(12, hw * 0.35)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('⚡', x, groundY - 18);
+    } else {
+      const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.15);
+      glow.addColorStop(0, `rgba(105,240,174,${0.30 + pulse * 0.16})`);
+      glow.addColorStop(1, 'rgba(105,240,174,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.ellipse(x, groundY, hw * 1.15, hw * 0.34, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = `rgba(105,240,174,${0.75 + pulse * 0.25})`;
+      for (const r of [hw, hw * 0.62, hw * 0.28]) {
+        ctx.beginPath();
+        ctx.ellipse(x, groundY, r, r * 0.29, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
+    ctx.restore();
+  }
+
+  function drawDeflectorPoly(d) {
+    if (!d || !d.vertices || !d.vertices.length) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(d.vertices[0].x, d.vertices[0].y);
+    for (let i = 1; i < d.vertices.length; i++) ctx.lineTo(d.vertices[i].x, d.vertices[i].y);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, d.vertices[0].y, 0, d.vertices[0].y + 90);
+    g.addColorStop(0, '#8fa7bd');
+    g.addColorStop(1, '#4a5f75');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#26384a';
+    ctx.stroke();
     ctx.restore();
   }
 
   function drawObstacles(obstacles) {
     if (!obstacles) return;
-    const d = obstacles.deflector;
-    if (d && d.vertices && d.vertices.length) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(d.vertices[0].x, d.vertices[0].y);
-      for (let i = 1; i < d.vertices.length; i++) ctx.lineTo(d.vertices[i].x, d.vertices[i].y);
-      ctx.closePath();
-      const g = ctx.createLinearGradient(0, d.vertices[0].y, 0, d.vertices[0].y + 90);
-      g.addColorStop(0, '#8fa7bd');
-      g.addColorStop(1, '#4a5f75');
-      ctx.fillStyle = g;
-      ctx.fill();
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = '#26384a';
-      ctx.stroke();
-      ctx.restore();
-    }
+    const list = obstacles.deflectors && obstacles.deflectors.length
+      ? obstacles.deflectors
+      : (obstacles.deflector ? [obstacles.deflector] : []);
+    for (const d of list) drawDeflectorPoly(d);
+
     for (const s of obstacles.saucers || []) {
       ctx.save();
       ctx.translate(s.x, s.y);
-      ctx.rotate(s.angle * 0.35);   // damped — a saucer shouldn't tumble like debris
-      // Dome
+      ctx.rotate(s.angle * 0.35);
       ctx.beginPath();
       ctx.ellipse(0, -s.ry * 0.55, s.rx * 0.46, s.ry * 0.85, 0, Math.PI, 0);
       ctx.fillStyle = '#bfe7ff';
@@ -522,7 +561,6 @@ const Renderer = (() => {
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#5d7f97';
       ctx.stroke();
-      // Hull
       const g = ctx.createLinearGradient(0, -s.ry, 0, s.ry);
       g.addColorStop(0, '#e7edf2');
       g.addColorStop(1, '#8c99a5');
@@ -532,7 +570,6 @@ const Renderer = (() => {
       ctx.fill();
       ctx.strokeStyle = '#43586b';
       ctx.stroke();
-      // Running lights
       const blink = 0.45 + 0.55 * Math.sin(clock * 5 + s.x * 0.05);
       ctx.fillStyle = `rgba(255,210,63,${blink})`;
       for (const lx of [-s.rx * 0.62, 0, s.rx * 0.62]) {
@@ -542,23 +579,104 @@ const Renderer = (() => {
       }
       ctx.restore();
     }
+
+    for (const c of obstacles.clouds || []) {
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.globalAlpha = 0.88;
+      ctx.fillStyle = '#e8eef6';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, c.rx, c.ry * 0.7, 0, 0, Math.PI * 2);
+      ctx.ellipse(-c.rx * 0.45, -c.ry * 0.2, c.rx * 0.55, c.ry * 0.55, 0, 0, Math.PI * 2);
+      ctx.ellipse(c.rx * 0.4, -c.ry * 0.25, c.rx * 0.5, c.ry * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    for (const b of obstacles.bolts || []) {
+      if (!b.active) continue;
+      const a = Math.min(1, b.life * 4);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = '#fff6a0';
+      ctx.shadowColor = '#ffe14a';
+      ctx.shadowBlur = 18;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      let y = 0;
+      let x = b.x;
+      ctx.moveTo(x, y);
+      const gY = obstacles._groundY || 600;
+      let step = 0;
+      while (y < gY) {
+        y += 32;
+        step++;
+        // Deterministic zig-zag (no Math.random in the paint loop).
+        x = b.x + Math.sin(b.x * 0.07 + step * 1.7) * 22;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (obstacles.wind && Math.abs(obstacles.wind.force) > 0.002) {
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#9ec9ff';
+      ctx.font = 'bold 22px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(obstacles.wind.dir > 0 ? '🌬 →' : '← 🌬', W / 2, 48);
+      ctx.restore();
+    }
+  }
+
+  function applyCamera(view) {
+    const targetZoom = view && view.zoom != null ? view.zoom : 1;
+    const tx = view && view.camX != null ? view.camX : W / 2;
+    const ty = view && view.camY != null ? view.camY : H / 2;
+    // Ease toward the needed framing so zoom-outs aren't jumpy.
+    const k = reduceMotion ? 1 : 0.14;
+    camZoom += (targetZoom - camZoom) * k;
+    camX += (tx - camX) * k;
+    camY += (ty - camY) * k;
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(camZoom, camZoom);
+    ctx.translate(-camX, -camY);
+    return true;
   }
 
   function frame(dt, state) {
     const { bottle, liquid, drag, groundY, result, resultAlpha, specialLabel, showGlow, isOnFire,
             liquidColor, intense, suddenDeath, awaitingFlick, stake, skin,
-            target, obstacles } = state;
+            target, obstacles, view } = state;
     clock += dt;
     updateParticles(dt);
 
-    drawBackground(groundY, isOnFire);
-    drawWalls(groundY);
+    // Reset any camera transform from the previous frame (DPR setTransform
+    // lives on the canvas from main.resize — we only add a logical camera).
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Re-apply DPR from the canvas backing store ratio.
+    const dpr = canvas.width / Math.max(1, W);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.clearRect(0, 0, W, H);
+    drawBackground(groundY, isOnFire, { skyOnly: true });
+
+    ctx.save();
+    applyCamera(view);
+    drawBackground(groundY, isOnFire, { tableOnly: true });
+    drawWalls(groundY, view ? view.sideWalls : true);
     drawTargetPad(target, groundY);
+    if (obstacles) obstacles._groundY = groundY;
     drawObstacles(obstacles);
     drawFlickIndicator(drag, bottle, groundY);
     if (showGlow) drawLandingGlow(bottle, groundY);
     drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin);
     drawParticles();
+    ctx.restore();
+
+    // HUD overlays stay screen-fixed (not affected by world zoom).
     drawStake(stake);
     drawIntense(intense, suddenDeath, awaitingFlick);
 

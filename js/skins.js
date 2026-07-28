@@ -1387,6 +1387,7 @@ ${crown}
     // deflected, and drifting saucers are in the way to carom off.
     {
       id: 'alien', name: 'Alien', emoji: '👽', unlock: 25,
+      // Harder bank shot: smaller pad, a ceiling full of wedges, crowded UFOs.
       physics: {
         gravity: 1.35,
         frictionAir: 0.004,     // keeps its energy so it really does ricochet
@@ -1400,10 +1401,13 @@ ${crown}
         ceiling: true,
         floorResolve: true,     // first floor contact IS the landing
         landOnTarget: true,
-        targetHalfWidth: 88,
+        targetHalfWidth: 48,    // nerfed — was 88 (smartboard gimme)
         requireFlip: false,     // aim, not rotation
         deflector: true,
-        saucerCount: 3,
+        deflectorCount: 5,      // was 1 — scramble the ceiling ricochets
+        saucerCount: 9,         // was 3 — crowded mid-band
+        keepWalls: true,        // bank shot needs walls even on mobile
+        minHorizRatio: 0.22,
       },
       names: [
         'UFOh No', 'Beam Me Up Bob', 'Little Greenie', 'Crop Circler',
@@ -1412,13 +1416,39 @@ ${crown}
       ],
     },
     // ── The 50-win capstone. Twelve deities, one per colour (see GOD_CAST). ──
-    // Names are index-aligned to FLAVORS, so each pun matches the god that
-    // colour actually summons.
-    { id: 'gods', name: 'Gods', emoji: '⚡', unlock: 50, names: [
-      'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
-      'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
-      'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
-    ] },
+    // Olympus Judgment: still a 360° flip, but the floor is mostly void —
+    // settle upright on the moving golden altar while wind + lightning harass
+    // the shot. Soft cloud bumpers nudge you mid-flight.
+    {
+      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 50,
+      physics: {
+        gravity: 0.95,
+        frictionAir: 0.02,
+        friction: 0.9,
+        restitution: 0.04,
+        spinScale: 1,
+        launchScale: 1.2,
+        horizDivisor: 240,
+        horizMax: 8,
+        wallBounce: 0.2,
+        ceiling: true,
+        floorResolve: false,
+        landOnTarget: true,
+        targetHalfWidth: 50,
+        requireFlip: true,
+        movingTarget: true,
+        wind: true,
+        windStrength: 0.014,
+        cloudCount: 4,
+        lightning: true,
+        keepWalls: true,
+      },
+      names: [
+        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
+        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
+        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
+      ],
+    },
   ];
   const drawFns = {
     parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,

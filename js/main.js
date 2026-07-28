@@ -17,6 +17,20 @@
   const flipHintEl   = document.getElementById('flip-hint');
   const startBtn     = document.getElementById('start-btn');
   const practiceBtn  = document.getElementById('practice-btn');
+  const onlineBtn    = document.getElementById('online-btn');
+  const onlineScreen = document.getElementById('online-screen');
+  const onlineForm   = document.getElementById('online-form');
+  const onlineLobby  = document.getElementById('online-lobby');
+  const onlineNameEl = document.getElementById('online-name');
+  const onlineCodeEl = document.getElementById('online-code');
+  const onlineCreateBtn = document.getElementById('online-create-btn');
+  const onlineJoinBtn   = document.getElementById('online-join-btn');
+  const onlineBackBtn   = document.getElementById('online-back-btn');
+  const onlineLeaveBtn  = document.getElementById('online-leave-btn');
+  const onlineStartBtn  = document.getElementById('online-start-btn');
+  const onlineRoomCodeEl = document.getElementById('online-room-code');
+  const onlineStatusEl   = document.getElementById('online-status');
+  const onlineRosterEl   = document.getElementById('online-roster');
   const addPlayerBtn = document.getElementById('add-player-btn');
   const playerInputs = document.getElementById('player-inputs');
   const muteBtn      = document.getElementById('mute-btn');
@@ -295,6 +309,8 @@
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
     Sound.unlock();   // first user gesture — unlock audio
+    onlineMode = false;
+    if (window.Net) Net.leave();
     enterImmersive();
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
@@ -312,6 +328,8 @@
     const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false,
                   skin: FORCE_SKIN || r0.skin || 'bottle' };
     Sound.unlock();
+    onlineMode = false;
+    if (window.Net) Net.leave();
     enterImmersive();
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
@@ -327,6 +345,27 @@
     enterImmersive();
     gameOverEl.classList.add('hidden');
     gameScreen.classList.remove('hidden');
+    if (onlineMode) {
+      // Online rematch: only the host can kick off; others wait for start.
+      if (window.Net && Net.isHost) {
+        const defs = game.players.map(p => ({
+          name: p.name, color: p.color, isAI: false,
+          skin: FORCE_SKIN || p.skin || 'bottle', netId: p.netId,
+        }));
+        const payload = { defs, direction: game.direction, startingLives: game.startingLives, startIndex: game.winnerIndex };
+        Net.startMatch(payload);
+        startGame(defs, game.direction, {
+          difficulty: 'medium',
+          startingLives: game.startingLives,
+          startIndex: game.winnerIndex,
+        });
+      } else if (onlineStatusEl) {
+        // Non-host waits — Net.on('start') will fire beginOnlineMatch path via startGame
+        // Re-show a tiny waiting state on the game-over card label.
+        playAgainBtn.textContent = 'Waiting for host…';
+      }
+      return;
+    }
     if (game.practice) {
       startGame(
         [{ name: game.players[0].name, color: game.players[0].color, isAI: false,
@@ -368,6 +407,9 @@
   let timerActive = false, turnTimeLeft = 0, turnTimeLimit = 0, timedOut = false;
   let lastFlickPower = null;   // 0..1 strength of the current flip's flick (achievements)
   let greatSaveActive = false; // the RESULT being shown is a rare Great Save
+  let onlineMode = false;      // playing via Net rooms
+  let netAuthority = false;    // this client owns the current flick's verdict
+  let pendingNetResult = null; // authoritative result waiting to apply
   const RESULT_MS = 1500;
   const TURN_SECONDS = 10, FIRE_SECONDS = 4;   // flip clock (less when ON FIRE)
   // Worst grounded tilt (rad) a MAKE must have survived to count as a Great
@@ -501,11 +543,35 @@
     for (let s = 0; s < speed; s++) {
       Physics.step(stepDt);
       if (evaluating) {
+        // Remote peers may receive the authoritative verdict before local settle.
+        if (pendingNetResult) {
+          const forced = Physics.forceLanding
+            ? Physics.forceLanding(pendingNetResult.result, pendingNetResult.info)
+            : pendingNetResult.result;
+          pendingNetResult = null;
+          evaluating = false;
+          showGlow = forced === 'MAKE';
+          game.resolveFlip(forced, landingMeta(Physics.getLastLandingInfo()));
+          break;
+        }
         const result = Physics.checkLanding();
         if (result) {
           evaluating = false;
           showGlow   = result === 'MAKE';
           const landingInfo = Physics.getLastLandingInfo();
+          if (onlineMode && netAuthority && window.Net) {
+            Net.sendResult({
+              result,
+              info: {
+                tilt: landingInfo && landingInfo.tilt,
+                perfect: !!(landingInfo && landingInfo.perfect),
+                reason: landingInfo && landingInfo.reason,
+                maxTilt: landingInfo && landingInfo.maxTilt,
+              },
+              playerId: Net.selfId,
+            });
+          }
+          netAuthority = false;
           game.resolveFlip(result, landingMeta(landingInfo));
           break;
         }
@@ -556,6 +622,7 @@
       // Both null unless the active edition runs a bounce profile.
       target:      Physics.getTarget ? Physics.getTarget() : null,
       obstacles:   Physics.getObstacles ? Physics.getObstacles() : null,
+      view:        Physics.getViewHint ? Physics.getViewHint() : null,
     });
   }
 
@@ -620,6 +687,21 @@
 
     turnBannerEl.textContent = `${p.name}'s turn`;
     updateHUD();
+
+    // Online: only the peer whose netId matches can flick; everyone else watches.
+    if (onlineMode && window.Net) {
+      Input.disable();
+      flipHintEl.classList.add('hidden');
+      passScreen.classList.add('hidden');
+      if (p.netId === Net.selfId) {
+        turnBannerEl.textContent = `${p.name}'s turn · YOU`;
+        armHumanTurn();
+      } else {
+        turnBannerEl.textContent = `${p.name}'s turn · waiting…`;
+      }
+      return;
+    }
+
     // "PASS TO {name}" handoff card — only with >2 players still alive (with 2
     // it's obvious whose turn it is). Defers input + flip clock + the tension
     // sting until the new player taps "Tap to flip".
@@ -656,6 +738,14 @@
       Input.disable();
       flipHintEl.classList.add('hidden');
       aiTimer = setTimeout(aiFlick, 1000 / gameSpeed());
+    } else if (onlineMode && window.Net) {
+      Input.disable();
+      flipHintEl.classList.add('hidden');
+      if (p.netId === Net.selfId) {
+        Input.enable();
+        flipHintEl.classList.remove('hidden');
+        startTurnTimer(FIRE_SECONDS);
+      }
     } else {
       Input.enable();
       startTurnTimer(FIRE_SECONDS);   // tighter clock when ON FIRE
@@ -924,23 +1014,35 @@
   }
 
   // ── Flick ──────────────────────────────────────────────────────────────────
-  function onFlick(vx, vy) {
-    // B1: bail if a flip is already in flight (the `evaluating` flag is the
-    // authoritative signal) so a second pointer event can't fire a 2nd flick.
+  function launchFlick(vx, vy, seed, asAuthority) {
     if (evaluating) return;
     if (game.state !== GAME_STATES.TURN_START &&
         game.state !== GAME_STATES.ON_FIRE) return;
 
-    // Lock input + mark in-flight BEFORE launching, closing the re-arm window.
     evaluating = true;
+    netAuthority = !!asAuthority;
+    pendingNetResult = null;
     stopTurnTimer();
     Input.disable();
     flipHintEl.classList.add('hidden');
     Sound.unlock();
     Sound.play('flick');
-    lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);   // mirrors POWER_SPEED
-    Physics.applyFlick(vx, vy);
+    lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);
+    Physics.applyFlick(vx, vy, seed);
     game.setState(GAME_STATES.EVALUATING);
+  }
+
+  function onFlick(vx, vy) {
+    // Online: only the current player may flick, and only on their device.
+    if (onlineMode && window.Net) {
+      const cur = game.currentPlayer();
+      if (!cur || cur.netId !== Net.selfId) return;
+      const seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
+      Net.sendFlick({ vx, vy, seed, playerId: Net.selfId });
+      launchFlick(vx, vy, seed, true);
+      return;
+    }
+    launchFlick(vx, vy, undefined, false);
   }
 
   // ── HUD ────────────────────────────────────────────────────────────────────
@@ -1010,10 +1112,15 @@
     stopTurnTimer();
     Input.disable();
     gameStarted = false;
+    onlineMode = false;
+    netAuthority = false;
+    pendingNetResult = null;
+    if (window.Net) Net.leave();
     game.state = GAME_STATES.SETUP;
     gameScreen.classList.add('hidden');
     gameOverEl.classList.add('hidden');
     passScreen.classList.add('hidden');
+    if (onlineScreen) onlineScreen.classList.add('hidden');
     renderRecordsPanel();
     setupScreen.classList.remove('hidden');
   }
@@ -1029,6 +1136,160 @@
   }
 
   Input.attach(canvas, onFlick);
+
+  // ── Online multiplayer lobby ────────────────────────────────────────────────
+  function showOnlineLobby() {
+    if (!onlineForm || !onlineLobby) return;
+    onlineForm.classList.add('hidden');
+    onlineLobby.classList.remove('hidden');
+    onlineRoomCodeEl.textContent = Net.roomCode || '----';
+    onlineStatusEl.textContent = Net.transport
+      ? `Connected via ${Net.transport}${Net.isHost ? ' · you are host' : ''}`
+      : 'Connecting…';
+    if (onlineStartBtn) onlineStartBtn.classList.toggle('hidden', !Net.isHost);
+    renderOnlineRoster();
+  }
+
+  function renderOnlineRoster() {
+    if (!onlineRosterEl || !window.Net) return;
+    const list = Net.roster;
+    onlineRosterEl.innerHTML = list.map(p => `
+      <div class="online-peer">
+        <span class="dot" style="background:${p.color || '#4fc3f7'}"></span>
+        <span>${escapeHtml(p.name || 'Player')}</span>
+        ${p.host || p.id === (list.find(x => x.host) || {}).id ? '<span class="host-tag">host</span>' : ''}
+        ${p.id === Net.selfId ? '<span class="host-tag">you</span>' : ''}
+      </div>`).join('') || '<div class="online-status">Waiting for players…</div>';
+    if (onlineStartBtn) {
+      onlineStartBtn.disabled = list.length < 2;
+      onlineStartBtn.textContent = list.length < 2 ? 'Need 2+ players' : 'Start Match';
+    }
+  }
+
+  function onlinePlayerFromSetup() {
+    const rows = readRows();
+    const r0 = rows[0] || { name: '', flavor: 0, skin: 'bottle' };
+    const name = (onlineNameEl && onlineNameEl.value.trim()) ||
+      (r0.name || '').trim() || defaultNameFor(r0.skin || 'bottle', r0.flavor || 0);
+    const flavor = Math.min(FLAVORS.length - 1, Math.max(0, r0.flavor || 0));
+    return {
+      name,
+      flavor,
+      color: FLAVORS[flavor].color,
+      skin: FORCE_SKIN || r0.skin || 'bottle',
+    };
+  }
+
+  function beginOnlineMatch(defs, dir, opts) {
+    onlineMode = true;
+    Sound.unlock();
+    enterImmersive();
+    if (onlineScreen) onlineScreen.classList.add('hidden');
+    setupScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    gameOverEl.classList.add('hidden');
+    startGame(defs, dir || 1, {
+      difficulty: 'medium',
+      startingLives: (opts && opts.startingLives) || chosenStartingLives(),
+      newMatch: true,
+    });
+  }
+
+  if (onlineBtn && window.Net) {
+    onlineBtn.addEventListener('click', () => {
+      setupScreen.classList.add('hidden');
+      onlineScreen.classList.remove('hidden');
+      onlineForm.classList.remove('hidden');
+      onlineLobby.classList.add('hidden');
+      if (onlineNameEl && !onlineNameEl.value) {
+        const r0 = readRows()[0];
+        onlineNameEl.value = (r0 && r0.name) || FLAVORS[0].name;
+      }
+    });
+
+    onlineBackBtn && onlineBackBtn.addEventListener('click', () => {
+      Net.leave();
+      onlineScreen.classList.add('hidden');
+      setupScreen.classList.remove('hidden');
+    });
+
+    onlineLeaveBtn && onlineLeaveBtn.addEventListener('click', () => {
+      Net.leave();
+      onlineLobby.classList.add('hidden');
+      onlineForm.classList.remove('hidden');
+      onlineStatusEl.textContent = '';
+    });
+
+    onlineCreateBtn && onlineCreateBtn.addEventListener('click', async () => {
+      try {
+        onlineStatusEl.textContent = 'Creating room…';
+        await Net.createRoom(onlinePlayerFromSetup());
+        showOnlineLobby();
+      } catch (e) {
+        onlineStatusEl.textContent = 'Could not create room — try ?net=local or a relay.';
+        console.error(e);
+      }
+    });
+
+    onlineJoinBtn && onlineJoinBtn.addEventListener('click', async () => {
+      try {
+        onlineStatusEl.textContent = 'Joining…';
+        await Net.joinRoom(onlineCodeEl.value, onlinePlayerFromSetup());
+        showOnlineLobby();
+      } catch (e) {
+        onlineStatusEl.textContent = e.message || 'Join failed';
+        console.error(e);
+      }
+    });
+
+    onlineStartBtn && onlineStartBtn.addEventListener('click', () => {
+      if (!Net.isHost || Net.roster.length < 2) return;
+      const defs = Net.roster.map(p => ({
+        name: p.name,
+        color: p.color,
+        isAI: false,
+        skin: FORCE_SKIN || p.skin || 'bottle',
+        netId: p.id,
+      }));
+      const payload = {
+        defs,
+        direction: 1,
+        startingLives: chosenStartingLives(),
+      };
+      Net.startMatch(payload);
+      beginOnlineMatch(defs, 1, payload);
+    });
+
+    Net.on('roster', () => {
+      renderOnlineRoster();
+      if (onlineStatusEl && Net.connected) {
+        onlineStatusEl.textContent =
+          `Connected via ${Net.transport} · ${Net.roster.length} player${Net.roster.length === 1 ? '' : 's'}`;
+      }
+    });
+    Net.on('welcome', () => showOnlineLobby());
+    Net.on('start', (msg) => {
+      if (Net.isHost) return; // host already started locally
+      const defs = (msg.defs || []).map(d => ({ ...d, isAI: false }));
+      beginOnlineMatch(defs, msg.direction || 1, msg);
+    });
+    Net.on('flick', (msg) => {
+      if (!onlineMode || !gameStarted) return;
+      if (msg.playerId === Net.selfId) return;
+      launchFlick(msg.vx, msg.vy, msg.seed, false);
+    });
+    Net.on('result', (msg) => {
+      if (!onlineMode || !gameStarted) return;
+      if (msg.playerId === Net.selfId) return;
+      pendingNetResult = { result: msg.result, info: msg.info || {} };
+    });
+    Net.on('disconnected', () => {
+      if (onlineStatusEl) onlineStatusEl.textContent = 'Disconnected — reconnecting…';
+    });
+    Net.on('reconnected', () => {
+      if (onlineStatusEl) onlineStatusEl.textContent = 'Reconnected';
+    });
+  }
 
   // Apply persisted prefs + render the hall-of-fame
   Sound.setMuted(!Settings.sound);

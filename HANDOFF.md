@@ -232,7 +232,7 @@ Pages auto-builds from `master` (root). Push and it's live in ~1 minute at
 **The one ritual you must not forget:**
 > When you change ANY game file, **bump `CACHE_NAME` in `service-worker.js`**
 > (`flipgame-v3` → `flipgame-v4`). Otherwise installed copies serve the old cached
-> build forever. (Currently at **v3**.)
+> build forever. (Currently at **v42**.)
 
 **Gotchas baked into the project (don't undo these):**
 - **All asset paths are RELATIVE.** The site lives at the `/flipgame/` subpath;
@@ -276,18 +276,17 @@ the *same* bottle tumble live on their own screen; one tiny message per flip
 hybrid — **replay is for visuals, the flicking player's device is authoritative for
 the MAKE/MISS result.**
 
-**Prep already needed (cheap, do alongside other work):**
-1. Seed the RNG — replace `Math.random()` in `physics.js` (jitter + landing kick) with
-   a seeded PRNG (e.g. mulberry32); the flick broadcasts its seed.
-2. Switch the game loop to a **fixed-timestep accumulator** (currently variable dt).
-3. Matter.js is already pinned/vendored (0.19). ✓
+**Status (v42):**
+1. Seeded RNG — **DONE ✓** `physics.js` reseeds a mulberry32 stream per flick.
+2. Fixed-timestep accumulator — **DONE ✓** physics steps at fixed 60Hz.
+3. Rooms + lockstep client — **DONE ✓** (`js/net.js`, Online button on setup).
+   - Default transport: MQTT over WSS to the public EMQX broker (school-WiFi friendly).
+   - Optional self-hosted relay: `relay/server.mjs` then `?relay=ws://host:8787`.
+   - Same-browser testing: `?net=local` (BroadcastChannel).
 
-**Transport:** realtime over `wss://` — **Supabase Realtime** (already connected) or
-PartyKit. **Avoid WebRTC/P2P** (school networks block it). GitHub Pages can host the
-client; the realtime backend is a separate managed service.
-
-**Design that fits the classroom:** smartboard = shared board, phones/Chromebooks =
-controllers (Jackbox-style), students join a room code and flick on their own device.
+**Design that fits the classroom:** create a room code on the smartboard or a phone;
+students join and take turns flicking on their own device. Pass-and-play handoff is
+skipped online — only the current peer can flick.
 
 ---
 
@@ -328,7 +327,7 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 ## Dev/verify workflow used this session (IMPORTANT)
 - Run the dev server (`python -m http.server 5174` / launch.json "flipgame"), open in the **Claude preview**, and verify with `preview_eval`. Game logic + physics are tested **headlessly** by driving `game.resolveFlip`/`advanceTurn` + `Physics.applyFlick`/`step`/`checkLanding` directly (set `game.callbacks = {}` to isolate from the UI). This is how all balance/landing numbers were measured.
 - **Feel-dependent things (slow-mo, audio, haptics, the live countdown drain) only run in a real focused tab** — the preview throttles `requestAnimationFrame`/timers, so they can't be exercised headlessly. Playtest those on a real device.
-- **Stale-cache gotcha:** the dev server sends no cache headers, so the browser serves stale JS on reload. Scripts/CSS carry a `?v=N` query (currently **v15**) — **bump it on every change** (and the matching `CACHE_NAME` in `service-worker.js`) or the browser/SW serves the old build. This is the #1 "my change didn't show up" cause.
+- **Stale-cache gotcha:** the dev server sends no cache headers, so the browser serves stale JS on reload. Scripts/CSS carry a `?v=N` query (currently **v42**) — **bump it on every change** (and the matching `CACHE_NAME` in `service-worker.js`) or the browser/SW serves the old build. This is the #1 "my change didn't show up" cause.
 - **Deploy:** push to `master` → GitHub Pages + the offline APK (GitHub Actions) rebuild automatically.
 
 ## Tuning knobs quick map (all in `js/game.js` unless noted)
