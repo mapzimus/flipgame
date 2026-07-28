@@ -4,7 +4,10 @@ const Renderer = (() => {
   let canvas, ctx, W, H;
   const particles = [];
   let reduceMotion = false;   // when on, suppress non-essential motion (particles, shake, pulses)
-  const BOTTLE_DRAW_SCALE = 1.15;
+  // Visual size of every flippable edition (bottle + skins). Physics body stays
+  // the same — this is paint-only. Bumped ~20% (1.15 → 1.38) so objects read
+  // bigger on phones after open-arena zoom made shots feel tiny.
+  const BOTTLE_DRAW_SCALE = 1.38;
   const FLIGHT_LIFT = 0.18;
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;

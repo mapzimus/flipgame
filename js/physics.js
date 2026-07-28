@@ -649,7 +649,7 @@ const Physics = (() => {
         worldH: groundY + 30,
       };
     }
-    const pad = 70;
+    const pad = 48;
     const minX = Math.min(0, bottle.bounds.min.x - pad);
     const maxX = Math.max(canvasW, bottle.bounds.max.x + pad);
     const minY = Math.min(0, bottle.bounds.min.y - pad);
@@ -657,8 +657,9 @@ const Physics = (() => {
     const spanX = maxX - minX;
     const spanY = maxY - minY;
     const zoom = Math.min(1, canvasW / spanX, (groundY + 30) / Math.max(spanY, 1));
-    // Only zoom out (never in past 1). Soften so tiny excursions don't punch in/out.
-    const z = Math.max(0.42, Math.min(1, zoom));
+    // Only zoom out (never in past 1). Floor raised so mobile doesn't shrink
+    // the bottle into a speck on long open-arena shots.
+    const z = Math.max(0.58, Math.min(1, zoom));
     return {
       openArena,
       sideWalls: sideWallsEnabled,
