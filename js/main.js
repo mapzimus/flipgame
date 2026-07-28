@@ -1300,7 +1300,7 @@
 
   // ── Secret: tap the title 5× fast ──────────────────────────────────────────
   // A toggle. With anything still locked it unlocks every edition at once (for
-  // showing the whole set off without grinding 25 wins); with everything
+  // showing the whole set off without grinding 50 wins); with everything
   // already unlocked it wipes the ladder back to zero — fresh collection, win
   // counter at 0 — so the same gesture undoes itself. The title is a safe
   // target: nothing else is bound to it, and 5 taps inside 2s won't happen by

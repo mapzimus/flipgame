@@ -650,10 +650,9 @@ ${part(v.front)}
 
 
   // ── Gods skin ──────────────────────────────────────────────────────────────
-  // The 50-win capstone, and the second edition (after People) whose SPRITE
-  // CHANGES WITH THE PLAYER'S COLOUR — twelve deities drawn on one shared chibi
-  // body. People at 13 is twelve mortals; this is twelve gods, so the ladder
-  // ends on a real escalation rather than another object.
+  // Mid-ladder pantheon (25 wins). Twelve deities on one shared chibi body —
+  // sprite changes with the player's colour (see GOD_CAST). Normal flip
+  // physics; Alien is the only edition that changes the sport.
   //
   // Only HISTORICAL pantheons are used — Egyptian, Greek, Roman, Norse, Aztec,
   // Celtic. Living faiths are deliberately left out: turning a currently
@@ -989,14 +988,15 @@ ${part(v.front)}
   }
 
   // ── Alien skin ─────────────────────────────────────────────────────────────
-  // The 25-win secret, and the third edition (after People + Gods) whose SPRITE
-  // CHANGES WITH THE PLAYER'S COLOUR — twelve sci-fi races on one shared spindly
-  // body. Same bounce-mode physics for every race (see META.physics); only the
-  // paint changes. Cast is keyed to FLAVORS hexes so each color summons a
-  // different visitor.
+  // The 50-win capstone, and the ONLY edition that changes the rules (bank shot
+  // instead of a flip). Also the third edition (after People + Gods) whose
+  // SPRITE CHANGES WITH THE PLAYER'S COLOUR — twelve distinct alien SPECIES on
+  // one shared spindly body. Cast is keyed to FLAVORS hexes so each color
+  // summons a different looking visitor (Grey, Greenie, Mantid, …).
   //
-  // Races are classroom-safe archetypes (no living-faith symbols, no trademarked
-  // franchise likenesses) chosen so no two share a silhouette at game size.
+  // Species are classroom-safe archetypes (no living-faith symbols, no
+  // trademarked franchise likenesses) chosen so no two share a silhouette at
+  // game size.
   const ALIEN = {
     eye: '#0b0b12', glint: '#ffffff',
     mouth: '#6b756e', nostril: '#6b756e',
@@ -1566,12 +1566,22 @@ ${crown}
       'Numero Uno', 'Gold Standard', 'Golden Boy', 'Goldilocks',
       'Victory Lap', 'Peaked Early', 'Big Cheese', 'Humble Winner',
     ] },
-    // ── The secret one. Not a reskin: it brings its own physics. ─────────────
-    // A bank shot instead of a flip — AND a twelve-race cast (see ALIEN_CAST),
-    // one visitor per player colour, same spindly body / bounce rules for all.
+    // ── Mid-ladder pantheon. Twelve deities, one per colour (see GOD_CAST). ──
+    // Normal flip physics — same sport as the bottle. The only edition that
+    // changes the game rules is Alien (below).
     {
-      id: 'alien', name: 'Alien', emoji: '👽', unlock: 25,
-      // Harder bank shot: smaller pad, a ceiling full of wedges, crowded UFOs.
+      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 25,
+      names: [
+        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
+        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
+        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
+      ],
+    },
+    // ── The 50-win capstone. The ONLY non-flip edition. ──────────────────────
+    // Bank shot instead of a 360° flip, AND a twelve-species cast (see
+    // ALIEN_CAST) — each player colour summons a different looking alien.
+    {
+      id: 'alien', name: 'Alien', emoji: '👽', unlock: 50,
       physics: {
         gravity: 1.35,
         frictionAir: 0.004,     // keeps its energy so it really does ricochet
@@ -1602,46 +1612,6 @@ ${crown}
         'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
         'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
         'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
-      ],
-    },
-    // ── The 50-win capstone. Twelve deities, one per colour (see GOD_CAST). ──
-    // Olympus Bank: IDENTICAL physics to Alien (same saucers/wedges/pad math) —
-    // only the paint changes (golden altar + storm-orb art over the UFO bodies).
-    {
-      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 50,
-      physics: {
-        gravity: 1.35,
-        frictionAir: 0.004,
-        friction: 0.02,
-        restitution: 0.92,
-        spinScale: 0.7,
-        launchScale: 1.55,
-        horizDivisor: 150,
-        horizMax: 15,
-        wallBounce: 0.98,
-        ceiling: true,
-        floorResolve: true,
-        landOnTarget: true,
-        targetHalfWidth: 44,
-        requireFlip: false,
-        deflector: true,
-        deflectorCount: 3,
-        saucerCount: 6,         // same mid-band floaters as Alien (not cloudCount)
-        cloudCount: 0,
-        movingTarget: false,
-        wind: false,
-        lightning: false,
-        keepWalls: true,
-        minHorizRatio: 0.22,
-        strictTarget: true,
-        allowSlideIn: true,
-        hitScale: 0.55,
-        targetStyle: 'altar',
-      },
-      names: [
-        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
-        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
-        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
       ],
     },
   ];

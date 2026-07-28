@@ -60,14 +60,10 @@ const Physics = (() => {
   // can instead ship a profile (see META.physics in skins.js) that retunes
   // gravity, drag, bounce, the launch impulse and how a landing is judged.
   //
-  // BOUNCE MODE (the 25-win alien) is a different game — a bank shot, not a
-  // flip. You aim sideways, the object caroms off the two walls and the ceiling,
-  // and the FLOOR is dead: the first time it touches down is where it landed,
-  // and it counts if any part of it is over the target pad.
-  //
-  // OLYMPUS BANK (the 50-win gods) mirrors alien difficulty: a sideways bank
-  // shot onto a static golden altar. Same ricochet rules, clouds instead of
-  // saucers, no flip / wind / lightning / moving-pad puzzle.
+  // BOUNCE MODE (the 50-win alien — the ONLY non-flip edition) is a different
+  // game: a bank shot, not a flip. You aim sideways, the object caroms off the
+  // two walls and the ceiling, and the FLOOR is dead: the first time it touches
+  // down is where it landed, and it counts if the body center is over the pad.
   const DEFAULT_PROFILE = {
     gravity: 1.5,
     frictionAir: 0.025,
