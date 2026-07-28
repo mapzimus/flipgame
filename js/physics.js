@@ -60,7 +60,7 @@ const Physics = (() => {
   // can instead ship a profile (see META.physics in skins.js) that retunes
   // gravity, drag, bounce, the launch impulse and how a landing is judged.
   //
-  // BOUNCE MODE (the 50-win alien — the ONLY non-flip edition) is a different
+  // BOUNCE MODE (the 25-win alien — the ONLY non-flip edition) is a different
   // game: a bank shot, not a flip. You aim sideways, the object caroms off the
   // two walls and the ceiling, and the FLOOR is dead: the first time it touches
   // down is where it landed, and it counts if the body center is over the pad.

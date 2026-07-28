@@ -650,7 +650,7 @@ ${part(v.front)}
 
 
   // ── Gods skin ──────────────────────────────────────────────────────────────
-  // Mid-ladder pantheon (25 wins). Twelve deities on one shared chibi body —
+  // The 50-win capstone pantheon. Twelve deities on one shared chibi body —
   // sprite changes with the player's colour (see GOD_CAST). Normal flip
   // physics; Alien is the only edition that changes the sport.
   //
@@ -988,7 +988,7 @@ ${part(v.front)}
   }
 
   // ── Alien skin ─────────────────────────────────────────────────────────────
-  // The 50-win capstone, and the ONLY edition that changes the rules (bank shot
+  // The 25-win secret, and the ONLY edition that changes the rules (bank shot
   // instead of a flip). Also the third edition (after People + Gods) whose
   // SPRITE CHANGES WITH THE PLAYER'S COLOUR — twelve distinct alien SPECIES on
   // one shared spindly body. Cast is keyed to FLAVORS hexes so each color
@@ -1566,22 +1566,11 @@ ${crown}
       'Numero Uno', 'Gold Standard', 'Golden Boy', 'Goldilocks',
       'Victory Lap', 'Peaked Early', 'Big Cheese', 'Humble Winner',
     ] },
-    // ── Mid-ladder pantheon. Twelve deities, one per colour (see GOD_CAST). ──
-    // Normal flip physics — same sport as the bottle. The only edition that
-    // changes the game rules is Alien (below).
-    {
-      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 25,
-      names: [
-        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
-        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
-        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
-      ],
-    },
-    // ── The 50-win capstone. The ONLY non-flip edition. ──────────────────────
+    // ── The 25-win secret. The ONLY non-flip edition. ────────────────────────
     // Bank shot instead of a 360° flip, AND a twelve-species cast (see
     // ALIEN_CAST) — each player colour summons a different looking alien.
     {
-      id: 'alien', name: 'Alien', emoji: '👽', unlock: 50,
+      id: 'alien', name: 'Alien', emoji: '👽', unlock: 25,
       physics: {
         gravity: 1.35,
         frictionAir: 0.004,     // keeps its energy so it really does ricochet
@@ -1612,6 +1601,17 @@ ${crown}
         'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
         'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
         'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
+      ],
+    },
+    // ── The 50-win pantheon. Twelve deities, one per colour (see GOD_CAST). ──
+    // Normal flip physics — same sport as the bottle. Alien (above) is the
+    // only edition that changes the game rules.
+    {
+      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 50,
+      names: [
+        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
+        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
+        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
       ],
     },
   ];
