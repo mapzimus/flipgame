@@ -442,12 +442,17 @@ const Physics = (() => {
   };
 
   function recordLanding(result, tilt, reason) {
+    let padOffset = null;
+    if (profile.landOnTarget && targetX != null && bottle) {
+      padOffset = targetHW > 0 ? Math.abs(bottle.position.x - targetX) / targetHW : null;
+    }
     lastLandingInfo = {
       result,
       tilt,
       perfect: result === 'MAKE' && tilt != null && tilt <= PERFECT_ANGLE,
       reason,
       maxTilt: profile.floorResolve ? 0 : maxGroundedTilt,
+      padOffset,
     };
     return result;
   }

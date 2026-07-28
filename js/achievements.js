@@ -56,9 +56,9 @@ const Achievements = (() => {
       desc: 'Land the alien bank shot dead on the pad.',
       test: (c) => c.landingReason === 'on-target' },
 
-    { id: 'smooth_operator', emoji: '🛝', name: 'Smooth Operator',
-      desc: 'Miss the pad — then slide the alien onto it anyway.',
-      test: (c) => c.landingReason === 'slid-on' },
+    { id: 'smooth_operator', emoji: '🎯', name: 'Deadeye',
+      desc: 'Bank the alien into the dead center of the pad.',
+      test: (c) => c.landingReason === 'on-target' && c.padOffset != null && c.padOffset <= 0.35 },
 
     { id: 'last_one_standing', emoji: '🏆', name: 'Last One Standing',
       desc: 'Win a game.',

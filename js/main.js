@@ -796,6 +796,7 @@
         power:         lastFlickPower,
         greatSave:     greatSaveActive,
         landingReason: landing ? landing.reason : null,
+        padOffset: landing && landing.padOffset != null ? landing.padOffset : null,
         totalFlipsLifetime: rec.totalFlips,
         totalMakesLifetime: rec.totalMakes,
       });
