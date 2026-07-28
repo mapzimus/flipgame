@@ -209,16 +209,27 @@ const Physics = (() => {
     const arenaH = h || (groundY + 30);
 
     if (profile.deflector) {
-      const count = Math.max(1, profile.deflectorCount || 1);
-      const halfW = 62, height = 78;
-      // Primary wedge over the launch spot — then extras staggered across the
-      // ceiling band so ricochets keep getting scrambled (alien nerf).
+      // Mobile: a single launch-spot wedge. Desktop: full count, flat-side
+      // bolted to the ceiling so they read as roof teeth across a wide arena.
+      const compact = isCompactScreen();
+      const count = compact ? 1 : Math.max(1, profile.deflectorCount || 3);
+      const halfW = compact ? 62 : 70;
+      const height = compact ? 78 : 88;
+
       for (let i = 0; i < count; i++) {
         const t = count === 1 ? 0.5 : i / (count - 1);
         const cx = WALL_INSET + 90 + t * Math.max(40, canvasW - WALL_INSET * 2 - 180);
-        // Alternate height bands so they don't form one solid roof.
-        const apexWorldY = groundY - (400 + (i % 3) * 55 + (i % 2) * 25);
-        addDeflector(cx, apexWorldY, halfW - (i % 3) * 6, height - (i % 2) * 8);
+        if (compact) {
+          // Classic mid-arc deflector over the launch spot.
+          const apexWorldY = groundY - 430;
+          addDeflector(cx, apexWorldY, halfW, height);
+        } else {
+          // Roof-anchored: flat base sits just under the ceiling (y≈0), apex
+          // hangs down into the flight path. Spread evenly across the arena.
+          const roofY = 6;                          // flat top near ceiling
+          const apexWorldY = roofY + height;        // apex = base + full height
+          addDeflector(cx, apexWorldY, halfW - (i === 1 ? 0 : 8), height);
+        }
       }
     }
 
