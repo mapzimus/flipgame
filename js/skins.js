@@ -1622,19 +1622,19 @@ ${crown}
         ceiling: true,
         floorResolve: true,
         landOnTarget: true,
-        targetHalfWidth: 40,
+        targetHalfWidth: 58,
         requireFlip: false,
         deflector: true,
         deflectorCount: 3,
         saucerCount: 0,
-        cloudCount: 9,          // divine stand-ins for alien UFOs
+        cloudCount: 6,          // divine stand-ins for alien UFOs
         movingTarget: false,
         wind: false,
         lightning: false,
         keepWalls: true,
         minHorizRatio: 0.22,
-        strictTarget: true,
-        allowSlideIn: false,
+        strictTarget: false,
+        allowSlideIn: true,
         targetStyle: 'altar',
       },
       names: [
