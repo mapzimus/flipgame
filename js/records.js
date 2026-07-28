@@ -19,7 +19,13 @@ const Records = (() => {
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      return raw ? { ...clone(DEFAULTS), ...JSON.parse(raw) } : clone(DEFAULTS);
+      const data = raw ? { ...clone(DEFAULTS), ...JSON.parse(raw) } : clone(DEFAULTS);
+      // Gold Trophy edition was replaced by Buildings — migrate any saved unlock.
+      if (Array.isArray(data.unlockedSkins)) {
+        data.unlockedSkins = data.unlockedSkins.map((id) => id === 'trophy_gold' ? 'buildings' : id);
+        data.unlockedSkins = [...new Set(data.unlockedSkins)];
+      }
+      return data;
     } catch (e) { return clone(DEFAULTS); }
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} }

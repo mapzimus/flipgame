@@ -650,7 +650,7 @@ ${part(v.front)}
 
 
   // ── Gods skin ──────────────────────────────────────────────────────────────
-  // The 50-win capstone pantheon. Twelve deities on one shared chibi body —
+  // Mid-ladder pantheon (25 wins). Twelve deities on one shared chibi body —
   // sprite changes with the player's colour (see GOD_CAST). Normal flip
   // physics; Alien is the only edition that changes the sport.
   //
@@ -988,11 +988,11 @@ ${part(v.front)}
   }
 
   // ── Alien skin ─────────────────────────────────────────────────────────────
-  // The 25-win secret, and the ONLY edition that changes the rules (bank shot
-  // instead of a flip). Also the third edition (after People + Gods) whose
-  // SPRITE CHANGES WITH THE PLAYER'S COLOUR — twelve distinct alien SPECIES on
-  // one shared spindly body. Cast is keyed to FLAVORS hexes so each color
-  // summons a different looking visitor (Grey, Greenie, Mantid, …).
+  // The 50-win capstone, and the ONLY edition that changes the rules (bank shot
+  // instead of a flip). Also an edition whose SPRITE CHANGES WITH THE PLAYER'S
+  // COLOUR — twelve distinct alien SPECIES on one shared spindly body. Cast is
+  // keyed to FLAVORS hexes so each color summons a different looking visitor
+  // (Grey, Greenie, Mantid, …).
   //
   // Species are classroom-safe archetypes (no living-faith symbols, no
   // trademarked franchise likenesses) chosen so no two share a silhouette at
@@ -1232,107 +1232,180 @@ ${part(v.front)}
     drawSingleSprite(ctx, 'alien', color, alienPalette(color), alienBodySVG);
   }
 
-  // ── Trophy skin (gold — the one true trophy) ───────────────────────────────
-  // The statuette on top is a gold cast of one of the other editions (including
-  // each of the twelve People figures), picked from TOPPER_ROSTER by player
-  // color so different players see different toppers. The player's own color
-  // shows up on the plaque band.
-  const TROPHY = {
-    baseWood: '#5b3a22', baseWoodLine: '#3a2414',
+  // ── Buildings skin ─────────────────────────────────────────────────────────
+  // Replaces the old gold-trophy edition. Twelve famous landmarks — one per
+  // player colour — standing on a shared stone plinth. Distinct silhouettes at
+  // game size; the player's tint lights windows / accents / flags.
+  const BUILD = {
+    stone: '#c9c2b2', stoneLo: '#8f8776', stoneHi: '#ebe6da', stoneLine: '#5c564a',
+    glass: '#9ad7ef',
   };
-  const METALS = {
-    gold: { hi: '#ffe27a', mid: '#e8b93f', lo: '#9c6a12', line: '#5e3d09', sparkle: '#fff6c8', ink: '#2a1c06' },
+  const BUILDING_CAST = {
+    '#1f9bff': {                                          // Eiffel Tower
+      label: 'eiffel',
+      draw: (p) => `
+<path d="M 118 348 L 132 120 L 150 96 L 168 120 L 182 348 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 128 300 L 172 300 M 132 250 L 168 250 M 136 200 L 164 200 M 140 150 L 160 150" fill="none" stroke="${p.line}" stroke-width="2"/>
+<path d="M 132 120 L 118 348 M 168 120 L 182 348" fill="none" stroke="${p.hi}" stroke-width="2" opacity="0.55"/>
+<rect x="146" y="78" width="8" height="22" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+<circle cx="150" cy="74" r="6" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
+    },
+    '#e3263c': {                                          // Big Ben
+      label: 'bigben',
+      draw: (p) => `
+<rect x="118" y="168" width="64" height="180" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 112 168 L 150 118 L 188 168 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
+<rect x="140" y="96" width="20" height="28" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+<circle cx="150" cy="230" r="22" fill="${BUILD.stoneHi}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 150 230 L 150 214 M 150 230 L 162 230" fill="none" stroke="${p.line}" stroke-width="2.5"/>
+<rect x="126" y="280" width="10" height="14" fill="${BUILD.glass}"/><rect x="146" y="280" width="10" height="14" fill="${BUILD.glass}"/><rect x="164" y="280" width="10" height="14" fill="${BUILD.glass}"/>
+<rect x="126" y="310" width="10" height="14" fill="${BUILD.glass}"/><rect x="146" y="310" width="10" height="14" fill="${BUILD.glass}"/><rect x="164" y="310" width="10" height="14" fill="${BUILD.glass}"/>`,
+    },
+    '#8ed11a': {                                          // Statue of Liberty
+      label: 'liberty',
+      draw: (p) => `
+<rect x="126" y="300" width="48" height="48" fill="url(#gBd)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 132 300 L 132 210 L 168 210 L 168 300 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 140 210 L 140 150 L 160 150 L 160 210 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
+<circle cx="150" cy="132" r="22" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 150 112 L 142 96 L 150 102 L 158 96 Z M 134 120 L 118 112 L 132 124 Z M 166 120 L 182 112 L 168 124 Z" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+<path d="M 168 188 L 210 140 L 214 148 L 176 198 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<rect x="208" y="128" width="14" height="22" rx="2" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
+    },
+    '#ff7a00': {                                          // Taj Mahal
+      label: 'taj',
+      draw: (p) => `
+<rect x="78" y="250" width="144" height="98" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 110 250 L 110 180 Q 110 150 150 140 Q 190 150 190 180 L 190 250 Z" fill="${BUILD.stoneHi}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 150 140 L 150 96" fill="none" stroke="${p.accent}" stroke-width="4"/>
+<circle cx="150" cy="90" r="8" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+<path d="M 78 250 L 78 210 Q 78 190 96 190 Q 114 190 114 210 L 114 250 Z M 186 250 L 186 210 Q 186 190 204 190 Q 222 190 222 210 L 222 250 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 96 190 L 96 168 M 204 190 L 204 168" fill="none" stroke="${p.accent}" stroke-width="3"/>
+<circle cx="96" cy="162" r="6" fill="${p.accent}"/><circle cx="204" cy="162" r="6" fill="${p.accent}"/>
+<path d="M 130 280 Q 150 250 170 280" fill="none" stroke="${p.line}" stroke-width="3"/>
+<rect x="142" y="280" width="16" height="40" fill="${BUILD.glass}" stroke="${p.line}" stroke-width="1.5"/>`,
+    },
+    '#8a3ffc': {                                          // Sydney Opera House
+      label: 'opera',
+      draw: (p) => `
+<path d="M 70 348 L 230 348 L 220 300 L 80 300 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 90 300 Q 110 180 150 300 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 130 300 Q 160 150 200 300 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 160 300 Q 190 200 230 300 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 100 260 L 120 260 M 145 230 L 170 230 M 180 250 L 205 250" fill="none" stroke="${p.accent}" stroke-width="3" opacity="0.7"/>`,
+    },
+    '#5fcfe6': {                                          // Empire State
+      label: 'empire',
+      draw: (p) => `
+<rect x="108" y="200" width="84" height="148" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<rect x="120" y="140" width="60" height="60" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
+<rect x="134" y="90" width="32" height="50" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 150 90 L 150 48" fill="none" stroke="${p.accent}" stroke-width="4"/>
+<circle cx="150" cy="44" r="6" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+${[0,1,2,3,4,5].map((r) => [0,1,2].map((c) =>
+  `<rect x="${118 + c * 22}" y="${214 + r * 20}" width="12" height="10" fill="${r % 2 ? BUILD.glass : p.accent}" opacity="0.85"/>`
+).join('')).join('')}`,
+    },
+    '#3fae1a': {                                          // Great Pyramid
+      label: 'pyramid',
+      draw: (p) => `
+<path d="M 60 348 L 150 110 L 240 348 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 150 110 L 150 348" fill="none" stroke="${p.hi}" stroke-width="3" opacity="0.45"/>
+<path d="M 96 260 L 204 260 M 120 200 L 180 200" fill="none" stroke="${p.line}" stroke-width="2" opacity="0.55"/>
+<path d="M 138 300 L 162 300 L 162 328 L 138 328 Z" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
+    },
+    '#ff5b86': {                                          // Leaning Tower of Pisa
+      label: 'pisa',
+      draw: (p) => `
+<g transform="rotate(8 150 348)">
+<rect x="118" y="140" width="64" height="208" rx="8" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+${[0,1,2,3,4,5].map((i) =>
+  `<path d="M 122 ${160 + i * 30} Q 150 ${148 + i * 30} 178 ${160 + i * 30}" fill="none" stroke="${BUILD.stoneHi}" stroke-width="6"/>`
+  + `<path d="M 122 ${160 + i * 30} Q 150 ${148 + i * 30} 178 ${160 + i * 30}" fill="none" stroke="${p.line}" stroke-width="2"/>`
+).join('')}
+<ellipse cx="150" cy="132" rx="28" ry="12" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<rect x="142" y="108" width="16" height="24" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+</g>`,
+    },
+    '#4f63e0': {                                          // Parthenon
+      label: 'parthenon',
+      draw: (p) => `
+<path d="M 70 180 L 150 120 L 230 180 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
+<rect x="78" y="180" width="144" height="24" fill="url(#gBd)" stroke="${p.line}" stroke-width="2"/>
+${[0,1,2,3,4,5].map((i) =>
+  `<rect x="${88 + i * 22}" y="204" width="14" height="120" fill="${i % 2 ? p.hi : BUILD.stoneHi}" stroke="${p.line}" stroke-width="1.5"/>`
+).join('')}
+<rect x="78" y="324" width="144" height="24" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 150 120 L 150 96" fill="none" stroke="${p.accent}" stroke-width="3"/>
+<circle cx="150" cy="90" r="7" fill="${p.accent}"/>`,
+    },
+    '#ffc233': {                                          // Christ the Redeemer
+      label: 'redeemer',
+      draw: (p) => `
+<path d="M 110 348 L 150 280 L 190 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<rect x="138" y="180" width="24" height="110" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 70 210 L 230 210 L 230 228 L 70 228 Z" fill="${BUILD.stoneHi}" stroke="${p.line}" stroke-width="2.5"/>
+<circle cx="150" cy="158" r="26" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 150 132 L 150 112" fill="none" stroke="${p.accent}" stroke-width="4"/>
+<circle cx="150" cy="106" r="6" fill="${p.accent}"/>
+<path d="M 80 218 L 64 200 M 220 218 L 236 200" fill="none" stroke="${p.line}" stroke-width="4"/>`,
+    },
+    '#c8203a': {                                          // St. Basil's Cathedral
+      label: 'basil',
+      draw: (p) => `
+<rect x="90" y="260" width="120" height="88" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+${[[110,220,'#e3263c'],[150,200,'#1f9bff'],[190,220,'#ffc233'],[130,240,'#8ed11a'],[170,240,'#8a3ffc']].map(([x,y,c]) =>
+  `<path d="M ${x - 16} ${y + 40} Q ${x - 16} ${y} ${x} ${y - 10} Q ${x + 16} ${y} ${x + 16} ${y + 40} Z" fill="${c}" stroke="${p.line}" stroke-width="1.8"/>`
+  + `<path d="M ${x} ${y - 10} L ${x} ${y - 28}" fill="none" stroke="${p.accent}" stroke-width="2.5"/>`
+  + `<circle cx="${x}" cy="${y - 32}" r="4" fill="${p.accent}"/>`
+).join('')}
+<rect x="138" y="300" width="24" height="36" fill="${BUILD.glass}" stroke="${p.line}" stroke-width="1.5"/>`,
+    },
+    '#ff9ecf': {                                          // Japanese Pagoda
+      label: 'pagoda',
+      draw: (p) => `
+${[0,1,2,3].map((i) => {
+  const y = 300 - i * 48;
+  const w = 110 - i * 14;
+  return `<path d="M ${150 - w / 2 - 10} ${y} L ${150 - w / 2} ${y - 18} L ${150 + w / 2} ${y - 18} L ${150 + w / 2 + 10} ${y} Z" fill="${i % 2 ? p.hi : p.base}" stroke="${p.line}" stroke-width="2"/>`
+    + `<rect x="${150 - w / 2 + 8}" y="${y}" width="${w - 16}" height="28" fill="${i % 2 ? BUILD.stoneHi : p.lo}" stroke="${p.line}" stroke-width="1.5"/>`;
+}).join('')}
+<path d="M 150 108 L 150 78" fill="none" stroke="${p.accent}" stroke-width="4"/>
+<circle cx="150" cy="72" r="7" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+<path d="M 136 90 L 164 90" fill="none" stroke="${p.accent}" stroke-width="3"/>`,
+    },
   };
-  // Recolor an edition's own artwork into a single-metal casting: every fill and
-  // stroke becomes the metal, gradient references collapse to flat metal, and
-  // partial opacity is forced solid. That way a statuette of ANY edition comes
-  // free from the art that already exists, instead of hand-drawing silhouettes.
-  // `fill="none"` is preserved — those are stroke-only paths (limbs, antennae).
-  function monoSVG(svg, fillCol, lineCol) {
-    return svg
-      .replace(/fill="url\([^"]*\)"/g, `fill="${fillCol}"`)
-      .replace(/stroke="url\([^"]*\)"/g, `stroke="${lineCol}"`)
-      .replace(/fill="(?!none")[^"]*"/g, `fill="${fillCol}"`)
-      .replace(/stroke="(?!none")[^"]*"/g, `stroke="${lineCol}"`)
-      .replace(/opacity="[^"]*"/g, 'opacity="1"');
-  }
-
-  // Flavor colors in main.js order — lets a skin key off the player's color slot.
-  const FLAVOR_ORDER = [
-    '#1f9bff', '#e3263c', '#8ed11a', '#ff7a00', '#8a3ffc', '#5fcfe6',
-    '#3fae1a', '#ff5b86', '#4f63e0', '#ffc233', '#c8203a', '#ff9ecf',
-  ];
-
-  // Everything that can stand on a trophy: the base bottle, every unlockable
-  // object, all twelve People figures, and all twelve Alien races. Toppers are
-  // picked from here by color slot so the cast shows up across wins.
-  const TOPPER_ROSTER = [
-    { svg: () => BOTTLE_STATUE },
-    { svg: () => parrotBodySVG(parrotPalette('#8ed11a')) },
-    { svg: () => plungerBodySVG(plungerPalette('#8ed11a')) },
-    { svg: () => trexBodySVG(trexPalette('#8ed11a')) },
-    { svg: () => vendBodySVG(vendPalette('#8ed11a')) },
-    { svg: () => pineBodySVG(pinePalette('#8ed11a')) },
-    { svg: () => gorBodySVG(gorPalette('#8ed11a')) },
-    ...FLAVOR_ORDER.map((hex) => ({ svg: () => peopleBodySVG(peoplePalette(hex)) })),
-    ...FLAVOR_ORDER.map((hex) => ({ svg: () => alienBodySVG(alienPalette(hex)) })),
-  ];
-  // The bottle is drawn by renderer.js rather than from an SVG, so it's the one
-  // topper that needs its own outline.
-  const BOTTLE_STATUE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
-<g><rect x="132" y="40" width="36" height="24" rx="5" fill="#000"/>
-<path d="M 136 64 L 164 64 L 164 104 C 186 122 194 156 194 196 L 194 344 C 194 358 186 366 170 366 L 130 366 C 114 366 106 358 106 344 L 106 196 C 106 156 114 122 136 104 Z" fill="#000"/>
-<path d="M 112 214 L 188 214 M 112 246 L 188 246" fill="none" stroke="#fff" stroke-width="7"/></g>
-</svg>`;
-
-  function trophyPalette(base, tier, plaque) {
-    const idx = Math.max(0, FLAVOR_ORDER.indexOf(String(base).toLowerCase()));
-    const n = TOPPER_ROSTER.length;
-    const pick = TOPPER_ROSTER[((idx % n) + n) % n];
-    const m = METALS[tier] || METALS.gold;
+  const BUILDING_FALLBACK = BUILDING_CAST['#1f9bff'];
+  function buildingPalette(base) {
     return {
-      base, plaque, m,
-      ribbonHi: shadeHex(base, 0.24), ribbonLo: shadeHex(base, -0.24),
-      // Nested <svg> crops the mostly-empty margins of the source art and
-      // bottom-aligns it, so the statuette stands on the cup rim at any scale.
-      topSvg: `<svg x="92" y="6" width="116" height="132" viewBox="10 18 280 366" preserveAspectRatio="xMidYMax meet">`
-        + monoSVG(pick.svg(), m.mid, m.line) + `</svg>`,
+      base: mixHex(BUILD.stone, base, 0.28),
+      hi: shadeHex(mixHex(BUILD.stoneHi, base, 0.2), 0.08),
+      lo: shadeHex(mixHex(BUILD.stoneLo, base, 0.25), -0.05),
+      line: BUILD.stoneLine,
+      accent: base,
+      v: BUILDING_CAST[String(base).toLowerCase()] || BUILDING_FALLBACK,
     };
   }
-  function trophyBodySVG(p) {
+  function buildingBodySVG(p) {
+    const v = p.v;
+    const art = typeof v.draw === 'function' ? v.draw(p) : '';
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
-<linearGradient id="gMetal" x1="0" y1="130" x2="0" y2="290" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${p.m.hi}"/><stop offset="0.55" stop-color="${p.m.mid}"/><stop offset="1" stop-color="${p.m.lo}"/>
-</linearGradient>
-<linearGradient id="gRibbon" x1="110" y1="0" x2="190" y2="0" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${p.ribbonHi}"/><stop offset="1" stop-color="${p.ribbonLo}"/>
+<linearGradient id="gBd" x1="90" y1="80" x2="210" y2="340" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
 </linearGradient>
 </defs>
 <g stroke-linecap="round" stroke-linejoin="round">
-${p.topSvg}
-<path d="M 114 148 C 96 154 86 168 90 184 C 94 202 110 212 128 214 L 128 200 C 116 196 106 188 104 176 C 102 166 108 158 118 154 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2"/>
-<path d="M 186 148 C 204 154 214 168 210 184 C 206 202 190 212 172 214 L 172 200 C 184 196 194 188 196 176 C 198 166 192 158 182 154 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2"/>
-<path d="M 108 138 L 192 138 C 192 184 180 214 150 226 C 120 214 108 184 108 138 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2.5"/>
-<path d="M 120 148 L 180 148" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.4"/>
-<path d="M 130 154 L 121 206" fill="none" stroke="#ffffff" stroke-width="8" opacity="0.20"/>
-<path d="M 142 156 L 136 200" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.14"/>
-<path d="M 138 226 L 138 258 L 162 258 L 162 226 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2"/>
-<path d="M 112 258 L 188 258 L 198 282 L 102 282 Z" fill="url(#gMetal)" stroke="${p.m.line}" stroke-width="2.5"/>
-<rect x="88" y="282" width="124" height="94" rx="6" fill="${TROPHY.baseWood}" stroke="${TROPHY.baseWoodLine}" stroke-width="2.5"/>
-<rect x="88" y="282" width="124" height="12" fill="${TROPHY.baseWoodLine}" opacity="0.35"/>
-<rect x="102" y="306" width="96" height="34" rx="5" fill="url(#gRibbon)" stroke="${p.m.line}" stroke-width="1.5"/>
-<circle cx="109" cy="313" r="1.8" fill="${p.m.lo}"/><circle cx="191" cy="313" r="1.8" fill="${p.m.lo}"/>
-<circle cx="109" cy="333" r="1.8" fill="${p.m.lo}"/><circle cx="191" cy="333" r="1.8" fill="${p.m.lo}"/>
-<text x="150" y="329" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="16" font-weight="bold" fill="${p.m.ink}" opacity="0.85">${p.plaque}</text>
-<path d="M 74 158 L 80 170 L 68 166 L 78 178 L 64 174 Z" fill="${p.m.sparkle}"/>
-<path d="M 224 190 L 230 200 L 220 198 L 228 208 L 216 204 Z" fill="${p.m.sparkle}"/>
+<rect x="70" y="348" width="160" height="28" rx="4" fill="${BUILD.stoneLo}" stroke="${BUILD.stoneLine}" stroke-width="2.5"/>
+<rect x="86" y="336" width="128" height="16" rx="3" fill="${BUILD.stone}" stroke="${BUILD.stoneLine}" stroke-width="2"/>
+<rect x="102" y="356" width="96" height="10" rx="3" fill="${p.accent}" opacity="0.85"/>
+${art}
 </g>
 </svg>`;
   }
-  function drawTrophyGold(ctx, opts) {
-    const color = opts.color || '#d62828';
-    drawSingleSprite(ctx, 'trophy_gold', color, trophyPalette(color, 'gold', 'CHAMPION'), trophyBodySVG);
+  function drawBuildings(ctx, opts) {
+    const color = opts.color || '#1f9bff';
+    drawSingleSprite(ctx, 'buildings', color, buildingPalette(color), buildingBodySVG);
   }
 
   // ── Pineapple skin ─────────────────────────────────────────────────────────
@@ -1549,8 +1622,8 @@ ${crown}
       'Grape Ape', 'Chill Gorilla', 'Silverback Sam', 'Monkey Business',
       'Gorilla Warfare', 'Kong Fu', 'Jungle Gym', 'Ape Lincoln',
     ] },
-    // The twelve-figure cast — the last of the ordinary editions, held back to
-    // just before the trophy because it's the biggest single unlock in the set.
+    // The twelve-figure cast — held just before Landmarks because it's the
+    // biggest ordinary unlock before the landmark set.
     // One name per figure — this edition's sprite changes with the color, so
     // the names are matched to the PERSONS costume at the same index:
     // astronaut, pirate, army man, builder, wizard, diver, chef, dancer,
@@ -1560,17 +1633,28 @@ ${crown}
       'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
       'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
     ] },
-    // First place, completely insufferable about it.
-    { id: 'trophy_gold', name: 'Gold Trophy', emoji: '🏆', unlock: 15, names: [
-      'Sir Wins-a-Lot', 'The G.O.A.T.', 'Midas Touch', 'Top Banana',
-      'Numero Uno', 'Gold Standard', 'Golden Boy', 'Goldilocks',
-      'Victory Lap', 'Peaked Early', 'Big Cheese', 'Humble Winner',
+    // Twelve famous landmarks — one silhouette per player colour (see BUILDING_CAST).
+    { id: 'buildings', name: 'Buildings', emoji: '🏛️', unlock: 15, names: [
+      'Eiffel Effort', 'Big Ben Dover', 'Lady Lib', 'Taj Ma-Hall',
+      'Opera Buffa', 'Empire State of Mind', 'Pyramid Scheme', 'Lean Mean',
+      'Parthenon It', 'Redeemer Reader', 'Basil Brush', 'Pagoda Please',
     ] },
-    // ── The 25-win secret. The ONLY non-flip edition. ────────────────────────
+    // ── Mid-ladder pantheon. Twelve deities, one per colour (see GOD_CAST). ──
+    // Normal flip physics — same sport as the bottle. Alien (below) is the
+    // only edition that changes the game rules.
+    {
+      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 25,
+      names: [
+        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
+        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
+        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
+      ],
+    },
+    // ── The 50-win capstone. The ONLY non-flip edition. ──────────────────────
     // Bank shot instead of a 360° flip, AND a twelve-species cast (see
     // ALIEN_CAST) — each player colour summons a different looking alien.
     {
-      id: 'alien', name: 'Alien', emoji: '👽', unlock: 25,
+      id: 'alien', name: 'Alien', emoji: '👽', unlock: 50,
       physics: {
         gravity: 1.35,
         frictionAir: 0.004,     // keeps its energy so it really does ricochet
@@ -1603,22 +1687,11 @@ ${crown}
         'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
       ],
     },
-    // ── The 50-win pantheon. Twelve deities, one per colour (see GOD_CAST). ──
-    // Normal flip physics — same sport as the bottle. Alien (above) is the
-    // only edition that changes the game rules.
-    {
-      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 50,
-      names: [
-        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
-        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
-        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
-      ],
-    },
   ];
   const drawFns = {
     parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,
     vending: drawVend, people: drawPeople, alien: drawAlien,
-    pineapple: drawPineapple, gorilla: drawGorilla, trophy_gold: drawTrophyGold,
+    pineapple: drawPineapple, gorilla: drawGorilla, buildings: drawBuildings,
     gods: drawGods,
   };   // 'bottle' is drawn by renderer.js
 
@@ -1644,7 +1717,7 @@ ${crown}
         getSingleSprite('pineapple', c, pinePalette(c), pineBodySVG);
         getSingleSprite('gorilla', c, gorPalette(c), gorBodySVG);
         getSingleSprite('gods', c, godPalette(c), godBodySVG);
-        getSingleSprite('trophy_gold', c, trophyPalette(c, 'gold', 'CHAMPION'), trophyBodySVG);
+        getSingleSprite('buildings', c, buildingPalette(c), buildingBodySVG);
       }
     },
   };
