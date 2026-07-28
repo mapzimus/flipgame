@@ -1634,10 +1634,11 @@ ${crown}
       'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
     ] },
     // Twelve famous landmarks — one silhouette per player colour (see BUILDING_CAST).
+    // Names are the real landmarks, index-aligned to FLAVORS / BUILDING_CAST.
     { id: 'buildings', name: 'Buildings', emoji: '🏛️', unlock: 15, names: [
-      'Eiffel Effort', 'Big Ben Dover', 'Lady Lib', 'Taj Ma-Hall',
-      'Opera Buffa', 'Empire State of Mind', 'Pyramid Scheme', 'Lean Mean',
-      'Parthenon It', 'Redeemer Reader', 'Basil Brush', 'Pagoda Please',
+      'Eiffel Tower', 'Big Ben', 'Statue of Liberty', 'Taj Mahal',
+      'Sydney Opera House', 'Empire State', 'Great Pyramid', 'Leaning Tower',
+      'Parthenon', 'Christ the Redeemer', "St. Basil's", 'Pagoda',
     ] },
     // ── Mid-ladder pantheon. Twelve deities, one per colour (see GOD_CAST). ──
     // Normal flip physics — same sport as the bottle. Alien (below) is the
