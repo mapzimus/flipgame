@@ -134,6 +134,15 @@ const Physics = (() => {
     return canvasW < 900 || (coarse && canvasW < 1100);
   }
 
+  // Compact screens get the lighter bounce-mode furniture (1 wedge). Desktop
+  // keeps the full set. Same breakpoint spirit as the open-arena check, but
+  // bounce modes still want walls, so we don't reuse wantsOpenArena().
+  function isCompactScreen() {
+    if (typeof window === 'undefined') return canvasW < 900;
+    const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    return canvasW < 900 || (coarse && canvasW < 1100);
+  }
+
   function syncSideWalls() {
     openArena = wantsOpenArena();
     sideWallsEnabled = !openArena;
