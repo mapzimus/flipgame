@@ -679,19 +679,97 @@ ${part(v.front)}
     white: '#f2f2ee', whiteLine: '#cfcfc9',
     jackal: '#2f2a33', jackalLo: '#1a171d',
     jade: '#3fae8f', jadeLo: '#2a7a63',
+    falcon: '#9a7550', falconLo: '#71553a',
+    cat: '#c8a06a', catLo: '#9c7b4e',
+    serpent: '#3fae5a', serpentLo: '#2a7a3f',
+    steel: '#c9d2d9', steelLo: '#8b9299',
+    leather: '#8a5c37', leatherLo: '#5f3d21',
+    sea: '#4fbfae', seaLo: '#2f8a7d',
+    antler: '#d9c9a8',
+    raven: '#2a2a30',
   };
+  // The broad Egyptian collar, shared by the three Egyptian gods with
+  // different inlay colours so they read as one pantheon without being clones.
+  function egyptCollar(a, b) {
+    return `<path d="M 110 196 C 122 226 178 226 190 196 C 196 210 194 224 186 232 C 166 244 134 244 114 232 C 106 224 104 210 110 196 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2"/>`
+      + `<path d="M 118 208 C 132 226 168 226 182 208" fill="none" stroke="${a}" stroke-width="4"/>`
+      + `<path d="M 124 220 C 136 234 164 234 176 220" fill="none" stroke="${b}" stroke-width="3.5"/>`;
+  }
   const GOD_CAST = {
     '#1f9bff': {                                          // Zeus — Greek
       label: 'Zeus',
       torso: () => `<path d="M 112 200 L 150 224 L 188 200 L 192 292 L 108 292 Z" fill="${GODS.white}" opacity="0.93" stroke="${GODS.whiteLine}" stroke-width="1.5"/>`
         + `<path d="M 126 214 L 150 232 L 174 214" fill="none" stroke="${GODS.goldLine}" stroke-width="3" opacity="0.55"/>`,
-      // Full white beard over the chest, then the laurel wreath above it.
       head: () => `<path d="M 126 154 C 122 190 132 216 150 224 C 168 216 178 190 174 154 C 166 166 134 166 126 154 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.8"/>`
         + `<path d="M 132 178 C 140 174 160 174 168 178 M 136 198 C 142 195 158 195 164 198" fill="none" stroke="${GODS.whiteLine}" stroke-width="1.8" opacity="0.8"/>`
         + `<path d="M 130 154 C 138 147 162 147 170 154 C 162 161 138 161 130 154 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.5"/>`
         + `<path d="M 104 116 C 116 100 184 100 196 116" fill="none" stroke="#4f8f3a" stroke-width="5"/>`
         + `<path d="M 112 108 l -9 -6 M 128 100 l -7 -8 M 150 96 l 0 -9 M 172 100 l 7 -8 M 188 108 l 9 -6" fill="none" stroke="#4f8f3a" stroke-width="4.5"/>`,
       front: () => `<path d="M 214 196 L 236 214 L 222 218 L 244 240 L 218 230 L 228 246 L 202 222 L 218 218 L 200 200 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2"/>`,
+    },
+    '#e3263c': {                                          // Thor — Norse
+      label: 'Thor',
+      // Red beard, then a winged helm over it.
+      head: () => `<path d="M 126 152 C 122 190 132 218 150 226 C 168 218 178 190 174 152 C 166 164 134 164 126 152 Z" fill="#b8442a" stroke="#8d2f1c" stroke-width="1.8"/>`
+        + `<path d="M 132 176 C 140 172 160 172 168 176 M 136 198 C 142 195 158 195 164 198" fill="none" stroke="#8d2f1c" stroke-width="1.8" opacity="0.8"/>`
+        + `<path d="M 104 122 C 104 96 124 82 150 82 C 176 82 196 96 196 122 Z" fill="${GODS.steel}" stroke="${GODS.steelLo}" stroke-width="2.5"/>`
+        + `<rect x="100" y="118" width="100" height="13" rx="6" fill="${GODS.steel}" stroke="${GODS.steelLo}" stroke-width="2"/>`
+        + `<path d="M 104 112 C 88 100 76 84 74 66 C 90 74 102 88 108 104 Z" fill="${GODS.white}" stroke="${GODS.steelLo}" stroke-width="2"/>`
+        + `<path d="M 196 112 C 212 100 224 84 226 66 C 210 74 198 88 192 104 Z" fill="${GODS.white}" stroke="${GODS.steelLo}" stroke-width="2"/>`
+        + `<path d="M 150 84 L 150 118" fill="none" stroke="${GODS.steelLo}" stroke-width="2.5" opacity="0.7"/>`,
+      torso: () => `<path d="M 112 196 L 188 232 M 188 196 L 112 232" fill="none" stroke="${GODS.leather}" stroke-width="9"/>`
+        + `<rect x="108" y="248" width="84" height="16" fill="${GODS.leather}" stroke="${GODS.leatherLo}" stroke-width="1.5"/>`
+        + `<rect x="138" y="244" width="24" height="24" rx="3" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2"/>`,
+      // Mjolnir.
+      front: () => `<rect x="216" y="236" width="10" height="62" rx="4" fill="${GODS.leather}" stroke="${GODS.leatherLo}" stroke-width="1.5"/>`
+        + `<rect x="192" y="200" width="58" height="36" rx="5" fill="${GODS.steel}" stroke="${GODS.steelLo}" stroke-width="2.5"/>`
+        + `<rect x="206" y="200" width="30" height="36" fill="${GODS.steelLo}" opacity="0.25"/>`
+        + `<path d="M 198 210 L 244 210 M 198 226 L 244 226" fill="none" stroke="${GODS.steelLo}" stroke-width="2" opacity="0.55"/>`,
+    },
+    '#8ed11a': {                                          // Quetzalcoatl — Aztec
+      label: 'Quetzalcoatl',
+      // Serpent head replaces the skull outright.
+      headBase: () => `<circle cx="150" cy="140" r="48" fill="${GODS.serpent}"/>`
+        + `<path d="M 108 148 C 120 140 180 140 192 148 C 194 168 178 186 150 190 C 122 186 106 168 108 148 Z" fill="${GODS.serpentLo}"/>`
+        + `<path d="M 118 124 C 130 116 170 116 182 124" fill="none" stroke="${GODS.serpentLo}" stroke-width="3" opacity="0.6"/>`,
+      // Slit-pupil reptile eyes and a fanged snout.
+      face: () => `<ellipse cx="131" cy="136" rx="11" ry="9" fill="${GODS.gold}"/>`
+        + `<ellipse cx="169" cy="136" rx="11" ry="9" fill="${GODS.gold}"/>`
+        + `<ellipse cx="131" cy="136" rx="2.6" ry="8" fill="${GODS.eye}"/>`
+        + `<ellipse cx="169" cy="136" rx="2.6" ry="8" fill="${GODS.eye}"/>`
+        + `<ellipse cx="143" cy="164" rx="3" ry="2.2" fill="${GODS.eye}" opacity="0.8"/>`
+        + `<ellipse cx="157" cy="164" rx="3" ry="2.2" fill="${GODS.eye}" opacity="0.8"/>`
+        + `<path d="M 126 176 C 138 186 162 186 174 176 L 174 181 C 162 192 138 192 126 181 Z" fill="#2a1d16"/>`
+        + `<path d="M 133 181 L 137 193 L 142 182 Z M 158 182 L 163 193 L 167 181 Z" fill="${GODS.white}"/>`
+        + `<path d="M 150 190 L 150 202 L 144 208 M 150 202 L 156 208" fill="none" stroke="#e3263c" stroke-width="2.5"/>`,
+      // Fan of quetzal plumes.
+      head: (p) => `<path d="M 150 92 C 150 60 150 44 150 34 M 124 98 C 116 68 110 54 104 42 M 176 98 C 184 68 190 54 196 42 M 136 94 C 130 64 126 50 122 38 M 164 94 C 170 64 174 50 178 38" fill="none" stroke="${p.hi}" stroke-width="10"/>`
+        + `<path d="M 150 34 l -6 12 l 12 0 Z M 104 42 l -4 13 l 12 -5 Z M 196 42 l 4 13 l -12 -5 Z" fill="#e3263c"/>`
+        + `<path d="M 122 38 l -3 12 l 11 -4 Z M 178 38 l 3 12 l -11 -4 Z" fill="${GODS.gold}"/>`,
+      torso: (p) => `<path d="M 110 196 C 124 224 176 224 190 196 C 194 212 190 228 180 234 C 160 244 140 244 120 234 C 110 228 106 212 110 196 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>`
+        + `<path d="M 120 210 C 134 226 166 226 180 210" fill="none" stroke="#e3263c" stroke-width="4"/>`
+        + `<path d="M 128 222 C 138 232 162 232 172 222" fill="none" stroke="${GODS.gold}" stroke-width="3.5"/>`,
+    },
+    '#ff7a00': {                                          // Ra — Egyptian
+      label: 'Ra',
+      // Falcon head.
+      headBase: () => `<circle cx="150" cy="140" r="48" fill="${GODS.falcon}"/>`
+        + `<path d="M 150 92 C 174 92 192 110 196 132 C 180 122 120 122 104 132 C 108 110 126 92 150 92 Z" fill="${GODS.falconLo}"/>`
+        + `<path d="M 112 158 C 124 170 176 170 188 158 C 184 178 168 190 150 192 C 132 190 116 178 112 158 Z" fill="${GODS.falconLo}" opacity="0.7"/>`,
+      face: () => `<circle cx="132" cy="138" r="10" fill="${GODS.eyeWhite}"/><circle cx="168" cy="138" r="10" fill="${GODS.eyeWhite}"/>`
+        + `<circle cx="133" cy="139" r="5.2" fill="${GODS.eye}"/><circle cx="169" cy="139" r="5.2" fill="${GODS.eye}"/>`
+        + `<path d="M 118 128 C 126 121 140 121 146 128 M 182 128 C 174 121 160 121 154 128" fill="none" stroke="${GODS.eye}" stroke-width="3.5"/>`
+        + `<path d="M 121 148 L 110 159 M 179 148 L 190 159" fill="none" stroke="${GODS.eye}" stroke-width="3"/>`
+        + `<path d="M 136 152 C 143 147 157 147 164 152 C 167 168 160 186 150 196 C 140 186 133 168 136 152 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`
+        + `<path d="M 150 178 C 155 184 155 191 150 196 C 145 191 145 184 150 178 Z" fill="${GODS.goldLine}" opacity="0.85"/>`
+        + `<ellipse cx="143" cy="158" rx="2.2" ry="1.6" fill="${GODS.goldLine}" opacity="0.7"/>`,
+      // Sun disc with the rearing cobra.
+      head: () => `<circle cx="150" cy="70" r="27" fill="#ffb020" stroke="#c07d0a" stroke-width="2.5"/>`
+        + `<circle cx="142" cy="62" r="8" fill="#ffd76e" opacity="0.7"/>`
+        + `<path d="M 134 78 C 124 64 130 46 146 42 C 138 54 140 68 152 76 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2"/>`,
+      torso: () => egyptCollar('#c8203a', '#2f6fb0'),
+      front: () => `<rect x="216" y="184" width="9" height="118" rx="4" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`
+        + `<path d="M 208 184 C 208 170 232 170 232 184 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`,
     },
     '#8a3ffc': {                                          // Anubis — Egyptian
       label: 'Anubis',
@@ -708,12 +786,66 @@ ${part(v.front)}
         + `<path d="M 182 108 L 192 44 L 154 92 Z" fill="${GODS.jackal}" stroke="${GODS.jackalLo}" stroke-width="2"/>`
         + `<path d="M 122 100 L 116 62 L 138 92 Z" fill="${GODS.gold}" opacity="0.45"/>`
         + `<path d="M 178 100 L 184 62 L 162 92 Z" fill="${GODS.gold}" opacity="0.45"/>`,
-      torso: () => `<path d="M 110 196 C 122 226 178 226 190 196 C 196 210 194 224 186 232 C 166 244 134 244 114 232 C 106 224 104 210 110 196 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2"/>`
-        + `<path d="M 118 208 C 132 226 168 226 182 208" fill="none" stroke="#2f6fb0" stroke-width="4"/>`
-        + `<path d="M 124 220 C 136 234 164 234 176 220" fill="none" stroke="${GODS.jade}" stroke-width="3.5"/>`,
+      torso: () => egyptCollar('#2f6fb0', GODS.jade),
       front: () => `<g transform="translate(214 236)">`
         + `<circle cx="0" cy="-26" r="13" fill="none" stroke="${GODS.gold}" stroke-width="5"/>`
         + `<path d="M 0 -13 L 0 34 M -15 -2 L 15 -2" fill="none" stroke="${GODS.gold}" stroke-width="5"/></g>`,
+    },
+    '#5fcfe6': {                                          // Neptune — Roman
+      label: 'Neptune',
+      head: () => `<path d="M 130 160 C 126 196 136 222 150 230 C 164 222 174 196 170 160 C 162 170 138 170 130 160 Z" fill="${GODS.sea}" stroke="${GODS.seaLo}" stroke-width="1.8"/>`
+        + `<path d="M 134 184 C 142 179 158 179 166 184 M 137 206 C 143 202 157 202 163 206" fill="none" stroke="${GODS.seaLo}" stroke-width="1.8" opacity="0.85"/>`
+        + `<path d="M 132 160 C 139 154 161 154 168 160 C 161 166 139 166 132 160 Z" fill="${GODS.sea}" stroke="${GODS.seaLo}" stroke-width="1.5"/>`
+        // Coral crown.
+        + `<path d="M 106 114 C 108 96 120 88 128 96 C 132 80 148 76 154 90 C 162 78 178 84 178 98 C 188 94 196 104 194 116 Z" fill="#e88b6a" stroke="#b95f43" stroke-width="2"/>`,
+      torso: () => `<path d="M 112 202 C 126 214 138 202 150 214 C 162 202 174 214 188 202" fill="none" stroke="${GODS.sea}" stroke-width="5" opacity="0.9"/>`
+        + `<path d="M 112 226 C 126 238 138 226 150 238 C 162 226 174 238 188 226" fill="none" stroke="${GODS.sea}" stroke-width="5" opacity="0.7"/>`,
+      // Trident.
+      front: () => `<rect x="216" y="176" width="9" height="126" rx="4" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`
+        + `<path d="M 200 178 L 200 146 M 220.5 178 L 220.5 138 M 241 178 L 241 146" fill="none" stroke="${GODS.gold}" stroke-width="7"/>`
+        + `<path d="M 198 180 L 243 180" fill="none" stroke="${GODS.gold}" stroke-width="7"/>`,
+    },
+    '#3fae1a': {                                          // Cernunnos — Celtic
+      label: 'Cernunnos',
+      // Antlers — the whole read, so they get plenty of spread.
+      head: () => `<path d="M 122 96 C 110 78 96 66 82 60 M 96 70 L 76 66 M 104 80 L 86 82 M 112 88 L 98 96" fill="none" stroke="${GODS.antler}" stroke-width="6"/>`
+        + `<path d="M 178 96 C 190 78 204 66 218 60 M 204 70 L 224 66 M 196 80 L 214 82 M 188 88 L 202 96" fill="none" stroke="${GODS.antler}" stroke-width="6"/>`
+        + `<path d="M 126 148 C 124 178 134 200 150 206 C 166 200 176 178 174 148 C 166 158 134 158 126 148 Z" fill="#6b4a2a" stroke="#4a3320" stroke-width="1.8"/>`
+        + `<path d="M 132 170 C 140 166 160 166 168 170" fill="none" stroke="#4a3320" stroke-width="1.8" opacity="0.8"/>`,
+      // Torc at the throat.
+      torso: () => `<path d="M 122 196 C 122 216 178 216 178 196" fill="none" stroke="${GODS.gold}" stroke-width="9"/>`
+        + `<circle cx="122" cy="196" r="6" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`
+        + `<circle cx="178" cy="196" r="6" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`
+        + `<path d="M 118 240 C 132 250 168 250 182 240" fill="none" stroke="#4f8f3a" stroke-width="5" opacity="0.8"/>`,
+      // A serpent coiled in the off hand.
+      front: () => `<path d="M 210 300 C 232 296 240 278 228 268 C 216 258 200 266 202 280" fill="none" stroke="#4f8f3a" stroke-width="8"/>`
+        + `<circle cx="203" cy="284" r="5.5" fill="#4f8f3a"/>`
+        + `<circle cx="201" cy="283" r="1.6" fill="${GODS.eye}"/>`,
+    },
+    '#ff5b86': {                                          // Bastet — Egyptian
+      label: 'Bastet',
+      // Cat head.
+      headBase: () => `<circle cx="150" cy="140" r="48" fill="${GODS.cat}"/>`
+        + `<path d="M 112 156 C 124 148 176 148 188 156 C 188 176 172 190 150 192 C 128 190 112 176 112 156 Z" fill="${GODS.catLo}" opacity="0.55"/>`,
+      face: () => `<ellipse cx="131" cy="136" rx="11" ry="9" fill="#7fd44a"/>`
+        + `<ellipse cx="169" cy="136" rx="11" ry="9" fill="#7fd44a"/>`
+        + `<ellipse cx="131" cy="136" rx="2.8" ry="8.5" fill="${GODS.eye}"/>`
+        + `<ellipse cx="169" cy="136" rx="2.8" ry="8.5" fill="${GODS.eye}"/>`
+        + `<path d="M 122 128 C 128 122 138 122 144 127 M 178 128 C 172 122 162 122 156 127" fill="none" stroke="${GODS.eye}" stroke-width="3"/>`
+        + `<path d="M 144 162 L 156 162 L 150 170 Z" fill="#c2506a"/>`
+        + `<path d="M 150 170 L 150 176 M 150 176 C 144 182 138 180 136 176 M 150 176 C 156 182 162 180 164 176" fill="none" stroke="${GODS.eye}" stroke-width="2.2"/>`
+        + `<path d="M 118 166 L 96 162 M 118 174 L 98 176 M 182 166 L 204 162 M 182 174 L 202 176" fill="none" stroke="${GODS.catLo}" stroke-width="2.2" opacity="0.9"/>`,
+      // Upright cat ears + a gold hoop.
+      head: () => `<path d="M 116 106 L 112 56 L 152 92 Z" fill="${GODS.cat}" stroke="${GODS.catLo}" stroke-width="2"/>`
+        + `<path d="M 184 106 L 188 56 L 148 92 Z" fill="${GODS.cat}" stroke="${GODS.catLo}" stroke-width="2"/>`
+        + `<path d="M 121 100 L 119 70 L 141 92 Z" fill="#e8a0b4" opacity="0.75"/>`
+        + `<path d="M 179 100 L 181 70 L 159 92 Z" fill="#e8a0b4" opacity="0.75"/>`
+        + `<circle cx="104" cy="152" r="7" fill="none" stroke="${GODS.gold}" stroke-width="3.5"/>`,
+      torso: () => egyptCollar(GODS.jade, '#c8203a'),
+      // Sistrum rattle.
+      front: () => `<rect x="216" y="230" width="8" height="66" rx="4" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`
+        + `<path d="M 204 230 C 204 200 236 200 236 230" fill="none" stroke="${GODS.gold}" stroke-width="5"/>`
+        + `<path d="M 206 214 L 234 214 M 207 222 L 233 222" fill="none" stroke="${GODS.goldLine}" stroke-width="2.5"/>`,
     },
     '#4f63e0': {                                          // Tlaloc — Aztec
       label: 'Tlaloc',
@@ -734,6 +866,71 @@ ${part(v.front)}
       torso: () => `<path d="M 112 198 C 126 222 174 222 188 198 C 192 212 188 226 178 232 C 160 242 140 242 122 232 C 112 226 108 212 112 198 Z" fill="${GODS.jade}" stroke="${GODS.jadeLo}" stroke-width="2"/>`
         + `<circle cx="150" cy="220" r="7" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`,
       front: () => `<path d="M 210 250 l -4 22 M 224 246 l -4 24 M 238 252 l -4 20" fill="none" stroke="#8fd3ff" stroke-width="4" opacity="0.85"/>`,
+    },
+    '#ffc233': {                                          // Mercury — Roman
+      label: 'Mercury',
+      // Winged sandals, drawn behind so the boots overlap them.
+      behind: () => `<path d="M 106 352 C 90 344 78 330 74 316 C 90 320 102 330 110 342 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.8"/>`
+        + `<path d="M 194 352 C 210 344 222 330 226 316 C 210 320 198 330 190 342 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.8"/>`,
+      // Winged petasos.
+      head: () => `<path d="M 108 112 C 108 88 128 74 150 74 C 172 74 192 88 192 112 Z" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2.5"/>`
+        + `<ellipse cx="150" cy="112" rx="52" ry="11" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2.5"/>`
+        + `<path d="M 100 104 C 84 96 70 84 64 70 C 82 74 96 84 104 96 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.8"/>`
+        + `<path d="M 200 104 C 216 96 230 84 236 70 C 218 74 204 84 196 96 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.8"/>`,
+      torso: () => `<path d="M 110 200 L 150 220 L 190 200 L 194 240 L 106 240 Z" fill="${GODS.white}" opacity="0.9" stroke="${GODS.whiteLine}" stroke-width="1.5"/>`,
+      // Caduceus.
+      front: () => `<rect x="216" y="180" width="8" height="122" rx="4" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`
+        + `<path d="M 220 196 C 206 206 234 218 220 228 C 206 238 234 250 220 260" fill="none" stroke="#4f8f3a" stroke-width="4"/>`
+        + `<path d="M 216 182 C 202 172 194 160 192 148 C 204 152 214 162 218 174 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.5"/>`
+        + `<path d="M 224 182 C 238 172 246 160 248 148 C 236 152 226 162 222 174 Z" fill="${GODS.white}" stroke="${GODS.whiteLine}" stroke-width="1.5"/>`,
+    },
+    '#c8203a': {                                          // Odin — Norse
+      label: 'Odin',
+      // Raven perched on the shoulder, behind the arm.
+      behind: () => `<path d="M 214 176 C 226 168 240 172 244 184 C 248 196 240 208 226 208 C 214 208 206 198 208 188 Z" fill="${GODS.raven}"/>`
+        + `<path d="M 244 184 L 258 188 L 244 194 Z" fill="${GODS.gold}"/>`
+        + `<circle cx="232" cy="184" r="2.4" fill="${GODS.gold}"/>`
+        + `<path d="M 216 194 C 224 200 234 200 240 196" fill="none" stroke="#4a4a52" stroke-width="2"/>`,
+      // Grey beard, wide-brimmed traveller's hat.
+      head: () => `<path d="M 126 154 C 120 194 132 222 150 230 C 168 222 180 194 174 154 C 166 166 134 166 126 154 Z" fill="#cfd3d6" stroke="#9aa0a5" stroke-width="1.8"/>`
+        + `<path d="M 130 178 C 140 173 160 173 170 178 M 134 202 C 142 197 158 197 166 202" fill="none" stroke="#9aa0a5" stroke-width="1.8" opacity="0.85"/>`
+        + `<path d="M 130 154 C 138 147 162 147 170 154 C 162 161 138 161 130 154 Z" fill="#cfd3d6" stroke="#9aa0a5" stroke-width="1.5"/>`
+        + `<path d="M 112 110 C 112 84 132 70 150 70 C 168 70 188 84 188 110 Z" fill="#5a4a38" stroke="#3a2f22" stroke-width="2.5"/>`
+        + `<path d="M 90 112 C 104 100 196 100 210 112 C 196 124 104 124 90 112 Z" fill="#5a4a38" stroke="#3a2f22" stroke-width="2.5"/>`,
+      // One eye, one patch.
+      face: () => `<circle cx="167" cy="136" r="11.5" fill="${GODS.eyeWhite}" stroke="${GODS.skinLine}" stroke-width="1.3"/>`
+        + `<circle cx="169" cy="138" r="5.8" fill="${GODS.eye}"/>`
+        + `<circle cx="165" cy="133" r="2.6" fill="#ffffff"/>`
+        + `<path d="M 120 126 L 186 132" fill="none" stroke="#2a2620" stroke-width="3.5"/>`
+        + `<ellipse cx="133" cy="137" rx="13" ry="11" fill="#2a2620"/>`,
+      torso: () => `<path d="M 106 196 C 120 210 180 210 194 196 L 198 244 L 102 244 Z" fill="#3f5a7a" stroke="#2a3d54" stroke-width="2"/>`
+        + `<circle cx="120" cy="204" r="8" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`
+        + `<circle cx="180" cy="204" r="8" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="1.5"/>`,
+      // Gungnir.
+      front: () => `<rect x="82" y="150" width="8" height="152" rx="4" fill="${GODS.leather}" stroke="${GODS.leatherLo}" stroke-width="1.5"/>`
+        + `<path d="M 86 118 L 96 152 L 76 152 Z" fill="${GODS.steel}" stroke="${GODS.steelLo}" stroke-width="2"/>`,
+    },
+    '#ff9ecf': {                                          // Athena — Greek
+      label: 'Athena',
+      // Owl on the shoulder.
+      behind: () => `<ellipse cx="228" cy="190" rx="19" ry="22" fill="#a08d6a" stroke="#7a6a4c" stroke-width="2"/>`
+        + `<circle cx="221" cy="184" r="6.5" fill="${GODS.eyeWhite}" stroke="#7a6a4c" stroke-width="1.5"/>`
+        + `<circle cx="235" cy="184" r="6.5" fill="${GODS.eyeWhite}" stroke="#7a6a4c" stroke-width="1.5"/>`
+        + `<circle cx="221" cy="184" r="3" fill="${GODS.eye}"/><circle cx="235" cy="184" r="3" fill="${GODS.eye}"/>`
+        + `<path d="M 228 190 L 224 196 L 232 196 Z" fill="${GODS.gold}"/>`
+        + `<path d="M 214 174 L 218 166 L 222 174 M 234 174 L 238 166 L 242 174" fill="none" stroke="#7a6a4c" stroke-width="2"/>`,
+      // Corinthian helmet pushed back off the face, with a tall crest.
+      head: () => `<path d="M 108 116 C 108 88 128 72 150 72 C 172 72 192 88 192 116 C 180 106 120 106 108 116 Z" fill="${GODS.steel}" stroke="${GODS.steelLo}" stroke-width="2.5"/>`
+        + `<path d="M 108 116 C 108 130 112 142 118 150 C 116 132 118 122 122 116 Z" fill="${GODS.steel}" stroke="${GODS.steelLo}" stroke-width="2"/>`
+        + `<path d="M 192 116 C 192 130 188 142 182 150 C 184 132 182 122 178 116 Z" fill="${GODS.steel}" stroke="${GODS.steelLo}" stroke-width="2"/>`
+        + `<path d="M 132 74 C 140 42 160 42 168 74 C 160 62 140 62 132 74 Z" fill="#c8203a" stroke="#8d1622" stroke-width="2"/>`
+        + `<path d="M 150 44 C 158 30 176 30 184 44 C 172 38 158 36 150 44 Z" fill="#c8203a" stroke="#8d1622" stroke-width="2"/>`,
+      torso: () => `<path d="M 110 200 L 150 222 L 190 200 L 194 292 L 106 292 Z" fill="${GODS.white}" opacity="0.93" stroke="${GODS.whiteLine}" stroke-width="1.5"/>`
+        + `<path d="M 128 216 L 150 230 L 172 216" fill="none" stroke="${GODS.goldLine}" stroke-width="3" opacity="0.5"/>`,
+      // Round hoplite shield in the off hand.
+      front: () => `<circle cx="76" cy="272" r="34" fill="${GODS.gold}" stroke="${GODS.goldLine}" stroke-width="2.5"/>`
+        + `<circle cx="76" cy="272" r="24" fill="none" stroke="${GODS.goldLine}" stroke-width="2"/>`
+        + `<circle cx="76" cy="272" r="9" fill="${GODS.steel}" stroke="${GODS.steelLo}" stroke-width="1.5"/>`,
     },
   };
   const GOD_FALLBACK = GOD_CAST['#1f9bff'];
