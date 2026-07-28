@@ -99,6 +99,9 @@ const Physics = (() => {
     strictTarget: false,   // true = bottle CENTER must be on the pad (not any overlap)
     allowSlideIn: true,    // bounce mode: off-pad touchdown can still slide onto a MAKE
     targetStyle: null,     // 'altar' | 'pad' | null (auto)
+    // Scored radius as a fraction of the drawn pad. 1 = whole pad counts;
+    // 0.5 = only the inner half-radius scores (drawn pad stays readable).
+    hitScale: 1,
   };
   let profile = { ...DEFAULT_PROFILE };
   let targetX = null;      // pad center, only set when profile.landOnTarget
@@ -115,10 +118,17 @@ const Physics = (() => {
   // the scale-up is capped tighter so smartboards aren't a freebie.
   function currentTargetHalfWidth() {
     const base = profile.targetHalfWidth;
-    // Alien/hard pads: grow gently. Generous pads (legacy): old curve.
-    const maxScale = base <= 55 ? 1.55 : 2.2;
-    const frac = base <= 55 ? 0.07 : 0.115;
-    return Math.round(Math.max(base, Math.min(canvasW * frac, base * maxScale)));
+    // Bank-shot pads stay nearly fixed — only a tiny grow on huge boards so
+    // the make radius doesn't become a freebie on smartboards.
+    if (base <= 60) {
+      return Math.round(Math.max(base, Math.min(canvasW * 0.045, base * 1.25)));
+    }
+    return Math.round(Math.max(base, Math.min(canvasW * 0.115, base * 2.2)));
+  }
+
+  function currentHitHalfWidth() {
+    const scale = Math.max(0.2, Math.min(1, profile.hitScale == null ? 1 : profile.hitScale));
+    return Math.max(8, targetHW * scale);
   }
   let launched = false;    // a flick has been taken this turn
   let wasAirborne = false; // ...and the body actually left the floor
@@ -433,19 +443,21 @@ const Physics = (() => {
     return targetX == null ? null : {
       x: targetX,
       halfWidth: targetHW,
+      hitHalfWidth: currentHitHalfWidth(),
       style: profile.targetStyle || (profile.movingTarget ? 'altar' : 'pad'),
     };
   }
 
   function overTarget() {
     if (!profile.landOnTarget || targetX == null || !bottle) return false;
-    // Strict (alien): the body's CENTER must sit on the pad — grazing the edge
-    // with a limb no longer counts. Generous (gods altar / legacy): any overlap.
+    const hitHW = currentHitHalfWidth();
+    // Strict (alien/gods): the body's CENTER must sit inside the hit radius.
+    // Generous legacy: any bounds overlap with the hit radius.
     if (profile.strictTarget) {
-      return Math.abs(bottle.position.x - targetX) <= targetHW;
+      return Math.abs(bottle.position.x - targetX) <= hitHW;
     }
-    return bottle.bounds.max.x >= targetX - targetHW &&
-           bottle.bounds.min.x <= targetX + targetHW;
+    return bottle.bounds.max.x >= targetX - hitHW &&
+           bottle.bounds.min.x <= targetX + hitHW;
   }
 
   // ── Liquid oscillator ──────────────────────────────────────────────────────
@@ -475,7 +487,8 @@ const Physics = (() => {
   function recordLanding(result, tilt, reason) {
     let padOffset = null;
     if (profile.landOnTarget && targetX != null && bottle) {
-      padOffset = targetHW > 0 ? Math.abs(bottle.position.x - targetX) / targetHW : null;
+      const hitHW = currentHitHalfWidth();
+      padOffset = hitHW > 0 ? Math.abs(bottle.position.x - targetX) / hitHW : null;
     }
     lastLandingInfo = {
       result,

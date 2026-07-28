@@ -480,11 +480,12 @@ const Renderer = (() => {
   function drawTargetPad(target, groundY) {
     if (!target) return;
     const { x, halfWidth: hw } = target;
+    const hitHW = target.hitHalfWidth != null ? target.hitHalfWidth : hw;
     const pulse = 0.5 + 0.5 * Math.sin(clock * 3);
     const altar = target.style === 'altar';
     ctx.save();
     if (altar) {
-      // Golden Olympus altar pedestal
+      // Golden Olympus altar pedestal — outer plate is visual, inner disc is the score zone.
       const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.35);
       glow.addColorStop(0, `rgba(255,210,60,${0.35 + pulse * 0.2})`);
       glow.addColorStop(1, 'rgba(255,210,60,0)');
@@ -499,28 +500,43 @@ const Renderer = (() => {
       ctx.ellipse(x, groundY - 18, hw, hw * 0.28, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.lineWidth = 3;
-      ctx.strokeStyle = `rgba(255,230,120,${0.75 + pulse * 0.25})`;
+      ctx.strokeStyle = `rgba(255,230,120,${0.55 + pulse * 0.2})`;
+      ctx.stroke();
+      // Inner scored bullseye
+      ctx.beginPath();
+      ctx.ellipse(x, groundY - 18, hitHW, hitHW * 0.28, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${0.35 + pulse * 0.2})`;
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = `rgba(255,255,255,${0.85 + pulse * 0.15})`;
       ctx.stroke();
       ctx.fillStyle = 'rgba(255,250,200,0.9)';
-      ctx.font = `bold ${Math.max(12, hw * 0.35)}px system-ui, sans-serif`;
+      ctx.font = `bold ${Math.max(12, hitHW * 0.45)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('⚡', x, groundY - 18);
     } else {
       const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.15);
-      glow.addColorStop(0, `rgba(105,240,174,${0.30 + pulse * 0.16})`);
+      glow.addColorStop(0, `rgba(105,240,174,${0.22 + pulse * 0.12})`);
       glow.addColorStop(1, 'rgba(105,240,174,0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
       ctx.ellipse(x, groundY, hw * 1.15, hw * 0.34, 0, 0, Math.PI * 2);
       ctx.fill();
+      // Outer ring = visual pad (soft), inner ring = actual MAKE radius
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(105,240,174,${0.35 + pulse * 0.15})`;
+      ctx.beginPath();
+      ctx.ellipse(x, groundY, hw, hw * 0.29, 0, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.lineWidth = 3;
-      ctx.strokeStyle = `rgba(105,240,174,${0.75 + pulse * 0.25})`;
-      for (const r of [hw, hw * 0.62, hw * 0.28]) {
-        ctx.beginPath();
-        ctx.ellipse(x, groundY, r, r * 0.29, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      ctx.strokeStyle = `rgba(105,240,174,${0.85 + pulse * 0.15})`;
+      ctx.beginPath();
+      ctx.ellipse(x, groundY, hitHW, hitHW * 0.29, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(x, groundY, hitHW * 0.35, hitHW * 0.12, 0, 0, Math.PI * 2);
+      ctx.stroke();
     }
     ctx.restore();
   }
