@@ -90,6 +90,7 @@
           (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
         Physics.resetBottle();
         applyTurnPhysics();
+        prepareTurnArena();
       }
     }, 150);
   }
@@ -469,14 +470,35 @@
   }
 
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
+  // Alien bank-shot skins get a sideways aim instead of a pure vertical flip.
   function aiFlick() {
     if (game.state !== GAME_STATES.TURN_START && game.state !== GAME_STATES.ON_FIRE) return;
     const sigma = { easy: 1000, medium: 400, hard: 220 }[game.difficulty] || 400;
     const u1 = Math.random() || 1e-6, u2 = Math.random();
     const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    const skin = game.currentPlayer()?.skin || 'bottle';
+    const bank = window.Skins && Skins.physicsFor && Skins.physicsFor(skin);
+    if (bank && bank.floorResolve) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const vx = side * (1100 + Math.abs(gauss) * sigma * 0.9 + Math.random() * 500);
+      const up = Math.max(900, 1700 + gauss * sigma * 0.55);
+      onFlick(vx, -up);
+      return;
+    }
     const up = Math.max(500, 2100 + gauss * sigma);   // sweet spot ~2100 px/s
     const vx = (Math.random() - 0.5) * 420;           // slight lean
     onFlick(vx, -up);
+  }
+
+  // Deterministic turn seed shared by all online peers (same turnCounter + seat).
+  function turnArenaSeed() {
+    const tc = game.turnCounter | 0;
+    const pi = game.currentPlayerIndex | 0;
+    return ((tc * 0x9E3779B1) ^ ((pi + 1) * 0x85EBCA6B) ^ 0xC2B2AE35) >>> 0;
+  }
+
+  function prepareTurnArena() {
+    if (Physics.seedTurn) Physics.seedTurn(turnArenaSeed());
   }
 
   function startGame(defs, dir, opts) {
@@ -675,6 +697,7 @@
     passScreen.classList.add('hidden');
     Physics.resetBottle();
     applyTurnPhysics();
+    prepareTurnArena();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -742,6 +765,7 @@
     passScreen.classList.add('hidden');
     Physics.resetBottle();
     applyTurnPhysics();
+    prepareTurnArena();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -1325,6 +1349,26 @@
       if (!onlineMode || !gameStarted) return;
       if (msg.playerId === Net.selfId) return;
       pendingNetResult = { result: msg.result, info: msg.info || {} };
+    });
+    Net.on('leave', (peerId) => {
+      if (!onlineMode || !gameStarted || !peerId) return;
+      const p = game.players.find(x => x.netId === peerId && !x.eliminated);
+      if (!p) return;
+      const wasCurrent = game.currentPlayer() === p;
+      if (!game.forfeitPlayer(peerId, 'left')) return;
+      showToast(`${p.name} left — forfeited.`);
+      stopTurnTimer();
+      Input.disable();
+      clearTimeout(aiTimer);
+      evaluating = false;
+      pendingNetResult = null;
+      netAuthority = false;
+      updateHUD();
+      if (wasCurrent || game.activePlayers().length <= 1) {
+        // Treat like an elimination so advanceTurn can end or rotate.
+        game.justEliminated = true;
+        game.advanceTurn();
+      }
     });
     Net.on('disconnected', () => {
       if (onlineStatusEl) onlineStatusEl.textContent = 'Disconnected — reconnecting…';

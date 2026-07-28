@@ -482,67 +482,28 @@ const Renderer = (() => {
     const { x, halfWidth: hw } = target;
     const hitHW = target.hitHalfWidth != null ? target.hitHalfWidth : hw;
     const pulse = 0.5 + 0.5 * Math.sin(clock * 3);
-    const altar = target.style === 'altar';
     ctx.save();
-    if (altar) {
-      // Pedestal is decoration behind the floor score zone — the MAKE radius
-      // lives on the ground at the same Y as Alien so both modes play identical.
-      ctx.fillStyle = '#c8922a';
-      ctx.fillRect(x - hw * 0.42, groundY - 22, hw * 0.84, 20);
-      ctx.fillStyle = '#a87420';
-      ctx.fillRect(x - hw * 0.55, groundY - 8, hw * 1.1, 8);
-      const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.35);
-      glow.addColorStop(0, `rgba(255,210,60,${0.35 + pulse * 0.2})`);
-      glow.addColorStop(1, 'rgba(255,210,60,0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.ellipse(x, groundY, hw * 1.3, hw * 0.38, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Outer visual ring
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = `rgba(255,230,120,${0.45 + pulse * 0.15})`;
-      ctx.beginPath();
-      ctx.ellipse(x, groundY, hw, hw * 0.29, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // Inner scored bullseye (same geometry as Alien)
-      ctx.beginPath();
-      ctx.ellipse(x, groundY, hitHW, hitHW * 0.29, 0, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${0.28 + pulse * 0.18})`;
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = `rgba(255,255,255,${0.85 + pulse * 0.15})`;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.ellipse(x, groundY, hitHW * 0.35, hitHW * 0.12, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(255,250,200,0.95)';
-      ctx.font = `bold ${Math.max(12, hitHW * 0.5)}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('⚡', x, groundY - hitHW * 0.55);
-    } else {
-      const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.15);
-      glow.addColorStop(0, `rgba(105,240,174,${0.22 + pulse * 0.12})`);
-      glow.addColorStop(1, 'rgba(105,240,174,0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.ellipse(x, groundY, hw * 1.15, hw * 0.34, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Outer ring = visual pad (soft), inner ring = actual MAKE radius
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = `rgba(105,240,174,${0.35 + pulse * 0.15})`;
-      ctx.beginPath();
-      ctx.ellipse(x, groundY, hw, hw * 0.29, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = `rgba(105,240,174,${0.85 + pulse * 0.15})`;
-      ctx.beginPath();
-      ctx.ellipse(x, groundY, hitHW, hitHW * 0.29, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.ellipse(x, groundY, hitHW * 0.35, hitHW * 0.12, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+    const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.15);
+    glow.addColorStop(0, `rgba(105,240,174,${0.22 + pulse * 0.12})`);
+    glow.addColorStop(1, 'rgba(105,240,174,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.ellipse(x, groundY, hw * 1.15, hw * 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Outer ring = visual pad (soft), inner ring = actual MAKE radius
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(105,240,174,${0.35 + pulse * 0.15})`;
+    ctx.beginPath();
+    ctx.ellipse(x, groundY, hw, hw * 0.29, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = `rgba(105,240,174,${0.85 + pulse * 0.15})`;
+    ctx.beginPath();
+    ctx.ellipse(x, groundY, hitHW, hitHW * 0.29, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(x, groundY, hitHW * 0.35, hitHW * 0.12, 0, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -575,96 +536,29 @@ const Renderer = (() => {
       ctx.save();
       ctx.translate(s.x, s.y);
       ctx.rotate(s.angle * 0.35);
-      if (obstacles.theme === 'olympus') {
-        // Identical Matter body to Alien UFOs — storm-orb paint only.
-        ctx.globalAlpha = 0.92;
-        ctx.fillStyle = '#e8eef8';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, s.rx, s.ry * 0.72, 0, 0, Math.PI * 2);
-        ctx.ellipse(-s.rx * 0.45, -s.ry * 0.15, s.rx * 0.55, s.ry * 0.55, 0, 0, Math.PI * 2);
-        ctx.ellipse(s.rx * 0.4, -s.ry * 0.2, s.rx * 0.5, s.ry * 0.5, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        const blink = 0.45 + 0.55 * Math.sin(clock * 5 + s.x * 0.05);
-        ctx.fillStyle = `rgba(255,210,63,${blink})`;
-        ctx.beginPath();
-        ctx.arc(0, 0, 5, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.ellipse(0, -s.ry * 0.55, s.rx * 0.46, s.ry * 0.85, 0, Math.PI, 0);
-        ctx.fillStyle = '#bfe7ff';
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = '#5d7f97';
-        ctx.stroke();
-        const g = ctx.createLinearGradient(0, -s.ry, 0, s.ry);
-        g.addColorStop(0, '#e7edf2');
-        g.addColorStop(1, '#8c99a5');
-        ctx.beginPath();
-        ctx.ellipse(0, 0, s.rx, s.ry * 0.62, 0, 0, Math.PI * 2);
-        ctx.fillStyle = g;
-        ctx.fill();
-        ctx.strokeStyle = '#43586b';
-        ctx.stroke();
-        const blink = 0.45 + 0.55 * Math.sin(clock * 5 + s.x * 0.05);
-        ctx.fillStyle = `rgba(255,210,63,${blink})`;
-        for (const lx of [-s.rx * 0.62, 0, s.rx * 0.62]) {
-          ctx.beginPath();
-          ctx.arc(lx, s.ry * 0.22, 3.6, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      ctx.restore();
-    }
-
-    for (const c of obstacles.clouds || []) {
-      ctx.save();
-      ctx.translate(c.x, c.y);
-      ctx.globalAlpha = 0.88;
-      ctx.fillStyle = '#e8eef6';
       ctx.beginPath();
-      ctx.ellipse(0, 0, c.rx, c.ry * 0.7, 0, 0, Math.PI * 2);
-      ctx.ellipse(-c.rx * 0.45, -c.ry * 0.2, c.rx * 0.55, c.ry * 0.55, 0, 0, Math.PI * 2);
-      ctx.ellipse(c.rx * 0.4, -c.ry * 0.25, c.rx * 0.5, c.ry * 0.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -s.ry * 0.55, s.rx * 0.46, s.ry * 0.85, 0, Math.PI, 0);
+      ctx.fillStyle = '#bfe7ff';
       ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    }
-
-    for (const b of obstacles.bolts || []) {
-      if (!b.active) continue;
-      const a = Math.min(1, b.life * 4);
-      ctx.save();
-      ctx.globalAlpha = a;
-      ctx.strokeStyle = '#fff6a0';
-      ctx.shadowColor = '#ffe14a';
-      ctx.shadowBlur = 18;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      let y = 0;
-      let x = b.x;
-      ctx.moveTo(x, y);
-      const gY = obstacles._groundY || 600;
-      let step = 0;
-      while (y < gY) {
-        y += 32;
-        step++;
-        // Deterministic zig-zag (no Math.random in the paint loop).
-        x = b.x + Math.sin(b.x * 0.07 + step * 1.7) * 22;
-        ctx.lineTo(x, y);
-      }
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#5d7f97';
       ctx.stroke();
-      ctx.restore();
-    }
-
-    if (obstacles.wind && Math.abs(obstacles.wind.force) > 0.002) {
-      ctx.save();
-      ctx.globalAlpha = 0.35;
-      ctx.fillStyle = '#9ec9ff';
-      ctx.font = 'bold 22px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(obstacles.wind.dir > 0 ? '🌬 →' : '← 🌬', W / 2, 48);
+      const g = ctx.createLinearGradient(0, -s.ry, 0, s.ry);
+      g.addColorStop(0, '#e7edf2');
+      g.addColorStop(1, '#8c99a5');
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s.rx, s.ry * 0.62, 0, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.strokeStyle = '#43586b';
+      ctx.stroke();
+      const blink = 0.45 + 0.55 * Math.sin(clock * 5 + s.x * 0.05);
+      ctx.fillStyle = `rgba(255,210,63,${blink})`;
+      for (const lx of [-s.rx * 0.62, 0, s.rx * 0.62]) {
+        ctx.beginPath();
+        ctx.arc(lx, s.ry * 0.22, 3.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }
@@ -706,7 +600,6 @@ const Renderer = (() => {
     drawBackground(groundY, isOnFire, { tableOnly: true });
     drawWalls(groundY, view ? view.sideWalls : true);
     drawTargetPad(target, groundY);
-    if (obstacles) obstacles._groundY = groundY;
     drawObstacles(obstacles);
     drawFlickIndicator(drag, bottle, groundY);
     if (showGlow) drawLandingGlow(bottle, groundY);
@@ -738,8 +631,8 @@ const Renderer = (() => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
     // Fit box measured off the real drawn pixels of every edition — widest is
-    // the T-Rex (x≈±106), tallest the alien and the trophies (y≈-221..58) whose
-    // antennae/statuettes reach high. Already includes the BOTTLE_DRAW_SCALE
+    // the T-Rex (x≈±106), tallest aliens / landmarks (y≈-221..58) whose
+    // antennae/towers reach high. Already includes the BOTTLE_DRAW_SCALE
     // that drawBottle applies. The artwork sits well above the origin, so it
     // centers on y≈-81, not 0. Re-measure if any edition's art grows.
     const CONTENT_W = 216, CONTENT_H = 284, CONTENT_MID_Y = -81;

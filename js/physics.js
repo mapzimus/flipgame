@@ -85,21 +85,14 @@ const Physics = (() => {
     targetHalfWidth: 84,
     requireFlip: true,
     missCapFrames: MISS_CAP_FRAMES,
-    // Bounce-mode furniture. Multiple wedges + lots of saucers for alien.
+    // Bounce-mode furniture (alien bank shot).
     deflector: false,
     deflectorCount: 1,
     saucerCount: 0,
-    // Olympus furniture (bank-shot clouds share saucer material when floorResolve)
-    movingTarget: false,
-    wind: false,
-    windStrength: 0,
-    cloudCount: 0,
-    lightning: false,
     keepWalls: false,      // force side walls even on mobile (alien needs them)
     minHorizRatio: 0,
     strictTarget: false,   // true = bottle CENTER must be on the pad (not any overlap)
     allowSlideIn: true,    // bounce mode: off-pad touchdown can still slide onto a MAKE
-    targetStyle: null,     // 'altar' | 'pad' | null (auto)
     // Scored radius as a fraction of the drawn pad. 1 = whole pad counts;
     // 0.5 = only the inner half-radius scores (drawn pad stays readable).
     hitScale: 1,
@@ -107,11 +100,7 @@ const Physics = (() => {
   let profile = { ...DEFAULT_PROFILE };
   let targetX = null;      // pad center, only set when profile.landOnTarget
   let targetHW = 84;       // pad half-width actually in play (screen-scaled)
-  let targetPhase = 0;     // moving altar phase
   let arenaTime = 0;
-  let windDir = 1;
-  let windTimer = 0;
-  let windForce = 0;
 
   // The profile's targetHalfWidth is tuned for a phone. On a big screen the
   // same pad is a sliver of the arena and the bank shot turns pixel-perfect,
@@ -178,7 +167,8 @@ const Physics = (() => {
     if (ceilingBody) ceilingBody.restitution = profile.wallBounce;
     applyBodyMaterial();
     syncSideWalls();
-    placeTarget();
+    // Pad placement is seeded in seedTurn() so multiplayer peers share the same
+    // target. Don't roll it here off the unseeded Math.random stream.
     buildObstacles(arenaH);
   }
 
@@ -192,20 +182,15 @@ const Physics = (() => {
     }
   }
 
-  // ── Obstacles: deflector wedges, saucers, olympus clouds, lightning ────────
+  // ── Obstacles: deflector wedges + saucers (alien bank shot) ────────────────
   let deflectors = [];
   let saucers = [];      // { body, vx, phase, rx, ry }
-  let clouds = [];       // soft olympus bumpers
-  let bolts = [];        // { x, active, timer, life }
 
   function clearObstacles() {
     for (const d of deflectors) World.remove(world, d);
     deflectors = [];
     for (const s of saucers) World.remove(world, s.body);
     saucers = [];
-    for (const c of clouds) World.remove(world, c.body);
-    clouds = [];
-    bolts = [];
   }
 
   function addDeflector(cx, apexWorldY, halfW, height) {
@@ -273,45 +258,6 @@ const Physics = (() => {
         rx, ry,
       });
     }
-
-    for (let i = 0; i < profile.cloudCount; i++) {
-      const lane = (i + 0.5) / Math.max(1, profile.cloudCount);
-      const x = WALL_INSET + 50 + lane * Math.max(40, canvasW - WALL_INSET * 2 - 100);
-      // Bank-mode clouds sit in the same mid-band as alien saucers so the shot
-      // difficulty matches; soft decorative clouds (legacy) hang higher.
-      const bank = !!profile.floorResolve;
-      const y = bank
-        ? groundY - 150 - (i % 4) * 70 - (i % 3) * 18
-        : groundY - 200 - (i % 3) * 95;
-      const rx = bank ? 38 + (i % 3) * 4 : 52;
-      const ry = bank ? 16 + (i % 2) * 3 : 24;
-      const body = Bodies.rectangle(x, y, rx * 2, ry * 2, {
-        label: 'cloud',
-        frictionAir: bank ? 0.05 : 0.08,
-        friction: bank ? 0 : 0.02,
-        restitution: bank ? Math.max(0.7, profile.wallBounce) : 0.55,
-        density: bank ? 0.0011 : 0.0005,
-      });
-      World.add(world, body);
-      clouds.push({
-        body,
-        vx: (i % 2 ? 1 : -1) * (bank ? (0.85 + 0.55 * (i % 4)) : (0.35 + 0.2 * (i % 3))),
-        phase: i * 2.1,
-        rx, ry,
-      });
-    }
-
-    if (profile.lightning) {
-      const n = Math.max(2, Math.round(canvasW / 280));
-      for (let i = 0; i < n; i++) {
-        bolts.push({
-          x: WALL_INSET + 80 + ((i + 0.5) / n) * Math.max(40, canvasW - WALL_INSET * 2 - 160),
-          active: false,
-          timer: 1.2 + i * 0.7,
-          life: 0,
-        });
-      }
-    }
   }
 
   function updateSaucers(dt) {
@@ -333,81 +279,9 @@ const Physics = (() => {
     }
   }
 
-  function updateClouds(dt) {
-    if (!clouds.length) return;
-    const gy = engine.gravity.y * engine.gravity.scale;
-    const bank = !!profile.floorResolve;
-    for (const c of clouds) {
-      const b = c.body;
-      Body.applyForce(b, b.position, { x: 0, y: -b.mass * gy });
-      const bob = Math.sin(arenaTime * (bank ? 1.6 : 1.1) + c.phase) * (bank ? 0.28 : 0.22);
-      const lo = (sideWallsEnabled ? WALL_INSET : 8) + c.rx + (bank ? 8 : 0);
-      const hi = canvasW - (sideWallsEnabled ? WALL_INSET : 8) - c.rx - (bank ? 8 : 0);
-      if (b.position.x < lo) c.vx = Math.abs(c.vx);
-      if (b.position.x > hi) c.vx = -Math.abs(c.vx);
-      // Bank-mode clouds ease like saucers so Gods matches Alien difficulty.
-      const ease = bank ? 0.04 : 0.03;
-      Body.setVelocity(b, {
-        x: b.velocity.x + (c.vx - b.velocity.x) * ease,
-        y: b.velocity.y * (bank ? 0.96 : 0.97) + bob * (bank ? 0.3 : 0.25),
-      });
-      Body.setAngularVelocity(b, b.angularVelocity * (bank ? 0.9 : 0.92));
-    }
-  }
-
-  function updateWind(dt) {
-    if (!profile.wind || !bottle || !launched) { windForce = 0; return; }
-    windTimer -= dt;
-    if (windTimer <= 0) {
-      windDir = rand() < 0.5 ? -1 : 1;
-      windForce = (0.45 + rand() * 0.55) * (profile.windStrength || 0.01) * windDir;
-      windTimer = 0.7 + rand() * 1.4;
-    }
-    Body.applyForce(bottle, bottle.position, { x: windForce * bottle.mass, y: 0 });
-  }
-
-  function updateLightning(dt) {
-    if (!profile.lightning || !bolts.length) return;
-    for (const b of bolts) {
-      if (b.active) {
-        b.life -= dt;
-        if (b.life <= 0) { b.active = false; b.timer = 1.4 + rand() * 2.2; }
-      } else {
-        b.timer -= dt;
-        if (b.timer <= 0) {
-          b.active = true;
-          b.life = 0.28 + rand() * 0.18;
-          // Drift bolt X a bit so it's not a fixed laser puzzle.
-          b.x += (rand() - 0.5) * 80;
-          b.x = Math.max(40, Math.min(canvasW - 40, b.x));
-        }
-      }
-    }
-    if (!launched || !wasAirborne || !bottle) return;
-    for (const b of bolts) {
-      if (!b.active) continue;
-      if (bottle.bounds.min.x < b.x + 14 && bottle.bounds.max.x > b.x - 14 &&
-          bottle.bounds.max.y < groundY - 10) {
-        // Struck mid-flight — instant miss (divine judgment).
-        recordLanding('MISS', null, 'lightning');
-        Body.setVelocity(bottle, { x: bottle.velocity.x * 0.2, y: Math.max(bottle.velocity.y, 4) });
-        break;
-      }
-    }
-  }
-
-  function updateMovingTarget(dt) {
-    if (!profile.movingTarget || targetX == null) return;
-    targetPhase += dt * 0.85;
-    const margin = (sideWallsEnabled ? WALL_INSET : 8) + targetHW + 20;
-    const mid = canvasW / 2;
-    const amp = Math.max(30, (canvasW - margin * 2) * 0.38);
-    targetX = mid + Math.sin(targetPhase) * amp;
-  }
-
   function getObstacles() {
     return {
-      theme: profile.targetStyle === 'altar' ? 'olympus' : 'alien',
+      theme: 'alien',
       deflectors: deflectors.map((d) => ({ vertices: d.vertices.map((v) => ({ x: v.x, y: v.y })) })),
       // Back-compat single deflector for older renderers
       deflector: deflectors[0]
@@ -417,17 +291,11 @@ const Physics = (() => {
         x: s.body.position.x, y: s.body.position.y,
         angle: s.body.angle, rx: s.rx, ry: s.ry,
       })),
-      clouds: clouds.map((c) => ({
-        x: c.body.position.x, y: c.body.position.y,
-        angle: c.body.angle, rx: c.rx, ry: c.ry,
-      })),
-      bolts: bolts.map((b) => ({ x: b.x, active: b.active, life: b.life })),
-      wind: profile.wind ? { force: windForce, dir: windDir } : null,
     };
   }
 
   // Randomize the pad's spot each turn so it isn't the same shot every time.
-  // Uses the seeded RNG so a multiplayer replay places it identically.
+  // Call only after seedTurn()/seedRng so multiplayer peers place identically.
   function placeTarget(explicitX) {
     if (!profile.landOnTarget || !canvasW) { targetX = null; return; }
     targetHW = currentTargetHalfWidth();
@@ -438,7 +306,6 @@ const Physics = (() => {
     }
     const span = Math.max(0, canvasW - margin * 2);
     targetX = margin + rand() * span;
-    targetPhase = rand() * Math.PI * 2;
   }
 
   function getTarget() {
@@ -446,15 +313,15 @@ const Physics = (() => {
       x: targetX,
       halfWidth: targetHW,
       hitHalfWidth: currentHitHalfWidth(),
-      style: profile.targetStyle || (profile.movingTarget ? 'altar' : 'pad'),
+      style: 'pad',
     };
   }
 
   function overTarget() {
     if (!profile.landOnTarget || targetX == null || !bottle) return false;
     const hitHW = currentHitHalfWidth();
-    // Strict (alien/gods): the body's CENTER must sit inside the hit radius.
-    // Generous legacy: any bounds overlap with the hit radius.
+    // Strict: bottle CENTER must sit inside the hit radius (alien).
+    // Generous: any bounds overlap with the hit radius.
     if (profile.strictTarget) {
       return Math.abs(bottle.position.x - targetX) <= hitHW;
     }
@@ -515,12 +382,8 @@ const Physics = (() => {
 
   function checkLanding() {
     if (!bottle) return null;
-    if (lastLandingInfo && lastLandingInfo.reason === 'lightning') {
-      return lastLandingInfo.result;
-    }
 
-    // Bounce-mode comments: allowSlideIn is set by the alien profile in skins.js.
-    // FloorResolve path: first contact / slide-on is the verdict.
+    // Bounce mode: first contact / slide-on is the verdict (alien profile).
     if (profile.floorResolve && launched && wasAirborne) {
       const grounded = bottle.bounds.max.y >= groundY - 6;
 
@@ -579,11 +442,7 @@ const Physics = (() => {
         if (angle > Math.PI) angle -= 2 * Math.PI;
         const tilt = Math.abs(angle);
         if (tilt < MAKE_ANGLE) {
-          // Olympus / altar modes: upright only counts on the target.
-          if (profile.landOnTarget && !overTarget()) {
-            return recordLanding('MISS', tilt, 'off-altar');
-          }
-          return recordLanding('MAKE', tilt, profile.landOnTarget ? 'on-altar' : 'upright');
+          return recordLanding('MAKE', tilt, 'upright');
         }
         if (tilt >= FALLEN_ANGLE) return recordLanding('MISS', tilt, 'fallen');
       }
@@ -677,19 +536,26 @@ const Physics = (() => {
     floorTouched   = false;
     slideFrames    = 0;
     maxGroundedTilt = 0;
-    windForce = 0;
-    windTimer = 0.4;
     liquid.reset();
     acc = 0;
 
     bottle = createBottle();
     World.add(world, bottle);
     applyBodyMaterial();
+  }
+
+  // Seed arena RNG for this turn (pad placement + future furniture). Must run
+  // AFTER setProfile/resetBottle and BEFORE the player aims, so peers that
+  // share turnCounter + playerIndex place the same pad without a net message.
+  function seedTurn(seed) {
+    seedRng((seed >>> 0) || 1);
+    arenaTime = 0;
     placeTarget();
   }
 
   // Pass an explicit `seed` to replay a flick's exact randomness (multiplayer);
   // otherwise a fresh seed is drawn and recorded in lastFlickInfo.
+  // Does NOT re-roll the pad — that was seeded in seedTurn().
   function applyFlick(vx, vy, seed) {
     const s = (seed !== undefined && seed !== null
       ? seed
@@ -752,10 +618,6 @@ const Physics = (() => {
 
     liquid.update(bottle.angularVelocity, FIXED_DT);
     updateSaucers(FIXED_DT);
-    updateClouds(FIXED_DT);
-    updateWind(FIXED_DT);
-    updateLightning(FIXED_DT);
-    updateMovingTarget(FIXED_DT);
   }
 
   function step(dt) {
@@ -831,5 +693,6 @@ const Physics = (() => {
     init, reflow, step, resetBottle, applyFlick, checkLanding, forceLanding,
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
+    seedTurn,
   };
 })();

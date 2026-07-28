@@ -249,6 +249,27 @@ const game = {
     this.setState(GAME_STATES.RESULT);
   },
 
+  // Forfeit a player by netId (peer left / disconnected). Returns true if someone
+  // was removed from play. If it was their turn, sets justEliminated so advance
+  // shows the out banner then continues.
+  forfeitPlayer(netId, reason) {
+    if (!netId || this.practice) return false;
+    const idx = this.players.findIndex(p => p.netId === netId && !p.eliminated);
+    if (idx < 0) return false;
+    const p = this.players[idx];
+    p.eliminated = true;
+    p.isOnFire = false;
+    p.isHeatingUp = false;
+    p.streak = 0;
+    if (this.onFirePlayer === p) {
+      this.onFirePlayer = null;
+      this.onFireBonus = 0;
+    }
+    this.forfeitReason = reason || 'left';
+    if (idx === this.currentPlayerIndex) this.justEliminated = true;
+    return true;
+  },
+
   // Called after result display to advance turn
   advanceTurn() {
     // Practice: never ends — just keep flipping

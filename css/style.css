@@ -466,7 +466,7 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 14px 16px 0;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 0;
   gap: 10px;
 }
 
@@ -519,7 +519,7 @@ html, body {
 
 #flip-hint {
   position: fixed;
-  bottom: 140px;
+  bottom: calc(140px + env(safe-area-inset-bottom, 0px));
   left: 0;
   right: 0;
   text-align: center;
@@ -534,7 +534,7 @@ html, body {
   50%       { opacity: 0.9;  }
 }
 
-/* Player cards */
+/* Player cards — scrollable on crowded lobbies; sits above the home indicator */
 #player-list {
   position: fixed;
   bottom: 0;
@@ -542,17 +542,23 @@ html, body {
   right: 0;
   display: flex;
   gap: 6px;
-  padding: 8px 10px 12px;
+  padding: 8px 10px calc(12px + env(safe-area-inset-bottom, 0px));
   overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  pointer-events: none;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+  pointer-events: auto;   /* allow horizontal scroll with 5–8 players */
 }
-#player-list::-webkit-scrollbar { display: none; }
+#player-list::-webkit-scrollbar { height: 3px; }
+#player-list::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.25);
+  border-radius: 2px;
+}
 
 .player-card {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 96px;
+  max-width: 140px;
   background: rgba(255,255,255,0.13);
   border: 2px solid rgba(255,255,255,0.12);
   border-radius: 12px;
@@ -562,6 +568,7 @@ html, body {
   align-items: center;
   gap: 2px;
   transition: background 0.3s, border-color 0.3s, transform 0.3s;
+  pointer-events: none;   /* cards themselves don't steal taps from the canvas */
 }
 
 .player-card.active {

@@ -32,6 +32,7 @@ const Net = (() => {
   let connected = false;
   let reconnectTimer = null;
   let packetId = 1;
+  let pingTimer = null;
 
   function on(evt, fn) {
     (handlers[evt] || (handlers[evt] = [])).push(fn);
@@ -106,6 +107,24 @@ const Net = (() => {
     return new Uint8Array([0x30, ...rl, ...payload]);
   }
 
+  // MQTT PINGREQ — keepAlive is advertised as 30s in CONNECT; send sooner.
+  function mqttPingPacket() {
+    return new Uint8Array([0xC0, 0x00]);
+  }
+
+  function startMqttPing() {
+    stopMqttPing();
+    pingTimer = setInterval(() => {
+      if (mode !== 'mqtt' || !socket || socket.readyState !== 1) return;
+      try { socket.send(mqttPingPacket()); } catch (_) {}
+    }, 20000);
+  }
+
+  function stopMqttPing() {
+    clearInterval(pingTimer);
+    pingTimer = null;
+  }
+
   function mqttParse(buf) {
     const view = new Uint8Array(buf);
     if (!view.length) return null;
@@ -159,7 +178,15 @@ const Net = (() => {
       case 'hello':
         // Existing peers answer a joiner with welcome + current roster snapshot.
         if (isHost || roster.length) {
-          sendRaw({ type: 'welcome', roster, hostId: roster.find(p => p.host)?.id || selfId });
+          const self = roster.find(p => p.id === selfId) || {};
+          sendRaw({
+            type: 'welcome',
+            roster,
+            hostId: roster.find(p => p.host)?.id || selfId,
+            selfColor: self.color,
+            selfSkin: self.skin,
+            selfFlavor: self.flavor,
+          });
         }
         // Add joiner locally
         upsertPeer({
@@ -175,15 +202,12 @@ const Net = (() => {
       case 'welcome':
         if (Array.isArray(msg.roster)) {
           roster = msg.roster.map(p => ({ ...p }));
-          // Ensure we are present
-          upsertPeer({
-            id: selfId,
-            name: selfName,
-            color: msg.selfColor,
-            skin: msg.selfSkin,
-            flavor: msg.selfFlavor,
-            host: isHost,
-          });
+          // Ensure we are present — don't clobber with undefined self* fields.
+          const patch = { id: selfId, name: selfName, host: isHost };
+          if (msg.selfColor != null) patch.color = msg.selfColor;
+          if (msg.selfSkin != null) patch.skin = msg.selfSkin;
+          if (msg.selfFlavor != null) patch.flavor = msg.selfFlavor;
+          upsertPeer(patch);
           emit('roster', roster.slice());
         }
         emit('welcome', msg);
@@ -245,9 +269,11 @@ const Net = (() => {
           if (!parsed) return;
           if (parsed.type === 'connack') {
             ws.send(mqttSubscribePacket(mqttTopic));
+            startMqttPing();
             if (!settled) { clearTimeout(timer); settled = true; resolve(ws); }
             return;
           }
+          if (parsed.type === 'pingresp') return;
           if (parsed.type === 'publish') handleMessage(parsed.msg);
           return;
         }
@@ -375,6 +401,7 @@ const Net = (() => {
 
   async function leave() {
     clearTimeout(reconnectTimer);
+    stopMqttPing();
     if (connected && roomCode) {
       try { sendRaw({ type: 'leave' }); } catch (_) {}
     }
