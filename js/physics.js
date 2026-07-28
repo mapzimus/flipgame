@@ -554,7 +554,7 @@ const Physics = (() => {
 
     if (groundedFrames > profile.missCapFrames) return recordLanding('MISS', null, 'timeout');
 
-    if (angVel < 0.010 && linSpeed < 7) {
+    if (angVel < SETTLE_ANG_VEL && linSpeed < SETTLE_LIN_SPD) {
       angleWin.push(bottle.angle);
       if (angleWin.length > SETTLE_FRAMES) angleWin.shift();
       let lo = Infinity, hi = -Infinity;
