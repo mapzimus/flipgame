@@ -649,15 +649,27 @@ ${part(v.front)}
   }
 
   // ── Alien skin ─────────────────────────────────────────────────────────────
-  // The 25-win secret. Classic little grey/green: big tapering cranium, huge
-  // black almond eyes, spindly limbs. Flips under its own low-gravity physics
-  // profile (see META.physics) so it drifts instead of dropping.
+  // The 25-win secret: a proper Roswell "Grey" rather than a little green man —
+  // pale grey skin, oversized domed cranium tapering to a pointed chin, huge
+  // black wraparound eyes, and barely-there nose slits and mouth. (Antennae
+  // were dropped deliberately: they're the one feature that reads "cartoon
+  // martian" instead of Grey.) Flips under its own bounce physics profile —
+  // see META.physics — so it banks off the walls instead of flipping.
   const ALIEN = {
-    eye: '#0b0b12', glint: '#ffffff', mouth: '#22301f',
+    eye: '#0b0b12', glint: '#ffffff',
+    mouth: '#6b756e', nostril: '#6b756e',
     bulb: '#c9f9ff', bulbLine: '#57b4c4',
   };
   function alienPalette(base) {
-    return { base, hi: shadeHex(base, 0.22), lo: shadeHex(base, -0.26), line: shadeHex(base, -0.54) };
+    // Mostly pale grey, with just enough of the player's colour mixed in to
+    // tell two aliens apart at a glance.
+    const skin = mixHex('#b3bdb7', base, 0.3);
+    return {
+      base: skin,
+      hi:   shadeHex(skin, 0.20),
+      lo:   shadeHex(skin, -0.24),
+      line: shadeHex(skin, -0.5),
+    };
   }
   function alienBodySVG(p) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
@@ -666,15 +678,7 @@ ${part(v.front)}
 <stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
 </linearGradient>
 </defs>
-<g stroke-linecap="round" stroke-linejoin="round">
-<path d="M 112 78 C 104 52 96 38 88 30" fill="none" stroke="${p.lo}" stroke-width="7"/>
-<circle cx="85" cy="24" r="17" fill="${ALIEN.bulb}" opacity="0.22"/>
-<circle cx="85" cy="24" r="10" fill="${ALIEN.bulb}" stroke="${ALIEN.bulbLine}" stroke-width="2"/>
-<circle cx="82" cy="21" r="3" fill="#ffffff" opacity="0.85"/>
-<path d="M 188 78 C 196 52 204 38 212 30" fill="none" stroke="${p.lo}" stroke-width="7"/>
-<circle cx="215" cy="24" r="17" fill="${ALIEN.bulb}" opacity="0.22"/>
-<circle cx="215" cy="24" r="10" fill="${ALIEN.bulb}" stroke="${ALIEN.bulbLine}" stroke-width="2"/>
-<circle cx="212" cy="21" r="3" fill="#ffffff" opacity="0.85"/>
+<g stroke-linecap="round" stroke-linejoin="round" transform="translate(150 376) scale(1.08) translate(-150 -376)">
 <path d="M 132 344 L 112 372 L 136 374 L 142 348 Z M 168 344 L 188 372 L 164 374 L 158 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
 <path d="M 136 288 L 134 350 L 148 350 L 148 288 Z M 164 288 L 166 350 L 152 350 L 152 288 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2"/>
 <path d="M 126 232 C 122 226 136 220 150 220 C 164 220 178 226 174 232 L 168 292 L 132 292 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
@@ -685,16 +689,15 @@ ${part(v.front)}
 <path d="M 86 288 L 74 300 M 86 288 L 82 304 M 86 288 L 94 302" fill="none" stroke="${p.lo}" stroke-width="5"/>
 <path d="M 172 238 C 194 250 208 268 214 288" fill="none" stroke="url(#gAl)" stroke-width="11"/>
 <path d="M 214 288 L 226 300 M 214 288 L 218 304 M 214 288 L 206 302" fill="none" stroke="${p.lo}" stroke-width="5"/>
-<path d="M 150 56 C 100 56 68 96 68 138 C 68 174 98 202 120 214 C 133 222 150 228 150 228 C 150 228 167 222 180 214 C 202 202 232 174 232 138 C 232 96 200 56 150 56 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 96 106 C 110 88 138 92 146 106" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.28"/>
-<circle cx="116" cy="94" r="2.5" fill="${p.lo}" opacity="0.55"/>
-<circle cx="132" cy="84" r="2" fill="${p.lo}" opacity="0.55"/>
-<circle cx="106" cy="112" r="2" fill="${p.lo}" opacity="0.55"/>
-<ellipse cx="115" cy="146" rx="24" ry="16" fill="${ALIEN.eye}" transform="rotate(-24 115 146)"/>
-<ellipse cx="185" cy="146" rx="24" ry="16" fill="${ALIEN.eye}" transform="rotate(24 185 146)"/>
-<ellipse cx="108" cy="140" rx="6" ry="4" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(-24 108 140)"/>
-<ellipse cx="178" cy="140" rx="6" ry="4" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(24 178 140)"/>
-<path d="M 140 194 Q 150 202 160 194" fill="none" stroke="${ALIEN.mouth}" stroke-width="3.5"/>
+<path d="M 140 232 L 138 250 L 162 250 L 160 232 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 150 44 C 96 44 62 88 62 136 C 62 168 84 194 108 208 C 126 218 142 230 150 242 C 158 230 174 218 192 208 C 216 194 238 168 238 136 C 238 88 204 44 150 44 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 92 104 C 108 82 138 86 148 102" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.3"/>
+<ellipse cx="112" cy="150" rx="31" ry="18" fill="${ALIEN.eye}" transform="rotate(-28 112 150)"/>
+<ellipse cx="188" cy="150" rx="31" ry="18" fill="${ALIEN.eye}" transform="rotate(28 188 150)"/>
+<ellipse cx="101" cy="142" rx="7.5" ry="4.5" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(-28 101 142)"/>
+<ellipse cx="177" cy="142" rx="7.5" ry="4.5" fill="${ALIEN.glint}" opacity="0.85" transform="rotate(28 177 142)"/>
+<path d="M 145 190 L 144 196 M 155 190 L 156 196" fill="none" stroke="${ALIEN.nostril}" stroke-width="2.6" opacity="0.75"/>
+<path d="M 142 212 L 158 212" fill="none" stroke="${ALIEN.mouth}" stroke-width="2.6"/>
 </g>
 </svg>`;
   }
