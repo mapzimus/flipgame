@@ -1585,15 +1585,16 @@ ${crown}
         ceiling: true,
         floorResolve: true,     // first floor contact IS the landing
         landOnTarget: true,
-        targetHalfWidth: 58,    // eased — was 40 (too punishing on mobile)
+        targetHalfWidth: 44,    // drawn pad (readable)
         requireFlip: false,     // aim, not rotation
         deflector: true,
         deflectorCount: 3,
-        saucerCount: 6,         // eased — was 9
+        saucerCount: 6,
         keepWalls: true,        // bank shot needs walls even on mobile
         minHorizRatio: 0.22,
-        strictTarget: false,    // any overlap counts again (was center-only)
-        allowSlideIn: true,     // slide-into-pad saves are back
+        strictTarget: true,     // bottle CENTER must hit the scored radius
+        allowSlideIn: true,     // can still slide into the (smaller) hit zone
+        hitScale: 0.55,         // only the inner ~55% of the pad radius scores
       },
       names: [
         // Index-aligned to FLAVORS / ALIEN_CAST: Grey, Greenie, Mantid, Cyclops,
