@@ -2,7 +2,7 @@
 // Bump CACHE_NAME on every release so stale caches are purged and users get
 // the fresh build. All paths are RELATIVE so they resolve under /flipgame/
 // on GitHub Pages (the SW lives at repo root → scope is /flipgame/).
-const CACHE_NAME = 'flipgame-v55';
+const CACHE_NAME = 'flipgame-v56';
 
 const PRECACHE_URLS = [
   './',
@@ -72,11 +72,16 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.open(CACHE_NAME).then((cache) =>
       cache.match(req).then((cached) => {
-        const fromNetwork = fetch(req).then((res) => {
-          if (res && res.status === 200) cache.put(req, res.clone());
-          return res;
-        }).catch(() => cached);          // offline → fall back to whatever we cached
-        return cached || fromNetwork;    // instant if cached, else wait for network
+        // HTML uses ?v=N cache-busting; precache stores bare paths — ignore the
+        // query when looking up so offline still hits the precache.
+        const lookup = cached || cache.match(req, { ignoreSearch: true });
+        return Promise.resolve(lookup).then((hit) => {
+          const fromNetwork = fetch(req).then((res) => {
+            if (res && res.status === 200) cache.put(req, res.clone());
+            return res;
+          }).catch(() => hit);
+          return hit || fromNetwork;
+        });
       })
     )
   );

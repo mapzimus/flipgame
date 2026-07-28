@@ -41,6 +41,7 @@ const game = {
   fireEnded: false,      // last miss ended an ON FIRE run (no penalty)
   fireCapped: false,     // ON FIRE run hit the big-lobby +cap and passed on (no penalty)
   justEliminated: false, // last miss eliminated the current player
+  endedFireBonus: 0,     // peak ON FIRE bonus from the run that just ended (stats/achievements)
 
   // Modes
   practice: false,       // solo free-flip practice (no lives/turns)
@@ -110,8 +111,15 @@ const game = {
   },
 
   // ── Sudden death ────────────────────────────────────────────────────────
+  // resolveFlip increments turnCounter before reading SD, so UI helpers that
+  // predict "this upcoming flip" must use turnCounter+1 to stay in sync.
   inSuddenDeath() { return !this.practice && this.turnCounter > SD_THRESHOLD; },
   sdLevel()       { return this.inSuddenDeath() ? Math.floor((this.turnCounter - SD_THRESHOLD) / SD_STEP) + 1 : 0; },
+  sdLevelForNextFlip() {
+    if (this.practice) return 0;
+    const next = this.turnCounter + 1;
+    return next > SD_THRESHOLD ? Math.floor((next - SD_THRESHOLD) / SD_STEP) + 1 : 0;
+  },
 
   // Would the current player be ELIMINATED if they miss this flip? Drives the
   // "Make it or break it" intense finale. (No risk during a normal ON FIRE run,
@@ -119,14 +127,13 @@ const game = {
   missWouldEliminate() {
     const p = this.currentPlayer();
     if (!p || p.eliminated) return false;
-    const sd = this.sdLevel();
+    const sd = this.sdLevelForNextFlip();
     const penalty = p.isOnFire ? sd : this.pointCount + sd;
     return penalty > 0 && p.lives - penalty <= 0;
   },
 
   // Called by physics when bottle result is determined
   resolveFlip(result, meta = {}) {
-    this.turnCounter++;
     this.lastResult = result;
     const player = this.currentPlayer();
     const wasOnFire = player.isOnFire;   // capture BEFORE we mutate any flags
@@ -138,9 +145,10 @@ const game = {
     this.fireEnded      = false;
     this.fireCapped     = false;
     this.justEliminated = false;
+    this.endedFireBonus = 0;
     this.perfectLanding = result === 'MAKE' && !!meta.perfect;
 
-    // ── Practice: just track stats, no lives/streak stakes ──────────────────
+    // ── Practice: just track stats, no lives/turns/sudden-death counter ─────
     if (this.practice) {
       this.practiceAttempts++;
       if (result === 'MAKE') {
@@ -154,13 +162,15 @@ const game = {
       return;
     }
 
+    this.turnCounter++;
     const sd = this.sdLevel();   // 0 normally; >0 once sudden death begins
 
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
         // +1 life per flip while ON FIRE — bounded by the match life cap. In SUDDEN
-        // DEATH, ON FIRE stops minting free lives (the deflation valve).
+        // DEATH, ON FIRE stops minting free lives (the deflation valve) but the
+        // run continues until a miss (or a real life/+5 cap below).
         if (!sd) {
           const before = player.lives;
           player.lives    = Math.min(player.lives + 1, this.maxLives);
@@ -169,19 +179,19 @@ const game = {
         } else {
           this.onFireGain = 0;
         }
-        // Big lobbies (>4 players): cap the ON FIRE run at +5 lives (or once it
-        // can't gain) and pass on — so 5-7 others aren't kept waiting through a
-        // long run. Graceful end: keep the gains, NO penalty, NOT a miss.
-        // End the ON FIRE run gracefully (keep gains, NO penalty, NOT a miss) when
-        // the player hits the match life cap — no point flipping for nothing — or when
-        // a big lobby (>4) has handed out its +5 / can no longer gain.
-        if (player.lives >= this.maxLives ||
-            (this.players.length > ONFIRE_CAP_PLAYERS &&
-             (this.onFireBonus >= ONFIRE_CAP_LIVES || this.onFireGain === 0))) {
+        // End the run gracefully (keep gains, NO penalty, NOT a miss) when the
+        // player hits the match life cap, or when a big lobby (>4) has handed
+        // out its +5 bonus lives. Do NOT treat "gain 0 because SD" as a cap —
+        // that wrongly ended every SD ON FIRE make in 5+ player games.
+        const hitLifeCap = player.lives >= this.maxLives;
+        const hitLobbyCap = this.players.length > ONFIRE_CAP_PLAYERS &&
+                            this.onFireBonus >= ONFIRE_CAP_LIVES;
+        if (hitLifeCap || hitLobbyCap) {
           player.isOnFire    = false;
           player.isHeatingUp = false;
           player.streak      = 0;
           this.onFirePlayer  = null;
+          this.endedFireBonus = this.onFireBonus; // preserve for Inferno / hot-run stats
           this.onFireBonus   = 0;
           this.fireCapped    = true;
         }
@@ -198,6 +208,7 @@ const game = {
         player.isHeatingUp = false;
         player.streak      = 0;
         this.onFirePlayer  = null;
+        this.endedFireBonus = this.onFireBonus;
         this.onFireBonus   = 0;
         // Stake is PRESERVED across an ON FIRE run: the main game "pauses" while
         // the hot player takes bonus shots, so the communal stake the table

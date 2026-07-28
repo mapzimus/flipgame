@@ -22,13 +22,37 @@ const Records = (() => {
       const data = raw ? { ...clone(DEFAULTS), ...JSON.parse(raw) } : clone(DEFAULTS);
       // Gold Trophy edition was replaced by Buildings — migrate any saved unlock.
       if (Array.isArray(data.unlockedSkins)) {
-        data.unlockedSkins = data.unlockedSkins.map((id) => id === 'trophy_gold' ? 'buildings' : id);
-        data.unlockedSkins = [...new Set(data.unlockedSkins)];
+        const before = data.unlockedSkins.join(',');
+        data.unlockedSkins = [...new Set(
+          data.unlockedSkins.map((id) => id === 'trophy_gold' ? 'buildings' : id)
+        )];
+        if (data.unlockedSkins.join(',') !== before) {
+          try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+        }
+      } else {
+        data.unlockedSkins = ['bottle'];
       }
       return data;
     } catch (e) { return clone(DEFAULTS); }
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} }
+
+  // Grant editions whose unlock threshold totalWins already meets. Call after
+  // Skins is loaded (Records boots before skins.js). Returns newly granted ids.
+  function syncUnlocksFromWins() {
+    if (typeof window === 'undefined' || !window.Skins || typeof Skins.list !== 'function') return [];
+    const wins = data.totalWins || 0;
+    const fresh = [];
+    for (const s of Skins.list()) {
+      const need = s.unlock;
+      if (typeof need === 'number' && wins >= need && !isSkinUnlocked(s.id)) {
+        data.unlockedSkins = unlockedSkins().concat(s.id);
+        fresh.push(s.id);
+      }
+    }
+    if (fresh.length) save();
+    return fresh;
+  }
 
   // Call AFTER each game.resolveFlip() (normal play and practice).
   // `extra` carries display-only flip detail from main.js (e.g. greatSave).
@@ -41,6 +65,7 @@ const Records = (() => {
     if (streak > data.bestStreak) data.bestStreak = streak;
     if (g.pointCount > data.highestStake) data.highestStake = g.pointCount;
     if (g.onFireBonus > data.longestOnFire) data.longestOnFire = g.onFireBonus;
+    if ((g.endedFireBonus || 0) > data.longestOnFire) data.longestOnFire = g.endedFireBonus;
     if (extra && extra.greatSave) data.greatSaves = (data.greatSaves || 0) + 1;
     save();
     return clone(data);
@@ -99,5 +124,5 @@ const Records = (() => {
     save();
   }
 
-  return { recordFlip, recordWin, renderHtml, reset, totalWins, unlockedSkins, isSkinUnlocked, unlockSkin, resetSkinProgress };
+  return { recordFlip, recordWin, renderHtml, reset, totalWins, unlockedSkins, isSkinUnlocked, unlockSkin, resetSkinProgress, syncUnlocksFromWins };
 })();

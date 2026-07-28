@@ -492,10 +492,20 @@ const Physics = (() => {
       const hitHW = currentHitHalfWidth();
       padOffset = hitHW > 0 ? Math.abs(bottle.position.x - targetX) / hitHW : null;
     }
+    // Bounce-mode MAKEs pass tilt=0; use pad centering for "perfect" instead so
+    // every alien pad hit isn't celebrated as Perfect / Bullseye.
+    let perfect = false;
+    if (result === 'MAKE') {
+      if (profile.floorResolve) {
+        perfect = padOffset != null && padOffset <= 0.22;
+      } else {
+        perfect = tilt != null && tilt <= PERFECT_ANGLE;
+      }
+    }
     lastLandingInfo = {
       result,
       tilt,
-      perfect: result === 'MAKE' && tilt != null && tilt <= PERFECT_ANGLE,
+      perfect,
       reason,
       maxTilt: profile.floorResolve ? 0 : maxGroundedTilt,
       padOffset,
@@ -509,9 +519,8 @@ const Physics = (() => {
       return lastLandingInfo.result;
     }
 
-    // Bounce mode: floor ends the flight. With allowSlideIn, an off-pad
-    // touchdown can still coast onto the pad for a MAKE; with it off (alien),
-    // first contact is the final verdict — land dead on the pad or miss.
+    // Bounce-mode comments: allowSlideIn is set by the alien profile in skins.js.
+    // FloorResolve path: first contact / slide-on is the verdict.
     if (profile.floorResolve && launched && wasAirborne) {
       const grounded = bottle.bounds.max.y >= groundY - 6;
 
@@ -732,7 +741,10 @@ const Physics = (() => {
       if (totalRotation >= 5.6) hasFlipped = true;
     }
 
-    if (hasFlipped && !hasLanded && bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
+    // Landing kick is for normal flips (liquid slosh punch). Bank-shot editions
+    // accumulate "hasFlipped" from wall caroms and must not get a random shove.
+    if (!profile.floorResolve && hasFlipped && !hasLanded &&
+        bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
       hasLanded = true;
       const kick = liquid.vel * 0.06 + (rand() - 0.5) * 0.16;
       Body.setAngularVelocity(bottle, bottle.angularVelocity + kick);
@@ -761,6 +773,19 @@ const Physics = (() => {
   function getViewHint() {
     if (!bottle) {
       return { openArena, sideWalls: sideWallsEnabled, zoom: 1, camX: canvasW / 2, camY: groundY / 2 };
+    }
+    // Desktop / walled arenas stay 1:1 — zoom is only for mobile open-arena
+    // shots that leave the frame.
+    if (!openArena) {
+      return {
+        openArena: false,
+        sideWalls: sideWallsEnabled,
+        zoom: 1,
+        camX: canvasW / 2,
+        camY: groundY / 2,
+        worldW: canvasW,
+        worldH: groundY + 30,
+      };
     }
     const pad = 70;
     const minX = Math.min(0, bottle.bounds.min.x - pad);

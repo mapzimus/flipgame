@@ -352,12 +352,17 @@
           name: p.name, color: p.color, isAI: false,
           skin: FORCE_SKIN || p.skin || 'bottle', netId: p.netId,
         }));
-        const payload = { defs, direction: game.direction, startingLives: game.startingLives, startIndex: game.winnerIndex };
+        const payload = {
+          defs, direction: game.direction, startingLives: game.startingLives,
+          startIndex: game.winnerIndex, newMatch: false,
+        };
         Net.startMatch(payload);
+        if (playAgainBtn) playAgainBtn.textContent = 'Play Again';
         startGame(defs, game.direction, {
           difficulty: 'medium',
           startingLives: game.startingLives,
           startIndex: game.winnerIndex,
+          newMatch: false,
         });
       } else if (onlineStatusEl) {
         // Non-host waits — Net.on('start') will fire beginOnlineMatch path via startGame
@@ -444,6 +449,14 @@
     flipHintEl.classList.add('hidden');
     evaluating = false;
     Sound.play('miss');
+    if (onlineMode && netAuthority && window.Net) {
+      Net.sendResult({
+        result: 'MISS',
+        info: { reason: 'timeout', tilt: null, perfect: false },
+        playerId: Net.selfId,
+      });
+      netAuthority = false;
+    }
     game.resolveFlip('MISS');
   }
 
@@ -510,8 +523,8 @@
     const active = gameStarted &&
       !game.practice &&
       game.state !== GAME_STATES.GAME_OVER &&
-      game.inSuddenDeath();
-    Sound.setSuddenDeath(active, game.sdLevel());
+      (game.sdLevelForNextFlip ? game.sdLevelForNextFlip() > 0 : game.inSuddenDeath());
+    Sound.setSuddenDeath(active, game.sdLevelForNextFlip ? game.sdLevelForNextFlip() : game.sdLevel());
   }
 
   function loop(now) {
@@ -554,6 +567,9 @@
           game.resolveFlip(forced, landingMeta(Physics.getLastLandingInfo()));
           break;
         }
+        // Online non-authority: display-only sim — wait for the flicker's result
+        // so cross-device pad/float drift can't fork lives/turns.
+        if (onlineMode && !netAuthority) continue;
         const result = Physics.checkLanding();
         if (result) {
           evaluating = false;
@@ -567,6 +583,7 @@
                 perfect: !!(landingInfo && landingInfo.perfect),
                 reason: landingInfo && landingInfo.reason,
                 maxTilt: landingInfo && landingInfo.maxTilt,
+                padOffset: landingInfo && landingInfo.padOffset,
               },
               playerId: Net.selfId,
             });
@@ -616,7 +633,7 @@
       liquidColor: game.currentPlayer()?.color,
       skin:        game.currentPlayer()?.skin,
       intense:     intenseTurn,
-      suddenDeath: game.inSuddenDeath(),
+      suddenDeath: game.sdLevelForNextFlip ? game.sdLevelForNextFlip() > 0 : game.inSuddenDeath(),
       awaitingFlick: game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE,
       stake:       game.pointCount,
       // Both null unless the active edition runs a bounce profile.
@@ -779,7 +796,8 @@
         if (p) pp.lowestLives = Math.min(pp.lowestLives, p.lives);
       }
       if (game.pointCount > gameStats.topStake) gameStats.topStake = game.pointCount;
-      if (game.onFireBonus > gameStats.longestFire) gameStats.longestFire = game.onFireBonus;
+      const firePeak = Math.max(game.onFireBonus || 0, game.endedFireBonus || 0);
+      if (firePeak > gameStats.longestFire) gameStats.longestFire = firePeak;
       if (game.inSuddenDeath && game.inSuddenDeath()) gameStats.sawSuddenDeath = true;
     }
 
@@ -789,7 +807,7 @@
       const fresh = Achievements.check({
         result:        game.lastResult,
         justIgnited:   game.justIgnited,
-        onFireBonus:   game.onFireBonus,
+        onFireBonus:   Math.max(game.onFireBonus || 0, game.endedFireBonus || 0),
         streak:        game.practice ? game.practiceStreak : (p ? p.streak : 0),
         pointCount:    game.pointCount,
         perfect:       !!game.perfectLanding,
@@ -877,14 +895,35 @@
     elimTimer = setTimeout(() => game.advanceTurn(), 1800 / gameSpeed());
   }
 
-  // Lightweight toast (self-creating so it needs no markup). Used for unlocks.
+  // Lightweight toast queue (self-creating so it needs no markup). Used for
+  // unlocks + achievements — queued so game-over don't overwrite each other.
+  const toastQueue = [];
+  let toastBusy = false;
   function showToast(msg) {
+    toastQueue.push(msg);
+    pumpToast();
+  }
+  function pumpToast() {
+    if (toastBusy || !toastQueue.length) return;
+    toastBusy = true;
+    const msg = toastQueue.shift();
     let t = document.getElementById('skin-toast');
-    if (!t) { t = document.createElement('div'); t.id = 'skin-toast'; document.body.appendChild(t); }
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'skin-toast';
+      t.setAttribute('role', 'status');
+      t.setAttribute('aria-live', 'polite');
+      document.body.appendChild(t);
+    }
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => t.classList.remove('show'), 4000);
+    showToast._t = setTimeout(() => {
+      t.classList.remove('show');
+      toastBusy = false;
+      // Brief gap so consecutive toasts are readable.
+      setTimeout(pumpToast, 280);
+    }, 3600);
   }
 
   function announceAchievements(fresh) {
@@ -1189,10 +1228,13 @@
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     gameOverEl.classList.add('hidden');
+    if (playAgainBtn) playAgainBtn.textContent = 'Play Again';
     startGame(defs, dir || 1, {
       difficulty: 'medium',
       startingLives: (opts && opts.startingLives) || chosenStartingLives(),
-      newMatch: true,
+      startIndex: (opts && Number.isInteger(opts.startIndex)) ? opts.startIndex : undefined,
+      // Default true for first match; rematch host sends newMatch: false.
+      newMatch: !(opts && opts.newMatch === false),
     });
   }
 
@@ -1296,6 +1338,7 @@
   Sound.setMuted(!Settings.sound);
   Renderer.setReduceMotion(reduceMotionActive());
   syncMuteBtn();
+  if (Records.syncUnlocksFromWins) Records.syncUnlocksFromWins();
   renderRecordsPanel();
 
   // ── Secret: tap the title 5× fast ──────────────────────────────────────────

@@ -1039,9 +1039,9 @@ ${part(v.front)}
       skin: '#8ed11a',
       head: (p) => `
 <path d="M 150 36 C 96 52 70 110 86 170 C 98 210 130 236 150 246 C 170 236 202 210 214 170 C 230 110 204 52 150 36 Z" fill="url(#gAl)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 118 28 L 104 0 M 182 28 L 196 0" fill="none" stroke="${p.lo}" stroke-width="5"/>
-<circle cx="104" cy="-2" r="7" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>
-<circle cx="196" cy="-2" r="7" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>
+<path d="M 118 28 L 104 6 M 182 28 L 196 6" fill="none" stroke="${p.lo}" stroke-width="5"/>
+<circle cx="104" cy="6" r="7" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>
+<circle cx="196" cy="6" r="7" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>
 <ellipse cx="118" cy="132" rx="28" ry="34" fill="${ALIEN.eye}"/>
 <ellipse cx="182" cy="132" rx="28" ry="34" fill="${ALIEN.eye}"/>
 <circle cx="124" cy="120" r="8" fill="#7CFF6A" opacity="0.55"/>
