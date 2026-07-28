@@ -96,6 +96,8 @@ const Physics = (() => {
     lightning: false,
     keepWalls: false,      // force side walls even on mobile (alien needs them)
     minHorizRatio: 0,
+    strictTarget: false,   // true = bottle CENTER must be on the pad (not any overlap)
+    allowSlideIn: true,    // bounce mode: off-pad touchdown can still slide onto a MAKE
   };
   let profile = { ...DEFAULT_PROFILE };
   let targetX = null;      // pad center, only set when profile.landOnTarget
@@ -406,6 +408,11 @@ const Physics = (() => {
 
   function overTarget() {
     if (!profile.landOnTarget || targetX == null || !bottle) return false;
+    // Strict (alien): the body's CENTER must sit on the pad — grazing the edge
+    // with a limb no longer counts. Generous (gods altar / legacy): any overlap.
+    if (profile.strictTarget) {
+      return Math.abs(bottle.position.x - targetX) <= targetHW;
+    }
     return bottle.bounds.max.x >= targetX - targetHW &&
            bottle.bounds.min.x <= targetX + targetHW;
   }
@@ -451,7 +458,9 @@ const Physics = (() => {
       return lastLandingInfo.result;
     }
 
-    // Bounce mode: floor ends the flight; slide-into-pad still counts.
+    // Bounce mode: floor ends the flight. With allowSlideIn, an off-pad
+    // touchdown can still coast onto the pad for a MAKE; with it off (alien),
+    // first contact is the final verdict — land dead on the pad or miss.
     if (profile.floorResolve && launched && wasAirborne) {
       const grounded = bottle.bounds.max.y >= groundY - 6;
 
@@ -465,11 +474,12 @@ const Physics = (() => {
         }
         if (overTarget()) return recordLanding('MAKE', 0, 'on-target');
         if (!profile.landOnTarget || targetX == null) return recordLanding('MISS', null, 'off-target');
+        if (!profile.allowSlideIn) return recordLanding('MISS', null, 'off-target');
         return null;
       }
 
       slideFrames++;
-      if (grounded && overTarget()) return recordLanding('MAKE', 0, 'slid-on');
+      if (profile.allowSlideIn && grounded && overTarget()) return recordLanding('MAKE', 0, 'slid-on');
       const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
       if ((grounded && speed < 0.35 && slideFrames > 20) || slideFrames > 360) {
         return recordLanding('MISS', null, 'off-target');
