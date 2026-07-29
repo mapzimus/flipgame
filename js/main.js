@@ -258,7 +258,25 @@
     if (sw) {
       const row = sw.closest('.player-input-row');
       const col = normalizeColor(sw.dataset.color);
+      const oldId = row.dataset.char || defaultCharId();
       row.dataset.color = col;
+      // If this edition has a variant for that color, switch to it when unlocked
+      // (keeps the name chip in sync with the art). Otherwise keep the character
+      // and still recolor/swap art via the chosen color.
+      const sib = (window.Skins && Skins.siblingForColor)
+        ? Skins.siblingForColor(oldId, col)
+        : null;
+      if (sib && (sib.id === BASE_SKIN || sib.unlock == null || Records.isSkinUnlocked(sib.id))) {
+        const input = row.querySelector('input');
+        if (!input.value.trim() || input.value.trim() === defaultNameFor(oldId)) {
+          input.value = defaultNameFor(sib.id);
+        }
+        row.dataset.char = sib.id;
+        input.placeholder = defaultNameFor(sib.id);
+        row.querySelectorAll('.char-chip').forEach((s) => {
+          s.classList.toggle('selected', s.dataset.char === sib.id);
+        });
+      }
       row.querySelectorAll('.flavor-swatch').forEach((s) => s.classList.remove('selected'));
       sw.classList.add('selected');
       row.querySelector('.player-num').style.color = col;

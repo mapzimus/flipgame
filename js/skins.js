@@ -1905,16 +1905,11 @@ ${crown}
       });
     });
 
-    // Cast editions bind art to a fixed tint (each hex = a unique design).
-    // Classics/bottle recolor with the player's chosen color.
-    const FIXED_TINT = new Set([
-      'people', 'buildings', 'gods', 'pets', 'alien',
-      'garden', 'robots', 'ocean', 'snacks', 'cryptids',
-    ]);
     // Assign default swatch color (= tint) + every-3-wins unlock index.
+    // Player color always drives drawing: cast editions swap to that hex's
+    // variant art, classics/bottle recolor in place.
     out.forEach((c, i) => {
       c.color = c.tint;
-      c.fixedTint = FIXED_TINT.has(c.drawAs);
       c.unlock = i === 0 ? null : i * 3;
     });
     return out;
@@ -1999,10 +1994,8 @@ ${crown}
       const drawAs = c ? c.drawAs : id;
       const f = drawFns[drawAs];
       if (!f) return;
-      // Cast characters keep their design tint; classics follow player color.
-      const color = (c && c.fixedTint)
-        ? (c.tint || '#1f9bff')
-        : ((opts && opts.color) || (c && c.tint) || '#1f9bff');
+      // Prefer the player's chosen color so the color picker always changes art.
+      const color = (opts && opts.color) || (c && c.tint) || '#1f9bff';
       f(ctx, Object.assign({}, opts || {}, { color }));
     },
     drawAs: resolveDraw,
@@ -2010,10 +2003,16 @@ ${crown}
       const c = character(id);
       return (c && c.tint) || null;
     },
+    // Same-edition character for a given color (cast variants), if any.
+    siblingForColor: (id, color) => {
+      const c = character(id);
+      if (!c) return null;
+      const want = String(color || '').toLowerCase();
+      return CHARACTERS.find((x) => x.drawAs === c.drawAs && String(x.tint || '').toLowerCase() === want) || null;
+    },
     drawColor: (id, playerColor) => {
       const c = character(id);
       if (!c) return playerColor || '#1f9bff';
-      if (c.fixedTint) return c.tint || '#1f9bff';
       return playerColor || c.tint || '#1f9bff';
     },
     onSpriteLoad,
