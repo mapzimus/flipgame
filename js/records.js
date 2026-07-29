@@ -48,6 +48,12 @@ const Records = (() => {
     let changed = false;
     const next = [];
     for (const id of unlockedSkins()) {
+      // Christ the Redeemer removed from the tall-buildings roster.
+      if (id === 'building-redeemer') {
+        next.push('building-basil');
+        changed = true;
+        continue;
+      }
       const kids = Skins.editionChars(id);
       if (kids && kids.length) {
         next.push(...kids);

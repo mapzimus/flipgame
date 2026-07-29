@@ -302,6 +302,16 @@ const Renderer = (() => {
   // reinforce "how hard" via count + brightness, like a throttle gauge. The
   // raw gesture path is traced faintly underneath. Strength math is unchanged —
   // this only repaints the same `drag` state, so the flick itself is untouched.
+  // Input drag coords are screen/CSS pixels; world drawing sits under the
+  // camera. Convert so the trail stays under the finger when zoomed out.
+  function screenToWorld(sx, sy) {
+    const z = camZoom || 1;
+    return {
+      x: camX + (sx - W / 2) / z,
+      y: camY + (sy - H / 2) / z,
+    };
+  }
+
   function drawFlickIndicator(drag, bottle, groundY) {
     if (!drag || !bottle) return;
     const dx  = drag.curX - drag.startX;   // flick direction = throw direction
@@ -315,6 +325,8 @@ const Renderer = (() => {
     const ox = p.x, oy = p.y - 40 * BOTTLE_DRAW_SCALE;
     const hue = 190 - strength * 150;                  // cyan → hot orange/red
     const color = `hsl(${hue}, 95%, 60%)`;
+    const trailA = screenToWorld(drag.startX, drag.startY);
+    const trailB = screenToWorld(drag.curX, drag.curY);
 
     ctx.save();
 
@@ -323,8 +335,8 @@ const Renderer = (() => {
     ctx.lineWidth = 2;
     ctx.setLineDash([3, 5]);
     ctx.beginPath();
-    ctx.moveTo(drag.startX, drag.startY);
-    ctx.lineTo(drag.curX, drag.curY);
+    ctx.moveTo(trailA.x, trailA.y);
+    ctx.lineTo(trailB.x, trailB.y);
     ctx.stroke();
     ctx.setLineDash([]);
 

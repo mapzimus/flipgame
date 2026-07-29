@@ -1728,38 +1728,43 @@ ${crown}
   // `drawAs` (the old edition drawer) using `tint` (cast key / color).
   // Unlock cadence: free bottle, then every 3 wins; Alien species are LAST.
   const ALIEN_PHYSICS = {
-    gravity: 1.28,
+    gravity: 1.32,
     frictionAir: 0.0045,
     friction: 0.02,
     restitution: 0.90,
     spinScale: 0.7,
-    launchScale: 1.50,
+    launchScale: 1.62,
     horizDivisor: 140,
-    horizMax: 15,
+    horizMax: 16,
     wallBounce: 0.96,
     ceiling: true,
     floorResolve: true,
     landOnTarget: true,
-    targetHalfWidth: 64,
+    // Small pad + no slide-in; random drops rarely score.
+    targetHalfWidth: 40,
     requireFlip: false,
     deflector: true,
     deflectorCount: 3,
     saucerCount: 6,
     keepWalls: true,
     minHorizRatio: 0.15,
-    strictTarget: false,
-    allowSlideIn: true,
-    hitScale: 0.78,
+    strictTarget: true,
+    allowSlideIn: false,
+    hitScale: 0.50,
+    // Pull the camera way back — especially on phones — so the pad is a tiny
+    // target in a big arena (harder to "accidentally" land a make).
+    arenaZoom: 0.70,
+    mobileArenaZoom: 0.46,
   };
 
   // Tall landmarks only (wide temples/palaces dropped — user request).
+  // Christ the Redeemer removed from the roster.
   const TALL_BUILDING_HEXES = [
     '#1f9bff', // Eiffel
     '#e3263c', // Big Ben
     '#8ed11a', // Liberty
     '#5fcfe6', // Empire State
     '#ff5b86', // Pisa
-    '#ffc233', // Redeemer
     '#c8203a', // St. Basil
     '#ff9ecf', // Pagoda
   ];
@@ -1798,7 +1803,7 @@ ${crown}
 
     const buildingNames = {
       '#1f9bff': 'Eiffel Tower', '#e3263c': 'Big Ben', '#8ed11a': 'Statue of Liberty',
-      '#5fcfe6': 'Empire State', '#ff5b86': 'Leaning Tower', '#ffc233': 'Christ the Redeemer',
+      '#5fcfe6': 'Empire State', '#ff5b86': 'Leaning Tower',
       '#c8203a': "St. Basil's", '#ff9ecf': 'Pagoda',
     };
     TALL_BUILDING_HEXES.forEach((hex) => {
@@ -1900,9 +1905,16 @@ ${crown}
       });
     });
 
-    // Assign swatch color (= tint) + every-3-wins unlock index.
+    // Cast editions bind art to a fixed tint (each hex = a unique design).
+    // Classics/bottle recolor with the player's chosen color.
+    const FIXED_TINT = new Set([
+      'people', 'buildings', 'gods', 'pets', 'alien',
+      'garden', 'robots', 'ocean', 'snacks', 'cryptids',
+    ]);
+    // Assign default swatch color (= tint) + every-3-wins unlock index.
     out.forEach((c, i) => {
       c.color = c.tint;
+      c.fixedTint = FIXED_TINT.has(c.drawAs);
       c.unlock = i === 0 ? null : i * 3;
     });
     return out;
@@ -1987,13 +1999,22 @@ ${crown}
       const drawAs = c ? c.drawAs : id;
       const f = drawFns[drawAs];
       if (!f) return;
-      const color = (c && c.tint) || (opts && opts.color) || '#1f9bff';
+      // Cast characters keep their design tint; classics follow player color.
+      const color = (c && c.fixedTint)
+        ? (c.tint || '#1f9bff')
+        : ((opts && opts.color) || (c && c.tint) || '#1f9bff');
       f(ctx, Object.assign({}, opts || {}, { color }));
     },
     drawAs: resolveDraw,
     tintFor: (id) => {
       const c = character(id);
       return (c && c.tint) || null;
+    },
+    drawColor: (id, playerColor) => {
+      const c = character(id);
+      if (!c) return playerColor || '#1f9bff';
+      if (c.fixedTint) return c.tint || '#1f9bff';
+      return playerColor || c.tint || '#1f9bff';
     },
     onSpriteLoad,
     preload: (colors) => {

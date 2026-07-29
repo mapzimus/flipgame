@@ -145,14 +145,70 @@ html, body {
 }
 .ai-toggle.cpu { background: rgba(255,179,0,0.22); border-color: var(--heat); color: var(--heat); }
 
-/* Character swatches (one unlock = one color/character) */
+/* Character chips (who) + color swatches (flavor) */
+.picker-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  padding: 6px 0 4px 42px;
+}
+.char-picker {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding-left: 42px;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.char-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 64px;
+  max-width: 76px;
+  padding: 6px 6px 5px;
+  border-radius: 10px;
+  border: 2px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: transform 0.12s, border-color 0.12s, background 0.12s;
+}
+.char-chip:hover { transform: translateY(-1px); border-color: rgba(255,255,255,0.35); }
+.char-chip.selected {
+  border-color: #fff;
+  background: rgba(255,255,255,0.12);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.35), 0 0 12px rgba(255,255,255,0.28);
+  outline: 2px solid var(--chip, #1f9bff);
+  outline-offset: -2px;
+}
+.char-chip-emoji { font-size: 1.25rem; line-height: 1; }
+.char-chip-name {
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .flavor-picker {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
   padding-left: 42px;
-  max-height: 96px;
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
 }
 .flavor-swatch {
   width: 26px;
@@ -171,7 +227,7 @@ html, body {
   transform: scale(1.15);
 }
 
-/* Legacy edition picker removed — characters are the colors now. */
+/* Legacy edition picker kept hidden. */
 .skin-picker, .skin-choice { display: none !important; }
 
 /* ── Unlock toast ── */
@@ -816,7 +872,7 @@ html, body {
   .player-card { transition: none; }
   .player-card.active { transform: none; }
   .player-card.on-fire { animation: none; }
-  .flavor-swatch { transition: none; }
+  .flavor-swatch, .char-chip { transition: none; }
   .trophy-emoji { animation: none; }
 }
 

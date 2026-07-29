@@ -662,22 +662,38 @@ const Physics = (() => {
     }
   }
 
+  // Profile-driven base zoom (Alien pulls way back so the pad is harder).
+  function profileArenaZoom() {
+    const compact = isCompactScreen();
+    const z = compact
+      ? (profile.mobileArenaZoom != null ? profile.mobileArenaZoom : profile.arenaZoom)
+      : profile.arenaZoom;
+    if (z == null || !(z > 0)) return null;
+    return Math.max(0.35, Math.min(1, z));
+  }
+
   // Camera helper: when the bottle leaves the frame (mobile open arena), the
   // renderer zooms out so the shot stays visible. Returns world bounds that
-  // should remain on-screen.
+  // should remain on-screen. Some profiles (Alien) force a pulled-back zoom
+  // even with walls so phones feel like a bigger arena.
   function getViewHint() {
+    const forced = profileArenaZoom();
+    const cx = canvasW / 2;
+    const cy = groundY / 2;
     if (!bottle) {
-      return { openArena, sideWalls: sideWallsEnabled, zoom: 1, camX: canvasW / 2, camY: groundY / 2 };
+      return {
+        openArena, sideWalls: sideWallsEnabled,
+        zoom: forced != null ? forced : 1,
+        camX: cx, camY: cy,
+      };
     }
-    // Desktop / walled arenas stay 1:1 — zoom is only for mobile open-arena
-    // shots that leave the frame.
     if (!openArena) {
       return {
         openArena: false,
         sideWalls: sideWallsEnabled,
-        zoom: 1,
-        camX: canvasW / 2,
-        camY: groundY / 2,
+        zoom: forced != null ? forced : 1,
+        camX: cx,
+        camY: cy,
         worldW: canvasW,
         worldH: groundY + 30,
       };
@@ -690,9 +706,10 @@ const Physics = (() => {
     const spanX = maxX - minX;
     const spanY = maxY - minY;
     const zoom = Math.min(1, canvasW / spanX, (groundY + 30) / Math.max(spanY, 1));
-    // Only zoom out (never in past 1). Floor raised so mobile doesn't shrink
-    // the bottle into a speck on long open-arena shots.
-    const z = Math.max(0.58, Math.min(1, zoom));
+    // Only zoom out (never in past 1). Floor lowered so long open-arena shots
+    // (and forced Alien zoom) can pull further back on phones.
+    let z = Math.max(0.40, Math.min(1, zoom));
+    if (forced != null) z = Math.min(z, forced);
     return {
       openArena,
       sideWalls: sideWallsEnabled,
