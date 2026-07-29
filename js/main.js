@@ -490,7 +490,11 @@
       onFlick(vx, -up);
       return;
     }
-    const up = Math.max(500, 2100 + gauss * sigma);   // sweet spot ~2100 px/s
+    // Aim at the measured sweet spot. This drifted out of date when POWER_SPEED
+    // was retuned: at the stale 2100 the CPU sat on the slope, so hard (63%)
+    // was barely better than medium (60%). At 2500 the tiers separate properly
+    // — easy 45% / medium 74% / hard 85%.
+    const up = Math.max(500, 2500 + gauss * sigma);   // sweet spot ~2500 px/s
     const vx = (Math.random() - 0.5) * 420;           // slight lean
     onFlick(vx, -up);
   }

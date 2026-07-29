@@ -17,10 +17,11 @@ const Physics = (() => {
 
   // Spin tuning (rad/step) — see applyFlick. Single sweet spot near 1 turn:
   // soft flick under-rotates (<360, fails), medium ≈ one clean turn (make),
-  // hard overshoots (~1.25 turns, miss). v59: slightly calmer than the wild era.
-  const SPIN_BASE   = 0.133;  // soft flick (~0.8 turn)
-  const SPIN_RANGE  = 0.093;  // extra spin at full power (was 0.100)
-  const POWER_SPEED = 4300;   // was 4000 — same flick speed maps to a touch less power
+  // hard overshoots (~1.35 turns, miss). v63: re-tightened — the easing passes had
+  // flattened this into a 99% plateau at ~3200px/s, i.e. "just flick hard".
+  const SPIN_BASE   = 0.1171;  // soft flick under-rotates
+  const SPIN_RANGE  = 0.140;  // steep: small speed errors cost real rotation
+  const POWER_SPEED = 4000;   // flick px/s that maps to full power
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
   const FIXED_DT    = 1 / 60; // multiplayer-safe fixed physics step
   let acc = 0;
@@ -39,12 +40,15 @@ const Physics = (() => {
   // on mobile open-arena, where wall caroms no longer bail you out) feel fairer.
   const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
   const SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
-  const MAKE_ANGLE      = 0.67;  // ≤±~38° upright = MAKE (was 0.61 / ±35°)
-  const PERFECT_ANGLE   = 0.16;  // ≤~9° upright = perfect landing flair
+  const MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
+  const PERFECT_ANGLE   = 0.16;  // perfect-landing flair. NB: not actually
+                                 // selective — a settled bottle is either dead
+                                 // vertical (median tilt 0.003 rad) or toppled,
+                                 // so this fires on ~every make at any value.
   const FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
   const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
-  const SETTLE_ANG_VEL  = 0.011; // was 0.010 — slightly looser "at rest" spin
-  const SETTLE_LIN_SPD  = 7.7;   // was 7 — slightly looser "at rest" slide
+  const SETTLE_ANG_VEL  = 0.010; // "at rest" spin threshold
+  const SETTLE_LIN_SPD  = 7.2;   // "at rest" slide threshold
 
   // ── Seeded PRNG (mulberry32) ───────────────────────────────────────────────
   // All in-flight randomness (launch jitter + landing kick + pad placement)
@@ -565,9 +569,9 @@ const Physics = (() => {
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
 
-    const jSpin   = 1 + (rand() - 0.5) * 0.17;  // less spin chaos
-    const jLaunch = 1 + (rand() - 0.5) * 0.085; // less height chaos
-    const jDrift  = (rand() - 0.5) * 1.7;       // less sideways chaos
+    const jSpin   = 1 + (rand() - 0.5) * 0.205;  // less spin chaos
+    const jLaunch = 1 + (rand() - 0.5) * 0.102; // less height chaos
+    const jDrift  = (rand() - 0.5) * 2.05;       // less sideways chaos
 
     // Slightly lower arcs than the "harder/higher/wilder" feel (was 16 + power*5).
     const launchY = -(15.2 + power * 4.7) * jLaunch * profile.launchScale;
@@ -613,7 +617,7 @@ const Physics = (() => {
     if (!profile.floorResolve && hasFlipped && !hasLanded &&
         bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
       hasLanded = true;
-      const kick = liquid.vel * 0.05 + (rand() - 0.5) * 0.12;
+      const kick = liquid.vel * 0.056 + (rand() - 0.5) * 0.142;
       Body.setAngularVelocity(bottle, bottle.angularVelocity + kick);
     }
 
