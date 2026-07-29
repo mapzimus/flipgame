@@ -46,7 +46,8 @@ window.Skins = (function () {
   // Foot soles map to local y≈+39 (the physics contact plane), so it lands like
   // the bottle regardless of the scene's draw scale.
   const SPR = (() => {
-    const VIEW_W = 300, GROUND_SVG = 376, GROUND_LOCAL = 39, SCALE = 0.62;
+    // v67: larger baked sprites so cast editions read sharper on phones + panels.
+    const VIEW_W = 300, GROUND_SVG = 376, GROUND_LOCAL = 39, SCALE = 0.74;
     const VIEW_H = 420;
     const destW = VIEW_W * SCALE, destH = VIEW_H * SCALE;
     return {
@@ -216,6 +217,45 @@ window.Skins = (function () {
       ctx.fillStyle = color;
       ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
     }
+  }
+
+  // ── PNG cast sprites (AI-rendered editions) ────────────────────────────────
+  // High-detail raster casts live under icons/skins/<edition>/<rrggbb>.png
+  // (no '#'). Same SPR destination rect as SVG skins so contact plane matches.
+  const pngCache = new Map();
+  const FLAVOR_HEXES = [
+    '1f9bff', 'e3263c', '8ed11a', 'ff7a00', '8a3ffc', '5fcfe6',
+    '3fae1a', 'ff5b86', '4f63e0', 'ffc233', 'c8203a', 'ff9ecf',
+  ];
+  function colorToHexKey(color) {
+    const s = String(color || '').toLowerCase().replace('#', '');
+    if (/^[0-9a-f]{6}$/.test(s)) return s;
+    return FLAVOR_HEXES[0];
+  }
+  function getPngSprite(edition, color) {
+    const hex = colorToHexKey(color);
+    const key = edition + '|' + hex;
+    let entry = pngCache.get(key);
+    if (entry) return entry;
+    entry = { img: new Image(), ready: false, failed: false };
+    entry.img.onload = () => { entry.ready = true; spriteLoaded(); };
+    entry.img.onerror = () => { entry.failed = true; spriteLoaded(); };
+    entry.img.src = 'icons/skins/' + edition + '/' + hex + '.png';
+    pngCache.set(key, entry);
+    return entry;
+  }
+  function drawPngSprite(ctx, edition, color) {
+    const spr = getPngSprite(edition, color);
+    if (spr.ready) {
+      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
+    } else {
+      ctx.fillStyle = color || '#888';
+      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  function preloadPngEdition(edition, colors) {
+    const list = (colors && colors.length) ? colors : FLAVOR_HEXES.map((h) => '#' + h);
+    for (const c of list) getPngSprite(edition, c);
   }
 
   // ── Plunger skin ───────────────────────────────────────────────────────────
@@ -676,6 +716,19 @@ ${part(v.front)}
   }
   function drawPeople(ctx, opts) {
     const color = opts.color || '#d62828';
+    // Prefer AI-rendered PNG cast when present; fall back to SVG while loading
+    // or if a color sprite is missing.
+    const spr = getPngSprite('people', color);
+    if (spr.ready) {
+      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
+      return;
+    }
+    if (!spr.failed) {
+      // still decoding — soft placeholder, then SVG will show if PNG 404s
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
+      return;
+    }
     drawSingleSprite(ctx, 'people', color, peoplePalette(color), peopleBodySVG);
   }
 
@@ -1041,6 +1094,16 @@ ${part(v.front)}
   }
   function drawGods(ctx, opts) {
     const color = opts.color || '#1f9bff';
+    const spr = getPngSprite('gods', color);
+    if (spr.ready) {
+      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
+      return;
+    }
+    if (!spr.failed) {
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
+      return;
+    }
     drawSingleSprite(ctx, 'gods', color, godPalette(color), godBodySVG);
   }
 
@@ -1286,6 +1349,16 @@ ${part(v.front)}
   }
   function drawAlien(ctx, opts) {
     const color = opts.color || '#1f9bff';
+    const spr = getPngSprite('alien', color);
+    if (spr.ready) {
+      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
+      return;
+    }
+    if (!spr.failed) {
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
+      return;
+    }
     drawSingleSprite(ctx, 'alien', color, alienPalette(color), alienBodySVG);
   }
 
@@ -1462,6 +1535,16 @@ ${art}
   }
   function drawBuildings(ctx, opts) {
     const color = opts.color || '#1f9bff';
+    const spr = getPngSprite('buildings', color);
+    if (spr.ready) {
+      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
+      return;
+    }
+    if (!spr.failed) {
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
+      return;
+    }
     drawSingleSprite(ctx, 'buildings', color, buildingPalette(color), buildingBodySVG);
   }
 
@@ -1632,6 +1715,13 @@ ${crown}
     drawSingleSprite(ctx, 'gorilla', color, gorPalette(color), gorBodySVG);
   }
 
+  function drawCryptids(ctx, opts) {
+    drawPngSprite(ctx, 'cryptids', opts.color || '#1f9bff');
+  }
+  function drawPets(ctx, opts) {
+    drawPngSprite(ctx, 'pets', opts.color || '#1f9bff');
+  }
+
   // ── Registry ────────────────────────────────────────────────────────────────
   // Add a new edition by pushing META + a drawFns entry. `unlock`: null = always
   // available; a number = unlocked once Records.totalWins() reaches it.
@@ -1708,6 +1798,26 @@ ${crown}
         'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
       ],
     },
+    // Mid-ladder PNG casts (AI-rendered vinyl figures under icons/skins/<id>/).
+    // Paint-only; normal flip physics. Pets = mixed household animals (not cats-only).
+    {
+      id: 'pets', name: 'Pets', emoji: '🐾', unlock: 35,
+      names: [
+        'Purrlock Holmes', 'Good Boy Gary', 'Hare Today', 'Fin-tastic',
+        'Ham Solo', 'Chirp Norris', 'Shell Yeah', 'Piggie Smalls',
+        'Ferret Bueller', 'Corgi Board', 'Bow Tie Bill', 'Lots of Lox',
+      ],
+    },
+    // Cryptids first (sprites under icons/skins/cryptids/). More casts land as
+    // their sprite folders ship — see HANDOFF character pipeline.
+    {
+      id: 'cryptids', name: 'Cryptids', emoji: '🦶', unlock: 75,
+      names: [
+        'Big Softie', 'Nessie Business', 'Mothman Monday', 'Chupa-cuppa',
+        'Jersey Fresh', 'Snowball Chance', 'Jacka-lope Hope', 'Thunder Buddy',
+        'Flatwoods Friendly', 'Kraken Me Up', 'Bunyip Yap', 'Nightcrawler Pete',
+      ],
+    },
     // ── The 100-win capstone. The ONLY non-flip edition. ─────────────────────
     // Bank shot instead of a 360° flip, AND a twelve-species cast (see
     // ALIEN_CAST) — each player colour summons a different looking alien.
@@ -1728,7 +1838,7 @@ ${crown}
         ceiling: true,
         floorResolve: true,     // first floor contact IS the landing
         landOnTarget: true,
-        targetHalfWidth: 58,    // larger drawn pad
+        targetHalfWidth: 64,    // v67: tiny bump from 58 — more readable make zone
         requireFlip: false,     // aim, not rotation
         deflector: true,
         deflectorCount: 3,
@@ -1737,7 +1847,7 @@ ${crown}
         minHorizRatio: 0.15,    // less forced sideways than before
         strictTarget: false,    // any overlap with the scored radius counts
         allowSlideIn: true,     // can still slide into the hit zone
-        hitScale: 0.72,         // most of the pad scores (was inner ~55%)
+        hitScale: 0.78,         // v67: slightly more of the pad scores
       },
       names: [
         // Index-aligned to FLAVORS / ALIEN_CAST: Grey, Greenie, Mantid, Cyclops,
@@ -1752,7 +1862,7 @@ ${crown}
     parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,
     vending: drawVend, people: drawPeople, alien: drawAlien,
     pineapple: drawPineapple, gorilla: drawGorilla, buildings: drawBuildings,
-    gods: drawGods,
+    gods: drawGods, cryptids: drawCryptids, pets: drawPets,
   };   // 'bottle' is drawn by renderer.js
 
   // ── Per-deployment branding ────────────────────────────────────────────────
@@ -1793,6 +1903,12 @@ ${crown}
         getSingleSprite('gods', c, godPalette(c), godBodySVG);
         getSingleSprite('buildings', c, buildingPalette(c), buildingBodySVG);
       }
+      preloadPngEdition('cryptids', colors);
+      preloadPngEdition('pets', colors);
+      preloadPngEdition('people', colors);
+      preloadPngEdition('gods', colors);
+      preloadPngEdition('buildings', colors);
+      preloadPngEdition('alien', colors);
     },
   };
 })();

@@ -232,7 +232,7 @@ Pages auto-builds from `master` (root). Push and it's live in ~1 minute at
 **The one ritual you must not forget:**
 > When you change ANY game file, **bump `CACHE_NAME` in `service-worker.js`**
 > (`flipgame-v3` → `flipgame-v4`). Otherwise installed copies serve the old cached
-> build forever. (Currently at **v66**.)
+> build forever. (Currently at **v67**.)
 
 **Gotchas baked into the project (don't undo these):**
 - **All asset paths are RELATIVE.** The site lives at the `/flipgame/` subpath;
@@ -327,7 +327,7 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 ## Dev/verify workflow used this session (IMPORTANT)
 - Run the dev server (`python -m http.server 5174` / launch.json "flipgame"), open in the **Claude preview**, and verify with `preview_eval`. Game logic + physics are tested **headlessly** by driving `game.resolveFlip`/`advanceTurn` + `Physics.applyFlick`/`step`/`checkLanding` directly (set `game.callbacks = {}` to isolate from the UI). This is how all balance/landing numbers were measured.
 - **Feel-dependent things (slow-mo, audio, haptics, the live countdown drain) only run in a real focused tab** — the preview throttles `requestAnimationFrame`/timers, so they can't be exercised headlessly. Playtest those on a real device.
-- **Stale-cache gotcha:** the dev server sends no cache headers, so the browser serves stale JS on reload. Scripts/CSS carry a `?v=N` query (currently **v66**) — **bump it on every change** (and the matching `CACHE_NAME` in `service-worker.js`) or the browser/SW serves the old build. This is the #1 "my change didn't show up" cause.
+- **Stale-cache gotcha:** the dev server sends no cache headers, so the browser serves stale JS on reload. Scripts/CSS carry a `?v=N` query (currently **v67**) — **bump it on every change** (and the matching `CACHE_NAME` in `service-worker.js`) or the browser/SW serves the old build. This is the #1 "my change didn't show up" cause.
 - **Deploy:** push to `master` → GitHub Pages + the offline APK (GitHub Actions) rebuild automatically.
 
 ## Tuning knobs quick map (all in `js/game.js` unless noted)
@@ -335,6 +335,12 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 
 ## Phase 2 (not started): online multiplayer — Approach B
 Deterministic lockstep replay: broadcast `{seed, vx, vy}` per flip; every device replays the seeded sim. CRITICAL: the flicking player's device is **authoritative for the verdict** (replay is visual only) to avoid cross-device float divergence. Prep needed: seed the RNG (replace `Math.random` in `physics.js` jitter + landing kick with a seeded PRNG) and switch the loop to a fixed-timestep accumulator. Transport: Supabase Realtime (connected) or PartyKit over wss://; NOT WebRTC (school networks block it).
+
+
+## PNG cast sprites (v67)
+AI-rendered vinyl-style figures under `icons/skins/<edition>/<rrggbb>.png`.
+Editions: **pets** (unlock 35), **cryptids** (75), plus upscaled **people / gods / buildings / alien**.
+`skins.js` loads PNGs via `drawPngSprite` (SVG kept as fallback). Alien pad bumped to half-width 64 / hitScale 0.78. Sprite bake scale 0.62→0.74.
 
 ## Progress gating (v66)
 - **Unlocks + achievements only count when ≥1 human is in the lobby** (`main.js` `progressCounts()` / `humansPlayed`). AI-only games show a toast and skip `Records.recordWin`, skin unlocks, `Records.recordFlip` lifetime counters, and `Achievements.check`.
@@ -346,7 +352,7 @@ Gods stay at **25**; Alien moved to **100** to leave mid-ladder room. Proposed c
 | Wins | Working title | Theme (silly classroom-safe) | Notes |
 |-----:|---------------|------------------------------|-------|
 | 25 | Gods | Pantheon puns (existing) | Keep |
-| 35 | **Cats** | 12 cat costumes / breeds with tiny hats | High kid demand; easy silhouettes |
+| 35 | **Pets** | Mixed household pets (cats, dogs, bunnies, fish, hamster, budgie, turtle, guinea pig, ferret, corgi, axolotl…) | Was “Cats”; expanded to Pets |
 | 45 | **Robots** | Boxy bots, toaster, vacuum, boombox | Distinct read at game size |
 | 55 | **Snacks** | Donut, taco, pretzel, juice box… | Food fight energy; no brand marks |
 | 65 | **Sports** | Balls + mascots (not real team IP) | Clear shape language |
