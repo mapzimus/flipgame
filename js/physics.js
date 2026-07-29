@@ -17,10 +17,11 @@ const Physics = (() => {
 
   // Spin tuning (rad/step) — see applyFlick. Single sweet spot near 1 turn:
   // soft flick under-rotates (<360, fails), medium ≈ one clean turn (make),
-  // hard overshoots (~1.35 turns, miss). v63: re-tightened — the easing passes had
-  // flattened this into a 99% plateau at ~3200px/s, i.e. "just flick hard".
-  const SPIN_BASE   = 0.1171;  // soft flick under-rotates
-  const SPIN_RANGE  = 0.140;  // steep: small speed errors cost real rotation
+  // hard overshoots (~1.35 turns, miss). v63: re-tightened after easing flattened
+  // into a 99% plateau at ~3200px/s. v66: slight ease back without returning to
+  // "just flick hard" — a touch more spin / a slightly wider make window.
+  const SPIN_BASE   = 0.120;  // soft flick under-rotates
+  const SPIN_RANGE  = 0.132;  // still steep, but a bit more forgiving than v63
   const POWER_SPEED = 4000;   // flick px/s that maps to full power
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
   const FIXED_DT    = 1 / 60; // multiplayer-safe fixed physics step
@@ -43,18 +44,20 @@ const Physics = (() => {
   // center of mass. An upside-down bottle rests on its neck with COM ~114px
   // above the floor — the old `position.y >= groundY - 80` check never saw it
   // as grounded, so the miss-cap never fired and EVALUATING soft-locked forever.
-  const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
-  const SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
-  const MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
+  //
+  // v66: MAKE_ANGLE / settle thresholds eased a notch (still skill-gated).
+  const SETTLE_FRAMES   = 20;    // frames of stillness required to read the pose
+  const SETTLE_RANGE    = 0.035; // rad — max angle spread across that window
+  const MAKE_ANGLE      = 0.70;  // ≤±40° upright = MAKE
   const PERFECT_ANGLE   = 0.16;  // perfect-landing flair. NB: not actually
                                  // selective — a settled bottle is either dead
                                  // vertical (median tilt 0.003 rad) or toppled,
                                  // so this fires on ~every make at any value.
-  const FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
+  const FALLEN_ANGLE    = 1.25;  // ≥~72° tilt = toppled past recovery → certain MISS
   const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
   const ABS_MISS_FRAMES = 600;   // ~10s after leaving the floor → forced MISS no matter what
-  const SETTLE_ANG_VEL  = 0.010; // "at rest" spin threshold
-  const SETTLE_LIN_SPD  = 7.2;   // "at rest" slide threshold
+  const SETTLE_ANG_VEL  = 0.012; // "at rest" spin threshold
+  const SETTLE_LIN_SPD  = 7.8;   // "at rest" slide threshold
   const GROUND_TOUCH_PX = 6;     // AABB bottom within this of groundY = touching floor
 
   // ── Seeded PRNG (mulberry32) ───────────────────────────────────────────────
@@ -76,10 +79,10 @@ const Physics = (() => {
   // can instead ship a profile (see META.physics in skins.js) that retunes
   // gravity, drag, bounce, the launch impulse and how a landing is judged.
   //
-  // BOUNCE MODE (the 50-win alien — the ONLY non-flip edition) is a different
+  // BOUNCE MODE (the 100-win alien — the ONLY non-flip edition) is a different
   // game: a bank shot, not a flip. You aim sideways, the object caroms off the
   // two walls and the ceiling, and the FLOOR is dead: the first time it touches
-  // down is where it landed, and it counts if the body center is over the pad.
+  // down is where it landed, and it counts if the body is over the pad.
   const DEFAULT_PROFILE = {
     gravity: 1.5,
     frictionAir: 0.027,    // was 0.025 — a touch more drag, less floaty/wild

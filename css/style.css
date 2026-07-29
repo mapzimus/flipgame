@@ -857,10 +857,17 @@ html, body {
   align-items: center;
   gap: 3px;
   text-align: center;
-  opacity: 0.55;
+  opacity: 0.72;
+}
+.ach-card.locked {
+  filter: grayscale(0.35);
+}
+.ach-card.mystery {
+  opacity: 0.5;
 }
 .ach-card.unlocked {
   opacity: 1;
+  filter: none;
   background: rgba(105,240,174,0.08);
   border-color: rgba(105,240,174,0.35);
 }

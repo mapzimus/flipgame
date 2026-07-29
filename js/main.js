@@ -529,7 +529,7 @@
     game.init(defs, dir, opts || {});
     gameStarted = true;
     gameStats = {
-      topStake: 0, longestFire: 0, sawSuddenDeath: false,
+      topStake: 0, longestFire: 0, sawSuddenDeath: false, ignitionsThisGame: 0,
       perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0, lowestLives: Infinity })),
     };
     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
@@ -803,6 +803,12 @@
     updateHUD();
   }
 
+  // Edition unlocks + achievements only count when a human is in the lobby.
+  // Kids were farming AI-vs-AI blitz games to unlock the whole ladder.
+  function progressCounts() {
+    return game.practice || game.players.some((p) => !p.isAI);
+  }
+
   function onResult() {
     Input.disable();
     stopTurnTimer();
@@ -814,7 +820,10 @@
     const landing = Physics.getLastLandingInfo();
     greatSaveActive = !!(game.lastResult === 'MAKE' && landing &&
                          landing.maxTilt > GREAT_SAVE_TILT);
-    const rec = Records.recordFlip(game, { greatSave: greatSaveActive });
+    const counts = progressCounts();
+    const rec = counts
+      ? Records.recordFlip(game, { greatSave: greatSaveActive })
+      : null;
     if (greatSaveActive) Sound.play('greatsave');
 
     const p = game.currentPlayer();
@@ -832,11 +841,12 @@
       const firePeak = Math.max(game.onFireBonus || 0, game.endedFireBonus || 0);
       if (firePeak > gameStats.longestFire) gameStats.longestFire = firePeak;
       if (game.inSuddenDeath && game.inSuddenDeath()) gameStats.sawSuddenDeath = true;
+      if (game.justIgnited) gameStats.ignitionsThisGame = (gameStats.ignitionsThisGame || 0) + 1;
     }
 
     // NB: achievements.js declares `const Achievements` (script scope, not on
     // window) — same gotcha as Renderer above, so feature-detect via typeof.
-    if (typeof Achievements !== 'undefined') {
+    if (counts && typeof Achievements !== 'undefined' && rec) {
       const fresh = Achievements.check({
         result:        game.lastResult,
         justIgnited:   game.justIgnited,
@@ -850,6 +860,8 @@
         padOffset: landing && landing.padOffset != null ? landing.padOffset : null,
         totalFlipsLifetime: rec.totalFlips,
         totalMakesLifetime: rec.totalMakes,
+        playerCount:   game.players.length,
+        ignitionsThisGame: gameStats ? gameStats.ignitionsThisGame : 0,
       });
       announceAchievements(fresh);
     }
@@ -1004,28 +1016,35 @@
       gameScreen.classList.add('hidden');
       gameOverEl.classList.remove('hidden');
       winnerNameEl.textContent = active.length ? active[0].name : '???';
-      const winRec = Records.recordWin(active.length ? active[0].name : null);
-      renderRecordsPanel();
-      // Skin unlock ladder: each edition's `unlock` is a total-win threshold
-      // (see skins.js META). Check every skin, not just one — a device that
-      // jumps several wins at once (e.g. a long practice-free session) can
-      // cross more than one threshold in the same game-over.
-      if (active.length && window.Skins) {
-        const wins = Records.totalWins();
-        const newlyUnlocked = Skins.list().filter((s) => {
-          const need = Skins.unlockRule(s.id);
-          return typeof need === 'number' && wins >= need && Records.unlockSkin(s.id);
-        });
-        if (newlyUnlocked.length) {
-          const names = newlyUnlocked.map((s) => `${s.emoji} ${s.name}`).join(', ');
-          showToast(`${names} unlocked! Pick per player in setup.`);
-          try { renderFrom(readRows()); } catch (_) {}
+      // AI-only lobbies can still finish for fun, but they do not advance the
+      // unlock ladder, hall-of-fame wins, or achievements.
+      let winRec = null;
+      if (humansPlayed) {
+        winRec = Records.recordWin(active.length ? active[0].name : null);
+        renderRecordsPanel();
+        // Skin unlock ladder: each edition's `unlock` is a total-win threshold
+        // (see skins.js META). Check every skin, not just one — a device that
+        // jumps several wins at once can cross more than one threshold here.
+        if (active.length && window.Skins) {
+          const wins = Records.totalWins();
+          const newlyUnlocked = Skins.list().filter((s) => {
+            const need = Skins.unlockRule(s.id);
+            return typeof need === 'number' && wins >= need && Records.unlockSkin(s.id);
+          });
+          if (newlyUnlocked.length) {
+            const names = newlyUnlocked.map((s) => `${s.emoji} ${s.name}`).join(', ');
+            showToast(`${names} unlocked! Pick per player in setup.`);
+            try { renderFrom(readRows()); } catch (_) {}
+          }
         }
+      } else {
+        renderRecordsPanel();
+        showToast('🤖 AI-only games don’t count toward unlocks or achievements.');
       }
       Sound.play('win');
 
-      // Win-based achievements (display-only).
-      if (typeof Achievements !== 'undefined' && active.length && gameStats) {
+      // Win-based achievements (display-only) — human required in the lobby.
+      if (humansPlayed && typeof Achievements !== 'undefined' && active.length && gameStats) {
         const winner = active[0];
         const wIdx = game.players.indexOf(winner);
         const pp = (gameStats.perPlayer && gameStats.perPlayer[wIdx]) || { makes: 0, flips: 0, lowestLives: Infinity };
@@ -1035,6 +1054,8 @@
           droppedToOneLife: pp.lowestLives <= 1,
           sawSuddenDeath:   !!gameStats.sawSuddenDeath,
           winnerWins:       (winRec && winRec.mostWins && winRec.mostWins[winner.name]) || 0,
+          playerCount:      game.players.length,
+          ignitionsThisGame: gameStats.ignitionsThisGame || 0,
         }));
       }
 
@@ -1399,7 +1420,7 @@
 
   // ── Secret: tap the title 5× fast ──────────────────────────────────────────
   // A toggle. With anything still locked it unlocks every edition at once (for
-  // showing the whole set off without grinding 50 wins); with everything
+  // showing the whole set off without grinding 100 wins); with everything
   // already unlocked it wipes the ladder back to zero — fresh collection, win
   // counter at 0 — so the same gesture undoes itself. The title is a safe
   // target: nothing else is bound to it, and 5 taps inside 2s won't happen by

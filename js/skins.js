@@ -1045,7 +1045,7 @@ ${part(v.front)}
   }
 
   // ── Alien skin ─────────────────────────────────────────────────────────────
-  // The 50-win capstone, and the ONLY edition that changes the rules (bank shot
+  // The 100-win capstone, and the ONLY edition that changes the rules (bank shot
   // instead of a flip). Also an edition whose SPRITE CHANGES WITH THE PLAYER'S
   // COLOUR — twelve distinct alien SPECIES on one shared spindly body. Cast is
   // keyed to FLAVORS hexes so each color summons a different looking visitor
@@ -1708,34 +1708,36 @@ ${crown}
         'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
       ],
     },
-    // ── The 50-win capstone. The ONLY non-flip edition. ──────────────────────
+    // ── The 100-win capstone. The ONLY non-flip edition. ─────────────────────
     // Bank shot instead of a 360° flip, AND a twelve-species cast (see
     // ALIEN_CAST) — each player colour summons a different looking alien.
+    // v66: pad / hit zone / aim eased so bank shots feel fairer; unlock moved
+    // to 100 to leave room for mid-ladder casts (see HANDOFF character pipeline).
     {
-      id: 'alien', name: 'Alien', emoji: '👽', unlock: 50,
+      id: 'alien', name: 'Alien', emoji: '👽', unlock: 100,
       physics: {
-        gravity: 1.35,
-        frictionAir: 0.004,     // keeps its energy so it really does ricochet
+        gravity: 1.28,
+        frictionAir: 0.0045,    // a hair more drag — slightly calmer caroms
         friction: 0.02,
-        restitution: 0.92,      // the object itself is the bouncy part
+        restitution: 0.90,
         spinScale: 0.7,
-        launchScale: 1.55,      // hard enough that a big flick reaches the ceiling
-        horizDivisor: 150,      // wider aim range than a normal flick
+        launchScale: 1.50,
+        horizDivisor: 140,      // a bit more sideways aim authority
         horizMax: 15,
-        wallBounce: 0.98,       // walls + ceiling + wedge are near-perfect
+        wallBounce: 0.96,
         ceiling: true,
         floorResolve: true,     // first floor contact IS the landing
         landOnTarget: true,
-        targetHalfWidth: 44,    // drawn pad (readable)
+        targetHalfWidth: 58,    // larger drawn pad
         requireFlip: false,     // aim, not rotation
         deflector: true,
         deflectorCount: 3,
         saucerCount: 6,
         keepWalls: true,        // bank shot needs walls even on mobile
-        minHorizRatio: 0.22,
-        strictTarget: true,     // bottle CENTER must hit the scored radius
-        allowSlideIn: true,     // can still slide into the (smaller) hit zone
-        hitScale: 0.55,         // only the inner ~55% of the pad radius scores
+        minHorizRatio: 0.15,    // less forced sideways than before
+        strictTarget: false,    // any overlap with the scored radius counts
+        allowSlideIn: true,     // can still slide into the hit zone
+        hitScale: 0.72,         // most of the pad scores (was inner ~55%)
       },
       names: [
         // Index-aligned to FLAVORS / ALIEN_CAST: Grey, Greenie, Mantid, Cyclops,
