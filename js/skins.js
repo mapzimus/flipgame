@@ -1914,6 +1914,36 @@ ${crown}
       const want = String(color || '').toLowerCase();
       return CHARACTERS.find((x) => x.drawAs === c.drawAs && String(x.tint || '').toLowerCase() === want) || null;
     },
+    // Resolve which character id to use for a skin family + color. Casts swap
+    // to the matching variant; singles stay put and just recolor.
+    resolveForColor: (id, color) => {
+      const c = character(id);
+      if (!c) return id;
+      const want = String(color || '').toLowerCase();
+      const match = CHARACTERS.find((x) => x.drawAs === c.drawAs && String(x.tint || '').toLowerCase() === want);
+      return (match && match.id) || id;
+    },
+    familyKey: (id) => {
+      const c = character(id);
+      return (c && c.drawAs) || id;
+    },
+    familyLabel: (id) => {
+      const c = character(id);
+      if (!c) return 'Character';
+      const labels = {
+        bottle: 'Bottle', parrot: 'Parrot', plunger: 'Plunger', trex: 'T-Rex',
+        vending: 'Vending', pineapple: 'Pineapple', gorilla: 'Gorilla',
+        people: 'People', buildings: 'Buildings', gods: 'Gods', alien: 'Aliens',
+      };
+      return labels[c.drawAs] || c.name;
+    },
+    isCastFamily: (id) => {
+      const c = character(id);
+      if (!c) return false;
+      let n = 0;
+      for (const x of CHARACTERS) if (x.drawAs === c.drawAs && ++n > 1) return true;
+      return false;
+    },
     drawColor: (id, playerColor) => {
       const c = character(id);
       if (!c) return playerColor || '#1f9bff';

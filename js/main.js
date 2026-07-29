@@ -115,8 +115,10 @@
     { name: 'Pink Fluff',       color: '#ff9ecf' },
   ];
 
-  // ── Player setup rows (character + independent color + Human/CPU) ──────────
-  // Unlock = one character. Color is a separate 12-flavor pick (HUD / recolor).
+  // ── Player setup rows (skin family + color + Human/CPU) ────────────────────
+  // Character chips are one per skin family (Bottle, People, Aliens…).
+  // Color freely recolors that skin / swaps cast variants, and updates the
+  // default name to match.
   let playerCount = 2;
 
   const FORCE_SKIN = (typeof window !== 'undefined' && window.FLIP_FORCE_SKIN) || null;
@@ -131,17 +133,39 @@
     if (window.Skins && Skins.character) return Skins.character(id);
     return characterList().find((c) => c.id === id) || null;
   }
+  function isCharUnlocked(id) {
+    const c = characterById(id);
+    if (!c) return false;
+    return c.id === BASE_SKIN || c.unlock == null || Records.isSkinUnlocked(c.id);
+  }
   function availableCharacters() {
-    return characterList().filter((c) => c.id === BASE_SKIN || c.unlock == null || Records.isSkinUnlocked(c.id));
+    return characterList().filter((c) => isCharUnlocked(c.id));
+  }
+  function familyKey(id) {
+    if (window.Skins && Skins.familyKey) return Skins.familyKey(id);
+    const c = characterById(id);
+    return (c && c.drawAs) || id;
+  }
+  // One chip per unlocked skin family (first unlocked member as representative).
+  function availableFamilies() {
+    const seen = new Set();
+    const out = [];
+    for (const c of availableCharacters()) {
+      const k = familyKey(c.id);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(c);
+    }
+    return out;
+  }
+  function resolveCharForColor(charId, color) {
+    if (window.Skins && Skins.resolveForColor) return Skins.resolveForColor(charId, color);
+    return charId;
   }
   function defaultCharId() {
     if (FORCE_SKIN && characterById(FORCE_SKIN)) return FORCE_SKIN;
-    const avail = availableCharacters();
+    const avail = availableFamilies();
     return (avail[0] && avail[0].id) || BASE_SKIN;
-  }
-  function defaultNameFor(charId) {
-    const c = characterById(charId);
-    return (c && c.name) || 'Player';
   }
   function defaultColorFor(charId) {
     const c = characterById(charId);
@@ -152,18 +176,47 @@
     const hit = FLAVORS.find((f) => f.color === h);
     return hit ? hit.color : defaultColorFor(defaultCharId());
   }
+  function flavorName(color) {
+    const f = FLAVORS.find((x) => x.color === normalizeColor(color));
+    return (f && f.name) || null;
+  }
+  // Default player name for a skin + color. Cast variants use their own names;
+  // single skins use the character name at native tint, otherwise the flavor pun.
+  function defaultNameFor(charId, color) {
+    const col = color != null ? normalizeColor(color) : defaultColorFor(charId);
+    const resolved = resolveCharForColor(charId, col);
+    const sib = characterById(resolved);
+    if (window.Skins && Skins.isCastFamily && Skins.isCastFamily(charId)) {
+      return (sib && sib.name) || 'Player';
+    }
+    const c = characterById(charId);
+    const native = String((c && (c.tint || c.color)) || '').toLowerCase();
+    if (c && String(col).toLowerCase() === native) return c.name;
+    return flavorName(col) || (c && c.name) || 'Player';
+  }
+  function familyLabel(charId) {
+    if (window.Skins && Skins.familyLabel) return Skins.familyLabel(charId);
+    const c = characterById(charId);
+    return (c && c.name) || 'Character';
+  }
   function drawTintFor(charId, color) {
     if (window.Skins && Skins.drawColor) return Skins.drawColor(charId, color);
     return color || defaultColorFor(charId);
   }
+  function sameFamily(a, b) {
+    return familyKey(a) === familyKey(b);
+  }
 
   function charChipsHtml(selId) {
-    return availableCharacters().map((c) =>
-      `<button type="button" class="char-chip${c.id === selId ? ' selected' : ''}" data-char="${c.id}" title="${escapeHtml(c.name)}" style="--chip:${c.color || c.tint}">` +
-      `<span class="char-chip-emoji">${c.emoji || '🍾'}</span>` +
-      `<span class="char-chip-name">${escapeHtml(c.name)}</span>` +
-      `</button>`
-    ).join('');
+    const selFam = familyKey(selId);
+    return availableFamilies().map((c) => {
+      const label = familyLabel(c.id);
+      const selected = familyKey(c.id) === selFam;
+      return `<button type="button" class="char-chip${selected ? ' selected' : ''}" data-char="${c.id}" data-family="${familyKey(c.id)}" title="${escapeHtml(label)}" style="--chip:${c.color || c.tint}">` +
+        `<span class="char-chip-emoji">${c.emoji || '🍾'}</span>` +
+        `<span class="char-chip-name">${escapeHtml(label)}</span>` +
+        `</button>`;
+    }).join('');
   }
 
   function colorSwatchesHtml(selColor) {
@@ -174,13 +227,14 @@
   }
 
   function rowHtml(i, def) {
-    const charId = def.charId || defaultCharId();
-    const col = normalizeColor(def.color || defaultColorFor(charId));
+    const col = normalizeColor(def.color || defaultColorFor(def.charId || defaultCharId()));
+    const charId = resolveCharForColor(def.charId || defaultCharId(), col);
+    const name = def.name != null ? def.name : defaultNameFor(charId, col);
     return `<div class="player-input-row" data-char="${charId}" data-color="${col}" data-ai="${def.ai ? 1 : 0}">
       <div class="prow-top">
         <canvas class="skin-preview" width="76" height="92" aria-hidden="true"></canvas>
         <span class="player-num" style="color:${col}">P${i + 1}</span>
-        <input type="text" placeholder="${escapeHtml(defaultNameFor(charId))}" maxlength="14" value="${escapeHtml(def.name)}">
+        <input type="text" placeholder="${escapeHtml(defaultNameFor(charId, col))}" maxlength="14" value="${escapeHtml(name)}">
         <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? 'CPU' : 'Human'}</button>
         ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
       </div>
@@ -192,19 +246,23 @@
   }
 
   function readRows() {
-    return [...playerInputs.querySelectorAll('.player-input-row')].map(row => ({
-      name: row.querySelector('input').value,
-      charId: row.dataset.char || defaultCharId(),
-      color: normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char)),
-      ai: row.dataset.ai === '1',
-    }));
+    return [...playerInputs.querySelectorAll('.player-input-row')].map(row => {
+      const color = normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char));
+      const charId = resolveCharForColor(row.dataset.char || defaultCharId(), color);
+      return {
+        name: row.querySelector('input').value,
+        charId,
+        color,
+        ai: row.dataset.ai === '1',
+      };
+    });
   }
 
   function paintRowPreview(row) {
     const cv = row && row.querySelector('.skin-preview');
     if (!cv || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
-    const charId = row.dataset.char || defaultCharId();
-    const color = normalizeColor(row.dataset.color || defaultColorFor(charId));
+    const color = normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char));
+    const charId = resolveCharForColor(row.dataset.char || defaultCharId(), color);
     const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(charId) : charId;
     Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : charId, drawTintFor(charId, color));
   }
@@ -222,10 +280,11 @@
   function addPlayerInput() {
     if (playerCount >= 8) return;
     const defs = readRows();
-    const avail = availableCharacters();
+    const avail = availableFamilies();
     const pick = avail[defs.length % Math.max(1, avail.length)] || avail[0];
     const charId = (pick && pick.id) || defaultCharId();
-    defs.push({ name: defaultNameFor(charId), charId, color: defaultColorFor(charId), ai: false });
+    const color = defaultColorFor(charId);
+    defs.push({ name: defaultNameFor(charId, color), charId, color, ai: false });
     renderFrom(defs);
   }
 
@@ -235,22 +294,27 @@
     if (chip) {
       const row = chip.closest('.player-input-row');
       const oldId = row.dataset.char || defaultCharId();
-      const newId = chip.dataset.char || defaultCharId();
+      const oldCol = normalizeColor(row.dataset.color || defaultColorFor(oldId));
+      const familyRep = chip.dataset.char || defaultCharId();
+      // Keep the current color when switching skins so color truly "belongs"
+      // to the player; resolve to this family's variant at that color.
+      const col = oldCol;
+      const newId = resolveCharForColor(familyRep, col);
       const input = row.querySelector('input');
-      if (!input.value.trim() || input.value.trim() === defaultNameFor(oldId)) {
-        input.value = defaultNameFor(newId);
+      const oldDefault = defaultNameFor(oldId, oldCol);
+      if (!input.value.trim() || input.value.trim() === oldDefault) {
+        input.value = defaultNameFor(newId, col);
       }
       row.dataset.char = newId;
-      // Match color to the character's default tint when switching characters.
-      const col = defaultColorFor(newId);
       row.dataset.color = col;
-      row.querySelectorAll('.char-chip').forEach((s) => s.classList.remove('selected'));
-      chip.classList.add('selected');
+      row.querySelectorAll('.char-chip').forEach((s) => {
+        s.classList.toggle('selected', sameFamily(s.dataset.char, newId));
+      });
       row.querySelectorAll('.flavor-swatch').forEach((s) => {
         s.classList.toggle('selected', s.dataset.color === col);
       });
       row.querySelector('.player-num').style.color = col;
-      input.placeholder = defaultNameFor(newId);
+      input.placeholder = defaultNameFor(newId, col);
       paintRowPreview(row);
       return;
     }
@@ -259,27 +323,22 @@
       const row = sw.closest('.player-input-row');
       const col = normalizeColor(sw.dataset.color);
       const oldId = row.dataset.char || defaultCharId();
-      row.dataset.color = col;
-      // If this edition has a variant for that color, switch to it when unlocked
-      // (keeps the name chip in sync with the art). Otherwise keep the character
-      // and still recolor/swap art via the chosen color.
-      const sib = (window.Skins && Skins.siblingForColor)
-        ? Skins.siblingForColor(oldId, col)
-        : null;
-      if (sib && (sib.id === BASE_SKIN || sib.unlock == null || Records.isSkinUnlocked(sib.id))) {
-        const input = row.querySelector('input');
-        if (!input.value.trim() || input.value.trim() === defaultNameFor(oldId)) {
-          input.value = defaultNameFor(sib.id);
-        }
-        row.dataset.char = sib.id;
-        input.placeholder = defaultNameFor(sib.id);
-        row.querySelectorAll('.char-chip').forEach((s) => {
-          s.classList.toggle('selected', s.dataset.char === sib.id);
-        });
+      const oldCol = normalizeColor(row.dataset.color || defaultColorFor(oldId));
+      const newId = resolveCharForColor(oldId, col);
+      const input = row.querySelector('input');
+      const oldDefault = defaultNameFor(oldId, oldCol);
+      if (!input.value.trim() || input.value.trim() === oldDefault) {
+        input.value = defaultNameFor(newId, col);
       }
+      row.dataset.char = newId;
+      row.dataset.color = col;
+      row.querySelectorAll('.char-chip').forEach((s) => {
+        s.classList.toggle('selected', sameFamily(s.dataset.char, newId));
+      });
       row.querySelectorAll('.flavor-swatch').forEach((s) => s.classList.remove('selected'));
       sw.classList.add('selected');
       row.querySelector('.player-num').style.color = col;
+      input.placeholder = defaultNameFor(newId, col);
       paintRowPreview(row);
       return;
     }
@@ -304,10 +363,11 @@
 
   function rowsToDefs(rows) {
     return rows.map((r) => {
-      const charId = FORCE_SKIN || r.charId || defaultCharId();
+      const color = normalizeColor(r.color || defaultColorFor(r.charId || defaultCharId()));
+      const charId = FORCE_SKIN || resolveCharForColor(r.charId || defaultCharId(), color);
       return {
-        name: (r.name || '').trim() || defaultNameFor(charId),
-        color: normalizeColor(r.color || defaultColorFor(charId)),
+        name: (r.name || '').trim() || defaultNameFor(charId, color),
+        color,
         isAI: r.ai,
         skin: charId, // character id — Skins.draw/physicsFor resolve it
       };
@@ -364,10 +424,11 @@
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
   practiceBtn.addEventListener('click', () => {
     const r0 = readRows()[0] || { name: 'You', charId: defaultCharId(), color: defaultColorFor(defaultCharId()) };
-    const charId = FORCE_SKIN || r0.charId || defaultCharId();
+    const color = normalizeColor(r0.color || defaultColorFor(r0.charId || defaultCharId()));
+    const charId = FORCE_SKIN || resolveCharForColor(r0.charId || defaultCharId(), color);
     const def = {
-      name: (r0.name || '').trim() || defaultNameFor(charId),
-      color: normalizeColor(r0.color || defaultColorFor(charId)),
+      name: (r0.name || '').trim() || defaultNameFor(charId, color),
+      color,
       isAI: false,
       skin: charId,
     };
@@ -434,16 +495,18 @@
     }
   });
 
-  // initial two rows — names default to the unlocked characters
+  // initial two rows — names default to the unlocked skin families
   renderFrom([
     (() => {
       const id = defaultCharId();
-      return { name: defaultNameFor(id), charId: id, color: defaultColorFor(id), ai: false };
+      const color = defaultColorFor(id);
+      return { name: defaultNameFor(id, color), charId: id, color, ai: false };
     })(),
     (() => {
-      const avail = availableCharacters();
+      const avail = availableFamilies();
       const id = (avail[1] && avail[1].id) || defaultCharId();
-      return { name: defaultNameFor(id), charId: id, color: defaultColorFor(id), ai: false };
+      const color = defaultColorFor(id);
+      return { name: defaultNameFor(id, color), charId: id, color, ai: false };
     })(),
   ]);
 
@@ -1308,12 +1371,13 @@
   function onlinePlayerFromSetup() {
     const rows = readRows();
     const r0 = rows[0] || { name: '', charId: defaultCharId(), color: defaultColorFor(defaultCharId()) };
-    const charId = FORCE_SKIN || r0.charId || defaultCharId();
+    const color = normalizeColor(r0.color || defaultColorFor(r0.charId || defaultCharId()));
+    const charId = FORCE_SKIN || resolveCharForColor(r0.charId || defaultCharId(), color);
     const name = (onlineNameEl && onlineNameEl.value.trim()) ||
-      (r0.name || '').trim() || defaultNameFor(charId);
+      (r0.name || '').trim() || defaultNameFor(charId, color);
     return {
       name,
-      color: normalizeColor(r0.color || defaultColorFor(charId)),
+      color,
       skin: charId,
     };
   }
@@ -1485,13 +1549,15 @@
       Records.resetSkinProgress();
       const defs = readRows().map((d) => {
         const id = d.charId || defaultCharId();
-        if (Records.isSkinUnlocked(id) || id === BASE_SKIN) return d;
-        const wasDefault = !d.name.trim() || d.name.trim() === defaultNameFor(id);
+        const col = normalizeColor(d.color || defaultColorFor(id));
+        if (isCharUnlocked(id) || familyKey(id) === familyKey(BASE_SKIN)) return d;
+        const wasDefault = !d.name.trim() || d.name.trim() === defaultNameFor(id, col);
+        const baseCol = defaultColorFor(BASE_SKIN);
         return {
           ...d,
           charId: BASE_SKIN,
-          color: defaultColorFor(BASE_SKIN),
-          name: wasDefault ? defaultNameFor(BASE_SKIN) : d.name,
+          color: baseCol,
+          name: wasDefault ? defaultNameFor(BASE_SKIN, baseCol) : d.name,
         };
       });
       showToast('🔒 Secret! Progress wiped — earn it all back.');
