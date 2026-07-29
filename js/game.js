@@ -60,7 +60,10 @@ const game = {
     this.practice   = !!opts.practice;
     this.difficulty = opts.difficulty || 'medium';
     this.startingLives = STARTING_LIFE_PRESETS.includes(+opts.startingLives) ? +opts.startingLives : 10;
-    this.maxLives = Math.max(20, this.startingLives);
+    // Headroom above the start count so ON FIRE can actually mint lives.
+    // Classic 10-life games keep the old 20 cap; 100-life games were stuck at
+    // max==start so every fire make gained 0 and immediately "Fire maxed".
+    this.maxLives = Math.max(20, this.startingLives + ONFIRE_CAP_LIVES);
     this.players = defs.map(d => ({
       name: d.name,
       color: d.color || '#0b86ff',
