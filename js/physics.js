@@ -17,10 +17,10 @@ const Physics = (() => {
 
   // Spin tuning (rad/step) — see applyFlick. Single sweet spot near 1 turn:
   // soft flick under-rotates (<360, fails), medium ≈ one clean turn (make),
-  // hard overshoots (~1.3 turns, miss). Rotation ranges ~0.8 to ~1.35.
-  const SPIN_BASE   = 0.140;  // spin from a soft flick (~0.8 turn)
-  const SPIN_RANGE  = 0.100;  // extra spin at full-strength flick (~1.35 turn)
-  const POWER_SPEED = 4000;   // flick speed (px/s) that maps to full power
+  // hard overshoots (~1.25 turns, miss). v59: slightly calmer than the wild era.
+  const SPIN_BASE   = 0.133;  // soft flick (~0.8 turn)
+  const SPIN_RANGE  = 0.093;  // extra spin at full power (was 0.100)
+  const POWER_SPEED = 4300;   // was 4000 — same flick speed maps to a touch less power
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
   const FIXED_DT    = 1 / 60; // multiplayer-safe fixed physics step
   let acc = 0;
@@ -71,7 +71,7 @@ const Physics = (() => {
   // down is where it landed, and it counts if the body center is over the pad.
   const DEFAULT_PROFILE = {
     gravity: 1.5,
-    frictionAir: 0.025,
+    frictionAir: 0.027,    // was 0.025 — a touch more drag, less floaty/wild
     friction: 0.85,
     restitution: 0.02,
     spinScale: 1,
@@ -565,11 +565,12 @@ const Physics = (() => {
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
 
-    const jSpin   = 1 + (rand() - 0.5) * 0.216; // was 0.24 — ~10% less spin noise
-    const jLaunch = 1 + (rand() - 0.5) * 0.108; // was 0.12 — ~10% less launch noise
-    const jDrift  = (rand() - 0.5) * 2.16;      // was 2.4
+    const jSpin   = 1 + (rand() - 0.5) * 0.17;  // less spin chaos
+    const jLaunch = 1 + (rand() - 0.5) * 0.085; // less height chaos
+    const jDrift  = (rand() - 0.5) * 1.7;       // less sideways chaos
 
-    const launchY = -(16 + power * 5) * jLaunch * profile.launchScale;
+    // Slightly lower arcs than the "harder/higher/wilder" feel (was 16 + power*5).
+    const launchY = -(15.2 + power * 4.7) * jLaunch * profile.launchScale;
     let launchX = Math.max(-profile.horizMax,
       Math.min(profile.horizMax, vx / profile.horizDivisor)) + jDrift;
 
@@ -612,7 +613,7 @@ const Physics = (() => {
     if (!profile.floorResolve && hasFlipped && !hasLanded &&
         bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
       hasLanded = true;
-      const kick = liquid.vel * 0.06 + (rand() - 0.5) * 0.16;
+      const kick = liquid.vel * 0.05 + (rand() - 0.5) * 0.12;
       Body.setAngularVelocity(bottle, bottle.angularVelocity + kick);
     }
 
