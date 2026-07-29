@@ -384,20 +384,17 @@ ${keys}
   }
 
   // ── People skin ────────────────────────────────────────────────────────────
-  // The only edition whose SHAPE varies per player, not just its color: every
-  // flavor color maps to a different little person (see PERSONS).
+  // Every flavor color maps to a different little person (see PERSONS).
   //
-  // The unifying THEME is a toy-box figurine collection — all twelve are the
-  // same molded collectible: identical chibi body, glossy injection-mold
-  // highlight down one side, and the same face kit (dot eyes + glints +
-  // blush). Only the costume layer and one signature prop change per figure,
-  // so the cast reads as one boxed set rather than twelve unrelated sprites.
-  // No display stands — just the figures. Color is a safe key because every
-  // FLAVORS entry in main.js has a distinct hex.
+  // Shared body is a semi-realistic chibi (smaller head, oval face, eye whites,
+  // soft skin shading) so the cast reads as people rather than toys. Costume
+  // layers stay keyed to the same attachment points. Color is a safe key
+  // because every FLAVORS entry in main.js has a distinct hex.
   const PEOPLE = {
-    skin: '#f4c9a2', skinLine: '#c1946b',
-    eye: '#20160e', mouth: '#93413f',
-    boot: '#39404a', bootLine: '#20252c',
+    skin: '#e8b892', skinHi: '#f3d0b0', skinLo: '#c9926e', skinLine: '#8f6348',
+    eyeWhite: '#ffffff', iris: '#3a2a1c', pupil: '#14100c',
+    mouth: '#a05048', lip: '#c46a62',
+    boot: '#2f343c', bootLine: '#1a1d22', bootSole: '#171a1e',
   };
   // Costume layers. Each optional field is a function of the palette so a
   // costume can pick up the player's tint (capes, plastic army men, wizard
@@ -604,40 +601,74 @@ ${keys}
     const part = (f) => (typeof f === 'function' ? f(p) : '');
     // A plastic figure is molded in one color — no separate skin tone.
     const skin = v.plastic ? p.base : PEOPLE.skin;
+    const skinHi = v.plastic ? p.hi : PEOPLE.skinHi;
+    const skinLo = v.plastic ? p.lo : PEOPLE.skinLo;
     const skinLine = v.plastic ? p.line : PEOPLE.skinLine;
-    const ink = v.plastic ? p.line : PEOPLE.eye;
+    const iris = v.plastic ? p.line : PEOPLE.iris;
+    const pupil = v.plastic ? shadeHex(p.line, -0.35) : PEOPLE.pupil;
+    const face = v.plastic
+      ? `<circle cx="134" cy="136" r="5.5" fill="${iris}"/>
+<circle cx="166" cy="136" r="5.5" fill="${iris}"/>
+<circle cx="132" cy="134" r="1.8" fill="#ffffff" opacity="0.75"/>
+<circle cx="164" cy="134" r="1.8" fill="#ffffff" opacity="0.75"/>
+<path d="M 138 158 C 144 165 156 165 162 158" fill="none" stroke="${p.line}" stroke-width="2.8"/>`
+      : `<ellipse cx="134" cy="136" rx="9.5" ry="11" fill="${PEOPLE.eyeWhite}" stroke="${skinLine}" stroke-width="1.2"/>
+<ellipse cx="166" cy="136" rx="9.5" ry="11" fill="${PEOPLE.eyeWhite}" stroke="${skinLine}" stroke-width="1.2"/>
+<circle cx="135" cy="138" r="4.6" fill="${iris}"/>
+<circle cx="167" cy="138" r="4.6" fill="${iris}"/>
+<circle cx="135" cy="138" r="2.2" fill="${pupil}"/>
+<circle cx="167" cy="138" r="2.2" fill="${pupil}"/>
+<circle cx="132.5" cy="134.5" r="1.8" fill="#ffffff"/>
+<circle cx="164.5" cy="134.5" r="1.8" fill="#ffffff"/>
+<path d="M 148 146 C 149 152 151 152 152 146" fill="none" stroke="${skinLo}" stroke-width="2" opacity="0.7"/>
+<path d="M 146 152 L 154 152" fill="none" stroke="${skinLo}" stroke-width="1.4" opacity="0.45"/>
+<path d="M 138 161 C 144 169 156 169 162 161" fill="none" stroke="${PEOPLE.mouth}" stroke-width="2.8"/>
+<path d="M 142 163 C 146 167 154 167 158 163" fill="none" stroke="${PEOPLE.lip}" stroke-width="1.6" opacity="0.7"/>
+<ellipse cx="118" cy="152" rx="7" ry="5" fill="#e89a90" opacity="0.32"/>
+<ellipse cx="182" cy="152" rx="7" ry="5" fill="#e89a90" opacity="0.32"/>`;
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
 <linearGradient id="gPe" x1="106" y1="0" x2="194" y2="0" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
+<stop offset="0" stop-color="${p.hi}"/><stop offset="0.5" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
+</linearGradient>
+<linearGradient id="gSkin" x1="110" y1="90" x2="190" y2="180" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${skinHi}"/><stop offset="0.55" stop-color="${skin}"/><stop offset="1" stop-color="${skinLo}"/>
+</linearGradient>
+<linearGradient id="gBoot" x1="0" y1="350" x2="0" y2="376" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${v.plastic ? p.lo : PEOPLE.boot}"/><stop offset="1" stop-color="${v.plastic ? p.line : PEOPLE.bootSole}"/>
 </linearGradient>
 </defs>
 <g stroke-linecap="round" stroke-linejoin="round">
 ${part(v.behind)}
-<rect x="110" y="352" width="40" height="24" rx="9" fill="${v.plastic ? p.lo : PEOPLE.boot}" stroke="${v.plastic ? p.line : PEOPLE.bootLine}" stroke-width="2"/>
-<rect x="150" y="352" width="40" height="24" rx="9" fill="${v.plastic ? p.lo : PEOPLE.boot}" stroke="${v.plastic ? p.line : PEOPLE.bootLine}" stroke-width="2"/>
-<path d="M 115 358 L 145 358 M 155 358 L 185 358" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.22"/>
-<rect x="120" y="286" width="26" height="72" rx="9" fill="url(#gPe)" stroke="${p.line}" stroke-width="2"/>
-<rect x="154" y="286" width="26" height="72" rx="9" fill="url(#gPe)" stroke="${p.line}" stroke-width="2"/>
-<path d="M 126 292 L 126 344" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.16"/>
-<rect x="136" y="172" width="28" height="28" fill="${skin}" stroke="${skinLine}" stroke-width="2"/>
-<path d="M 110 210 C 110 197 123 190 150 190 C 177 190 190 197 190 210 L 194 292 L 106 292 Z" fill="url(#gPe)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 178 206 C 186 232 188 264 186 290" fill="none" stroke="${p.line}" stroke-width="6" opacity="0.16"/>
-<path d="M 114 214 C 112 240 111 266 112 288" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.18"/>
-<path d="M 120 200 C 132 194 168 194 180 200" fill="none" stroke="${p.line}" stroke-width="5" opacity="0.22"/>
+<!-- shoes -->
+<path d="M 108 348 C 108 342 116 338 128 338 L 148 338 C 152 338 154 342 154 348 L 154 372 C 154 376 150 378 144 378 L 118 378 C 110 378 108 374 108 368 Z" fill="url(#gBoot)" stroke="${v.plastic ? p.line : PEOPLE.bootLine}" stroke-width="2"/>
+<path d="M 146 348 C 146 342 154 338 166 338 L 186 338 C 192 338 194 342 194 348 L 194 372 C 194 376 190 378 184 378 L 158 378 C 150 378 146 374 146 368 Z" fill="url(#gBoot)" stroke="${v.plastic ? p.line : PEOPLE.bootLine}" stroke-width="2"/>
+<path d="M 112 372 L 150 372 M 150 372 L 190 372" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.12"/>
+<!-- legs -->
+<path d="M 120 286 C 118 300 118 330 120 348 L 146 348 C 148 330 148 300 146 286 Z" fill="url(#gPe)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 154 286 C 152 300 152 330 154 348 L 180 348 C 182 330 182 300 180 286 Z" fill="url(#gPe)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 126 292 L 126 340 M 160 292 L 160 340" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.14"/>
+<!-- neck -->
+<path d="M 138 168 C 138 176 140 184 142 190 L 158 190 C 160 184 162 176 162 168 Z" fill="url(#gSkin)" stroke="${skinLine}" stroke-width="1.8"/>
+<!-- torso -->
+<path d="M 112 208 C 112 192 128 184 150 184 C 172 184 188 192 188 208 L 192 288 C 192 294 186 298 178 298 L 122 298 C 114 298 108 294 108 288 Z" fill="url(#gPe)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 120 200 C 134 194 166 194 180 200" fill="none" stroke="${p.line}" stroke-width="4" opacity="0.18"/>
+<path d="M 116 214 C 114 242 114 268 116 288" fill="none" stroke="#ffffff" stroke-width="3.5" opacity="0.16"/>
 ${part(v.torso)}
-<rect x="86" y="204" width="24" height="76" rx="12" fill="url(#gPe)" stroke="${p.line}" stroke-width="2" transform="rotate(14 98 204)"/>
-<rect x="190" y="204" width="24" height="76" rx="12" fill="url(#gPe)" stroke="${p.line}" stroke-width="2" transform="rotate(-14 202 204)"/>
-<circle cx="80" cy="282" r="13" fill="${skin}" stroke="${skinLine}" stroke-width="2"/>
-<circle cx="220" cy="282" r="13" fill="${skin}" stroke="${skinLine}" stroke-width="2"/>
-<circle cx="150" cy="140" r="46" fill="${skin}" stroke="${skinLine}" stroke-width="2.5"/>
-<path d="M 116 116 C 124 102 137 95 150 94" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.25"/>
-<circle cx="134" cy="136" r="6.5" fill="${ink}"/>
-<circle cx="166" cy="136" r="6.5" fill="${ink}"/>
-<circle cx="131.5" cy="133" r="2.4" fill="#ffffff" opacity="0.9"/>
-<circle cx="163.5" cy="133" r="2.4" fill="#ffffff" opacity="0.9"/>
-${v.plastic ? '' : '<circle cx="120" cy="153" r="6.5" fill="#f79892" opacity="0.35"/><circle cx="180" cy="153" r="6.5" fill="#f79892" opacity="0.35"/>'}
-<path d="M 136 158 C 143 168 157 168 164 158" fill="none" stroke="${v.plastic ? p.line : PEOPLE.mouth}" stroke-width="3.5"/>
+<!-- arms + hands -->
+<path d="M 112 206 C 96 214 86 236 82 262 C 80 274 84 286 94 288 C 102 274 108 248 114 224 Z" fill="url(#gPe)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 188 206 C 204 214 214 236 218 262 C 220 274 216 286 206 288 C 198 274 192 248 186 224 Z" fill="url(#gPe)" stroke="${p.line}" stroke-width="2"/>
+<ellipse cx="88" cy="292" rx="12" ry="11" fill="url(#gSkin)" stroke="${skinLine}" stroke-width="1.8"/>
+<ellipse cx="212" cy="292" rx="12" ry="11" fill="url(#gSkin)" stroke="${skinLine}" stroke-width="1.8"/>
+<!-- head -->
+<ellipse cx="150" cy="138" rx="44" ry="48" fill="url(#gSkin)" stroke="${skinLine}" stroke-width="2.4"/>
+<path d="M 118 118 C 128 102 142 94 152 93" fill="none" stroke="#ffffff" stroke-width="4.5" opacity="0.22"/>
+<!-- soft ears -->
+<ellipse cx="106" cy="142" rx="8" ry="11" fill="${skinLo}" stroke="${skinLine}" stroke-width="1.5"/>
+<ellipse cx="194" cy="142" rx="8" ry="11" fill="${skinLo}" stroke="${skinLine}" stroke-width="1.5"/>
+<ellipse cx="106" cy="142" rx="4" ry="6" fill="${skin}" opacity="0.7"/>
+<ellipse cx="194" cy="142" rx="4" ry="6" fill="${skin}" opacity="0.7"/>
+${face}
 ${part(v.head)}
 ${part(v.front)}
 </g>
@@ -650,8 +681,8 @@ ${part(v.front)}
 
 
   // ── Gods skin ──────────────────────────────────────────────────────────────
-  // Mid-ladder pantheon (25 wins). Twelve deities on one shared chibi body —
-  // sprite changes with the player's colour (see GOD_CAST). Normal flip
+  // Mid-ladder pantheon (25 wins). Twelve deities on one shared semi-realistic
+  // body — sprite changes with the player's colour (see GOD_CAST). Normal flip
   // physics; Alien is the only edition that changes the sport.
   //
   // Only HISTORICAL pantheons are used — Egyptian, Greek, Roman, Norse, Aztec,
@@ -671,10 +702,11 @@ ${part(v.front)}
   //   head     — crowns, helmets, ears, headdresses (over the face)
   //   front    — hand props, drawn last
   const GODS = {
-    skin: '#f4c9a2', skinLine: '#c1946b',
-    eye: '#20160e', eyeWhite: '#ffffff', mouth: '#93413f',
+    skin: '#e8b892', skinHi: '#f3d0b0', skinLo: '#c9926e', skinLine: '#8f6348',
+    eye: '#14100c', eyeWhite: '#ffffff', iris: '#3a2a1c',
+    mouth: '#a05048', lip: '#c46a62',
     gold: '#f4d35e', goldLine: '#a8862a',
-    boot: '#39404a', bootLine: '#20252c',
+    boot: '#2f343c', bootLine: '#1a1d22', bootSole: '#171a1e',
     white: '#f2f2ee', whiteLine: '#cfcfc9',
     jackal: '#2f2a33', jackalLo: '#1a171d',
     jade: '#3fae8f', jadeLo: '#2a7a63',
@@ -946,36 +978,61 @@ ${part(v.front)}
     // Default face — used unless the costume supplies its own (animal heads and
     // masks do, because ink-on-black or ink-on-mask would vanish).
     const face = v.face ? part(v.face) : `
-<circle cx="133" cy="136" r="11.5" fill="${GODS.eyeWhite}" stroke="${GODS.skinLine}" stroke-width="1.3"/>
-<circle cx="167" cy="136" r="11.5" fill="${GODS.eyeWhite}" stroke="${GODS.skinLine}" stroke-width="1.3"/>
-<circle cx="135" cy="138" r="5.8" fill="${GODS.eye}"/>
-<circle cx="169" cy="138" r="5.8" fill="${GODS.eye}"/>
-<circle cx="131" cy="133" r="2.6" fill="#ffffff"/>
-<circle cx="165" cy="133" r="2.6" fill="#ffffff"/>
-<path d="M 137 160 C 143 169 157 169 163 160" fill="none" stroke="${GODS.mouth}" stroke-width="3.2"/>`;
+<ellipse cx="133" cy="136" rx="10" ry="11.5" fill="${GODS.eyeWhite}" stroke="${GODS.skinLine}" stroke-width="1.2"/>
+<ellipse cx="167" cy="136" rx="10" ry="11.5" fill="${GODS.eyeWhite}" stroke="${GODS.skinLine}" stroke-width="1.2"/>
+<circle cx="134" cy="138" r="4.8" fill="${GODS.iris}"/>
+<circle cx="168" cy="138" r="4.8" fill="${GODS.iris}"/>
+<circle cx="134" cy="138" r="2.3" fill="${GODS.eye}"/>
+<circle cx="168" cy="138" r="2.3" fill="${GODS.eye}"/>
+<circle cx="131.5" cy="134.5" r="1.9" fill="#ffffff"/>
+<circle cx="165.5" cy="134.5" r="1.9" fill="#ffffff"/>
+<path d="M 148 146 C 149 153 151 153 152 146" fill="none" stroke="${GODS.skinLo}" stroke-width="2.1" opacity="0.75"/>
+<path d="M 146 153 L 154 153" fill="none" stroke="${GODS.skinLo}" stroke-width="1.4" opacity="0.45"/>
+<path d="M 138 162 C 144 171 156 171 162 162" fill="none" stroke="${GODS.mouth}" stroke-width="2.9"/>
+<path d="M 142 164 C 146 169 154 169 158 164" fill="none" stroke="${GODS.lip}" stroke-width="1.5" opacity="0.65"/>
+<ellipse cx="118" cy="152" rx="7" ry="5" fill="#e89a90" opacity="0.28"/>
+<ellipse cx="182" cy="152" rx="7" ry="5" fill="#e89a90" opacity="0.28"/>`;
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
 <defs>
 <linearGradient id="gGo" x1="106" y1="0" x2="194" y2="0" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
+<stop offset="0" stop-color="${p.hi}"/><stop offset="0.5" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
+</linearGradient>
+<linearGradient id="gGodSkin" x1="110" y1="90" x2="190" y2="180" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${GODS.skinHi}"/><stop offset="0.55" stop-color="${GODS.skin}"/><stop offset="1" stop-color="${GODS.skinLo}"/>
+</linearGradient>
+<linearGradient id="gGodBoot" x1="0" y1="350" x2="0" y2="376" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="${GODS.boot}"/><stop offset="1" stop-color="${GODS.bootSole}"/>
 </linearGradient>
 </defs>
 <g stroke-linecap="round" stroke-linejoin="round">
 ${part(v.behind)}
-<rect x="108" y="350" width="42" height="26" rx="10" fill="${GODS.boot}" stroke="${GODS.bootLine}" stroke-width="2"/>
-<rect x="150" y="350" width="42" height="26" rx="10" fill="${GODS.boot}" stroke="${GODS.bootLine}" stroke-width="2"/>
-<rect x="118" y="284" width="28" height="74" rx="10" fill="url(#gGo)" stroke="${p.line}" stroke-width="2"/>
-<rect x="154" y="284" width="28" height="74" rx="10" fill="url(#gGo)" stroke="${p.line}" stroke-width="2"/>
-<rect x="136" y="170" width="28" height="30" fill="${GODS.skin}" stroke="${GODS.skinLine}" stroke-width="2"/>
-<path d="M 108 210 C 108 196 122 188 150 188 C 178 188 192 196 192 210 L 196 292 L 104 292 Z" fill="url(#gGo)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 114 214 C 112 240 111 268 112 288" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.18"/>
+<!-- sandals / boots -->
+<path d="M 106 348 C 106 342 114 338 126 338 L 148 338 C 152 338 154 342 154 348 L 154 372 C 154 376 150 378 144 378 L 116 378 C 108 378 106 374 106 368 Z" fill="url(#gGodBoot)" stroke="${GODS.bootLine}" stroke-width="2"/>
+<path d="M 146 348 C 146 342 154 338 166 338 L 188 338 C 194 338 196 342 196 348 L 196 372 C 196 376 192 378 186 378 L 158 378 C 150 378 146 374 146 368 Z" fill="url(#gGodBoot)" stroke="${GODS.bootLine}" stroke-width="2"/>
+<path d="M 114 356 L 148 356 M 152 356 L 188 356" fill="none" stroke="${GODS.gold}" stroke-width="2.2" opacity="0.55"/>
+<!-- legs -->
+<path d="M 118 284 C 116 300 116 330 118 348 L 146 348 C 148 330 148 300 146 284 Z" fill="url(#gGo)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 154 284 C 152 300 152 330 154 348 L 182 348 C 184 330 184 300 182 284 Z" fill="url(#gGo)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 124 290 L 124 338 M 160 290 L 160 338" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.14"/>
+<!-- neck -->
+<path d="M 138 166 C 138 176 140 184 142 190 L 158 190 C 160 184 162 176 162 166 Z" fill="url(#gGodSkin)" stroke="${GODS.skinLine}" stroke-width="1.8"/>
+<!-- torso -->
+<path d="M 110 208 C 110 192 126 184 150 184 C 174 184 190 192 190 208 L 194 288 C 194 294 188 298 180 298 L 120 298 C 112 298 106 294 106 288 Z" fill="url(#gGo)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 118 214 C 116 242 116 268 118 286" fill="none" stroke="#ffffff" stroke-width="3.5" opacity="0.16"/>
 ${part(v.torso)}
-<rect x="82" y="202" width="28" height="80" rx="14" fill="url(#gGo)" stroke="${p.line}" stroke-width="2" transform="rotate(13 96 202)"/>
-<rect x="190" y="202" width="28" height="80" rx="14" fill="url(#gGo)" stroke="${p.line}" stroke-width="2" transform="rotate(-13 204 202)"/>
-<circle cx="78" cy="288" r="15" fill="${GODS.skin}" stroke="${GODS.skinLine}" stroke-width="2"/>
-<circle cx="222" cy="288" r="15" fill="${GODS.skin}" stroke="${GODS.skinLine}" stroke-width="2"/>
-<circle cx="150" cy="140" r="48" fill="${GODS.skin}" stroke="${GODS.skinLine}" stroke-width="2.5"/>
+<!-- arms + hands -->
+<path d="M 110 204 C 94 212 84 234 80 260 C 78 274 82 286 92 288 C 100 274 106 246 112 222 Z" fill="url(#gGo)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 190 204 C 206 212 216 234 220 260 C 222 274 218 286 208 288 C 200 274 194 246 188 222 Z" fill="url(#gGo)" stroke="${p.line}" stroke-width="2"/>
+<ellipse cx="86" cy="292" rx="13" ry="12" fill="url(#gGodSkin)" stroke="${GODS.skinLine}" stroke-width="1.8"/>
+<ellipse cx="214" cy="292" rx="13" ry="12" fill="url(#gGodSkin)" stroke="${GODS.skinLine}" stroke-width="1.8"/>
+<!-- head -->
+<ellipse cx="150" cy="138" rx="46" ry="50" fill="url(#gGodSkin)" stroke="${GODS.skinLine}" stroke-width="2.4"/>
 ${part(v.headBase)}
-<path d="M 116 114 C 124 100 138 92 151 91" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.22"/>
+<path d="M 118 116 C 128 100 142 92 152 91" fill="none" stroke="#ffffff" stroke-width="4.5" opacity="0.2"/>
+<ellipse cx="104" cy="144" rx="8" ry="12" fill="${GODS.skinLo}" stroke="${GODS.skinLine}" stroke-width="1.5"/>
+<ellipse cx="196" cy="144" rx="8" ry="12" fill="${GODS.skinLo}" stroke="${GODS.skinLine}" stroke-width="1.5"/>
+<ellipse cx="104" cy="144" rx="4" ry="6.5" fill="${GODS.skin}" opacity="0.7"/>
+<ellipse cx="196" cy="144" rx="4" ry="6.5" fill="${GODS.skin}" opacity="0.7"/>
 ${face}
 ${part(v.head)}
 ${part(v.front)}
