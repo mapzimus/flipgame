@@ -219,9 +219,9 @@ window.Skins = (function () {
     }
   }
 
-  // ── PNG cast sprites (AI-rendered editions) ────────────────────────────────
-  // High-detail raster casts live under icons/skins/<edition>/<rrggbb>.png
-  // (no '#'). Same SPR destination rect as SVG skins so contact plane matches.
+  // ── PNG cast sprites (retired) ─────────────────────────────────────────────
+  // AI rasters under icons/skins/<edition>/<rrggbb>.png are no longer used
+  // in-game (too 3D). Helpers remain for tools / parked editions only.
   const pngCache = new Map();
   const FLAVOR_HEXES = [
     '1f9bff', 'e3263c', '8ed11a', 'ff7a00', '8a3ffc', '5fcfe6',
@@ -716,19 +716,7 @@ ${part(v.front)}
   }
   function drawPeople(ctx, opts) {
     const color = opts.color || '#d62828';
-    // Prefer AI-rendered PNG cast when present; fall back to SVG while loading
-    // or if a color sprite is missing.
-    const spr = getPngSprite('people', color);
-    if (spr.ready) {
-      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
-      return;
-    }
-    if (!spr.failed) {
-      // still decoding — soft placeholder, then SVG will show if PNG 404s
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
-      return;
-    }
+    // Flat cartoony SVG cast (AI PNG casts retired — they read too 3D).
     drawSingleSprite(ctx, 'people', color, peoplePalette(color), peopleBodySVG);
   }
 
@@ -1094,16 +1082,6 @@ ${part(v.front)}
   }
   function drawGods(ctx, opts) {
     const color = opts.color || '#1f9bff';
-    const spr = getPngSprite('gods', color);
-    if (spr.ready) {
-      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
-      return;
-    }
-    if (!spr.failed) {
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
-      return;
-    }
     drawSingleSprite(ctx, 'gods', color, godPalette(color), godBodySVG);
   }
 
@@ -1349,16 +1327,6 @@ ${part(v.front)}
   }
   function drawAlien(ctx, opts) {
     const color = opts.color || '#1f9bff';
-    const spr = getPngSprite('alien', color);
-    if (spr.ready) {
-      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
-      return;
-    }
-    if (!spr.failed) {
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
-      return;
-    }
     drawSingleSprite(ctx, 'alien', color, alienPalette(color), alienBodySVG);
   }
 
@@ -1535,16 +1503,6 @@ ${art}
   }
   function drawBuildings(ctx, opts) {
     const color = opts.color || '#1f9bff';
-    const spr = getPngSprite('buildings', color);
-    if (spr.ready) {
-      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
-      return;
-    }
-    if (!spr.failed) {
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
-      return;
-    }
     drawSingleSprite(ctx, 'buildings', color, buildingPalette(color), buildingBodySVG);
   }
 
@@ -1834,59 +1792,8 @@ ${crown}
       });
     });
 
-    const petNames = [
-      'Purrlock Holmes', 'Good Boy Gary', 'Hare Today', 'Fin-tastic',
-      'Ham Solo', 'Chirp Norris', 'Shell Yeah', 'Piggie Smalls',
-      'Ferret Bueller', 'Corgi Board', 'Bow Tie Bill', 'Lots of Lox',
-    ];
-    FLAVOR_HEXES.forEach((h, i) => {
-      add({ id: 'pets-' + h, name: petNames[i], emoji: '🐾', drawAs: 'pets', tint: '#' + h });
-    });
-
-    const gardenNames = [
-      'Sunny Side', 'You Say Tomato', 'Fun-gi', 'Prickly Pal',
-      'What’s Up Doc', 'Berry Good', 'Broccoli Rob', 'Pumpkin Spice',
-      'Rosebud', 'A-maize-ing', 'Guac and Roll', 'Hot Stuff',
-    ];
-    FLAVOR_HEXES.forEach((h, i) => {
-      add({ id: 'garden-' + h, name: gardenNames[i], emoji: '🌻', drawAs: 'garden', tint: '#' + h });
-    });
-
-    const robotNames = [
-      'Toast of the Town', 'Vacuum Packed', 'Boombox Hero', 'Tin Can Alley',
-      'Spin Cycle', 'Blend It Like Beckham', 'Channel Surfer', 'Calc This',
-      'Drone Alone', 'Snooze Button', 'Nuke It', 'Lamp Shade',
-    ];
-    FLAVOR_HEXES.forEach((h, i) => {
-      add({ id: 'robots-' + h, name: robotNames[i], emoji: '🤖', drawAs: 'robots', tint: '#' + h });
-    });
-
-    const oceanNames = [
-      'Whale Hello', 'Flipper Dipper', 'Shark Week', 'Inkredible',
-      'Crab Apple', 'Sea Horse Power', 'Finding Funny', 'Shell Shock',
-      'Lobster Roll', 'Star Fishin’', 'Jelly Belly', 'Narwhal of Fame',
-    ];
-    FLAVOR_HEXES.forEach((h, i) => {
-      add({ id: 'ocean-' + h, name: oceanNames[i], emoji: '🌊', drawAs: 'ocean', tint: '#' + h });
-    });
-
-    const snackNames = [
-      'Hole-y Donut', 'Taco ‘Bout It', 'Twist & Shout', 'Juice Loose',
-      'Slice of Life', 'Tough Cookie', 'Ice Ice Creamy', 'Pop Star',
-      'Frankly My Dear', 'Cupcake Boss', 'Chip Happens', 'Candy Crush…ed',
-    ];
-    FLAVOR_HEXES.forEach((h, i) => {
-      add({ id: 'snacks-' + h, name: snackNames[i], emoji: '🍩', drawAs: 'snacks', tint: '#' + h });
-    });
-
-    const cryptidNames = [
-      'Big Softie', 'Nessie Business', 'Mothman Monday', 'Chupa-cuppa',
-      'Jersey Fresh', 'Snowball Chance', 'Jacka-lope Hope', 'Thunder Buddy',
-      'Flatwoods Friendly', 'Kraken Me Up', 'Bunyip Yap', 'Nightcrawler Pete',
-    ];
-    FLAVOR_HEXES.forEach((h, i) => {
-      add({ id: 'cryptids-' + h, name: cryptidNames[i], emoji: '🦶', drawAs: 'cryptids', tint: '#' + h });
-    });
+    // Pets / Garden / Robots / Ocean / Snacks / Cryptids were AI PNG-only casts.
+    // Parked until we have flat cartoony SVG art for them (same look as the rest).
 
     // Capstone bank-shot cast — ALWAYS last so Alien is the final unlock tier.
     const alienNames = [
@@ -1926,13 +1833,7 @@ ${crown}
     people: CHARACTERS.filter((c) => c.drawAs === 'people').map((c) => c.id),
     buildings: CHARACTERS.filter((c) => c.drawAs === 'buildings').map((c) => c.id),
     gods: CHARACTERS.filter((c) => c.drawAs === 'gods').map((c) => c.id),
-    pets: CHARACTERS.filter((c) => c.drawAs === 'pets').map((c) => c.id),
-    cryptids: CHARACTERS.filter((c) => c.drawAs === 'cryptids').map((c) => c.id),
     alien: CHARACTERS.filter((c) => c.drawAs === 'alien').map((c) => c.id),
-    garden: CHARACTERS.filter((c) => c.drawAs === 'garden').map((c) => c.id),
-    robots: CHARACTERS.filter((c) => c.drawAs === 'robots').map((c) => c.id),
-    ocean: CHARACTERS.filter((c) => c.drawAs === 'ocean').map((c) => c.id),
-    snacks: CHARACTERS.filter((c) => c.drawAs === 'snacks').map((c) => c.id),
   };
 
   function character(id) {
@@ -1953,7 +1854,10 @@ ${crown}
     parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,
     vending: drawVend, people: drawPeople, alien: drawAlien,
     pineapple: drawPineapple, gorilla: drawGorilla, buildings: drawBuildings,
-    gods: drawGods, cryptids: drawCryptids, pets: drawPets,
+    gods: drawGods,
+    // PNG-only editions kept as drawers for legacy saves / tools, but not
+    // listed in CHARACTERS until cartoony SVG casts exist.
+    cryptids: drawCryptids, pets: drawPets,
     garden: drawGarden, robots: drawRobots, ocean: drawOcean, snacks: drawSnacks,
   };   // 'bottle' is drawn by renderer.js
 
@@ -2032,8 +1936,7 @@ ${crown}
         getSingleSprite('gods', c, godPalette(c), godBodySVG);
         getSingleSprite('buildings', c, buildingPalette(c), buildingBodySVG);
       }
-      ['cryptids', 'pets', 'people', 'gods', 'buildings', 'alien',
-        'garden', 'robots', 'ocean', 'snacks'].forEach((ed) => preloadPngEdition(ed, tints));
+      // AI PNG casts are no longer used in-game (flat SVG only).
     },
   };
 })();

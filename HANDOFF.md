@@ -337,24 +337,24 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 Deterministic lockstep replay: broadcast `{seed, vx, vy}` per flip; every device replays the seeded sim. CRITICAL: the flicking player's device is **authoritative for the verdict** (replay is visual only) to avoid cross-device float divergence. Prep needed: seed the RNG (replace `Math.random` in `physics.js` jitter + landing kick with a seeded PRNG) and switch the loop to a fixed-timestep accumulator. Transport: Supabase Realtime (connected) or PartyKit over wss://; NOT WebRTC (school networks block it).
 
 
-## PNG cast sprites (v67)
-AI-rendered vinyl-style figures under `icons/skins/<edition>/<rrggbb>.png`.
-Editions: **pets** (unlock 35), **cryptids** (75), plus upscaled **people / gods / buildings / alien**.
-`skins.js` loads PNGs via `drawPngSprite` (SVG kept as fallback). Alien pad bumped to half-width 64 / hitScale 0.78. Sprite bake scale 0.62→0.74.
+## Art style (v72)
+Flat **cartoony SVG** casts only in-game. AI PNG casts under `icons/skins/` are
+retired (too 3D / vinyl). People / gods / buildings / alien draw via SVG again.
+PNG-only editions (pets, garden, robots, ocean, snacks, cryptids) are parked
+from the unlock ladder until they get matching SVG art.
 
 ## Progress gating (v66)
 - **Unlocks + achievements only count when ≥1 human is in the lobby** (`main.js` `progressCounts()` / `humansPlayed`). AI-only games show a toast and skip `Records.recordWin`, skin unlocks, `Records.recordFlip` lifetime counters, and `Achievements.check`.
 - Practice counts (solo human). Secret title 5× cheat still unlocks everything for demos.
 
-## Character unlocks (v69)
+## Character unlocks (v72)
 
 **Roster gallery:** open `/roster.html` for every character with a live render.
 
-**No more edition picker.** Setup is only color swatches — each unlock is one
-character. Cadence: bottle free, then **every 3 wins**; **Alien species are last**
-(~333–366 wins). Tall buildings only (Eiffel, Big Ben, Liberty, Empire, Pisa,
-Redeemer, St. Basil, Pagoda). Roster mixes classics + people + buildings + gods
-+ pets + garden + robots + ocean + snacks + cryptids + aliens.
+Setup: **character chips + independent color**. Cadence: bottle free, then
+**every 3 wins**; **Alien species are last**. Live roster: classics + people +
+tall buildings (no Redeemer) + gods + aliens. Color recolors / swaps cast
+variants.
 
 Legacy edition unlocks in localStorage expand into their character ids on boot.
 
