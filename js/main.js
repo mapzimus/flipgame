@@ -206,6 +206,11 @@
   function sameFamily(a, b) {
     return familyKey(a) === familyKey(b);
   }
+  function isFamilyUnlocked(id) {
+    const k = familyKey(id);
+    if (k === familyKey(BASE_SKIN)) return true;
+    return availableCharacters().some((c) => familyKey(c.id) === k);
+  }
 
   function charChipsHtml(selId) {
     const selFam = familyKey(selId);
@@ -1550,7 +1555,7 @@
       const defs = readRows().map((d) => {
         const id = d.charId || defaultCharId();
         const col = normalizeColor(d.color || defaultColorFor(id));
-        if (isCharUnlocked(id) || familyKey(id) === familyKey(BASE_SKIN)) return d;
+        if (isFamilyUnlocked(id)) return d;
         const wasDefault = !d.name.trim() || d.name.trim() === defaultNameFor(id, col);
         const baseCol = defaultColorFor(BASE_SKIN);
         return {
