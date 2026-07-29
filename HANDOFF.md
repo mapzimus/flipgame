@@ -352,12 +352,13 @@ Gods stay at **25**; Alien moved to **100** to leave mid-ladder room. Proposed c
 | Wins | Working title | Theme (silly classroom-safe) | Notes |
 |-----:|---------------|------------------------------|-------|
 | 25 | Gods | Pantheon puns (existing) | Keep |
-| 35 | **Pets** | Mixed household pets (cats, dogs, bunnies, fish, hamster, budgie, turtle, guinea pig, ferret, corgi, axolotl…) | Was “Cats”; expanded to Pets |
+| 35 | **Pets** | Mixed household pets (cats, dogs, bunnies, fish, hamster, budgie, turtle, guinea pig, ferret, corgi, axolotl…) | Shipped (v67) |
 | 45 | **Robots** | Boxy bots, toaster, vacuum, boombox | Distinct read at game size |
 | 55 | **Snacks** | Donut, taco, pretzel, juice box… | Food fight energy; no brand marks |
-| 65 | **Sports** | Balls + mascots (not real team IP) | Clear shape language |
-| 75 | **Cryptids** | Bigfoot, Nessie, mothman-lite… | Spooky-funny, not scary |
-| 85 | **Legends** | Tall-tale heroes / folk mashups | Bridge to Alien |
+| 65 | **Zoo** | Safari / zoo stars (lion, elephant, giraffe, panda, penguin, monkey, zebra, hippo, flamingo, kangaroo, tiger, koala…) | Replaces Sports; distinct from household Pets |
+| 75 | **Cryptids** | Bigfoot, Nessie, mothman-lite… | Shipped (v67) |
+| 85 | **Legends** | Tall-tale heroes / folk mashups | Bridge toward the endgame |
+| 95 | **Dragons** | Cute fantasy dragons (optional next) | Final paint pack before Alien |
 | 100 | Alien | Bank-shot only (existing) | Capstone + rule change |
 
 **Implementation checklist per cast** (when greenlit):
