@@ -1753,7 +1753,21 @@ ${crown}
     gods: drawGods,
   };   // 'bottle' is drawn by renderer.js
 
+  // ── Per-deployment branding ────────────────────────────────────────────────
+  // A branded port sets window.FLIP_BRAND before the scripts load. Setting
+  // `baseSkin` makes a different edition the free one by SWAPPING its unlock
+  // slot with the bottle's — so Parrot Flip starts on the parrot and earns the
+  // bottle at 1 win, while everything else about the ladder is untouched.
+  const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
+  const BASE_SKIN = BRAND.baseSkin || 'bottle';
+  if (BASE_SKIN !== 'bottle') {
+    const a = META.find((m) => m.id === BASE_SKIN);
+    const b = META.find((m) => m.id === 'bottle');
+    if (a && b) { const t = a.unlock; a.unlock = b.unlock; b.unlock = t; }
+  }
+
   return {
+    baseSkin: () => BASE_SKIN,
     list: () => META.slice(),
     metaFor: (id) => META.find((m) => m.id === id) || null,
     unlockRule: (id) => (META.find((m) => m.id === id) || {}).unlock ?? null,

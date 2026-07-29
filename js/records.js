@@ -2,6 +2,10 @@
 // Pure read of game state — touches no rules or physics.
 const Records = (() => {
   const KEY = 'flipgame.records.v1';
+  // The edition that is free from the start. Branded ports (Parrot Flip) swap
+  // this with the bottle — see window.FLIP_BRAND in skins.js.
+  const BASE_SKIN =
+    (typeof window !== 'undefined' && window.FLIP_BRAND && window.FLIP_BRAND.baseSkin) || 'bottle';
   const DEFAULTS = {
     bestStreak: 0,      // longest personal consecutive makes
     highestStake: 0,    // highest shared stake (pointCount) ever reached
@@ -11,7 +15,7 @@ const Records = (() => {
     greatSaves: 0,      // lifetime tip-past-the-brink-and-recover MAKEs
     mostWins: {},       // name -> win count
     totalWins: 0,       // wins on this device, across all players — drives skin unlocks
-    unlockedSkins: ['bottle'],  // flippable editions earned on this device
+    unlockedSkins: [BASE_SKIN],  // flippable editions earned on this device
   };
   let data = load();
 
@@ -30,7 +34,7 @@ const Records = (() => {
           try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
         }
       } else {
-        data.unlockedSkins = ['bottle'];
+        data.unlockedSkins = [BASE_SKIN];
       }
       return data;
     } catch (e) { return clone(DEFAULTS); }
@@ -102,8 +106,8 @@ const Records = (() => {
 
   // ── Unlockable skins ──────────────────────────────────────────────────────
   function unlockedSkins() {
-    if (!Array.isArray(data.unlockedSkins)) data.unlockedSkins = ['bottle'];
-    if (!data.unlockedSkins.includes('bottle')) data.unlockedSkins.unshift('bottle');
+    if (!Array.isArray(data.unlockedSkins)) data.unlockedSkins = [BASE_SKIN];
+    if (!data.unlockedSkins.includes(BASE_SKIN)) data.unlockedSkins.unshift(BASE_SKIN);
     return data.unlockedSkins.slice();
   }
   function isSkinUnlocked(id) { return unlockedSkins().includes(id); }
@@ -120,7 +124,7 @@ const Records = (() => {
   // keeping totalWins would re-unlock everything at the next game over.
   function resetSkinProgress() {
     data.totalWins = 0;
-    data.unlockedSkins = ['bottle'];
+    data.unlockedSkins = [BASE_SKIN];
     save();
   }
 

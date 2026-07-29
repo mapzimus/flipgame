@@ -424,3 +424,9 @@ const Net = (() => {
     get transport() { return mode; },
   };
 })();
+
+// A top-level `const` lives in SCRIPT scope and never lands on `window`, but
+// main.js gates the whole online UI on `window.Net` — without this the Online
+// Multiplayer button silently does nothing. Same trap renderer.js and
+// achievements.js already hit; publish explicitly.
+if (typeof window !== 'undefined') window.Net = Net;

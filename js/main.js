@@ -129,6 +129,11 @@
   // force one edition and hide the picker. Otherwise players choose per-row once
   // an edition is unlocked (see Records.unlockSkin).
   const FORCE_SKIN = (typeof window !== 'undefined' && window.FLIP_FORCE_SKIN) || null;
+  // Branding: which edition is free from the start, and whether this build
+  // offers online play at all. See window.FLIP_BRAND (set by the port's HTML).
+  const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
+  const BASE_SKIN = BRAND.baseSkin || 'bottle';
+  const ONLINE_ENABLED = BRAND.online !== false;
 
   // The default player name for a given skin + flavor index — bottle (or any
   // skin without its own roster) falls back to the flavor name; a skin with a
@@ -140,8 +145,8 @@
   }
 
   function availableSkins() {
-    const all = window.Skins ? Skins.list() : [{ id: 'bottle', name: 'Bottle', emoji: '🍾' }];
-    return all.filter(s => s.id === 'bottle' || Records.isSkinUnlocked(s.id));
+    const all = window.Skins ? Skins.list() : [{ id: BASE_SKIN, name: 'Bottle', emoji: '🍾' }];
+    return all.filter(s => s.id === BASE_SKIN || Records.isSkinUnlocked(s.id));
   }
   function skinChoiceHtml(sel) {
     const list = availableSkins();
@@ -1262,7 +1267,10 @@
     });
   }
 
-  if (onlineBtn && window.Net) {
+  // Ports that ship without networking (Parrot Flip) hide the entry point
+  // entirely rather than leaving a button that goes nowhere.
+  if (onlineBtn && !ONLINE_ENABLED) onlineBtn.classList.add('hidden');
+  if (onlineBtn && window.Net && ONLINE_ENABLED) {
     onlineBtn.addEventListener('click', () => {
       setupScreen.classList.add('hidden');
       onlineScreen.classList.remove('hidden');
@@ -1416,7 +1424,7 @@
       const defs = readRows().map((d) => {
         if (Records.isSkinUnlocked(d.skin)) return d;
         const wasDefault = !d.name.trim() || d.name.trim() === defaultNameFor(d.skin, d.flavor);
-        return { ...d, skin: 'bottle', name: wasDefault ? FLAVORS[d.flavor].name : d.name };
+        return { ...d, skin: BASE_SKIN, name: wasDefault ? FLAVORS[d.flavor].name : d.name };
       });
       showToast('🔒 Secret! Progress wiped — earn it all back.');
       renderFrom(defs);
