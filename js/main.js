@@ -75,7 +75,7 @@
   // rebuilds the body.
   function applyTurnPhysics() {
     if (!Physics.setProfile) return;
-    const skin = (game && game.currentPlayer && game.currentPlayer()?.skin) || 'bottle';
+    const skin = (game && game.currentPlayer && game.currentPlayer()?.skin) || BASE_SKIN;
     Physics.setProfile(window.Skins && Skins.physicsFor ? Skins.physicsFor(skin) : null);
   }
 
@@ -157,7 +157,7 @@
   }
 
   function rowHtml(i, def) {
-    const skin = def.skin || 'bottle';
+    const skin = def.skin || BASE_SKIN;
     return `<div class="player-input-row" data-flavor="${def.flavor}" data-ai="${def.ai ? 1 : 0}" data-skin="${skin}">
       <div class="prow-top">
         <canvas class="skin-preview" width="76" height="92" aria-hidden="true"></canvas>
@@ -176,7 +176,7 @@
       name: row.querySelector('input').value,
       flavor: parseInt(row.dataset.flavor) || 0,
       ai: row.dataset.ai === '1',
-      skin: row.dataset.skin || 'bottle',
+      skin: row.dataset.skin || BASE_SKIN,
     }));
   }
 
@@ -189,7 +189,7 @@
     const cv = row && row.querySelector('.skin-preview');
     if (!cv || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
     const idx = parseInt(row.dataset.flavor) || 0;
-    Renderer.drawPreview(cv, row.dataset.skin || 'bottle', FLAVORS[idx].color);
+    Renderer.drawPreview(cv, row.dataset.skin || BASE_SKIN, FLAVORS[idx].color);
   }
   function paintAllPreviews() {
     playerInputs.querySelectorAll('.player-input-row').forEach(paintRowPreview);
@@ -216,7 +216,7 @@
     if (sw) {
       const row = sw.closest('.player-input-row');
       const oldIdx = +row.dataset.flavor, newIdx = +sw.dataset.idx;
-      const skin = row.dataset.skin || 'bottle';
+      const skin = row.dataset.skin || BASE_SKIN;
       const input = row.querySelector('input');
       // The name follows the flavor's default name for the CURRENT skin,
       // unless the player typed a custom one.
@@ -243,7 +243,7 @@
     const sk = e.target.closest('.skin-choice');
     if (sk) {
       const row = sk.closest('.player-input-row');
-      const oldSkin = row.dataset.skin || 'bottle';
+      const oldSkin = row.dataset.skin || BASE_SKIN;
       const newSkin = sk.dataset.skin;
       const idx = +row.dataset.flavor;
       const input = row.querySelector('input');
@@ -271,7 +271,7 @@
 
   function rowsToDefs(rows) {
     return rows.map((r) => {
-      const skin = FORCE_SKIN || r.skin || 'bottle';
+      const skin = FORCE_SKIN || r.skin || BASE_SKIN;
       return {
         name: (r.name || '').trim() || defaultNameFor(skin, r.flavor),
         color: FLAVORS[r.flavor].color,
@@ -332,7 +332,7 @@
   practiceBtn.addEventListener('click', () => {
     const r0 = readRows()[0] || { name: 'You', flavor: 0 };
     const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false,
-                  skin: FORCE_SKIN || r0.skin || 'bottle' };
+                  skin: FORCE_SKIN || r0.skin || BASE_SKIN };
     Sound.unlock();
     onlineMode = false;
     if (window.Net) Net.leave();
@@ -356,7 +356,7 @@
       if (window.Net && Net.isHost) {
         const defs = game.players.map(p => ({
           name: p.name, color: p.color, isAI: false,
-          skin: FORCE_SKIN || p.skin || 'bottle', netId: p.netId,
+          skin: FORCE_SKIN || p.skin || BASE_SKIN, netId: p.netId,
         }));
         const payload = {
           defs, direction: game.direction, startingLives: game.startingLives,
@@ -380,13 +380,13 @@
     if (game.practice) {
       startGame(
         [{ name: game.players[0].name, color: game.players[0].color, isAI: false,
-           skin: FORCE_SKIN || game.players[0].skin || 'bottle' }],
+           skin: FORCE_SKIN || game.players[0].skin || BASE_SKIN }],
         1,
         { practice: true, startingLives: game.startingLives }
       );
     } else {
       const defs = game.players.map(p => ({ name: p.name, color: p.color, isAI: p.isAI,
-                                            skin: FORCE_SKIN || p.skin || 'bottle' }));
+                                            skin: FORCE_SKIN || p.skin || BASE_SKIN }));
       // Winner starts the next game (by index — robust to duplicate names).
       startGame(defs, game.direction, {
         difficulty: game.difficulty,
@@ -481,7 +481,7 @@
     const sigma = { easy: 1000, medium: 400, hard: 220 }[game.difficulty] || 400;
     const u1 = Math.random() || 1e-6, u2 = Math.random();
     const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    const skin = game.currentPlayer()?.skin || 'bottle';
+    const skin = game.currentPlayer()?.skin || BASE_SKIN;
     const bank = window.Skins && Skins.physicsFor && Skins.physicsFor(skin);
     if (bank && bank.floorResolve) {
       const side = Math.random() < 0.5 ? -1 : 1;
@@ -1237,15 +1237,15 @@
 
   function onlinePlayerFromSetup() {
     const rows = readRows();
-    const r0 = rows[0] || { name: '', flavor: 0, skin: 'bottle' };
+    const r0 = rows[0] || { name: '', flavor: 0, skin: BASE_SKIN };
     const name = (onlineNameEl && onlineNameEl.value.trim()) ||
-      (r0.name || '').trim() || defaultNameFor(r0.skin || 'bottle', r0.flavor || 0);
+      (r0.name || '').trim() || defaultNameFor(r0.skin || BASE_SKIN, r0.flavor || 0);
     const flavor = Math.min(FLAVORS.length - 1, Math.max(0, r0.flavor || 0));
     return {
       name,
       flavor,
       color: FLAVORS[flavor].color,
-      skin: FORCE_SKIN || r0.skin || 'bottle',
+      skin: FORCE_SKIN || r0.skin || BASE_SKIN,
     };
   }
 
@@ -1323,7 +1323,7 @@
         name: p.name,
         color: p.color,
         isAI: false,
-        skin: FORCE_SKIN || p.skin || 'bottle',
+        skin: FORCE_SKIN || p.skin || BASE_SKIN,
         netId: p.id,
       }));
       const payload = {
