@@ -41,10 +41,32 @@ const Records = (() => {
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} }
 
-  // Grant editions whose unlock threshold totalWins already meets. Call after
+  // Expand legacy edition unlocks (people/buildings/…) into individual
+  // character ids once Skins is available. Safe to call repeatedly.
+  function migrateEditionUnlocks() {
+    if (typeof window === 'undefined' || !window.Skins || typeof Skins.editionChars !== 'function') return false;
+    let changed = false;
+    const next = [];
+    for (const id of unlockedSkins()) {
+      const kids = Skins.editionChars(id);
+      if (kids && kids.length) {
+        next.push(...kids);
+        changed = true;
+      } else {
+        next.push(id);
+      }
+    }
+    if (!changed) return false;
+    data.unlockedSkins = [...new Set(next)];
+    save();
+    return true;
+  }
+
+  // Grant characters whose unlock threshold totalWins already meets. Call after
   // Skins is loaded (Records boots before skins.js). Returns newly granted ids.
   function syncUnlocksFromWins() {
     if (typeof window === 'undefined' || !window.Skins || typeof Skins.list !== 'function') return [];
+    migrateEditionUnlocks();
     const wins = data.totalWins || 0;
     const fresh = [];
     for (const s of Skins.list()) {

@@ -115,81 +115,80 @@
     { name: 'Pink Fluff',       color: '#ff9ecf' },
   ];
 
-  // ── Player setup rows (name + flavor picker + Human/CPU) ────────────────────
+  // ── Player setup rows (name + character swatch + Human/CPU) ────────────────
+  // Characters ARE the colors: each unlock grants one selectable swatch.
+  // No separate People/Buildings edition picker.
   let playerCount = 2;
 
-  function swatchesHtml(sel) {
-    return FLAVORS.map((f, i) =>
-      `<button type="button" class="flavor-swatch${i === sel ? ' selected' : ''}" data-idx="${i}" style="background:${f.color}" title="${f.name}"></button>`
-    ).join('');
-  }
-
-  // ── Skins (flippable editions: bottle, parrot, …) ───────────────────────────
-  // A fully-themed port (e.g. the parrot site) sets window.FLIP_FORCE_SKIN to
-  // force one edition and hide the picker. Otherwise players choose per-row once
-  // an edition is unlocked (see Records.unlockSkin).
   const FORCE_SKIN = (typeof window !== 'undefined' && window.FLIP_FORCE_SKIN) || null;
-  // Branding: which edition is free from the start, and whether this build
-  // offers online play at all. See window.FLIP_BRAND (set by the port's HTML).
   const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
   const BASE_SKIN = BRAND.baseSkin || 'bottle';
   const ONLINE_ENABLED = BRAND.online !== false;
 
-  // The default player name for a given skin + flavor index — bottle (or any
-  // skin without its own roster) falls back to the flavor name; a skin with a
-  // `names` list (see skins.js) uses the name at the SAME index, so the color
-  // picked doesn't change when the skin does.
-  function defaultNameFor(skin, flavorIdx) {
-    const names = window.Skins && Skins.namesFor ? Skins.namesFor(skin) : null;
-    return (names && names[flavorIdx]) || FLAVORS[flavorIdx].name;
+  function characterList() {
+    return window.Skins && Skins.list ? Skins.list() : [{ id: BASE_SKIN, name: 'Bottle', emoji: '🍾', color: '#1f9bff', tint: '#1f9bff' }];
+  }
+  function characterById(id) {
+    if (window.Skins && Skins.character) return Skins.character(id);
+    return characterList().find((c) => c.id === id) || null;
+  }
+  function availableCharacters() {
+    return characterList().filter((c) => c.id === BASE_SKIN || c.unlock == null || Records.isSkinUnlocked(c.id));
+  }
+  function defaultCharId() {
+    if (FORCE_SKIN && characterById(FORCE_SKIN)) return FORCE_SKIN;
+    const avail = availableCharacters();
+    return (avail[0] && avail[0].id) || BASE_SKIN;
+  }
+  function defaultNameFor(charId) {
+    const c = characterById(charId);
+    return (c && c.name) || 'Player';
+  }
+  function charColor(charId) {
+    const c = characterById(charId);
+    return (c && (c.color || c.tint)) || '#1f9bff';
+  }
+  function charTint(charId) {
+    const c = characterById(charId);
+    return (c && c.tint) || charColor(charId);
   }
 
-  function availableSkins() {
-    const all = window.Skins ? Skins.list() : [{ id: BASE_SKIN, name: 'Bottle', emoji: '🍾' }];
-    return all.filter(s => s.id === BASE_SKIN || Records.isSkinUnlocked(s.id));
-  }
-  function skinChoiceHtml(sel) {
-    const list = availableSkins();
-    if (FORCE_SKIN || list.length < 2) return '';   // nothing to choose yet
-    return '<div class="skin-picker">' + list.map(s =>
-      `<button type="button" class="skin-choice${s.id === sel ? ' selected' : ''}" data-skin="${s.id}">${s.emoji} ${s.name}</button>`
-    ).join('') + '</div>';
+  function swatchesHtml(selId) {
+    const list = availableCharacters();
+    return list.map((c) =>
+      `<button type="button" class="flavor-swatch${c.id === selId ? ' selected' : ''}" data-char="${c.id}" style="background:${c.color || c.tint}" title="${escapeHtml(c.emoji ? c.emoji + ' ' : '')}${escapeHtml(c.name)}"></button>`
+    ).join('');
   }
 
   function rowHtml(i, def) {
-    const skin = def.skin || BASE_SKIN;
-    return `<div class="player-input-row" data-flavor="${def.flavor}" data-ai="${def.ai ? 1 : 0}" data-skin="${skin}">
+    const charId = def.charId || defaultCharId();
+    const col = charColor(charId);
+    return `<div class="player-input-row" data-char="${charId}" data-ai="${def.ai ? 1 : 0}">
       <div class="prow-top">
         <canvas class="skin-preview" width="76" height="92" aria-hidden="true"></canvas>
-        <span class="player-num" style="color:${FLAVORS[def.flavor].color}">P${i + 1}</span>
-        <input type="text" placeholder="${escapeHtml(defaultNameFor(skin, def.flavor))}" maxlength="14" value="${escapeHtml(def.name)}">
+        <span class="player-num" style="color:${col}">P${i + 1}</span>
+        <input type="text" placeholder="${escapeHtml(defaultNameFor(charId))}" maxlength="14" value="${escapeHtml(def.name)}">
         <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? 'CPU' : 'Human'}</button>
         ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
       </div>
-      <div class="flavor-picker">${swatchesHtml(def.flavor)}</div>
-      ${skinChoiceHtml(skin)}
+      <div class="flavor-picker">${swatchesHtml(charId)}</div>
     </div>`;
   }
 
   function readRows() {
     return [...playerInputs.querySelectorAll('.player-input-row')].map(row => ({
       name: row.querySelector('input').value,
-      flavor: parseInt(row.dataset.flavor) || 0,
+      charId: row.dataset.char || defaultCharId(),
       ai: row.dataset.ai === '1',
-      skin: row.dataset.skin || BASE_SKIN,
     }));
   }
 
-  // Live "what am I flipping" thumbnail on each setup row. Call after anything
-  // that changes a row's skin or color.
   function paintRowPreview(row) {
-    // NB: renderer.js declares `const Renderer`, which lives in script scope
-    // and never lands on `window` — checking window.Renderer here silently
-    // skips every preview.
     const cv = row && row.querySelector('.skin-preview');
     if (!cv || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
-    const idx = parseInt(row.dataset.flavor) || 0;
-    Renderer.drawPreview(cv, row.dataset.skin || BASE_SKIN, FLAVORS[idx].color);
+    const charId = row.dataset.char || defaultCharId();
+    const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(charId) : charId;
+    Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : charId, charTint(charId));
   }
   function paintAllPreviews() {
     playerInputs.querySelectorAll('.player-input-row').forEach(paintRowPreview);
@@ -205,29 +204,29 @@
   function addPlayerInput() {
     if (playerCount >= 8) return;
     const defs = readRows();
-    const fl = defs.length % FLAVORS.length;
-    defs.push({ name: FLAVORS[fl].name, flavor: fl, ai: false });
+    const avail = availableCharacters();
+    const pick = avail[defs.length % Math.max(1, avail.length)] || avail[0];
+    const charId = (pick && pick.id) || defaultCharId();
+    defs.push({ name: defaultNameFor(charId), charId, ai: false });
     renderFrom(defs);
   }
 
-  // event delegation: flavor select, AI toggle, remove
+  // event delegation: character select, AI toggle, remove
   playerInputs.addEventListener('click', (e) => {
     const sw = e.target.closest('.flavor-swatch');
     if (sw) {
       const row = sw.closest('.player-input-row');
-      const oldIdx = +row.dataset.flavor, newIdx = +sw.dataset.idx;
-      const skin = row.dataset.skin || BASE_SKIN;
+      const oldId = row.dataset.char || defaultCharId();
+      const newId = sw.dataset.char || defaultCharId();
       const input = row.querySelector('input');
-      // The name follows the flavor's default name for the CURRENT skin,
-      // unless the player typed a custom one.
-      if (!input.value.trim() || input.value.trim() === defaultNameFor(skin, oldIdx)) {
-        input.value = defaultNameFor(skin, newIdx);
+      if (!input.value.trim() || input.value.trim() === defaultNameFor(oldId)) {
+        input.value = defaultNameFor(newId);
       }
-      row.dataset.flavor = newIdx;
+      row.dataset.char = newId;
       row.querySelectorAll('.flavor-swatch').forEach(s => s.classList.remove('selected'));
       sw.classList.add('selected');
-      row.querySelector('.player-num').style.color = FLAVORS[newIdx].color;
-      input.placeholder = defaultNameFor(skin, newIdx);
+      row.querySelector('.player-num').style.color = charColor(newId);
+      input.placeholder = defaultNameFor(newId);
       paintRowPreview(row);
       return;
     }
@@ -238,25 +237,6 @@
       row.dataset.ai = on ? '0' : '1';
       ai.textContent = on ? 'Human' : 'CPU';
       ai.classList.toggle('cpu', !on);
-      return;
-    }
-    const sk = e.target.closest('.skin-choice');
-    if (sk) {
-      const row = sk.closest('.player-input-row');
-      const oldSkin = row.dataset.skin || BASE_SKIN;
-      const newSkin = sk.dataset.skin;
-      const idx = +row.dataset.flavor;
-      const input = row.querySelector('input');
-      // Same rule as the flavor swatch: the name follows the skin's default
-      // unless the player typed a custom one.
-      if (!input.value.trim() || input.value.trim() === defaultNameFor(oldSkin, idx)) {
-        input.value = defaultNameFor(newSkin, idx);
-      }
-      input.placeholder = defaultNameFor(newSkin, idx);
-      row.dataset.skin = newSkin;
-      row.querySelectorAll('.skin-choice').forEach(s => s.classList.remove('selected'));
-      sk.classList.add('selected');
-      paintRowPreview(row);
       return;
     }
     const rm = e.target.closest('.remove-player-btn');
@@ -271,12 +251,12 @@
 
   function rowsToDefs(rows) {
     return rows.map((r) => {
-      const skin = FORCE_SKIN || r.skin || BASE_SKIN;
+      const charId = FORCE_SKIN || r.charId || defaultCharId();
       return {
-        name: (r.name || '').trim() || defaultNameFor(skin, r.flavor),
-        color: FLAVORS[r.flavor].color,
+        name: (r.name || '').trim() || defaultNameFor(charId),
+        color: charColor(charId),
         isAI: r.ai,
-        skin,
+        skin: charId, // character id — Skins.draw/physicsFor resolve it
       };
     });
   }
@@ -330,9 +310,14 @@
 
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
   practiceBtn.addEventListener('click', () => {
-    const r0 = readRows()[0] || { name: 'You', flavor: 0 };
-    const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false,
-                  skin: FORCE_SKIN || r0.skin || BASE_SKIN };
+    const r0 = readRows()[0] || { name: 'You', charId: defaultCharId() };
+    const charId = FORCE_SKIN || r0.charId || defaultCharId();
+    const def = {
+      name: (r0.name || '').trim() || defaultNameFor(charId),
+      color: charColor(charId),
+      isAI: false,
+      skin: charId,
+    };
     Sound.unlock();
     onlineMode = false;
     if (window.Net) Net.leave();
@@ -396,10 +381,17 @@
     }
   });
 
-  // initial two rows — names default to the flavor (overridable)
+  // initial two rows — names default to the unlocked characters
   renderFrom([
-    { name: FLAVORS[0].name, flavor: 0, ai: false },
-    { name: FLAVORS[1].name, flavor: 1, ai: false },
+    { name: defaultNameFor(defaultCharId()), charId: defaultCharId(), ai: false },
+    { name: (() => {
+      const avail = availableCharacters();
+      const c = avail[1] || avail[0];
+      return defaultNameFor(c ? c.id : defaultCharId());
+    })(), charId: (() => {
+      const avail = availableCharacters();
+      return (avail[1] && avail[1].id) || defaultCharId();
+    })(), ai: false },
   ]);
 
   // ── Game loop state ────────────────────────────────────────────────────────
@@ -1022,9 +1014,9 @@
       if (humansPlayed) {
         winRec = Records.recordWin(active.length ? active[0].name : null);
         renderRecordsPanel();
-        // Skin unlock ladder: each edition's `unlock` is a total-win threshold
-        // (see skins.js META). Check every skin, not just one — a device that
-        // jumps several wins at once can cross more than one threshold here.
+        // Character unlock ladder: each character's `unlock` is a total-win
+        // threshold (every 3 wins). Crossing multiple thresholds in one game
+        // grants every newly earned character.
         if (active.length && window.Skins) {
           const wins = Records.totalWins();
           const newlyUnlocked = Skins.list().filter((s) => {
@@ -1033,7 +1025,7 @@
           });
           if (newlyUnlocked.length) {
             const names = newlyUnlocked.map((s) => `${s.emoji} ${s.name}`).join(', ');
-            showToast(`${names} unlocked! Pick per player in setup.`);
+            showToast(`${names} unlocked! Pick a new color in setup.`);
             try { renderFrom(readRows()); } catch (_) {}
           }
         }
@@ -1262,15 +1254,14 @@
 
   function onlinePlayerFromSetup() {
     const rows = readRows();
-    const r0 = rows[0] || { name: '', flavor: 0, skin: BASE_SKIN };
+    const r0 = rows[0] || { name: '', charId: defaultCharId() };
+    const charId = FORCE_SKIN || r0.charId || defaultCharId();
     const name = (onlineNameEl && onlineNameEl.value.trim()) ||
-      (r0.name || '').trim() || defaultNameFor(r0.skin || BASE_SKIN, r0.flavor || 0);
-    const flavor = Math.min(FLAVORS.length - 1, Math.max(0, r0.flavor || 0));
+      (r0.name || '').trim() || defaultNameFor(charId);
     return {
       name,
-      flavor,
-      color: FLAVORS[flavor].color,
-      skin: FORCE_SKIN || r0.skin || BASE_SKIN,
+      color: charColor(charId),
+      skin: charId,
     };
   }
 
@@ -1303,7 +1294,7 @@
       onlineLobby.classList.add('hidden');
       if (onlineNameEl && !onlineNameEl.value) {
         const r0 = readRows()[0];
-        onlineNameEl.value = (r0 && r0.name) || FLAVORS[0].name;
+        onlineNameEl.value = (r0 && r0.name) || defaultNameFor(defaultCharId());
       }
     });
 
@@ -1419,12 +1410,7 @@
   renderRecordsPanel();
 
   // ── Secret: tap the title 5× fast ──────────────────────────────────────────
-  // A toggle. With anything still locked it unlocks every edition at once (for
-  // showing the whole set off without grinding 100 wins); with everything
-  // already unlocked it wipes the ladder back to zero — fresh collection, win
-  // counter at 0 — so the same gesture undoes itself. The title is a safe
-  // target: nothing else is bound to it, and 5 taps inside 2s won't happen by
-  // accident.
+  // Unlock every character at once (demo) or wipe progress back to bottle.
   const titleEl = setupScreen.querySelector('h1');
   if (titleEl) {
     let taps = [];
@@ -1444,12 +1430,11 @@
         return;
       }
       Records.resetSkinProgress();
-      // Any row riding a now-locked edition drops back to the bottle; its
-      // auto-filled name follows, but a custom-typed name is kept.
       const defs = readRows().map((d) => {
-        if (Records.isSkinUnlocked(d.skin)) return d;
-        const wasDefault = !d.name.trim() || d.name.trim() === defaultNameFor(d.skin, d.flavor);
-        return { ...d, skin: BASE_SKIN, name: wasDefault ? FLAVORS[d.flavor].name : d.name };
+        const id = d.charId || defaultCharId();
+        if (Records.isSkinUnlocked(id) || id === BASE_SKIN) return d;
+        const wasDefault = !d.name.trim() || d.name.trim() === defaultNameFor(id);
+        return { ...d, charId: BASE_SKIN, name: wasDefault ? defaultNameFor(BASE_SKIN) : d.name };
       });
       showToast('🔒 Secret! Progress wiped — earn it all back.');
       renderFrom(defs);

@@ -2,7 +2,7 @@
 // Bump CACHE_NAME on every release so stale caches are purged and users get
 // the fresh build. All paths are RELATIVE so they resolve under /flipgame/
 // on GitHub Pages (the SW lives at repo root → scope is /flipgame/).
-const CACHE_NAME = 'flipgame-v67';
+const CACHE_NAME = 'flipgame-v68';
 
 const PRECACHE_URLS = [
   './',
@@ -97,6 +97,54 @@ const PRECACHE_URLS = [
   './icons/skins/alien/ff7a00.png',
   './icons/skins/alien/ff9ecf.png',
   './icons/skins/alien/ffc233.png',
+  './icons/skins/garden/1f9bff.png',
+  './icons/skins/garden/3fae1a.png',
+  './icons/skins/garden/4f63e0.png',
+  './icons/skins/garden/5fcfe6.png',
+  './icons/skins/garden/8a3ffc.png',
+  './icons/skins/garden/8ed11a.png',
+  './icons/skins/garden/c8203a.png',
+  './icons/skins/garden/e3263c.png',
+  './icons/skins/garden/ff5b86.png',
+  './icons/skins/garden/ff7a00.png',
+  './icons/skins/garden/ff9ecf.png',
+  './icons/skins/garden/ffc233.png',
+  './icons/skins/robots/1f9bff.png',
+  './icons/skins/robots/3fae1a.png',
+  './icons/skins/robots/4f63e0.png',
+  './icons/skins/robots/5fcfe6.png',
+  './icons/skins/robots/8a3ffc.png',
+  './icons/skins/robots/8ed11a.png',
+  './icons/skins/robots/c8203a.png',
+  './icons/skins/robots/e3263c.png',
+  './icons/skins/robots/ff5b86.png',
+  './icons/skins/robots/ff7a00.png',
+  './icons/skins/robots/ff9ecf.png',
+  './icons/skins/robots/ffc233.png',
+  './icons/skins/ocean/1f9bff.png',
+  './icons/skins/ocean/3fae1a.png',
+  './icons/skins/ocean/4f63e0.png',
+  './icons/skins/ocean/5fcfe6.png',
+  './icons/skins/ocean/8a3ffc.png',
+  './icons/skins/ocean/8ed11a.png',
+  './icons/skins/ocean/c8203a.png',
+  './icons/skins/ocean/e3263c.png',
+  './icons/skins/ocean/ff5b86.png',
+  './icons/skins/ocean/ff7a00.png',
+  './icons/skins/ocean/ff9ecf.png',
+  './icons/skins/ocean/ffc233.png',
+  './icons/skins/snacks/1f9bff.png',
+  './icons/skins/snacks/3fae1a.png',
+  './icons/skins/snacks/4f63e0.png',
+  './icons/skins/snacks/5fcfe6.png',
+  './icons/skins/snacks/8a3ffc.png',
+  './icons/skins/snacks/8ed11a.png',
+  './icons/skins/snacks/c8203a.png',
+  './icons/skins/snacks/e3263c.png',
+  './icons/skins/snacks/ff5b86.png',
+  './icons/skins/snacks/ff7a00.png',
+  './icons/skins/snacks/ff9ecf.png',
+  './icons/skins/snacks/ffc233.png',
 ];
 
 self.addEventListener('install', (event) => {

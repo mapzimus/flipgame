@@ -1722,176 +1722,285 @@ ${crown}
     drawPngSprite(ctx, 'pets', opts.color || '#1f9bff');
   }
 
-  // ── Registry ────────────────────────────────────────────────────────────────
-  // Add a new edition by pushing META + a drawFns entry. `unlock`: null = always
-  // available; a number = unlocked once Records.totalWins() reaches it.
-  const META = [
-    { id: 'bottle', name: 'Bottle', emoji: '🍾', unlock: null },
-    {
-      id: 'parrot', name: 'Parrot', emoji: '🦜', unlock: 1,
-      // Default player names for this skin, aligned BY INDEX to the base
-      // engine's FLAVORS array (js/main.js) — so switching skins swaps the
-      // auto-filled name without touching which color/flavor is selected.
-      // A skin with no `names` just falls back to the flavor name.
-      names: [
-        'Stormy Beak', 'Captain Squawk', 'Limey Lorikeet', 'Cannonball Cal',
-        'Sir Chirpsalot', 'Whisper Wing', 'Barnacle Bill', 'Pegleg Polly',
-        'Riptide Rover', 'Doubloon Dave', 'Cherry Corsair', 'Berry Bandit',
-      ],
-    },
-    // Pun-forward plumbing heroics.
-    { id: 'plunger', name: 'Plunger', emoji: '🪠', unlock: 3, names: [
-      'Flush Gordon', 'Plumb Fiction', 'Lime Clogzilla', 'Sir Plungelot',
-      'Count Suckula', 'Cold Plunge', 'Drain Bramage', 'Plungerella',
-      'The Unclogger', 'Potty Trained', 'Cherry Bomb', 'Loo-Tenant',
-    ] },
-    // B-movie monster casting sheet.
-    { id: 'trex', name: 'T-Rex', emoji: '🦖', unlock: 5, names: [
-      'Tea Rex', 'Jurassic Mark', 'Veloci-rapper', 'Tiny Arms Tony',
-      'Grape Chompsky', 'Chillasaurus', 'Applesaurus', 'Sue Nami',
-      'Dino Mite', 'Rexcalibur', 'Pit Spitter', 'Berry-dactyl',
-    ] },
-    // Everything that has ever gone wrong at a vending machine.
-    { id: 'vending', name: 'Vending Machine', emoji: '🥤', unlock: 7, names: [
-      'Ven Diesel', 'Vendetta', 'Vend Diagram', 'Quarter Back',
-      'Snacky Chan', 'Out of Order', 'Snack Overflow', 'Insert Coin',
-      'Press B4', 'Exact Change', 'Jammed Cherry', 'Snackzilla',
-    ] },
-    // Tropical, spiky, and extremely pleased about both.
-    { id: 'pineapple', name: 'Pineapple', emoji: '🍍', unlock: 9, names: [
-      'Piña Colossus', 'Spike Lee', 'Sir Prickles', 'Tropic Thunder',
-      'Juice Springsteen', 'Crown Jewel', 'Fine-apple', 'Pokey Dokey',
-      'Sweet & Spiky', 'Hula Hooper', 'Cherry on Top', 'Upside-Down Cake',
-    ] },
-    // 400 pounds of gym membership.
-    { id: 'gorilla', name: 'Gorilla', emoji: '🦍', unlock: 11, names: [
-      'Hairy Styles', 'King Wrong', 'Chest Thumper', 'Banana Split',
-      'Grape Ape', 'Chill Gorilla', 'Silverback Sam', 'Monkey Business',
-      'Gorilla Warfare', 'Kong Fu', 'Jungle Gym', 'Ape Lincoln',
-    ] },
-    // The twelve-figure cast — held just before Landmarks because it's the
-    // biggest ordinary unlock before the landmark set.
-    // One name per figure — this edition's sprite changes with the color, so
-    // the names are matched to the PERSONS costume at the same index:
-    // astronaut, pirate, army man, builder, wizard, diver, chef, dancer,
-    // hero, cowpoke, firefighter, clown.
-    { id: 'people', name: 'People', emoji: '🧑‍🚀', unlock: 13, names: [
+  // ── Unified character roster ───────────────────────────────────────────────
+  // One unlock = one character. Setup is only color/character swatches — no
+  // separate People/Buildings/Pets edition picker. Each entry paints via
+  // `drawAs` (the old edition drawer) using `tint` (cast key / color).
+  // Unlock cadence: free bottle, then every 3 wins; Alien species are LAST.
+  const ALIEN_PHYSICS = {
+    gravity: 1.28,
+    frictionAir: 0.0045,
+    friction: 0.02,
+    restitution: 0.90,
+    spinScale: 0.7,
+    launchScale: 1.50,
+    horizDivisor: 140,
+    horizMax: 15,
+    wallBounce: 0.96,
+    ceiling: true,
+    floorResolve: true,
+    landOnTarget: true,
+    targetHalfWidth: 64,
+    requireFlip: false,
+    deflector: true,
+    deflectorCount: 3,
+    saucerCount: 6,
+    keepWalls: true,
+    minHorizRatio: 0.15,
+    strictTarget: false,
+    allowSlideIn: true,
+    hitScale: 0.78,
+  };
+
+  // Tall landmarks only (wide temples/palaces dropped — user request).
+  const TALL_BUILDING_HEXES = [
+    '#1f9bff', // Eiffel
+    '#e3263c', // Big Ben
+    '#8ed11a', // Liberty
+    '#5fcfe6', // Empire State
+    '#ff5b86', // Pisa
+    '#ffc233', // Redeemer
+    '#c8203a', // St. Basil
+    '#ff9ecf', // Pagoda
+  ];
+
+  function buildCharacters() {
+    const out = [];
+    const add = (c) => out.push(c);
+
+    // Classic single-object flippers (tint = player color).
+    [
+      { id: 'bottle', name: 'Bottle', emoji: '🍾', drawAs: 'bottle', tint: '#1f9bff' },
+      { id: 'parrot', name: 'Stormy Beak', emoji: '🦜', drawAs: 'parrot', tint: '#e3263c' },
+      { id: 'plunger', name: 'Flush Gordon', emoji: '🪠', drawAs: 'plunger', tint: '#8ed11a' },
+      { id: 'trex', name: 'Tea Rex', emoji: '🦖', drawAs: 'trex', tint: '#ff7a00' },
+      { id: 'vending', name: 'Ven Diesel', emoji: '🥤', drawAs: 'vending', tint: '#8a3ffc' },
+      { id: 'pineapple', name: 'Piña Colossus', emoji: '🍍', drawAs: 'pineapple', tint: '#5fcfe6' },
+      { id: 'gorilla', name: 'Hairy Styles', emoji: '🦍', drawAs: 'gorilla', tint: '#3fae1a' },
+    ].forEach(add);
+
+    const peopleNames = [
       'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
       'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
       'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
-    ] },
-    // Twelve famous landmarks — one silhouette per player colour (see BUILDING_CAST).
-    // Names are the real landmarks, index-aligned to FLAVORS / BUILDING_CAST.
-    { id: 'buildings', name: 'Buildings', emoji: '🏛️', unlock: 15, names: [
-      'Eiffel Tower', 'Big Ben', 'Statue of Liberty', 'Taj Mahal',
-      'Sydney Opera House', 'Empire State', 'Great Pyramid', 'Leaning Tower',
-      'Parthenon', 'Christ the Redeemer', "St. Basil's", 'Pagoda',
-    ] },
-    // ── Mid-ladder pantheon. Twelve deities, one per colour (see GOD_CAST). ──
-    // Normal flip physics — same sport as the bottle. Alien (below) is the
-    // only edition that changes the game rules.
-    {
-      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 25,
-      names: [
-        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
-        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
-        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
-      ],
-    },
-    // Mid-ladder PNG casts (AI-rendered vinyl figures under icons/skins/<id>/).
-    // Paint-only; normal flip physics. Pets = mixed household animals (not cats-only).
-    {
-      id: 'pets', name: 'Pets', emoji: '🐾', unlock: 35,
-      names: [
-        'Purrlock Holmes', 'Good Boy Gary', 'Hare Today', 'Fin-tastic',
-        'Ham Solo', 'Chirp Norris', 'Shell Yeah', 'Piggie Smalls',
-        'Ferret Bueller', 'Corgi Board', 'Bow Tie Bill', 'Lots of Lox',
-      ],
-    },
-    // Cryptids first (sprites under icons/skins/cryptids/). More casts land as
-    // their sprite folders ship — see HANDOFF character pipeline.
-    {
-      id: 'cryptids', name: 'Cryptids', emoji: '🦶', unlock: 75,
-      names: [
-        'Big Softie', 'Nessie Business', 'Mothman Monday', 'Chupa-cuppa',
-        'Jersey Fresh', 'Snowball Chance', 'Jacka-lope Hope', 'Thunder Buddy',
-        'Flatwoods Friendly', 'Kraken Me Up', 'Bunyip Yap', 'Nightcrawler Pete',
-      ],
-    },
-    // ── The 100-win capstone. The ONLY non-flip edition. ─────────────────────
-    // Bank shot instead of a 360° flip, AND a twelve-species cast (see
-    // ALIEN_CAST) — each player colour summons a different looking alien.
-    // v66: pad / hit zone / aim eased so bank shots feel fairer; unlock moved
-    // to 100 to leave room for mid-ladder casts (see HANDOFF character pipeline).
-    {
-      id: 'alien', name: 'Alien', emoji: '👽', unlock: 100,
-      physics: {
-        gravity: 1.28,
-        frictionAir: 0.0045,    // a hair more drag — slightly calmer caroms
-        friction: 0.02,
-        restitution: 0.90,
-        spinScale: 0.7,
-        launchScale: 1.50,
-        horizDivisor: 140,      // a bit more sideways aim authority
-        horizMax: 15,
-        wallBounce: 0.96,
-        ceiling: true,
-        floorResolve: true,     // first floor contact IS the landing
-        landOnTarget: true,
-        targetHalfWidth: 64,    // v67: tiny bump from 58 — more readable make zone
-        requireFlip: false,     // aim, not rotation
-        deflector: true,
-        deflectorCount: 3,
-        saucerCount: 6,
-        keepWalls: true,        // bank shot needs walls even on mobile
-        minHorizRatio: 0.15,    // less forced sideways than before
-        strictTarget: false,    // any overlap with the scored radius counts
-        allowSlideIn: true,     // can still slide into the hit zone
-        hitScale: 0.78,         // v67: slightly more of the pad scores
-      },
-      names: [
-        // Index-aligned to FLAVORS / ALIEN_CAST: Grey, Greenie, Mantid, Cyclops,
-        // Cephalopod, Nordic, Reptilian, Blob, Android, Conehead, Trioptic, Fluff.
-        'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
-        'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
-        'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
-      ],
-    },
-  ];
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      const hex = '#' + h;
+      const label = (PERSONS[hex] && PERSONS[hex].label) || ('person-' + i);
+      add({
+        id: 'people-' + String(label).replace(/\s+/g, '-'),
+        name: peopleNames[i] || label,
+        emoji: '🧑',
+        drawAs: 'people',
+        tint: hex,
+      });
+    });
+
+    const buildingNames = {
+      '#1f9bff': 'Eiffel Tower', '#e3263c': 'Big Ben', '#8ed11a': 'Statue of Liberty',
+      '#5fcfe6': 'Empire State', '#ff5b86': 'Leaning Tower', '#ffc233': 'Christ the Redeemer',
+      '#c8203a': "St. Basil's", '#ff9ecf': 'Pagoda',
+    };
+    TALL_BUILDING_HEXES.forEach((hex) => {
+      const label = (BUILDING_CAST[hex] && BUILDING_CAST[hex].label) || hex.slice(1);
+      add({
+        id: 'building-' + label,
+        name: buildingNames[hex] || label,
+        emoji: '🏙️',
+        drawAs: 'buildings',
+        tint: hex,
+      });
+    });
+
+    const godNames = [
+      'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
+      'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
+      'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      const hex = '#' + h;
+      const label = (GOD_CAST[hex] && GOD_CAST[hex].label) || ('god-' + i);
+      add({
+        id: 'gods-' + String(label).replace(/\s+/g, '-'),
+        name: godNames[i] || label,
+        emoji: '⚡',
+        drawAs: 'gods',
+        tint: hex,
+      });
+    });
+
+    const petNames = [
+      'Purrlock Holmes', 'Good Boy Gary', 'Hare Today', 'Fin-tastic',
+      'Ham Solo', 'Chirp Norris', 'Shell Yeah', 'Piggie Smalls',
+      'Ferret Bueller', 'Corgi Board', 'Bow Tie Bill', 'Lots of Lox',
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      add({ id: 'pets-' + h, name: petNames[i], emoji: '🐾', drawAs: 'pets', tint: '#' + h });
+    });
+
+    const gardenNames = [
+      'Sunny Side', 'You Say Tomato', 'Fun-gi', 'Prickly Pal',
+      'What’s Up Doc', 'Berry Good', 'Broccoli Rob', 'Pumpkin Spice',
+      'Rosebud', 'A-maize-ing', 'Guac and Roll', 'Hot Stuff',
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      add({ id: 'garden-' + h, name: gardenNames[i], emoji: '🌻', drawAs: 'garden', tint: '#' + h });
+    });
+
+    const robotNames = [
+      'Toast of the Town', 'Vacuum Packed', 'Boombox Hero', 'Tin Can Alley',
+      'Spin Cycle', 'Blend It Like Beckham', 'Channel Surfer', 'Calc This',
+      'Drone Alone', 'Snooze Button', 'Nuke It', 'Lamp Shade',
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      add({ id: 'robots-' + h, name: robotNames[i], emoji: '🤖', drawAs: 'robots', tint: '#' + h });
+    });
+
+    const oceanNames = [
+      'Whale Hello', 'Flipper Dipper', 'Shark Week', 'Inkredible',
+      'Crab Apple', 'Sea Horse Power', 'Finding Funny', 'Shell Shock',
+      'Lobster Roll', 'Star Fishin’', 'Jelly Belly', 'Narwhal of Fame',
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      add({ id: 'ocean-' + h, name: oceanNames[i], emoji: '🌊', drawAs: 'ocean', tint: '#' + h });
+    });
+
+    const snackNames = [
+      'Hole-y Donut', 'Taco ‘Bout It', 'Twist & Shout', 'Juice Loose',
+      'Slice of Life', 'Tough Cookie', 'Ice Ice Creamy', 'Pop Star',
+      'Frankly My Dear', 'Cupcake Boss', 'Chip Happens', 'Candy Crush…ed',
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      add({ id: 'snacks-' + h, name: snackNames[i], emoji: '🍩', drawAs: 'snacks', tint: '#' + h });
+    });
+
+    const cryptidNames = [
+      'Big Softie', 'Nessie Business', 'Mothman Monday', 'Chupa-cuppa',
+      'Jersey Fresh', 'Snowball Chance', 'Jacka-lope Hope', 'Thunder Buddy',
+      'Flatwoods Friendly', 'Kraken Me Up', 'Bunyip Yap', 'Nightcrawler Pete',
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      add({ id: 'cryptids-' + h, name: cryptidNames[i], emoji: '🦶', drawAs: 'cryptids', tint: '#' + h });
+    });
+
+    // Capstone bank-shot cast — ALWAYS last so Alien is the final unlock tier.
+    const alienNames = [
+      'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
+      'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
+      'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
+    ];
+    FLAVOR_HEXES.forEach((h, i) => {
+      add({
+        id: 'alien-' + h,
+        name: alienNames[i],
+        emoji: '👽',
+        drawAs: 'alien',
+        tint: '#' + h,
+        physics: ALIEN_PHYSICS,
+      });
+    });
+
+    // Assign swatch color (= tint) + every-3-wins unlock index.
+    out.forEach((c, i) => {
+      c.color = c.tint;
+      c.unlock = i === 0 ? null : i * 3;
+    });
+    return out;
+  }
+
+  const CHARACTERS = buildCharacters();
+  const CHAR_BY_ID = Object.create(null);
+  for (const c of CHARACTERS) CHAR_BY_ID[c.id] = c;
+
+  // Legacy edition ids → character ids (migration for older saves).
+  const EDITION_TO_CHARS = {
+    bottle: ['bottle'], parrot: ['parrot'], plunger: ['plunger'], trex: ['trex'],
+    vending: ['vending'], pineapple: ['pineapple'], gorilla: ['gorilla'],
+    people: CHARACTERS.filter((c) => c.drawAs === 'people').map((c) => c.id),
+    buildings: CHARACTERS.filter((c) => c.drawAs === 'buildings').map((c) => c.id),
+    gods: CHARACTERS.filter((c) => c.drawAs === 'gods').map((c) => c.id),
+    pets: CHARACTERS.filter((c) => c.drawAs === 'pets').map((c) => c.id),
+    cryptids: CHARACTERS.filter((c) => c.drawAs === 'cryptids').map((c) => c.id),
+    alien: CHARACTERS.filter((c) => c.drawAs === 'alien').map((c) => c.id),
+    garden: CHARACTERS.filter((c) => c.drawAs === 'garden').map((c) => c.id),
+    robots: CHARACTERS.filter((c) => c.drawAs === 'robots').map((c) => c.id),
+    ocean: CHARACTERS.filter((c) => c.drawAs === 'ocean').map((c) => c.id),
+    snacks: CHARACTERS.filter((c) => c.drawAs === 'snacks').map((c) => c.id),
+  };
+
+  function character(id) {
+    return CHAR_BY_ID[id] || null;
+  }
+  function resolveDraw(id) {
+    const c = character(id);
+    if (c) return c.drawAs;
+    return id; // legacy edition id
+  }
+
+  function drawGarden(ctx, opts) { drawPngSprite(ctx, 'garden', opts.color || '#1f9bff'); }
+  function drawRobots(ctx, opts) { drawPngSprite(ctx, 'robots', opts.color || '#1f9bff'); }
+  function drawOcean(ctx, opts) { drawPngSprite(ctx, 'ocean', opts.color || '#1f9bff'); }
+  function drawSnacks(ctx, opts) { drawPngSprite(ctx, 'snacks', opts.color || '#1f9bff'); }
+
   const drawFns = {
     parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,
     vending: drawVend, people: drawPeople, alien: drawAlien,
     pineapple: drawPineapple, gorilla: drawGorilla, buildings: drawBuildings,
     gods: drawGods, cryptids: drawCryptids, pets: drawPets,
+    garden: drawGarden, robots: drawRobots, ocean: drawOcean, snacks: drawSnacks,
   };   // 'bottle' is drawn by renderer.js
 
   // ── Per-deployment branding ────────────────────────────────────────────────
   // A branded port sets window.FLIP_BRAND before the scripts load. Setting
-  // `baseSkin` makes a different edition the free one by SWAPPING its unlock
-  // slot with the bottle's — so Parrot Flip starts on the parrot and earns the
-  // bottle at 1 win, while everything else about the ladder is untouched.
+  // `baseSkin` makes a different character the free one by SWAPPING its unlock
+  // slot with the bottle's.
   const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
   const BASE_SKIN = BRAND.baseSkin || 'bottle';
   if (BASE_SKIN !== 'bottle') {
-    const a = META.find((m) => m.id === BASE_SKIN);
-    const b = META.find((m) => m.id === 'bottle');
+    const a = character(BASE_SKIN);
+    const b = character('bottle');
     if (a && b) { const t = a.unlock; a.unlock = b.unlock; b.unlock = t; }
   }
 
   return {
     baseSkin: () => BASE_SKIN,
-    list: () => META.slice(),
-    metaFor: (id) => META.find((m) => m.id === id) || null,
-    unlockRule: (id) => (META.find((m) => m.id === id) || {}).unlock ?? null,
-    namesFor: (id) => (META.find((m) => m.id === id) || {}).names || null,
-    // null for a plain reskin; a profile object for an edition that changes the
-    // rules (see physics.js setProfile).
-    physicsFor: (id) => (META.find((m) => m.id === id) || {}).physics || null,
-    hasDraw: (id) => !!drawFns[id],
-    draw: (ctx, id, opts) => { const f = drawFns[id]; if (f) f(ctx, opts || {}); },
+    list: () => CHARACTERS.slice(),
+    character,
+    metaFor: (id) => character(id),
+    unlockRule: (id) => {
+      const c = character(id);
+      return c ? c.unlock : null;
+    },
+    namesFor: () => null, // names live on each character now
+    physicsFor: (id) => {
+      const c = character(id);
+      if (c) return c.physics || null;
+      return null;
+    },
+    editionChars: (edition) => (EDITION_TO_CHARS[edition] || []).slice(),
+    hasDraw: (id) => {
+      const drawAs = resolveDraw(id);
+      return drawAs !== 'bottle' && !!drawFns[drawAs];
+    },
+    draw: (ctx, id, opts) => {
+      const c = character(id);
+      const drawAs = c ? c.drawAs : id;
+      const f = drawFns[drawAs];
+      if (!f) return;
+      const color = (c && c.tint) || (opts && opts.color) || '#1f9bff';
+      f(ctx, Object.assign({}, opts || {}, { color }));
+    },
+    drawAs: resolveDraw,
+    tintFor: (id) => {
+      const c = character(id);
+      return (c && c.tint) || null;
+    },
     onSpriteLoad,
     preload: (colors) => {
-      for (const c of colors || []) {
+      const tints = (colors && colors.length)
+        ? colors
+        : FLAVOR_HEXES.map((h) => '#' + h);
+      for (const c of tints) {
         getParrotSprite(c);
         getSingleSprite('plunger', c, plungerPalette(c), plungerBodySVG);
         getSingleSprite('trex', c, trexPalette(c), trexBodySVG);
@@ -1903,12 +2012,8 @@ ${crown}
         getSingleSprite('gods', c, godPalette(c), godBodySVG);
         getSingleSprite('buildings', c, buildingPalette(c), buildingBodySVG);
       }
-      preloadPngEdition('cryptids', colors);
-      preloadPngEdition('pets', colors);
-      preloadPngEdition('people', colors);
-      preloadPngEdition('gods', colors);
-      preloadPngEdition('buildings', colors);
-      preloadPngEdition('alien', colors);
+      ['cryptids', 'pets', 'people', 'gods', 'buildings', 'alien',
+        'garden', 'robots', 'ocean', 'snacks'].forEach((ed) => preloadPngEdition(ed, tints));
     },
   };
 })();

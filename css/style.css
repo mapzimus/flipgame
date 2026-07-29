@@ -145,12 +145,14 @@ html, body {
 }
 .ai-toggle.cpu { background: rgba(255,179,0,0.22); border-color: var(--heat); color: var(--heat); }
 
-/* Flavor swatches */
+/* Character swatches (one unlock = one color/character) */
 .flavor-picker {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
   padding-left: 42px;
+  max-height: 96px;
+  overflow-y: auto;
 }
 .flavor-swatch {
   width: 26px;
@@ -160,6 +162,7 @@ html, body {
   cursor: pointer;
   padding: 0;
   transition: transform 0.12s, border-color 0.12s;
+  flex: 0 0 auto;
 }
 .flavor-swatch:hover { transform: scale(1.12); }
 .flavor-swatch.selected {
@@ -168,31 +171,8 @@ html, body {
   transform: scale(1.15);
 }
 
-/* ── Skin picker (bottle / parrot / …) — appears once an edition is unlocked ── */
-.skin-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding-left: 42px;
-  margin-top: 7px;
-}
-.skin-choice {
-  padding: 4px 11px;
-  border-radius: 999px;
-  border: 2px solid rgba(255,255,255,0.22);
-  background: rgba(255,255,255,0.06);
-  color: #e8eef5;
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: transform 0.12s, border-color 0.12s, background 0.12s;
-}
-.skin-choice:hover { transform: scale(1.06); }
-.skin-choice.selected {
-  border-color: #ffd166;
-  background: rgba(255,209,102,0.16);
-  box-shadow: 0 0 8px rgba(255,209,102,0.35);
-}
+/* Legacy edition picker removed — characters are the colors now. */
+.skin-picker, .skin-choice { display: none !important; }
 
 /* ── Unlock toast ── */
 #skin-toast {
