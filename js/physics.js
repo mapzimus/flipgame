@@ -38,6 +38,11 @@ const Physics = (() => {
   //
   // v54: ~10% more forgiving upright / settle thresholds so normal flips (esp.
   // on mobile open-arena, where wall caroms no longer bail you out) feel fairer.
+  //
+  // v65: "grounded" must use the body's AABB bottom (bounds.max.y), NOT the
+  // center of mass. An upside-down bottle rests on its neck with COM ~114px
+  // above the floor — the old `position.y >= groundY - 80` check never saw it
+  // as grounded, so the miss-cap never fired and EVALUATING soft-locked forever.
   const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
   const SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
   const MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
@@ -47,8 +52,10 @@ const Physics = (() => {
                                  // so this fires on ~every make at any value.
   const FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
   const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
+  const ABS_MISS_FRAMES = 600;   // ~10s after leaving the floor → forced MISS no matter what
   const SETTLE_ANG_VEL  = 0.010; // "at rest" spin threshold
   const SETTLE_LIN_SPD  = 7.2;   // "at rest" slide threshold
+  const GROUND_TOUCH_PX = 6;     // AABB bottom within this of groundY = touching floor
 
   // ── Seeded PRNG (mulberry32) ───────────────────────────────────────────────
   // All in-flight randomness (launch jitter + landing kick + pad placement)
@@ -129,6 +136,7 @@ const Physics = (() => {
   let floorTouched = false; // bounce mode: first touchdown happened (slide window open)
   let slideFrames = 0;      // frames spent in the post-touchdown slide window
   let maxGroundedTilt = 0;  // display-only: worst |tilt| seen while grounded this flip
+  let flightFrames = 0;     // frames since the bottle left the floor (absolute soft-lock guard)
 
   function wantsOpenArena() {
     if (profile.keepWalls || profile.wallBounce > 0) return false;
@@ -384,12 +392,16 @@ const Physics = (() => {
     return result;
   }
 
+  function touchingFloor() {
+    return !!bottle && bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX;
+  }
+
   function checkLanding() {
     if (!bottle) return null;
 
     // Bounce mode: first contact / slide-on is the verdict (alien profile).
     if (profile.floorResolve && launched && wasAirborne) {
-      const grounded = bottle.bounds.max.y >= groundY - 6;
+      const grounded = touchingFloor();
 
       if (!floorTouched) {
         if (bottle.bounds.max.y < groundY - 2) return null;
@@ -414,9 +426,18 @@ const Physics = (() => {
       return null;
     }
 
+    // Absolute soft-lock guard: once the bottle has left the floor, something
+    // MUST resolve within ~10s (off-world, perpetual bounce, etc.).
+    if (launched && wasAirborne) {
+      flightFrames++;
+      if (flightFrames > ABS_MISS_FRAMES) return recordLanding('MISS', null, 'timeout');
+    }
+
     const angVel   = Math.abs(bottle.angularVelocity);
     const linSpeed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
-    const grounded = bottle.position.y >= groundY - 80;
+    // Touch the table via AABB bottom — COM can sit well above the floor when
+    // the bottle is inverted on its neck / resting on a tall corner.
+    const grounded = touchingFloor();
 
     if (!grounded) {
       groundedFrames = 0;
@@ -540,6 +561,7 @@ const Physics = (() => {
     floorTouched   = false;
     slideFrames    = 0;
     maxGroundedTilt = 0;
+    flightFrames   = 0;
     liquid.reset();
     acc = 0;
 
@@ -597,6 +619,9 @@ const Physics = (() => {
     launchAngle = bottle.angle;
     launched = true;
     wasAirborne = false;
+    flightFrames = 0;
+    groundedFrames = 0;
+    angleWin = [];
     lastLandingInfo = null;
     Body.setVelocity(bottle, { x: launchX, y: launchY });
     Body.setAngularVelocity(bottle, spin);
