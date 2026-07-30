@@ -15,11 +15,11 @@ const Physics = (() => {
   let sideWallsEnabled = true;
   let openArena = false;  // mobile open sides (no wall caroms)
 
-  // Spin tuning (rad/step) — see applyFlick. Single sweet spot near 1 turn:
-  // soft flick under-rotates (<360, fails), medium ≈ one clean turn (make),
-  // hard overshoots. v76: widen the make window — landings felt too stingy.
-  const SPIN_BASE   = 0.128;  // soft flick more often clears 360°
-  const SPIN_RANGE  = 0.112;  // flatter curve → wider sweet spot
+  // Spin tuning (rad/step) — see applyFlick. Normal throws should usually land
+  // if you give a decent flick; only wild overshoots tip. v78: cut high-end
+  // over-rotation (hard flicks were falling ~70% of the time).
+  const SPIN_BASE   = 0.130;  // soft flick still clears ~360°
+  const SPIN_RANGE  = 0.088;  // much flatter — hard flicks don't tip as often
   const POWER_SPEED = 4000;   // flick px/s that maps to full power
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
   const FIXED_DT    = 1 / 60; // multiplayer-safe fixed physics step
@@ -35,24 +35,16 @@ const Physics = (() => {
   // resolves within MISS_CAP_FRAMES (the glitch / teeter-stall fallback) do we
   // force a MISS so a turn can never soft-lock in EVALUATING.
   //
-  // v54: ~10% more forgiving upright / settle thresholds so normal flips (esp.
-  // on mobile open-arena, where wall caroms no longer bail you out) feel fairer.
-  //
-  // v65: "grounded" must use the body's AABB bottom (bounds.max.y), NOT the
-  // center of mass. An upside-down bottle rests on its neck with COM ~114px
-  // above the floor — the old `position.y >= groundY - 80` check never saw it
-  // as grounded, so the miss-cap never fired and EVALUATING soft-locked forever.
-  //
-  // v76: another ease — wider upright cone, quicker settle, less jitter.
-  const SETTLE_FRAMES   = 16;    // frames of stillness required to read the pose
-  const SETTLE_RANGE    = 0.048; // rad — max angle spread across that window
-  const MAKE_ANGLE      = 0.85;  // ≤±~49° upright = MAKE
-  const PERFECT_ANGLE   = 0.20;  // perfect-landing flair
-  const FALLEN_ANGLE    = 1.35;  // ≥~77° tilt = toppled past recovery → certain MISS
+  // v78: normal throws — generous upright cone + softer settle / landing kick.
+  const SETTLE_FRAMES   = 14;    // frames of stillness required to read the pose
+  const SETTLE_RANGE    = 0.055; // rad — max angle spread across that window
+  const MAKE_ANGLE      = 1.00;  // ≤±~57° upright = MAKE (was feeling stingy)
+  const PERFECT_ANGLE   = 0.22;  // perfect-landing flair
+  const FALLEN_ANGLE    = 1.40;  // ≥~80° tilt = toppled past recovery → certain MISS
   const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
   const ABS_MISS_FRAMES = 600;   // ~10s after leaving the floor → forced MISS no matter what
-  const SETTLE_ANG_VEL  = 0.016; // "at rest" spin threshold
-  const SETTLE_LIN_SPD  = 9.0;   // "at rest" slide threshold
+  const SETTLE_ANG_VEL  = 0.018; // "at rest" spin threshold
+  const SETTLE_LIN_SPD  = 10.0;  // "at rest" slide threshold
   const GROUND_TOUCH_PX = 6;     // AABB bottom within this of groundY = touching floor
 
   // ── Seeded PRNG (mulberry32) ───────────────────────────────────────────────
@@ -589,9 +581,9 @@ const Physics = (() => {
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
 
-    const jSpin   = 1 + (rand() - 0.5) * 0.15;   // less spin chaos
-    const jLaunch = 1 + (rand() - 0.5) * 0.08;   // less height chaos
-    const jDrift  = (rand() - 0.5) * 1.5;        // less sideways chaos
+    const jSpin   = 1 + (rand() - 0.5) * 0.10;   // mild spin chaos
+    const jLaunch = 1 + (rand() - 0.5) * 0.06;   // mild height chaos
+    const jDrift  = (rand() - 0.5) * 1.1;        // mild sideways chaos
 
     // Slightly lower arcs than the "harder/higher/wilder" feel (was 16 + power*5).
     const launchY = -(15.2 + power * 4.7) * jLaunch * profile.launchScale;
@@ -637,10 +629,11 @@ const Physics = (() => {
 
     // Landing kick is for normal flips (liquid slosh punch). Bank-shot editions
     // accumulate "hasFlipped" from wall caroms and must not get a random shove.
+    // v78: softened — the old kick tipped a lot of near-makes into misses.
     if (!profile.floorResolve && hasFlipped && !hasLanded &&
         bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
       hasLanded = true;
-      const kick = liquid.vel * 0.056 + (rand() - 0.5) * 0.142;
+      const kick = liquid.vel * 0.028 + (rand() - 0.5) * 0.06;
       Body.setAngularVelocity(bottle, bottle.angularVelocity + kick);
     }
 
