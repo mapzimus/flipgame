@@ -1342,11 +1342,14 @@ ${part(v.front)}
     '#1f9bff': {                                          // Eiffel Tower
       label: 'eiffel',
       draw: (p) => `
-<path d="M 118 348 L 132 120 L 150 96 L 168 120 L 182 348 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 128 300 L 172 300 M 132 250 L 168 250 M 136 200 L 164 200 M 140 150 L 160 150" fill="none" stroke="${p.line}" stroke-width="2"/>
-<path d="M 132 120 L 118 348 M 168 120 L 182 348" fill="none" stroke="${p.hi}" stroke-width="2" opacity="0.55"/>
-<rect x="146" y="78" width="8" height="22" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
-<circle cx="150" cy="74" r="6" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
+<path d="M 112 348 L 130 168 L 150 88 L 170 168 L 188 348 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 130 168 L 112 348 M 170 168 L 188 348" fill="none" stroke="${p.hi}" stroke-width="2.2" opacity="0.55"/>
+<path d="M 124 318 L 176 318 M 128 278 L 172 278 M 132 238 L 168 238 M 136 198 L 164 198 M 140 158 L 160 158" fill="none" stroke="${p.line}" stroke-width="2.2"/>
+<path d="M 122 318 L 128 278 L 124 238 L 130 198 L 136 158 M 178 318 L 172 278 L 176 238 L 170 198 L 164 158" fill="none" stroke="${p.hi}" stroke-width="1.6" opacity="0.65"/>
+<path d="M 134 278 L 166 318 M 166 278 L 134 318 M 138 238 L 162 278 M 162 238 L 138 278 M 142 198 L 158 238 M 158 198 L 142 238" fill="none" stroke="${p.line}" stroke-width="1.4" opacity="0.55"/>
+<rect x="142" y="118" width="16" height="18" rx="2" fill="${p.lo}" stroke="${p.line}" stroke-width="1.5"/>
+<rect x="146" y="70" width="8" height="28" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+<circle cx="150" cy="66" r="7" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
     },
     '#e3263c': {                                          // Big Ben
       label: 'bigben',
@@ -1362,13 +1365,20 @@ ${part(v.front)}
     '#8ed11a': {                                          // Statue of Liberty
       label: 'liberty',
       draw: (p) => `
-<rect x="126" y="300" width="48" height="48" fill="url(#gBd)" stroke="${p.line}" stroke-width="2"/>
-<path d="M 132 300 L 132 210 L 168 210 L 168 300 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 140 210 L 140 150 L 160 150 L 160 210 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
-<circle cx="150" cy="132" r="22" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 150 112 L 142 96 L 150 102 L 158 96 Z M 134 120 L 118 112 L 132 124 Z M 166 120 L 182 112 L 168 124 Z" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
-<path d="M 168 188 L 210 140 L 214 148 L 176 198 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<rect x="208" y="128" width="14" height="22" rx="2" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
+<path d="M 108 348 L 108 318 L 192 318 L 192 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 118 318 L 118 300 L 182 300 L 182 318 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 128 300 C 124 250 122 210 128 178 L 172 178 C 178 210 176 250 172 300 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 136 250 Q 150 236 164 250" fill="none" stroke="${p.hi}" stroke-width="3" opacity="0.55"/>
+<path d="M 134 178 L 134 148 C 134 132 142 122 150 122 C 158 122 166 132 166 148 L 166 178 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
+<circle cx="150" cy="108" r="24" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 150 86 L 140 62 L 150 72 L 160 62 Z M 128 100 L 104 88 L 126 108 Z M 172 100 L 196 88 L 174 108 Z M 134 78 L 118 58 L 140 74 Z M 166 78 L 182 58 L 160 74 Z" fill="${p.accent}" stroke="${p.line}" stroke-width="1.4"/>
+<ellipse cx="142" cy="108" rx="3.5" ry="4.5" fill="${p.line}"/><ellipse cx="158" cy="108" rx="3.5" ry="4.5" fill="${p.line}"/>
+<path d="M 144 118 Q 150 122 156 118" fill="none" stroke="${p.line}" stroke-width="1.8"/>
+<path d="M 166 200 C 188 176 214 150 232 132 L 238 140 C 218 160 194 188 176 214 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.2"/>
+<rect x="228" y="112" width="18" height="28" rx="3" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>
+<path d="M 237 112 L 237 96" fill="none" stroke="${p.accent}" stroke-width="3"/>
+<circle cx="237" cy="92" r="5" fill="${p.accent}" stroke="${p.line}" stroke-width="1.2"/>
+<path d="M 118 230 C 108 238 102 250 100 262" fill="none" stroke="${p.lo}" stroke-width="8"/>`,
     },
     '#ff7a00': {                                          // Taj Mahal
       label: 'taj',
@@ -1386,11 +1396,17 @@ ${part(v.front)}
     '#8a3ffc': {                                          // Sydney Opera House
       label: 'opera',
       draw: (p) => `
-<path d="M 70 348 L 230 348 L 220 300 L 80 300 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 90 300 Q 110 180 150 300 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 130 300 Q 160 150 200 300 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 160 300 Q 190 200 230 300 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 100 260 L 120 260 M 145 230 L 170 230 M 180 250 L 205 250" fill="none" stroke="${p.accent}" stroke-width="3" opacity="0.7"/>`,
+<path d="M 56 348 L 244 348 L 232 304 L 68 304 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 68 304 L 78 292 L 222 292 L 232 304 Z" fill="${BUILD.stone}" stroke="${p.line}" stroke-width="2"/>
+<path d="M 78 292 Q 96 168 148 292 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 96 250 Q 118 198 140 250" fill="none" stroke="${BUILD.stoneHi}" stroke-width="5" opacity="0.7"/>
+<path d="M 112 292 Q 150 128 196 292 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 132 236 Q 150 170 172 236" fill="none" stroke="${BUILD.stoneHi}" stroke-width="5" opacity="0.75"/>
+<path d="M 150 292 Q 190 160 236 292 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 172 240 Q 194 188 214 240" fill="none" stroke="${BUILD.stoneHi}" stroke-width="5" opacity="0.7"/>
+<path d="M 188 292 Q 214 210 248 292 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2.2"/>
+<path d="M 104 268 L 128 268 M 148 220 L 172 220 M 186 250 L 214 250" fill="none" stroke="${p.accent}" stroke-width="3" opacity="0.75"/>
+<path d="M 86 292 L 96 348 M 214 292 L 224 348" fill="none" stroke="${p.line}" stroke-width="2" opacity="0.35"/>`,
     },
     '#5fcfe6': {                                          // Empire State
       label: 'empire',
@@ -1407,10 +1423,22 @@ ${[0,1,2,3,4,5].map((r) => [0,1,2].map((c) =>
     '#3fae1a': {                                          // Great Pyramid
       label: 'pyramid',
       draw: (p) => `
-<path d="M 60 348 L 150 110 L 240 348 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 150 110 L 150 348" fill="none" stroke="${p.hi}" stroke-width="3" opacity="0.45"/>
-<path d="M 96 260 L 204 260 M 120 200 L 180 200" fill="none" stroke="${p.line}" stroke-width="2" opacity="0.55"/>
-<path d="M 138 300 L 162 300 L 162 328 L 138 328 Z" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
+<path d="M 52 348 L 150 96 L 248 348 Z" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 150 96 L 248 348 L 150 348 Z" fill="${p.lo}" opacity="0.35"/>
+<path d="M 150 96 L 150 348" fill="none" stroke="${p.hi}" stroke-width="3.5" opacity="0.55"/>
+${[0,1,2,3,4,5].map((i) => {
+  const t = (i + 1) / 7;
+  const y = 96 + t * 252;
+  const half = t * 98;
+  return `<path d="M ${150 - half} ${y} L ${150 + half} ${y}" fill="none" stroke="${p.line}" stroke-width="1.8" opacity="0.45"/>`;
+}).join('')}
+${[0,1,2,3].map((i) => {
+  const x0 = 118 + i * 18;
+  return `<path d="M ${x0} 300 L ${x0} 336" fill="none" stroke="${p.line}" stroke-width="1.6" opacity="0.35"/>`;
+}).join('')}
+<path d="M 132 292 L 168 292 L 168 328 L 132 328 Z" fill="${p.accent}" stroke="${p.line}" stroke-width="1.8"/>
+<path d="M 140 292 L 140 328 M 150 292 L 150 328 M 160 292 L 160 328 M 132 310 L 168 310" fill="none" stroke="${p.line}" stroke-width="1.3" opacity="0.55"/>
+<circle cx="150" cy="108" r="5" fill="${p.accent}" opacity="0.85"/>`,
     },
     '#ff5b86': {                                          // Leaning Tower of Pisa
       label: 'pisa',
