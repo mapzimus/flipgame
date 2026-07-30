@@ -71,6 +71,11 @@ html, body {
 }
 
 .setup-card h1 .emoji { font-size: 1.6rem; -webkit-text-fill-color: initial; }
+.setup-card h1.title-secret [data-secret] {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
 
 .section-label {
   font-size: 0.78rem;

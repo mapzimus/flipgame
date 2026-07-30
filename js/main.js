@@ -176,23 +176,13 @@
     const hit = FLAVORS.find((f) => f.color === h);
     return hit ? hit.color : defaultColorFor(defaultCharId());
   }
-  function flavorName(color) {
-    const f = FLAVORS.find((x) => x.color === normalizeColor(color));
-    return (f && f.name) || null;
-  }
-  // Default player name for a skin + color. Cast variants use their own names;
-  // single skins use the character name at native tint, otherwise the flavor pun.
+  // Default player name for a skin + color — always a unique pun per flavor.
   function defaultNameFor(charId, color) {
     const col = color != null ? normalizeColor(color) : defaultColorFor(charId);
-    const resolved = resolveCharForColor(charId, col);
-    const sib = characterById(resolved);
-    if (window.Skins && Skins.isCastFamily && Skins.isCastFamily(charId)) {
-      return (sib && sib.name) || 'Player';
-    }
-    const c = characterById(charId);
-    const native = String((c && (c.tint || c.color)) || '').toLowerCase();
-    if (c && String(col).toLowerCase() === native) return c.name;
-    return flavorName(col) || (c && c.name) || 'Player';
+    if (window.Skins && Skins.nameFor) return Skins.nameFor(charId, col);
+    const f = FLAVORS.find((x) => x.color === col);
+    const c = characterById(resolveCharForColor(charId, col));
+    return (c && c.name) || (f && f.name) || 'Player';
   }
   function familyLabel(charId) {
     if (window.Skins && Skins.familyLabel) return Skins.familyLabel(charId);
@@ -224,11 +214,12 @@
     }).join('');
   }
 
-  function colorSwatchesHtml(selColor) {
+  function colorSwatchesHtml(selColor, charId) {
     const sel = normalizeColor(selColor);
-    return FLAVORS.map((f) =>
-      `<button type="button" class="flavor-swatch${f.color === sel ? ' selected' : ''}" data-color="${f.color}" style="background:${f.color}" title="${escapeHtml(f.name)}"></button>`
-    ).join('');
+    return FLAVORS.map((f) => {
+      const nm = defaultNameFor(charId || defaultCharId(), f.color);
+      return `<button type="button" class="flavor-swatch${f.color === sel ? ' selected' : ''}" data-color="${f.color}" style="background:${f.color}" title="${escapeHtml(nm)}"></button>`;
+    }).join('');
   }
 
   function rowHtml(i, def) {
@@ -246,7 +237,7 @@
       <div class="picker-label">Character</div>
       <div class="char-picker">${charChipsHtml(charId)}</div>
       <div class="picker-label">Color</div>
-      <div class="flavor-picker">${colorSwatchesHtml(col)}</div>
+      <div class="flavor-picker">${colorSwatchesHtml(col, charId)}</div>
     </div>`;
   }
 
@@ -1531,17 +1522,16 @@
   if (Records.syncUnlocksFromWins) Records.syncUnlocksFromWins();
   renderRecordsPanel();
 
-  // ── Secret: tap the title 5× fast ──────────────────────────────────────────
-  // Unlock every character at once (demo) or wipe progress back to bottle.
-  const titleEl = setupScreen.querySelector('h1');
-  if (titleEl) {
-    let taps = [];
-    titleEl.addEventListener('click', () => {
-      const now = Date.now();
-      taps = taps.filter((t) => now - t < 2000);
-      taps.push(now);
-      if (taps.length < 5) return;
-      taps = [];
+  // ── Secret: tap Bottle / Game / Bottle / Game / Bottle / Game ───────────────
+  // Alternating title words, 3 of each. Unlocks every character (demo) or, if
+  // already fully unlocked, wipes progress back to bottle.
+  const secretBottle = setupScreen.querySelector('[data-secret="bottle"]');
+  const secretGame = setupScreen.querySelector('[data-secret="game"]');
+  if (secretBottle && secretGame) {
+    const SECRET_SEQ = ['bottle', 'game', 'bottle', 'game', 'bottle', 'game'];
+    let seq = [];
+    let lastTap = 0;
+    function triggerSecret() {
       if (!window.Skins) return;
       const allUnlocked = Skins.list().every((s) => Records.isSkinUnlocked(s.id));
       if (!allUnlocked) {
@@ -1567,7 +1557,24 @@
       });
       showToast('🔒 Secret! Progress wiped — earn it all back.');
       renderFrom(defs);
-    });
+    }
+    function onSecretTap(which) {
+      const now = Date.now();
+      if (seq.length && now - lastTap > 2500) seq = [];
+      lastTap = now;
+      const expect = SECRET_SEQ[seq.length];
+      if (which !== expect) {
+        // Wrong word — restart if they hit the first step, else clear.
+        seq = (which === SECRET_SEQ[0]) ? [which] : [];
+        return;
+      }
+      seq.push(which);
+      if (seq.length < SECRET_SEQ.length) return;
+      seq = [];
+      triggerSecret();
+    }
+    secretBottle.addEventListener('click', (e) => { e.stopPropagation(); onSecretTap('bottle'); });
+    secretGame.addEventListener('click', (e) => { e.stopPropagation(); onSecretTap('game'); });
   }
 
   // Sprites are SVG data URIs that decode a beat after they're requested, so

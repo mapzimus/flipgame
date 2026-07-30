@@ -1437,16 +1437,16 @@ ${[0,1,2,3,4,5].map((i) =>
 <path d="M 150 120 L 150 96" fill="none" stroke="${p.accent}" stroke-width="3"/>
 <circle cx="150" cy="90" r="7" fill="${p.accent}"/>`,
     },
-    '#ffc233': {                                          // Christ the Redeemer
-      label: 'redeemer',
+    '#ffc233': {                                          // Space Needle (Redeemer retired)
+      label: 'needle',
       draw: (p) => `
-<path d="M 110 348 L 150 280 L 190 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
-<rect x="138" y="180" width="24" height="110" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 70 210 L 230 210 L 230 228 L 70 228 Z" fill="${BUILD.stoneHi}" stroke="${p.line}" stroke-width="2.5"/>
-<circle cx="150" cy="158" r="26" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
-<path d="M 150 132 L 150 112" fill="none" stroke="${p.accent}" stroke-width="4"/>
-<circle cx="150" cy="106" r="6" fill="${p.accent}"/>
-<path d="M 80 218 L 64 200 M 220 218 L 236 200" fill="none" stroke="${p.line}" stroke-width="4"/>`,
+<path d="M 120 348 L 140 220 L 160 220 L 180 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+<rect x="142" y="120" width="16" height="110" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+<path d="M 110 200 L 190 200 L 200 230 L 100 230 Z" fill="${BUILD.stoneHi}" stroke="${p.line}" stroke-width="2.5"/>
+<ellipse cx="150" cy="168" rx="42" ry="18" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
+<ellipse cx="150" cy="160" rx="28" ry="10" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>
+<path d="M 150 120 L 150 72" fill="none" stroke="${p.accent}" stroke-width="4"/>
+<circle cx="150" cy="66" r="8" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
     },
     '#c8203a': {                                          // St. Basil's Cathedral
       label: 'basil',
@@ -1715,77 +1715,119 @@ ${crown}
     mobileArenaZoom: 0.46,
   };
 
-  // Tall landmarks only (wide temples/palaces dropped — user request).
-  // Christ the Redeemer removed from the roster.
-  const TALL_BUILDING_HEXES = [
-    '#1f9bff', // Eiffel
-    '#e3263c', // Big Ben
-    '#8ed11a', // Liberty
-    '#5fcfe6', // Empire State
-    '#ff5b86', // Pisa
-    '#c8203a', // St. Basil
-    '#ff9ecf', // Pagoda
-  ];
+  // One unique default name per flavor color, for every skin family.
+  // Index-aligned to FLAVOR_HEXES. Used by Skins.nameFor / setup defaults.
+  const FAMILY_COLOR_NAMES = {
+    bottle: [
+      'Blue Steel', 'Sucker Punch', 'Lime Light', 'Orange Crush',
+      'Grape Expectations', 'Ice Ice Baby', 'Apple-solutely', 'Berry Nice',
+      'Making Waves', 'Lemon Aid', 'Very Cherry', 'Pink Fluff',
+    ],
+    parrot: [
+      'Blue Squawk', 'Stormy Beak', 'Lime Feather', 'Orange Julius',
+      'Purple Rainbird', 'Ice Beak', 'Green Jay', 'Pink Polly',
+      'Navy Nest', 'Gold Crest', 'Cherry Chirp', 'Fluff Wing',
+    ],
+    plunger: [
+      'Blue Lagoon', 'Red Rover', 'Flush Gordon', 'Orange You Glad',
+      'Grape Drain', 'Ice Pick', 'Green Clean', 'Pink Plunge',
+      'Deep Dive', 'Lemon Squeeze', 'Cherry Bomb', 'Fluff Stuff',
+    ],
+    trex: [
+      'Blue Rex', 'Red Rover Rex', 'Limeasaurus', 'Tea Rex',
+      'Grape Rex', 'Ice Age', 'Dino-mite', 'Pinkasaurus',
+      'Navy Claws', 'Gold Bite', 'Cherry Chomp', 'Fluffasaurus',
+    ],
+    vending: [
+      'Blue Light Special', 'Red Bull-ion', 'Lime Rickey', 'Orange Soda',
+      'Ven Diesel', 'Ice Cold', 'Green Machine', 'Pink Panther Pop',
+      'Wave Runner', 'Lemon Drop', 'Cherry Coke’d', 'Fluff n’ Stuff',
+    ],
+    pineapple: [
+      'Blue Hawaii', 'Red Spikes', 'Lime Colada', 'Orange You Pine',
+      'Grape Fruit', 'Piña Colossus', 'Green Crown', 'Pink Prickles',
+      'Wave Fruit', 'Lemon Spire', 'Cherry Top', 'Fluffapple',
+    ],
+    gorilla: [
+      'Blue Ape', 'Red Kong', 'Lime Time', 'Orange Crusha',
+      'Grape Ape', 'Ice Kong', 'Hairy Styles', 'Pink Paws',
+      'Navy Knuckles', 'Gold Back', 'Cherry Bombilla', 'Fluff Kong',
+    ],
+    people: [
+      'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
+      'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
+      'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
+    ],
+    buildings: [
+      'Eiffel Tower', 'Big Ben', 'Statue of Liberty', 'Taj Mahal',
+      'Sydney Opera', 'Empire State', 'Great Pyramid', 'Leaning Tower',
+      'Parthenon', 'Space Needle', 'St. Basil\'s', 'Pagoda',
+    ],
+    gods: [
+      'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
+      'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
+      'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
+    ],
+    alien: [
+      'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
+      'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
+      'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
+    ],
+  };
+
+  // All 12 flavor landmarks. Christ the Redeemer stays out — yellow is Space Needle.
+  const BUILDING_HEXES = FLAVOR_HEXES.map((h) => '#' + h);
 
   function buildCharacters() {
     const out = [];
     const add = (c) => out.push(c);
+    const nameAt = (family, i) => (FAMILY_COLOR_NAMES[family] && FAMILY_COLOR_NAMES[family][i]) || family;
 
-    // Classic single-object flippers (tint = player color).
+    // Classic single-object flippers (one unlock each; all 12 colors recolor).
     [
-      { id: 'bottle', name: 'Bottle', emoji: '🍾', drawAs: 'bottle', tint: '#1f9bff' },
-      { id: 'parrot', name: 'Stormy Beak', emoji: '🦜', drawAs: 'parrot', tint: '#e3263c' },
-      { id: 'plunger', name: 'Flush Gordon', emoji: '🪠', drawAs: 'plunger', tint: '#8ed11a' },
-      { id: 'trex', name: 'Tea Rex', emoji: '🦖', drawAs: 'trex', tint: '#ff7a00' },
-      { id: 'vending', name: 'Ven Diesel', emoji: '🥤', drawAs: 'vending', tint: '#8a3ffc' },
-      { id: 'pineapple', name: 'Piña Colossus', emoji: '🍍', drawAs: 'pineapple', tint: '#5fcfe6' },
-      { id: 'gorilla', name: 'Hairy Styles', emoji: '🦍', drawAs: 'gorilla', tint: '#3fae1a' },
-    ].forEach(add);
+      { id: 'bottle', emoji: '🍾', drawAs: 'bottle', tint: '#1f9bff' },
+      { id: 'parrot', emoji: '🦜', drawAs: 'parrot', tint: '#e3263c' },
+      { id: 'plunger', emoji: '🪠', drawAs: 'plunger', tint: '#8ed11a' },
+      { id: 'trex', emoji: '🦖', drawAs: 'trex', tint: '#ff7a00' },
+      { id: 'vending', emoji: '🥤', drawAs: 'vending', tint: '#8a3ffc' },
+      { id: 'pineapple', emoji: '🍍', drawAs: 'pineapple', tint: '#5fcfe6' },
+      { id: 'gorilla', emoji: '🦍', drawAs: 'gorilla', tint: '#3fae1a' },
+    ].forEach((c) => {
+      const idx = FLAVOR_HEXES.indexOf(c.tint.slice(1));
+      add({ ...c, name: nameAt(c.drawAs, idx >= 0 ? idx : 0) });
+    });
 
-    const peopleNames = [
-      'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
-      'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
-      'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
-    ];
     FLAVOR_HEXES.forEach((h, i) => {
       const hex = '#' + h;
       const label = (PERSONS[hex] && PERSONS[hex].label) || ('person-' + i);
       add({
         id: 'people-' + String(label).replace(/\s+/g, '-'),
-        name: peopleNames[i] || label,
+        name: nameAt('people', i),
         emoji: '🧑',
         drawAs: 'people',
         tint: hex,
       });
     });
 
-    const buildingNames = {
-      '#1f9bff': 'Eiffel Tower', '#e3263c': 'Big Ben', '#8ed11a': 'Statue of Liberty',
-      '#5fcfe6': 'Empire State', '#ff5b86': 'Leaning Tower',
-      '#c8203a': "St. Basil's", '#ff9ecf': 'Pagoda',
-    };
-    TALL_BUILDING_HEXES.forEach((hex) => {
-      const label = (BUILDING_CAST[hex] && BUILDING_CAST[hex].label) || hex.slice(1);
+    BUILDING_HEXES.forEach((hex, i) => {
+      // Skip the old Redeemer art — yellow uses Space Needle instead.
+      let label = (BUILDING_CAST[hex] && BUILDING_CAST[hex].label) || hex.slice(1);
+      if (label === 'redeemer') label = 'needle';
       add({
         id: 'building-' + label,
-        name: buildingNames[hex] || label,
+        name: nameAt('buildings', i),
         emoji: '🏙️',
         drawAs: 'buildings',
         tint: hex,
       });
     });
 
-    const godNames = [
-      'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
-      'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
-      'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
-    ];
     FLAVOR_HEXES.forEach((h, i) => {
       const hex = '#' + h;
       const label = (GOD_CAST[hex] && GOD_CAST[hex].label) || ('god-' + i);
       add({
         id: 'gods-' + String(label).replace(/\s+/g, '-'),
-        name: godNames[i] || label,
+        name: nameAt('gods', i),
         emoji: '⚡',
         drawAs: 'gods',
         tint: hex,
@@ -1796,15 +1838,10 @@ ${crown}
     // Parked until we have flat cartoony SVG art for them (same look as the rest).
 
     // Capstone bank-shot cast — ALWAYS last so Alien is the final unlock tier.
-    const alienNames = [
-      'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
-      'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
-      'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
-    ];
     FLAVOR_HEXES.forEach((h, i) => {
       add({
         id: 'alien-' + h,
-        name: alienNames[i],
+        name: nameAt('alien', i),
         emoji: '👽',
         drawAs: 'alien',
         tint: '#' + h,
@@ -1882,7 +1919,18 @@ ${crown}
       const c = character(id);
       return c ? c.unlock : null;
     },
-    namesFor: () => null, // names live on each character now
+    namesFor: (drawAs) => (FAMILY_COLOR_NAMES[drawAs] || []).slice(),
+    // Default player name for a skin family + color (always unique per flavor).
+    nameFor: (id, color) => {
+      const c = character(id);
+      const family = (c && c.drawAs) || id;
+      const list = FAMILY_COLOR_NAMES[family];
+      const hex = colorToHexKey(color || (c && c.tint) || '#1f9bff');
+      const idx = FLAVOR_HEXES.indexOf(hex);
+      if (list && idx >= 0 && list[idx]) return list[idx];
+      if (c && c.name) return c.name;
+      return 'Player';
+    },
     physicsFor: (id) => {
       const c = character(id);
       if (c) return c.physics || null;

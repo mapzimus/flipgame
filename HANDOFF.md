@@ -345,7 +345,7 @@ from the unlock ladder until they get matching SVG art.
 
 ## Progress gating (v66)
 - **Unlocks + achievements only count when ≥1 human is in the lobby** (`main.js` `progressCounts()` / `humansPlayed`). AI-only games show a toast and skip `Records.recordWin`, skin unlocks, `Records.recordFlip` lifetime counters, and `Achievements.check`.
-- Practice counts (solo human). Secret title 5× cheat still unlocks everything for demos.
+- Practice counts (solo human). Secret: tap title **Bottle → Game → Bottle → Game → Bottle → Game** to unlock everything (or wipe if already unlocked).
 
 ## Character unlocks (v72)
 

@@ -48,9 +48,9 @@ const Records = (() => {
     let changed = false;
     const next = [];
     for (const id of unlockedSkins()) {
-      // Christ the Redeemer removed from the tall-buildings roster.
+      // Christ the Redeemer retired → Space Needle (same yellow slot).
       if (id === 'building-redeemer') {
-        next.push('building-basil');
+        next.push('building-needle');
         changed = true;
         continue;
       }
