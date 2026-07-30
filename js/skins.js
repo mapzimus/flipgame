@@ -1737,44 +1737,46 @@ ${crown}
       'Making Waves', 'Lemon Aid', 'Very Cherry', 'Pink Fluff',
     ],
     parrot: [
-      'Blue Squawk', 'Stormy Beak', 'Lime Feather', 'Orange Julius',
+      'Blue Squawk', 'Scarlet Macaw', 'Lime Wire', 'Orange Julius',
       'Purple Rainbird', 'Ice Beak', 'Green Jay', 'Pink Polly',
-      'Navy Nest', 'Gold Crest', 'Cherry Chirp', 'Fluff Wing',
+      'Admiral Bird', 'Gold Crest', 'Cherry Chirp', 'Pretty in Pink',
     ],
     plunger: [
       'Blue Lagoon', 'Red Rover', 'Flush Gordon', 'Orange You Glad',
       'Grape Drain', 'Ice Pick', 'Green Clean', 'Pink Plunge',
-      'Deep Dive', 'Lemon Squeeze', 'Cherry Bomb', 'Fluff Stuff',
+      'Deep Dive', 'Lemon Squeeze', 'Cherry Bomb', 'Blush Flush',
     ],
     trex: [
-      'Blue Rex', 'Red Rover Rex', 'Limeasaurus', 'Tea Rex',
-      'Grape Rex', 'Ice Age', 'Dino-mite', 'Pinkasaurus',
-      'Navy Claws', 'Gold Bite', 'Cherry Chomp', 'Fluffasaurus',
+      'Blue-rassic Park', 'Tyrannosaurus Red', 'Limeasaurus', 'Tea Rex',
+      'Grape Scott', 'Ice Age', 'Dino-mite', 'Pinkasaurus',
+      'Claw and Order', 'Solid Gold Rex', 'Cherry Chomp', 'Rosé Rex',
     ],
     vending: [
       'Blue Light Special', 'Red Bull-ion', 'Lime Rickey', 'Orange Soda',
       'Ven Diesel', 'Ice Cold', 'Green Machine', 'Pink Panther Pop',
-      'Wave Runner', 'Lemon Drop', 'Cherry Coke’d', 'Fluff n’ Stuff',
+      'Wave Runner', 'Lemon Drop', 'Cherry Coke’d', 'Pink Lemonade',
     ],
     pineapple: [
       'Blue Hawaii', 'Red Spikes', 'Lime Colada', 'Orange You Pine',
       'Grape Fruit', 'Piña Colossus', 'Green Crown', 'Pink Prickles',
-      'Wave Fruit', 'Lemon Spire', 'Cherry Top', 'Fluffapple',
+      'Pineapple Express', 'Lemon Spire', 'Cherry Top', 'Piña Pinkada',
     ],
     gorilla: [
-      'Blue Ape', 'Red Kong', 'Lime Time', 'Orange Crusha',
+      'Blue Banana', 'Red Kong', 'Lime Time', 'Orange Crusha',
       'Grape Ape', 'Ice Kong', 'Hairy Styles', 'Pink Paws',
-      'Navy Knuckles', 'Gold Back', 'Cherry Bombilla', 'Fluff Kong',
+      'Navy Knuckles', 'Solid Goldback', 'Cherry Bombilla', 'Bubblegum Kong',
     ],
     people: [
       'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
       'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
       'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
     ],
+    // Punned, but each still recognizable as its landmark — this family used to
+    // be the only one with flat literal names.
     buildings: [
-      'Eiffel Tower', 'Big Ben', 'Statue of Liberty', 'Taj Mahal',
-      'Sydney Opera', 'Empire State', 'Great Pyramid', 'Leaning Tower',
-      'Parthenon', 'Space Needle', 'St. Basil\'s', 'Pagoda',
+      'Eiffel Great', 'Ben There Done That', 'Torch Song', 'Taj Ma-Halo',
+      'Sails Pitch', 'Empire Strikes Back', 'Pharaoh Enough', 'Tower of Pizza',
+      'Column Me Maybe', 'Needle Say More', 'Basil Instinct', 'Pagoda Be Kidding',
     ],
     gods: [
       'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
@@ -1814,7 +1816,7 @@ ${crown}
     alien: [
       'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
       'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
-      'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
+      'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Pink Probe',
     ],
   };
 

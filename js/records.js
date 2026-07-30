@@ -68,22 +68,71 @@ const Records = (() => {
     return true;
   }
 
-  // Grant characters whose unlock threshold totalWins already meets. Call after
-  // Skins is loaded (Records boots before skins.js). Returns newly granted ids.
-  function syncUnlocksFromWins() {
-    if (typeof window === 'undefined' || !window.Skins || typeof Skins.list !== 'function') return [];
-    migrateEditionUnlocks();
-    const wins = data.totalWins || 0;
-    const fresh = [];
-    for (const s of Skins.list()) {
-      const need = s.unlock;
-      if (typeof need === 'number' && wins >= need && !isSkinUnlocked(s.id)) {
-        data.unlockedSkins = unlockedSkins().concat(s.id);
-        fresh.push(s.id);
-      }
+  // ── Mystery boxes ─────────────────────────────────────────────────────────
+  // Every WINS_PER_BOX wins earns one box, and a box grants ONE RANDOM
+  // still-locked character (Smash-Bros style reveal). Deliberately not the
+  // ordered `unlock` ladder any more: the old order dumped the six cartoon casts
+  // in an arbitrary block at the end, so the last families sat behind 300+ wins
+  // and nobody ever saw them.
+  //
+  // Nothing new is persisted to track this. The count of characters owned beyond
+  // the free base skin IS the count of boxes opened, so "owed" is derivable —
+  // which also means the old threshold saves migrate for free.
+  const WINS_PER_BOX = 2;
+
+  function boxesEarned() { return Math.floor((data.totalWins || 0) / WINS_PER_BOX); }
+  function boxesOpened() { return Math.max(0, unlockedSkins().length - 1); }
+  function allChars() {
+    return (typeof window !== 'undefined' && window.Skins && typeof Skins.list === 'function')
+      ? Skins.list() : [];
+  }
+  function lockedChars() { return allChars().filter((s) => !isSkinUnlocked(s.id)); }
+
+  // Aliens are the capstone (unique bank-shot physics), so they're held out of
+  // the pool until everything else is collected — the collection always ends
+  // on aliens no matter how the draws fall.
+  function drawPool() {
+    const locked = lockedChars();
+    const nonAlien = locked.filter((s) =>
+      (window.Skins.familyKey ? Skins.familyKey(s.id) : s.drawAs) !== 'alien');
+    return nonAlien.length ? nonAlien : locked;
+  }
+
+  // Boxes earned but not yet opened, clamped to what's actually left to give.
+  function pendingBoxes() {
+    return Math.max(0, Math.min(boxesEarned() - boxesOpened(), lockedChars().length));
+  }
+  function winsToNextBox() {
+    const w = data.totalWins || 0;
+    return lockedChars().length ? WINS_PER_BOX - (w % WINS_PER_BOX) : 0;
+  }
+
+  function openBoxes(n) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const pool = drawPool();
+      if (!pool.length) break;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      data.unlockedSkins = unlockedSkins().concat(pick.id);
+      out.push(pick.id);
     }
-    if (fresh.length) save();
-    return fresh;
+    if (out.length) save();
+    return out;
+  }
+
+  // BOOT: reconcile quietly. A returning player on the old 1-per-3-wins ladder
+  // is owed a few boxes under the new 1-per-2 rate; granting those with five
+  // reveal animations before they've even played would be nonsense.
+  function syncUnlocksFromWins() {
+    if (!allChars().length) return [];
+    migrateEditionUnlocks();
+    return openBoxes(pendingBoxes());
+  }
+
+  // GAME OVER: claim boxes earned during play, for an animated reveal.
+  function claimBoxes() {
+    if (!allChars().length) return [];
+    return openBoxes(pendingBoxes());
   }
 
   // Call AFTER each game.resolveFlip() (normal play and practice).
@@ -156,5 +205,7 @@ const Records = (() => {
     save();
   }
 
-  return { recordFlip, recordWin, renderHtml, reset, totalWins, unlockedSkins, isSkinUnlocked, unlockSkin, resetSkinProgress, syncUnlocksFromWins };
+  return { recordFlip, recordWin, renderHtml, reset, totalWins, unlockedSkins,
+           isSkinUnlocked, unlockSkin, resetSkinProgress, syncUnlocksFromWins,
+           claimBoxes, pendingBoxes, winsToNextBox, WINS_PER_BOX };
 })();

@@ -645,12 +645,16 @@ const Renderer = (() => {
     H = target.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    // Fit box measured off the real drawn pixels of every edition — widest is
-    // the T-Rex (x≈±106), tallest aliens / landmarks (y≈-221..58) whose
-    // antennae/towers reach high. Already includes the BOTTLE_DRAW_SCALE
-    // that drawBottle applies. The artwork sits well above the origin, so it
-    // centers on y≈-81, not 0. Re-measure if any edition's art grows.
-    const CONTENT_W = 216, CONTENT_H = 284, CONTENT_MID_Y = -81;
+    // Fit box measured off the real drawn pixels of EVERY family (ink bounding
+    // box per family, then the union). Widest is the T-Rex at x≈±148; the art
+    // spans y≈-346 (pineapple's crown) to y≈+66 (the parrot's tail), so it
+    // centers on y≈-140, not 0. Already includes the BOTTLE_DRAW_SCALE that
+    // drawBottle applies. Re-measure if any family's art grows.
+    //
+    // The old 216x284 @ -81 box was ~27% too narrow, ~31% too short AND sat 59
+    // units too low, so nearly every family was clipped — most at the top, and
+    // trex/vending/ocean/pets/parrot at the sides too.
+    const CONTENT_W = 300, CONTENT_H = 420, CONTENT_MID_Y = -140;
     const scale = Math.min(W / CONTENT_W, H / CONTENT_H) * 0.95;
     ctx.translate(W / 2, H / 2 - CONTENT_MID_Y * scale);
     ctx.scale(scale, scale);

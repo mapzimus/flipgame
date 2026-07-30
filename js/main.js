@@ -33,6 +33,17 @@
   const onlineRosterEl   = document.getElementById('online-roster');
   const addPlayerBtn = document.getElementById('add-player-btn');
   const playerInputs = document.getElementById('player-inputs');
+  const charPickScreen = document.getElementById('char-picker-screen');
+  const charPickGrid   = document.getElementById('charpick-grid');
+  const charPickTitle  = document.getElementById('charpick-title');
+  const charPickClose  = document.getElementById('charpick-close');
+  const mysteryScreen   = document.getElementById('mystery-screen');
+  const mysteryHeadlineEl = document.getElementById('mystery-headline');
+  const mysteryArtEl    = document.getElementById('mystery-art');
+  const mysteryNameEl   = document.getElementById('mystery-name');
+  const mysteryFamilyEl = document.getElementById('mystery-family');
+  const mysteryGoBtn    = document.getElementById('mystery-go-btn');
+  const mysteryQueueEl  = document.getElementById('mystery-queue');
   const muteBtn      = document.getElementById('mute-btn');
   const recordsPanel = document.getElementById('records-panel');
   const passScreen   = document.getElementById('pass-screen');
@@ -193,32 +204,116 @@
     if (window.Skins && Skins.drawColor) return Skins.drawColor(charId, color);
     return color || defaultColorFor(charId);
   }
-  function sameFamily(a, b) {
-    return familyKey(a) === familyKey(b);
-  }
   function isFamilyUnlocked(id) {
     const k = familyKey(id);
     if (k === familyKey(BASE_SKIN)) return true;
     return availableCharacters().some((c) => familyKey(c.id) === k);
   }
 
-  function charChipsHtml(selId) {
-    const selFam = familyKey(selId);
-    return availableFamilies().map((c) => {
-      const label = familyLabel(c.id);
-      const selected = familyKey(c.id) === selFam;
-      return `<button type="button" class="char-chip${selected ? ' selected' : ''}" data-char="${c.id}" data-family="${familyKey(c.id)}" title="${escapeHtml(label)}" style="--chip:${c.color || c.tint}">` +
-        `<span class="char-chip-emoji">${c.emoji || '🍾'}</span>` +
-        `<span class="char-chip-name">${escapeHtml(label)}</span>` +
+  // One entry per skin family: { key, rep, members, owned, total, cast, unlocked }.
+  // Since a mystery box grants ONE random character, a family is partially
+  // collected for most of the game — `owned/total` is what the tile reports.
+  //
+  // `cast` families (people, pets, ocean…) have a distinct character per color,
+  // so an uncollected color is genuinely unavailable. Single-object families
+  // (bottle, trex, parrot…) are ONE character recolored, so owning it grants all
+  // 12 colors — Skins.isCastFamily is what distinguishes them.
+  function familyCatalog() {
+    const byFam = new Map();
+    for (const c of characterList()) {
+      const k = familyKey(c.id);
+      let e = byFam.get(k);
+      if (!e) {
+        e = { key: k, rep: c, members: [], owned: 0, total: 0,
+              cast: !!(window.Skins && Skins.isCastFamily && Skins.isCastFamily(c.id)) };
+        byFam.set(k, e);
+      }
+      e.members.push(c);
+      e.total++;
+      if (isCharUnlocked(c.id)) {
+        e.owned++;
+        // First collected member represents the family on its tile.
+        if (e.owned === 1) e.rep = c;
+      }
+    }
+    // Collected families first (most complete first), then the rest alphabetically
+    // — with random draws there's no ladder order left to preserve.
+    return [...byFam.values()].map((e) => ({ ...e, unlocked: e.owned > 0 }))
+      .sort((a, b) => (b.owned > 0) - (a.owned > 0) ||
+                      b.owned / b.total - a.owned / a.total ||
+                      familyLabel(a.rep.id).localeCompare(familyLabel(b.rep.id)));
+  }
+
+  // Is this exact color playable for the row's family? Cast families need that
+  // specific variant collected; single-object skins recolor freely.
+  function isColorAvailable(charId, color) {
+    const fam = familyCatalog().find((e) => e.key === familyKey(charId));
+    if (!fam || !fam.cast) return true;
+    return isCharUnlocked(resolveCharForColor(fam.rep.id, color));
+  }
+  // The color to fall back to when the requested one isn't collected yet.
+  function firstOwnedColor(charId) {
+    const fam = familyCatalog().find((e) => e.key === familyKey(charId));
+    if (!fam) return defaultColorFor(charId);
+    const hit = fam.members.find((m) => isCharUnlocked(m.id));
+    return normalizeColor((hit && (hit.tint || hit.color)) || defaultColorFor(charId));
+  }
+
+  // The picker grid: one tile per family, art drawn in the player's CURRENT
+  // color so the choice previews exactly what they'll flip.
+  function familyTilesHtml(curCharId, curColor) {
+    const curFam = familyKey(curCharId);
+    return familyCatalog().map((e) => {
+      const label = familyLabel(e.rep.id);
+      // 200x280 matches the renderer's 300x420 content aspect so the art fills
+      // the tile, and keeps >=1.7x DPR at both the ~82px phone tile and the
+      // ~114px tile in the wider card. drawPreview auto-fits any canvas size.
+      const art = (id) => `<canvas class="fam-art" width="200" height="280" ` +
+        `data-preview-char="${id}" aria-hidden="true"></canvas>`;
+      // Show art the player actually owns. Resolving the current color straight
+      // through would display an uncollected variant — spoiling art they haven't
+      // earned and misrepresenting what picking this tile would give them.
+      const forColor = resolveCharForColor(e.rep.id, curColor);
+      const artId = (e.unlocked && !isCharUnlocked(forColor)) ? e.rep.id : forColor;
+      // Cast families report progress; single-object skins are all-or-nothing.
+      const count = e.cast ? `${e.owned}/${e.total}` : '';
+      if (!e.unlocked) {
+        // aria-disabled, NOT disabled: a disabled button drops out of the tab
+        // order and tells a screen-reader user nothing about why. This stays
+        // focusable and the click handler explains itself with a toast.
+        return `<button type="button" class="fam-tile" data-locked="1" aria-disabled="true"` +
+          ` data-label="${escapeHtml(label)}"` +
+          ` aria-label="${escapeHtml(label)} — not collected yet">` +
+          art(artId) +
+          `<span class="fam-name">${escapeHtml(label)}</span>` +
+          `<span class="fam-need">🔒 not yet</span>` +
+          `</button>`;
+      }
+      const sel = e.key === curFam;
+      const partial = e.cast && e.owned < e.total;
+      return `<button type="button" class="fam-tile${sel ? ' selected' : ''}"` +
+        ` data-char="${e.rep.id}"${sel ? ' aria-current="true"' : ''}` +
+        ` aria-label="${escapeHtml(label)}${count ? ' — ' + count + ' collected' : ''}">` +
+        art(artId) +
+        `<span class="fam-name">${escapeHtml(label)}</span>` +
+        (count ? `<span class="fam-count${partial ? '' : ' complete'}">${count}</span>` : '') +
         `</button>`;
     }).join('');
   }
 
+  // For a cast family each color IS a separate character, so a colour the player
+  // hasn't drawn from a mystery box yet is genuinely unavailable and renders
+  // locked. Single-object skins recolor freely, so all 12 stay open.
   function colorSwatchesHtml(selColor, charId) {
     const sel = normalizeColor(selColor);
+    const id = charId || defaultCharId();
     return FLAVORS.map((f) => {
-      const nm = defaultNameFor(charId || defaultCharId(), f.color);
-      return `<button type="button" class="flavor-swatch${f.color === sel ? ' selected' : ''}" data-color="${f.color}" style="background:${f.color}" title="${escapeHtml(nm)}"></button>`;
+      const nm = defaultNameFor(id, f.color);
+      const open = isColorAvailable(id, f.color);
+      return `<button type="button" class="flavor-swatch${f.color === sel ? ' selected' : ''}` +
+        `${open ? '' : ' locked'}" data-color="${f.color}"${open ? '' : ' aria-disabled="true"'}` +
+        ` style="background:${f.color}"` +
+        ` title="${escapeHtml(open ? nm : nm + ' — not collected yet')}"></button>`;
     }).join('');
   }
 
@@ -226,17 +321,27 @@
     const col = normalizeColor(def.color || defaultColorFor(def.charId || defaultCharId()));
     const charId = resolveCharForColor(def.charId || defaultCharId(), col);
     const name = def.name != null ? def.name : defaultNameFor(charId, col);
+    // Two control lines beside the preview: a 440px card can't fit preview +
+    // P# + name + Change + CPU + remove on one row without crushing the input.
+    // FORCE_SKIN hides the Change button outright — rowsToDefs and the
+    // practice/online paths all hard-override the skin, so offering a choice
+    // that gets silently discarded is worse than offering none.
     return `<div class="player-input-row" data-char="${charId}" data-color="${col}" data-ai="${def.ai ? 1 : 0}">
       <div class="prow-top">
-        <canvas class="skin-preview" width="76" height="92" aria-hidden="true"></canvas>
-        <span class="player-num" style="color:${col}">P${i + 1}</span>
-        <input type="text" placeholder="${escapeHtml(defaultNameFor(charId, col))}" maxlength="14" value="${escapeHtml(name)}">
-        <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? 'CPU' : 'Human'}</button>
-        ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
+        <canvas class="skin-preview" width="160" height="224" aria-hidden="true"></canvas>
+        <div class="prow-main">
+          <div class="prow-line">
+            <span class="player-num" style="color:${col}">P${i + 1}</span>
+            <input type="text" placeholder="${escapeHtml(defaultNameFor(charId, col))}" maxlength="14" value="${escapeHtml(name)}">
+          </div>
+          <div class="prow-line">
+            ${FORCE_SKIN ? '' : `<button type="button" class="char-change-btn" aria-haspopup="dialog" title="Change character"><span class="charbtn-label">${escapeHtml(familyLabel(charId))}</span><span aria-hidden="true">▾</span></button>`}
+            <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? 'CPU' : 'Human'}</button>
+            ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
+          </div>
+        </div>
       </div>
-      <div class="picker-label">Character</div>
-      <div class="char-picker">${charChipsHtml(charId)}</div>
-      <div class="picker-label">Color</div>
+      <div class="picker-label">Color — <span class="flavor-name">${escapeHtml(defaultNameFor(charId, col))}</span></div>
       <div class="flavor-picker">${colorSwatchesHtml(col, charId)}</div>
     </div>`;
   }
@@ -266,76 +371,108 @@
     playerInputs.querySelectorAll('.player-input-row').forEach(paintRowPreview);
   }
 
+  // Repaint everything on a row that's derived from data-char / data-color.
+  function syncRowChrome(row) {
+    if (!row) return;
+    const charId = row.dataset.char || defaultCharId();
+    const col = normalizeColor(row.dataset.color || defaultColorFor(charId));
+    row.querySelectorAll('.flavor-swatch').forEach((s) => {
+      s.classList.toggle('selected', s.dataset.color === col);
+      // Both of these are per-family, so they must be recomputed on every sync:
+      // the pun roster (stale titles used to show the OLD family's names), and
+      // which colors are collected (a cast family locks the ones you don't own).
+      const open = isColorAvailable(charId, s.dataset.color);
+      s.classList.toggle('locked', !open);
+      if (open) s.removeAttribute('aria-disabled'); else s.setAttribute('aria-disabled', 'true');
+      const nm = defaultNameFor(charId, s.dataset.color);
+      s.title = open ? nm : nm + ' — not collected yet';
+    });
+    const num = row.querySelector('.player-num');
+    if (num) num.style.color = col;
+    const lbl = row.querySelector('.charbtn-label');
+    if (lbl) lbl.textContent = familyLabel(charId);
+    const fl = row.querySelector('.flavor-name');
+    if (fl) fl.textContent = defaultNameFor(charId, col);
+    paintRowPreview(row);
+  }
+
+  // Single source of truth for "this row now wants character X at color Y".
+  // Pass null for either to keep the row's current family / color. A name the
+  // player typed survives; one still sitting at the old default pun is updated.
+  function applyRowChar(row, familyRepOrCharId, color) {
+    if (!row) return;
+    const oldId = row.dataset.char || defaultCharId();
+    const oldCol = normalizeColor(row.dataset.color || defaultColorFor(oldId));
+    const wantId = familyRepOrCharId || oldId;
+    let col = normalizeColor(color != null ? color : oldCol);
+    // Switching to a cast family whose variant for this color isn't collected yet
+    // would seat the player on a locked character — snap to one they do own.
+    if (!isColorAvailable(wantId, col)) col = firstOwnedColor(wantId);
+    const newId = resolveCharForColor(wantId, col);
+    const input = row.querySelector('input');
+    const oldDefault = defaultNameFor(oldId, oldCol);
+    const nextDefault = defaultNameFor(newId, col);
+    if (input && (!input.value.trim() || input.value.trim() === oldDefault)) {
+      input.value = nextDefault;
+    }
+    // State stays in data-* so readRows()/rowsToDefs keep working untouched.
+    row.dataset.char = newId;
+    row.dataset.color = col;
+    if (input) input.placeholder = nextDefault;
+    syncRowChrome(row);
+  }
+
   function renderFrom(defs) {
+    // Re-rendering replaces the rows wholesale; an open picker would be left
+    // holding a detached node whose mutations go nowhere.
+    if (pickerRow) closeCharPicker();
     playerCount = defs.length;
     playerInputs.innerHTML = defs.map((d, i) => rowHtml(i, d)).join('');
     addPlayerBtn.disabled = playerCount >= 8;
     paintAllPreviews();
   }
 
+  // Defaults for a fresh seat: rotate through the collected families, and keep
+  // the family's own tint unless another seat already took it. On a first-run
+  // device every seat is a Bottle, so without this both players start as an
+  // identical blue "Blue Steel" and there's nothing to tell them apart.
+  function seatDefaults(i, takenColors) {
+    const avail = availableFamilies();
+    const pick = avail[i % Math.max(1, avail.length)] || avail[0];
+    const famId = (pick && pick.id) || defaultCharId();
+    const taken = new Set(takenColors || []);
+    const options = [defaultColorFor(famId), ...FLAVORS.map((f) => f.color)]
+      .filter((c) => isColorAvailable(famId, c));
+    const color = options.find((c) => !taken.has(c)) || options[0] || firstOwnedColor(famId);
+    const charId = resolveCharForColor(famId, color);
+    return { name: defaultNameFor(charId, color), charId, color, ai: false };
+  }
+
   function addPlayerInput() {
     if (playerCount >= 8) return;
     const defs = readRows();
-    const avail = availableFamilies();
-    const pick = avail[defs.length % Math.max(1, avail.length)] || avail[0];
-    const charId = (pick && pick.id) || defaultCharId();
-    const color = defaultColorFor(charId);
-    defs.push({ name: defaultNameFor(charId, color), charId, color, ai: false });
+    defs.push(seatDefaults(defs.length, defs.map((d) => d.color)));
     renderFrom(defs);
   }
 
-  // event delegation: character, color, AI toggle, remove
+  // event delegation: open picker, color, AI toggle, remove
   playerInputs.addEventListener('click', (e) => {
-    const chip = e.target.closest('.char-chip');
-    if (chip) {
-      const row = chip.closest('.player-input-row');
-      const oldId = row.dataset.char || defaultCharId();
-      const oldCol = normalizeColor(row.dataset.color || defaultColorFor(oldId));
-      const familyRep = chip.dataset.char || defaultCharId();
-      // Keep the current color when switching skins so color truly "belongs"
-      // to the player; resolve to this family's variant at that color.
-      const col = oldCol;
-      const newId = resolveCharForColor(familyRep, col);
-      const input = row.querySelector('input');
-      const oldDefault = defaultNameFor(oldId, oldCol);
-      if (!input.value.trim() || input.value.trim() === oldDefault) {
-        input.value = defaultNameFor(newId, col);
-      }
-      row.dataset.char = newId;
-      row.dataset.color = col;
-      row.querySelectorAll('.char-chip').forEach((s) => {
-        s.classList.toggle('selected', sameFamily(s.dataset.char, newId));
-      });
-      row.querySelectorAll('.flavor-swatch').forEach((s) => {
-        s.classList.toggle('selected', s.dataset.color === col);
-      });
-      row.querySelector('.player-num').style.color = col;
-      input.placeholder = defaultNameFor(newId, col);
-      paintRowPreview(row);
+    const chg = e.target.closest('.char-change-btn');
+    if (chg) {
+      openCharPicker(chg.closest('.player-input-row'), chg);
       return;
     }
     const sw = e.target.closest('.flavor-swatch');
     if (sw) {
       const row = sw.closest('.player-input-row');
-      const col = normalizeColor(sw.dataset.color);
-      const oldId = row.dataset.char || defaultCharId();
-      const oldCol = normalizeColor(row.dataset.color || defaultColorFor(oldId));
-      const newId = resolveCharForColor(oldId, col);
-      const input = row.querySelector('input');
-      const oldDefault = defaultNameFor(oldId, oldCol);
-      if (!input.value.trim() || input.value.trim() === oldDefault) {
-        input.value = defaultNameFor(newId, col);
+      if (sw.classList.contains('locked')) {
+        const id = row.dataset.char || defaultCharId();
+        showToast(`🔒 ${defaultNameFor(id, sw.dataset.color)} hasn’t turned up in a mystery box yet.`);
+        return;
       }
-      row.dataset.char = newId;
-      row.dataset.color = col;
-      row.querySelectorAll('.char-chip').forEach((s) => {
-        s.classList.toggle('selected', sameFamily(s.dataset.char, newId));
-      });
-      row.querySelectorAll('.flavor-swatch').forEach((s) => s.classList.remove('selected'));
-      sw.classList.add('selected');
-      row.querySelector('.player-num').style.color = col;
-      input.placeholder = defaultNameFor(newId, col);
-      paintRowPreview(row);
+      // Keep the family, switch the color — resolveCharForColor swaps a cast to
+      // that color's variant and leaves a single-object skin to recolor in place.
+      applyRowChar(row, null, sw.dataset.color);
       return;
     }
     const ai = e.target.closest('.ai-toggle');
@@ -356,6 +493,148 @@
   });
 
   addPlayerBtn.addEventListener('click', addPlayerInput);
+
+  // ── Character picker overlay ────────────────────────────────────────────────
+  // Holds the live row ELEMENT, not an index, so adding/removing players can't
+  // desync it. Non-null doubles as the "picker is open" flag.
+  // NB: declared before the initial renderFrom() call below, which reads it.
+  let pickerRow = null;
+  let pickerOpener = null;   // the button to hand focus back to
+
+  function openCharPicker(row, opener) {
+    if (!row || !charPickScreen) return;
+    pickerRow = row;
+    pickerOpener = opener || null;
+    const col = normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char));
+    const charId = resolveCharForColor(row.dataset.char || defaultCharId(), col);
+    const idx = [...playerInputs.children].indexOf(row);
+    charPickTitle.textContent = `Choose a character for P${idx + 1}`;
+    // Bake every family's sprite for this color in ONE pass — otherwise each of
+    // the ~17 drawPreview calls kicks off its own lazy bake and the resulting
+    // onload storm repaints the whole grid once per sprite.
+    if (window.Skins && Skins.preload) Skins.preload([col]);
+    charPickGrid.innerHTML = familyTilesHtml(charId, col);
+    charPickScreen.classList.remove('hidden');
+    // aria-modal is a lie to screen readers without a focus trap; inert is the
+    // cheap honest version. Feature-detected — this also ships as a WebView APK.
+    if ('inert' in HTMLElement.prototype) setupScreen.inert = true;
+    paintPickerPreviews();
+    (charPickGrid.querySelector('.fam-tile.selected') || charPickClose).focus();
+  }
+
+  function closeCharPicker() {
+    if (!pickerRow) return;
+    pickerRow = null;
+    charPickScreen.classList.add('hidden');
+    charPickGrid.innerHTML = '';   // release ~17 canvases and their 2D contexts
+    if ('inert' in HTMLElement.prototype) setupScreen.inert = false;
+    if (pickerOpener && pickerOpener.isConnected) pickerOpener.focus();
+    pickerOpener = null;
+  }
+
+  function paintPickerPreviews() {
+    if (!pickerRow || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
+    const col = normalizeColor(pickerRow.dataset.color || defaultColorFor(pickerRow.dataset.char));
+    charPickGrid.querySelectorAll('canvas[data-preview-char]').forEach((cv) => {
+      const id = cv.dataset.previewChar;
+      const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
+      Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, col));
+    });
+  }
+
+  if (charPickGrid) charPickGrid.addEventListener('click', (e) => {
+    const tile = e.target.closest('.fam-tile');
+    if (!tile || !pickerRow) return;
+    if (tile.dataset.locked === '1') {
+      showToast(`🔒 ${tile.dataset.label} unlocks at ${tile.dataset.need} total wins.`);
+      return;
+    }
+    applyRowChar(pickerRow, tile.dataset.char, null);   // null = keep their color
+    closeCharPicker();
+  });
+  if (charPickClose) charPickClose.addEventListener('click', closeCharPicker);
+  if (charPickScreen) charPickScreen.addEventListener('click', (e) => {
+    if (e.target === charPickScreen) closeCharPicker();   // backdrop only
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' && e.key !== 'Esc') return;
+    if (pickerRow) { e.preventDefault(); closeCharPicker(); return; }
+    // The characters are already granted and saved by the time a box is shown,
+    // so escaping out of the queue only skips the animation — nothing is lost.
+    if (mysteryCurrent) { e.preventDefault(); dismissMystery(); }
+  });
+
+  // ── Mystery box reveal ──────────────────────────────────────────────────────
+  // A won box hatches one random flippable. Reveals are queued so winning two
+  // thresholds in one sitting shows two boxes back to back rather than racing.
+  const mysteryQueue = [];
+  let mysteryCurrent = null;   // char id being revealed (null = idle)
+  let mysteryOpened = false;   // has the current box been popped?
+
+  function queueMysteryReveals(ids) {
+    if (!ids || !ids.length || !mysteryScreen) return;
+    mysteryQueue.push(...ids);
+    if (!mysteryCurrent) nextMysteryReveal();
+  }
+
+  function nextMysteryReveal() {
+    if (!mysteryQueue.length) {
+      mysteryCurrent = null;
+      mysteryScreen.classList.add('hidden');
+      mysteryScreen.classList.remove('opening');
+      return;
+    }
+    mysteryCurrent = mysteryQueue.shift();
+    mysteryOpened = false;
+    // Warm the sprite for this character's own tint before it's on screen.
+    const c = characterById(mysteryCurrent);
+    const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
+    if (window.Skins && Skins.preload) Skins.preload([tint]);
+
+    mysteryScreen.classList.remove('opening');
+    mysteryHeadlineEl.textContent = 'A new flippable appears!';
+    mysteryNameEl.textContent = '';
+    mysteryFamilyEl.textContent = '';
+    mysteryGoBtn.textContent = 'Tap to open';
+    mysteryQueueEl.textContent = mysteryQueue.length
+      ? `${mysteryQueue.length} more box${mysteryQueue.length === 1 ? '' : 'es'} to open`
+      : '';
+    mysteryScreen.classList.remove('hidden');
+    mysteryGoBtn.focus();
+  }
+
+  function paintMysteryArt() {
+    if (!mysteryCurrent || !mysteryArtEl || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
+    const c = characterById(mysteryCurrent);
+    const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
+    const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(mysteryCurrent) : mysteryCurrent;
+    Renderer.drawPreview(mysteryArtEl, drawAs === 'bottle' ? 'bottle' : mysteryCurrent,
+                         drawTintFor(mysteryCurrent, tint));
+  }
+
+  function openMysteryBox() {
+    if (!mysteryCurrent) return;
+    mysteryOpened = true;
+    paintMysteryArt();
+    mysteryScreen.classList.add('opening');
+    mysteryHeadlineEl.textContent = 'Collected — yours forever!';
+    mysteryNameEl.textContent = defaultNameFor(mysteryCurrent, null);
+    mysteryFamilyEl.textContent = familyLabel(mysteryCurrent);
+    mysteryGoBtn.textContent = mysteryQueue.length ? 'Next box ▶' : 'Nice!';
+    Sound.play('win');
+  }
+
+  // Abandon the whole queue (menu exit / Escape). Safe: openBoxes already saved.
+  function dismissMystery() {
+    mysteryQueue.length = 0;
+    nextMysteryReveal();
+  }
+
+  if (mysteryGoBtn) mysteryGoBtn.addEventListener('click', () => {
+    Sound.unlock();
+    if (!mysteryOpened) openMysteryBox();
+    else nextMysteryReveal();
+  });
 
   function rowsToDefs(rows) {
     return rows.map((r) => {
@@ -491,20 +770,12 @@
     }
   });
 
-  // initial two rows — names default to the unlocked skin families
-  renderFrom([
-    (() => {
-      const id = defaultCharId();
-      const color = defaultColorFor(id);
-      return { name: defaultNameFor(id, color), charId: id, color, ai: false };
-    })(),
-    (() => {
-      const avail = availableFamilies();
-      const id = (avail[1] && avail[1].id) || defaultCharId();
-      const color = defaultColorFor(id);
-      return { name: defaultNameFor(id, color), charId: id, color, ai: false };
-    })(),
-  ]);
+  // initial two rows — rotate families, and never two seats on the same flavor
+  renderFrom((() => {
+    const seats = [];
+    for (let i = 0; i < 2; i++) seats.push(seatDefaults(i, seats.map((s) => s.color)));
+    return seats;
+  })());
 
   // ── Game loop state ────────────────────────────────────────────────────────
   let lastTime    = 0;
@@ -1126,18 +1397,13 @@
       if (humansPlayed) {
         winRec = Records.recordWin(active.length ? active[0].name : null);
         renderRecordsPanel();
-        // Character unlock ladder: each character's `unlock` is a total-win
-        // threshold (every 3 wins). Crossing multiple thresholds in one game
-        // grants every newly earned character.
+        // Mystery boxes: every 2 wins earns one, and each grants a RANDOM
+        // still-locked character. Winning several thresholds in one sitting
+        // queues several reveals.
         if (active.length && window.Skins) {
-          const wins = Records.totalWins();
-          const newlyUnlocked = Skins.list().filter((s) => {
-            const need = Skins.unlockRule(s.id);
-            return typeof need === 'number' && wins >= need && Records.unlockSkin(s.id);
-          });
-          if (newlyUnlocked.length) {
-            const names = newlyUnlocked.map((s) => `${s.emoji} ${s.name}`).join(', ');
-            showToast(`${names} unlocked! Pick them in setup.`);
+          const drawn = Records.claimBoxes();
+          if (drawn.length) {
+            queueMysteryReveals(drawn);
             try { renderFrom(readRows()); } catch (_) {}
           }
         }
@@ -1318,6 +1584,7 @@
     gameScreen.classList.add('hidden');
     gameOverEl.classList.add('hidden');
     passScreen.classList.add('hidden');
+    dismissMystery();
     if (onlineScreen) onlineScreen.classList.add('hidden');
     renderRecordsPanel();
     setupScreen.classList.remove('hidden');
@@ -1580,7 +1847,22 @@
   // Sprites are SVG data URIs that decode a beat after they're requested, so
   // the first preview paint can land on the placeholder. Repaint when one
   // arrives (no-op once the setup screen is gone).
-  if (window.Skins && Skins.onSpriteLoad) Skins.onSpriteLoad(paintAllPreviews);
+  //
+  // Coalesced through a single rAF: opening the picker bakes ~18 Images, and
+  // every one of their onloads fires spriteLoaded() -> every listener. Painting
+  // synchronously there meant ~18 x 18 drawPreview calls in one burst.
+  let previewRepaintQueued = false;
+  function schedulePreviewRepaint() {
+    if (previewRepaintQueued) return;
+    previewRepaintQueued = true;
+    requestAnimationFrame(() => {
+      previewRepaintQueued = false;
+      paintAllPreviews();
+      paintPickerPreviews();
+      if (mysteryOpened) paintMysteryArt();   // the reveal art decodes late too
+    });
+  }
+  if (window.Skins && Skins.onSpriteLoad) Skins.onSpriteLoad(schedulePreviewRepaint);
   paintAllPreviews();
 
   // Show setup on load
