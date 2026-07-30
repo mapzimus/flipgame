@@ -18,8 +18,8 @@ const Physics = (() => {
   // Spin tuning (rad/step) — see applyFlick. Normal throws should usually land
   // if you give a decent flick; only wild overshoots tip. v78: cut high-end
   // over-rotation (hard flicks were falling ~70% of the time).
-  const SPIN_BASE   = 0.130;  // soft flick still clears ~360°
-  const SPIN_RANGE  = 0.088;  // much flatter — hard flicks don't tip as often
+  const SPIN_BASE   = 0.138;  // soft/medium flicks clear 360°
+  const SPIN_RANGE  = 0.082;  // flat high end — hard flicks tip less
   const POWER_SPEED = 4000;   // flick px/s that maps to full power
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
   const FIXED_DT    = 1 / 60; // multiplayer-safe fixed physics step
