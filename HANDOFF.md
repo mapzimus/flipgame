@@ -337,11 +337,10 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 Deterministic lockstep replay: broadcast `{seed, vx, vy}` per flip; every device replays the seeded sim. CRITICAL: the flicking player's device is **authoritative for the verdict** (replay is visual only) to avoid cross-device float divergence. Prep needed: seed the RNG (replace `Math.random` in `physics.js` jitter + landing kick with a seeded PRNG) and switch the loop to a fixed-timestep accumulator. Transport: Supabase Realtime (connected) or PartyKit over wss://; NOT WebRTC (school networks block it).
 
 
-## Art style (v72)
+## Art style (v75)
 Flat **cartoony SVG** casts only in-game. AI PNG casts under `icons/skins/` are
-retired (too 3D / vinyl). People / gods / buildings / alien draw via SVG again.
-PNG-only editions (pets, garden, robots, ocean, snacks, cryptids) are parked
-from the unlock ladder until they get matching SVG art.
+retired. Mid-ladder packs (pets, garden, robots, ocean, snacks, cryptids) live
+in `js/cartoon-casts.js` as SVG silhouettes — same toy-box look as People/Aliens.
 
 ## Progress gating (v66)
 - **Unlocks + achievements only count when ≥1 human is in the lobby** (`main.js` `progressCounts()` / `humansPlayed`). AI-only games show a toast and skip `Records.recordWin`, skin unlocks, `Records.recordFlip` lifetime counters, and `Achievements.check`.
@@ -352,9 +351,9 @@ from the unlock ladder until they get matching SVG art.
 **Roster gallery:** open `/roster.html` for every character with a live render.
 
 Setup: **character chips + independent color**. Cadence: bottle free, then
-**every 3 wins**; **Alien species are last**. Live roster: classics + people +
-tall buildings (no Redeemer) + gods + aliens. Color recolors / swaps cast
-variants.
+**every 3 wins**; **Alien species are last**. Live roster: classics → people →
+buildings → gods → pets → garden → robots → ocean → snacks → cryptids → aliens.
+Color recolors / swaps cast variants. Secret unlock: Bottle/Game alternating.
 
 Legacy edition unlocks in localStorage expand into their character ids on boot.
 

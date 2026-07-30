@@ -2,7 +2,7 @@
 // Bump CACHE_NAME on every release so stale caches are purged and users get
 // the fresh build. All paths are RELATIVE so they resolve under /flipgame/
 // on GitHub Pages (the SW lives at repo root → scope is /flipgame/).
-const CACHE_NAME = 'flipgame-v74';
+const CACHE_NAME = 'flipgame-v75';
 
 const PRECACHE_URLS = [
   './',
@@ -18,6 +18,7 @@ const PRECACHE_URLS = [
   './js/settings.js',
   './js/records.js',
   './js/achievements.js',
+  './js/cartoon-casts.js',
   './js/skins.js',
   './js/net.js',
   './js/main.js',
