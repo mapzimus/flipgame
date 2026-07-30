@@ -1699,33 +1699,32 @@ ${crown}
   // `drawAs` (the old edition drawer) using `tint` (cast key / color).
   // Unlock cadence: free bottle, then every 3 wins; Alien species are LAST.
   const ALIEN_PHYSICS = {
-    gravity: 1.32,
+    gravity: 1.28,
     frictionAir: 0.0045,
     friction: 0.02,
     restitution: 0.90,
     spinScale: 0.7,
-    launchScale: 1.62,
+    launchScale: 1.50,
     horizDivisor: 140,
-    horizMax: 16,
+    horizMax: 15,
     wallBounce: 0.96,
     ceiling: true,
     floorResolve: true,
     landOnTarget: true,
-    // Small pad + no slide-in; random drops rarely score.
-    targetHalfWidth: 40,
+    // Bigger pad; any body overlap scores (not just center/feet).
+    targetHalfWidth: 72,
     requireFlip: false,
     deflector: true,
     deflectorCount: 3,
     saucerCount: 6,
     keepWalls: true,
-    minHorizRatio: 0.15,
-    strictTarget: true,
-    allowSlideIn: false,
-    hitScale: 0.50,
-    // Pull the camera way back — especially on phones — so the pad is a tiny
-    // target in a big arena (harder to "accidentally" land a make).
-    arenaZoom: 0.70,
-    mobileArenaZoom: 0.46,
+    minHorizRatio: 0.12,
+    strictTarget: false,   // AABB overlap with pad = make (whole alien counts)
+    allowSlideIn: true,    // can still slide onto the pad after touchdown
+    hitScale: 0.90,        // nearly the full drawn pad scores
+    // Still pulled back a bit on phones, but not as extreme as before.
+    arenaZoom: 0.78,
+    mobileArenaZoom: 0.58,
   };
 
   // One unique default name per flavor color, for every skin family.
