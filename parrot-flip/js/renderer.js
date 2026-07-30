@@ -1,83 +1,55 @@
 // renderer.js — canvas draw loop
 
-// roundRect polyfill — older Android System WebViews (the bundled offline APK
-// target) lack CanvasRenderingContext2D.roundRect; without this the draw loop
-// throws and the canvas renders blank. Manual arc/line fallback.
-if (typeof CanvasRenderingContext2D !== 'undefined' &&
-    !CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
-    let radii = typeof r === 'number' ? [r, r, r, r]
-              : (Array.isArray(r) ? r : [0, 0, 0, 0]);
-    if (radii.length === 1) radii = [radii[0], radii[0], radii[0], radii[0]];
-    if (radii.length === 2) radii = [radii[0], radii[1], radii[0], radii[1]];
-    let [tl, tr, br, bl] = radii;
-    const max = Math.min(Math.abs(w), Math.abs(h)) / 2;     // clamp oversized radii
-    tl = Math.min(tl, max); tr = Math.min(tr, max);
-    br = Math.min(br, max); bl = Math.min(bl, max);
-    this.moveTo(x + tl, y);
-    this.arcTo(x + w, y,     x + w, y + h, tr);
-    this.arcTo(x + w, y + h, x,     y + h, br);
-    this.arcTo(x,     y + h, x,     y,     bl);
-    this.arcTo(x,     y,     x + w, y,     tl);
-    this.closePath();
-    return this;
-  };
-}
-
 const Renderer = (() => {
   let canvas, ctx, W, H;
   const particles = [];
-
-  // Screen shake (decaying): amp in px, decays to 0 over shakeDecay px/s.
-  let shakeAmp = 0, shakeDecay = 0;
-  let reduceMotion = false;             // set via setReduceMotion()
+  let reduceMotion = false;   // when on, suppress non-essential motion (particles, shake, pulses)
+  // Visual size of every flippable edition (bottle + skins). Physics body stays
+  // the same — this is paint-only. Bumped ~20% (1.15 → 1.38) so objects read
+  // bigger on phones after open-arena zoom made shots feel tiny.
+  const BOTTLE_DRAW_SCALE = 1.38;
+  const FLIGHT_LIFT = 0.18;
+  // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
+  let camZoom = 1, camX = 0, camY = 0;
 
   function setReduceMotion(v) { reduceMotion = !!v; }
-
-  // Celebration burst (MAKE) / shake (MISS). Called once per result by main.js.
-  function kick(type, opts = {}) {
-    if (type === 'MAKE') {
-      const { x, y, color } = opts;
-      spawnSplash(x, y - 30, reduceMotion ? 8 : 26, color || '#69f0ae');
-    } else if (type === 'MISS') {
-      if (reduceMotion) return;
-      shakeAmp = 12; shakeDecay = 12 / 0.22;   // ~220ms to zero
-    }
-  }
 
   function init(cvs) {
     canvas = cvs;
     ctx    = canvas.getContext('2d');
     W = canvas.width;
     H = canvas.height;
+    camZoom = 1; camX = W / 2; camY = H / 2;
   }
 
   function resize(w, h) { W = w; H = h; }
+
+  function projectPoint(x, y, groundY) {
+    const airborne = Math.max(0, groundY - y - 55);
+    return { x, y: y - airborne * FLIGHT_LIFT };
+  }
+
+  function projectBottleCenter(bottle, groundY) {
+    const p = projectPoint(bottle.position.x, bottle.position.y, groundY);
+    return {
+      x: p.x,
+      y: p.y - (BOTTLE_DRAW_SCALE - 1) * 43,
+    };
+  }
+
+  function bottleDrawScale() { return BOTTLE_DRAW_SCALE; }
 
   // ── Color helpers (per-player liquid flavor) ────────────────────────────────
   function hexToRgba(hex, a) {
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
   }
-  function hexToRgb(hex) {
+  function lighten(hex, amt, a) {
     const n = parseInt(hex.slice(1), 16);
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  }
-  function rgbToHex(r, g, b) {
-    return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
-  }
-  // Blend two hex colors: t=0 → a, t=1 → b.
-  function mixHex(a, b, t) {
-    const A = hexToRgb(a), B = hexToRgb(b);
-    return rgbToHex(
-      Math.round(A[0] + (B[0] - A[0]) * t),
-      Math.round(A[1] + (B[1] - A[1]) * t),
-      Math.round(A[2] + (B[2] - A[2]) * t)
-    );
-  }
-  // t>0 toward white, t<0 toward black.
-  function shadeHex(hex, t) {
-    return t >= 0 ? mixHex(hex, '#ffffff', t) : mixHex(hex, '#000000', -t);
+    const r = Math.min(255, ((n >> 16) & 255) + amt);
+    const g = Math.min(255, ((n >> 8) & 255) + amt);
+    const b = Math.min(255, (n & 255) + amt);
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
   }
 
   // ── Particle helpers ───────────────────────────────────────────────────────
@@ -135,273 +107,179 @@ const Renderer = (() => {
   }
 
   // ── Background & scene ─────────────────────────────────────────────────────
-  function drawBackground(groundY, isOnFire) {
-    const sky = ctx.createLinearGradient(0, 0, 0, groundY);
-    if (isOnFire) {
-      sky.addColorStop(0, '#1a0a04');
-      sky.addColorStop(0.55, '#3a1408');
-      sky.addColorStop(1, '#5a220c');
-    } else {
-      sky.addColorStop(0, '#071018');
-      sky.addColorStop(0.45, '#0f2438');
-      sky.addColorStop(1, '#16324a');
-    }
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, groundY);
-
-    // Horizon haze / distant sea
-    const haze = ctx.createLinearGradient(0, groundY - 90, 0, groundY);
-    haze.addColorStop(0, 'rgba(40, 90, 120, 0)');
-    haze.addColorStop(1, isOnFire ? 'rgba(120, 50, 20, 0.35)' : 'rgba(50, 110, 140, 0.28)');
-    ctx.fillStyle = haze;
-    ctx.fillRect(0, groundY - 90, W, 90);
-
-    // Sparse stars (skip when on fire)
-    if (!isOnFire) {
-      ctx.fillStyle = 'rgba(244, 239, 227, 0.55)';
-      for (let i = 0; i < 28; i++) {
-        const sx = ((i * 97) % W);
-        const sy = 18 + ((i * 53) % Math.max(40, groundY - 120));
-        const r = (i % 3 === 0) ? 1.4 : 0.9;
-        ctx.beginPath();
-        ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.fill();
+  function drawBackground(groundY, isOnFire, opts) {
+    const skyOnly = opts && opts.skyOnly;
+    const tableOnly = opts && opts.tableOnly;
+    if (!tableOnly) {
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      if (isOnFire) {
+        sky.addColorStop(0, '#140400');
+        sky.addColorStop(1, '#2e0800');
+      } else {
+        sky.addColorStop(0, '#0a1628');
+        sky.addColorStop(1, '#112240');
       }
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
     }
+    if (skyOnly) return;
 
-    // Ship deck planks
-    ctx.fillStyle = '#3a2418';
-    ctx.fillRect(0, groundY, W, H - groundY);
+    // Extra-wide table so open-arena zoom-outs still show a floor.
+    const x0 = -W * 2, tw = W * 5;
+    ctx.fillStyle = '#3e2723';
+    ctx.fillRect(x0, groundY, tw, Math.max(H, 800));
 
-    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
     ctx.lineWidth = 1;
-    for (let y = groundY + 18; y < H; y += 22) {
+    for (let x = x0; x < x0 + tw; x += 48) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
+      ctx.moveTo(x, groundY);
+      ctx.lineTo(x + 20, groundY + 200);
       ctx.stroke();
     }
-    // Nail dots / plank seams
-    ctx.fillStyle = 'rgba(197,154,74,0.18)';
-    for (let x = 24; x < W; x += 64) {
-      for (let y = groundY + 10; y < H; y += 22) {
-        ctx.fillRect(x, y, 2, 2);
-      }
-    }
 
-    // Deck edge rail
-    ctx.fillStyle = '#5a3a24';
-    ctx.fillRect(0, groundY - 4, W, 5);
-    ctx.fillStyle = 'rgba(197,154,74,0.35)';
-    ctx.fillRect(0, groundY - 4, W, 1);
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(x0, groundY - 3, tw, 4);
   }
 
-  // ── Parrot sprite (authored SVG macaw) ─────────────────────────────────────
-  // The bird is a hand-authored SVG illustration — a side-profile Caribbean
-  // macaw — baked per player color into an offscreen Image via a data: URI
-  // (no network, works offline). Two layers per color: BODY (everything) and
-  // WING (drawn on top, rotated a few degrees by the liquid-slosh signal so
-  // the bird still "flaps" in flight).
-  //
-  // Alignment with physics: the compound bottle body's center of mass is the
-  // sprite origin. Upright at rest, the ground-contact plane is local y≈+39
-  // (base bottom is 73px below the spawn anchor, the CG 34px below it). The
-  // SVG is authored in a 300×420 viewBox with the foot soles at svg y=376;
-  // SPR maps that line to local +39 and scales the bird into the same visual
-  // envelope as the original bottle (head top ≈ -119).
-  const SPR = (() => {
-    const VIEW_W = 300, VIEW_H = 420;
-    const GROUND_SVG = 376;              // foot-sole line in svg coords
-    const GROUND_LOCAL = 39;             // physics contact plane, local coords
-    const SCALE = 0.62;                  // svg px → local px (bird size; feet stay anchored to GROUND_LOCAL)
-    const destW = VIEW_W * SCALE, destH = VIEW_H * SCALE;
-    const destX = -destW / 2;
-    const destY = GROUND_LOCAL - GROUND_SVG * SCALE;
-    // Wing rotates about the shoulder joint (svg 132,150) when flapping.
-    const pivX = (132 - VIEW_W / 2) * SCALE;
-    const pivY = (150 - GROUND_SVG) * SCALE + GROUND_LOCAL;
-    return { destX, destY, destW, destH, pivX, pivY, svgX: (x) => (x - VIEW_W / 2) * SCALE, svgY: (y) => (y - GROUND_SVG) * SCALE + GROUND_LOCAL };
-  })();
-
-  // Fixed anatomy tones (never tinted): a macaw's beak/eye/feet read as "bird"
-  // precisely because they DON'T match the plumage.
-  const ANAT = {
-    beakHi: '#f7efdf', beakLo: '#d9c7a3', beakEdge: '#8f7d5c',
-    mandible: '#3c3733', nostril: '#77664c',
-    face: '#f4efe3', iris: '#e3c584', pupil: '#17110c', eyeRing: '#9c8a6a',
-    legNear: '#8d8577', legFar: '#6e6759', claw: '#4a443c',
-    patch: '#1b1b1b', strap: '#141414',
-  };
-
-  // Per-color palette: shades of the roster color plus the two real-macaw wing
-  // accents — a golden greater-covert band and blue-slate primaries/tail.
-  function parrotPalette(base) {
-    return {
-      base,
-      crown:  shadeHex(base,  0.10),
-      chest:  shadeHex(base,  0.18),
-      deep:   shadeHex(base, -0.30),
-      wing:   shadeHex(base, -0.10),
-      wingLn: shadeHex(base, -0.26),
-      covert: mixHex(base, '#e9c46a', 0.55),
-      covertEdge: shadeHex(mixHex(base, '#e9c46a', 0.55), -0.25),
-      prim:   mixHex(base, '#1f3a5f', 0.60),
-      primHi: shadeHex(mixHex(base, '#1f3a5f', 0.60), 0.25),
-      tail:   mixHex(base, '#1f3a5f', 0.38),
-      line:   shadeHex(base, -0.52),
-    };
-  }
-
-  // BODY layer: tail, far leg, torso, head, facial patch, beak, eye, pirate
-  // patch, near leg. (Wing lives in its own layer, drawn over this.)
-  function parrotBodySVG(p) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
-<defs>
-<linearGradient id="gB" x1="0" y1="60" x2="0" y2="345" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${p.crown}"/><stop offset="0.45" stop-color="${p.base}"/><stop offset="1" stop-color="${p.deep}"/>
-</linearGradient>
-<linearGradient id="gK" x1="222" y1="56" x2="266" y2="140" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${ANAT.beakHi}"/><stop offset="1" stop-color="${ANAT.beakLo}"/>
-</linearGradient>
-</defs>
-<g stroke-linecap="round" stroke-linejoin="round">
-<path d="M 118 312 C 92 350 66 378 50 404 C 62 407 78 396 91 372 C 103 350 113 331 121 317 Z" fill="${p.tail}"/>
-<path d="M 118 312 C 95 346 72 374 56 398" fill="none" stroke="${p.primHi}" stroke-width="2" opacity="0.55"/>
-<path d="M 127 316 C 109 348 93 372 82 391 C 94 391 107 374 117 352 C 123 340 127 328 129 318 Z" fill="${p.prim}"/>
-<path d="M 134 318 C 124 340 113 357 106 367 C 117 365 127 350 135 331 Z" fill="${p.deep}"/>
-<path d="M 148 336 L 146 365" fill="none" stroke="${ANAT.legFar}" stroke-width="9"/>
-<path d="M 146 365 L 127 375 M 146 365 L 145 377 M 146 365 L 161 375" fill="none" stroke="${ANAT.legFar}" stroke-width="6"/>
-<path d="M 168 106 C 136 118 116 140 112 168 C 106 208 96 252 100 292 C 102 318 118 334 142 340 C 168 346 190 338 202 318 C 218 292 228 250 230 210 C 232 178 224 148 208 128 C 196 114 182 106 168 106 Z" fill="url(#gB)" stroke="${p.line}" stroke-width="1.5" opacity="0.98"/>
-<ellipse cx="214" cy="212" rx="24" ry="66" fill="${p.chest}" opacity="0.32" transform="rotate(-7 214 212)"/>
-<circle cx="195" cy="88" r="44" fill="${p.crown}"/>
-<path d="M 153 66 A 44 44 0 0 1 233 72" fill="none" stroke="${p.line}" stroke-width="1.5"/>
-<path d="M 224 58 C 200 52 178 58 170 74 C 164 88 166 104 176 114 C 188 124 206 126 218 120 L 220 118 C 214 98 216 76 224 58 Z" fill="${ANAT.face}" stroke="${p.line}" stroke-width="1" opacity="0.96"/>
-<path d="M 176 72 C 190 66 204 64 216 64 M 172 86 C 188 82 204 82 218 84 M 174 100 C 188 100 202 102 214 106" fill="none" stroke="${p.base}" stroke-width="1.6" opacity="0.8"/>
-<path d="M 222 54 C 244 52 262 62 268 80 C 274 100 268 126 252 146 C 248 130 240 122 228 116 L 224 112 C 230 94 228 72 222 54 Z" fill="url(#gK)" stroke="${ANAT.beakEdge}" stroke-width="1.2"/>
-<path d="M 226 58 C 244 58 258 68 263 82" fill="none" stroke="#fbf6ea" stroke-width="2" opacity="0.7"/>
-<path d="M 224 112 C 236 116 246 128 252 144" fill="none" stroke="${ANAT.beakEdge}" stroke-width="1.5" opacity="0.8"/>
-<path d="M 220 116 C 228 120 238 128 244 138 C 236 142 224 142 214 136 C 210 130 212 122 220 116 Z" fill="${ANAT.mandible}"/>
-<ellipse cx="233" cy="64" rx="3" ry="2.4" fill="${ANAT.nostril}" transform="rotate(15 233 64)"/>
-<circle cx="190" cy="84" r="8" fill="${ANAT.iris}" stroke="${ANAT.eyeRing}" stroke-width="1"/>
-<circle cx="190" cy="84" r="4.4" fill="${ANAT.pupil}"/>
-<circle cx="192" cy="81" r="1.8" fill="#ffffff"/>
-<path d="M 214 56 C 196 60 178 64 162 72 C 152 78 146 86 142 96" fill="none" stroke="${ANAT.strap}" stroke-width="3.5"/>
-<g transform="rotate(-16 173 67)">
-<rect x="159" y="57" width="28" height="20" rx="6" fill="${ANAT.patch}"/>
-<path d="M 164 62 C 169 59 177 58 182 60" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
-</g>
-<path d="M 176 332 L 174 363" fill="none" stroke="${ANAT.legNear}" stroke-width="10"/>
-<path d="M 174 363 L 152 375 M 174 363 L 172 377 M 174 363 L 192 373" fill="none" stroke="${ANAT.legNear}" stroke-width="7"/>
-<path d="M 152 375 L 147 378 M 172 377 L 171 381 M 192 373 L 196 377" fill="none" stroke="${ANAT.claw}" stroke-width="3"/>
-</g>
-</svg>`;
-  }
-
-  // WING layer: folded wing with scalloped coverts, a golden greater-covert
-  // band, and stacked blue-slate primaries tapering to the tip.
-  function parrotWingSVG(p) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
-<defs>
-<linearGradient id="gW" x1="0" y1="150" x2="0" y2="350" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="${p.wing}"/><stop offset="1" stop-color="${p.deep}"/>
-</linearGradient>
-</defs>
-<g stroke-linecap="round" stroke-linejoin="round">
-<path d="M 130 148 C 104 162 90 192 92 226 C 94 262 104 300 126 330 C 138 344 154 350 166 340 C 176 330 178 310 172 280 C 165 242 158 200 148 172 C 144 158 138 150 130 148 Z" fill="url(#gW)" stroke="${p.line}" stroke-width="1.5" opacity="0.98"/>
-<path d="M 106 192 C 116 200 128 204 138 202 M 116 172 C 126 180 138 184 148 182 M 100 216 C 112 226 128 230 142 228" fill="none" stroke="${p.wingLn}" stroke-width="1.8" opacity="0.7"/>
-<path d="M 100 242 C 116 256 138 262 158 256" fill="none" stroke="${p.covert}" stroke-width="12" opacity="0.95"/>
-<path d="M 101 248 C 117 262 139 268 157 262" fill="none" stroke="${p.covertEdge}" stroke-width="2.5" opacity="0.8"/>
-<path d="M 104 260 C 114 292 130 318 152 338 L 162 341 C 142 318 126 288 116 258 Z" fill="${p.prim}"/>
-<path d="M 118 258 C 128 288 144 314 164 332 L 169 326 C 152 306 138 280 130 254 Z" fill="${p.prim}" opacity="0.85"/>
-<path d="M 104 260 C 116 294 134 322 158 340 M 118 256 C 130 288 146 314 166 330" fill="none" stroke="${p.primHi}" stroke-width="1.6" opacity="0.6"/>
-</g>
-</svg>`;
-  }
-
-  // color → { body: Image, wing: Image, ready } — built lazily, cached forever.
-  const spriteCache = new Map();
-  function getParrotSprite(color) {
-    let entry = spriteCache.get(color);
-    if (entry) return entry;
-    const p = parrotPalette(color);
-    entry = { body: new Image(), wing: new Image(), loaded: 0, ready: false };
-    const arm = (img, svg) => {
-      img.onload = () => { if (++entry.loaded === 2) entry.ready = true; };
-      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-    };
-    arm(entry.body, parrotBodySVG(p));
-    arm(entry.wing, parrotWingSVG(p));
-    spriteCache.set(color, entry);
-    return entry;
-  }
-
-  // Warm the cache at boot (called from main.js with the roster colors) so the
-  // first flick never shows the placeholder.
-  function preloadParrots(colors) {
-    for (const c of colors || []) getParrotSprite(c);
-  }
-
-  const GROUND_SHADOW_REST = 39;   // CG height above deck when standing
-
-  function drawBottle(bottle, liquid, isOnFire, liquidColor, groundY) {
-    const { x, y } = bottle.position;
+  // ── Bottle ─────────────────────────────────────────────────────────────────
+  // Wide squat Gatorade bottle: 74px body, short neck, wide orange cap, blue fill.
+  // Local coords centered at bottle.position (physics CG, ~40px above visual base).
+  function drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin) {
+    const { x, y } = projectBottleCenter(bottle, groundY);
     const angle  = bottle.angle;
-    const bodyCol = liquidColor || '#d62828';
-    const flap = Math.max(-0.45, Math.min(0.45, (liquid.slosh || 0) * 0.55));
-    const spr = getParrotSprite(bodyCol);
+    const fillCol = hexToRgba(liquidColor || '#0b86ff', 0.92);
+    const meniscusCol = lighten(liquidColor || '#0b86ff', 110, 0.9);
 
+    // ON FIRE glow
     if (isOnFire) {
-      const glow = ctx.createRadialGradient(x, y, 10, x, y, 95);
+      const glow = ctx.createRadialGradient(x, y, 10, x, y, 95 * BOTTLE_DRAW_SCALE);
       glow.addColorStop(0, 'rgba(255,100,0,0.30)');
       glow.addColorStop(1, 'rgba(255,60,0,0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x, y, 95, 0, Math.PI * 2);
+      ctx.arc(x, y, 95 * BOTTLE_DRAW_SCALE, 0, Math.PI * 2);
       ctx.fill();
-      spawnFire(x, y - 100);
-    }
-
-    // Soft contact shadow on the deck — fades out as the bird gains air.
-    if (groundY > 0) {
-      const d = groundY - y;                      // CG height above deck
-      const a = Math.max(0, 1 - (d - GROUND_SHADOW_REST) / 190);
-      if (a > 0.02) {
-        ctx.fillStyle = `rgba(0,0,0,${(0.34 * a).toFixed(3)})`;
-        ctx.beginPath();
-        ctx.ellipse(x, groundY + 5, 44 + d * 0.08, 10 + d * 0.015, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      if (!reduceMotion) spawnFire(x, y - 100 * BOTTLE_DRAW_SCALE);
     }
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
+    ctx.scale(BOTTLE_DRAW_SCALE, BOTTLE_DRAW_SCALE);
 
-    if (spr.ready) {
-      ctx.drawImage(spr.body, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
-      ctx.save();
-      ctx.translate(SPR.pivX, SPR.pivY);
-      ctx.rotate(flap * 0.5);
-      ctx.translate(-SPR.pivX, -SPR.pivY);
-      ctx.drawImage(spr.wing, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
+    // Skin dispatch: a non-bottle edition paints the object in the same local
+    // frame (origin = CG, ground plane ≈ +39) and we're done. See js/skins.js.
+    if (skin && skin !== 'bottle' && window.Skins && window.Skins.hasDraw(skin)) {
+      window.Skins.draw(ctx, skin, { color: liquidColor, slosh: liquid.slosh });
       ctx.restore();
-    } else {
-      // 1–2 frame placeholder while the SVG Image decodes: simple silhouette
-      // in the player color so the bird never blinks out entirely.
-      ctx.fillStyle = bodyCol;
-      ctx.beginPath();
-      ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(14, -72, 22, 0, Math.PI * 2);
-      ctx.fill();
+      return;
     }
+
+    // Reusable body outline (wide, flat-bottomed Gatorade shape, y=-72..+43)
+    const traceBody = () => { ctx.beginPath(); ctx.roundRect(-37, -72, 74, 115, 10); };
+
+    // Clear-plastic glass tint — translucent so the blue liquid shows through
+    const glass = ctx.createLinearGradient(-37, 0, 37, 0);
+    glass.addColorStop(0,    'rgba(198, 224, 245, 0.30)');
+    glass.addColorStop(0.20, 'rgba(244, 251, 255, 0.46)');
+    glass.addColorStop(0.55, 'rgba(208, 234, 250, 0.32)');
+    glass.addColorStop(1,    'rgba(186, 218, 240, 0.26)');
+
+    // ── Shoulder + neck (drawn first, body covers the junction) ────────────
+    ctx.fillStyle   = glass;
+    ctx.strokeStyle = 'rgba(90, 150, 205, 0.55)';
+    ctx.lineWidth   = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-37, -68);
+    ctx.lineTo(-22, -86);
+    ctx.lineTo( 22, -86);
+    ctx.lineTo( 37, -68);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(-22, -122, 44, 40, 7);
+    ctx.fill();
+    ctx.stroke();
+
+    // ── Body: clear glass fill ─────────────────────────────────────────────
+    traceBody();
+    ctx.fillStyle = glass;
+    ctx.fill();
+
+    // ── Vivid blue liquid — surface stays LEVEL in world space ─────────────
+    // Clip to the (tilted) bottle interior, then UNDO the bottle's rotation so
+    // we fill in world-aligned axes. A world-horizontal fill ∩ the tilted bottle
+    // = liquid that finds its own level no matter how the bottle spins. The body
+    // interior is y=-72..+43 rel. to the CG; max corner distance ~81px, so the
+    // -120..120 / down-to-240 fill amply covers it once clipped.
+    ctx.save();
+    traceBody();
+    ctx.clip();
+    ctx.rotate(-angle);                                    // → world-aligned axes
+    const surfaceY = 15;                                   // ~30% full when upright
+    const tilt  = Math.max(-0.28, Math.min(0.28, liquid.slosh)); // slosh wobble (rad)
+    const slope = Math.tan(tilt);
+    const yL = surfaceY - 120 * slope, yR = surfaceY + 120 * slope;
+    ctx.fillStyle = fillCol;
+    ctx.beginPath();
+    ctx.moveTo(-120, yL);
+    ctx.lineTo( 120, yR);
+    ctx.lineTo( 120, 240);
+    ctx.lineTo(-120, 240);
+    ctx.closePath();
+    ctx.fill();
+    // bright meniscus line along the surface
+    ctx.strokeStyle = meniscusCol;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-120, yL);
+    ctx.lineTo( 120, yR);
+    ctx.stroke();
+    ctx.restore();
+
+    // ── Specular highlights (clipped to body) ──────────────────────────────
+    ctx.save();
+    traceBody();
+    ctx.clip();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.fillRect(-30, -72, 6, 115);   // left bright strip
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.fillRect(23, -72, 4, 115);    // right faint reflection
+    ctx.restore();
+
+    // ── Crisp body outline ─────────────────────────────────────────────────
+    traceBody();
+    ctx.strokeStyle = 'rgba(85, 145, 200, 0.80)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    // ── Label band (upper body, above the waterline) ──────────────────────
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.90)';
+    ctx.beginPath();
+    ctx.roundRect(-35, -58, 70, 28, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ff6d00';        // brand stripe
+    ctx.fillRect(-35, -47, 70, 5);
+
+    // ── Wide orange Gatorade cap ───────────────────────────────────────────
+    ctx.fillStyle = '#ff6d00';
+    ctx.beginPath();
+    ctx.roundRect(-24, -146, 48, 26, 6);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.beginPath();
+    ctx.roundRect(-21, -144, 12, 7, 2);
+    ctx.fill();
 
     ctx.restore();
 
-    // Feather puff when "sloshing" hard
-    if (Math.abs(liquid.vel) > 1.6) {
-      spawnSplash(x, y - 30, 2, hexToRgba(bodyCol, 0.85));
+    // Blue splash on hard slosh
+    if (!reduceMotion && Math.abs(liquid.vel) > 1.6) {
+      spawnSplash(x, y - 30 * BOTTLE_DRAW_SCALE, 2, 'rgba(0, 170, 255, 0.85)');
     }
   }
 
@@ -417,10 +295,24 @@ const Renderer = (() => {
     ctx.fill();
   }
 
-  // ── Flick indicator ─────────────────────────────────────────────────────────
-  // Points FROM the bottle in the direction you're flicking (the way it'll go),
-  // length grows with flick strength. Reads as "throw this way", not "pull back".
-  function drawFlickIndicator(drag, bottle) {
+  // ── Flick indicator — "power gauge", not a thin arrow ───────────────────────
+  // A charging ring around the object reads "how hard" at a glance from across
+  // a room (a filling ring is a universal charge/cooldown language); bold
+  // thrust chevrons stacked in the throw direction read "which way" and
+  // reinforce "how hard" via count + brightness, like a throttle gauge. The
+  // raw gesture path is traced faintly underneath. Strength math is unchanged —
+  // this only repaints the same `drag` state, so the flick itself is untouched.
+  // Input drag coords are screen/CSS pixels; world drawing sits under the
+  // camera. Convert so the trail stays under the finger when zoomed out.
+  function screenToWorld(sx, sy) {
+    const z = camZoom || 1;
+    return {
+      x: camX + (sx - W / 2) / z,
+      y: camY + (sy - H / 2) / z,
+    };
+  }
+
+  function drawFlickIndicator(drag, bottle, groundY) {
     if (!drag || !bottle) return;
     const dx  = drag.curX - drag.startX;   // flick direction = throw direction
     const dy  = drag.curY - drag.startY;
@@ -429,50 +321,83 @@ const Renderer = (() => {
 
     const strength = Math.min(len / 220, 1);
     const ux = dx / len, uy = dy / len;
-    const reach = 28 + strength * 64;                 // 28..92px
-    const ox = bottle.position.x, oy = bottle.position.y - 40;
-    const ex = ox + ux * reach, ey = oy + uy * reach;
-    const color = `hsl(${190 - strength * 150}, 95%, 62%)`; // cyan → hot orange
+    const p = projectBottleCenter(bottle, groundY);
+    const ox = p.x, oy = p.y - 40 * BOTTLE_DRAW_SCALE;
+    const hue = 190 - strength * 150;                  // cyan → hot orange/red
+    const color = `hsl(${hue}, 95%, 60%)`;
+    const trailA = screenToWorld(drag.startX, drag.startY);
+    const trailB = screenToWorld(drag.curX, drag.curY);
 
     ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = 4;
-    ctx.lineCap     = 'round';
-    ctx.globalAlpha = 0.88;
+
+    // Faint raw gesture trail (the actual swipe path).
+    ctx.strokeStyle = `hsla(${hue}, 95%, 72%, 0.35)`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 5]);
     ctx.beginPath();
-    ctx.moveTo(ox, oy);
-    ctx.lineTo(ex, ey);
+    ctx.moveTo(trailA.x, trailA.y);
+    ctx.lineTo(trailB.x, trailB.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Charging ring — the primary "how hard" readout, fills clockwise from
+    // straight up as strength climbs 0→1 (full power = full circle).
+    const ringR = 52;
+    ctx.lineWidth = 7;
+    ctx.lineCap   = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.beginPath();
+    ctx.arc(ox, oy, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.arc(ox, oy, ringR, -Math.PI / 2, -Math.PI / 2 + strength * Math.PI * 2);
     ctx.stroke();
 
+    // Thrust chevrons stacked outward in the throw direction — count and
+    // brightness climb with power, like a rocket-throttle gauge.
     const a = Math.atan2(uy, ux);
-    ctx.beginPath();
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - 14 * Math.cos(a - 0.45), ey - 14 * Math.sin(a - 0.45));
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - 14 * Math.cos(a + 0.45), ey - 14 * Math.sin(a + 0.45));
-    ctx.stroke();
+    const chevronCount = 1 + Math.round(strength * 2);   // 1..3
+    for (let i = 0; i < chevronCount; i++) {
+      const reach = ringR + 16 + i * 22;
+      const cx = ox + ux * reach, cy = oy + uy * reach;
+      const size = 11 + strength * 5;
+      ctx.globalAlpha = 0.5 + 0.5 * (i + 1) / chevronCount;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * size,              cy + Math.sin(a) * size);
+      ctx.lineTo(cx + Math.cos(a + 2.35) * size * 0.7, cy + Math.sin(a + 2.35) * size * 0.7);
+      ctx.lineTo(cx + Math.cos(a - 2.35) * size * 0.7, cy + Math.sin(a - 2.35) * size * 0.7);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
     ctx.restore();
   }
 
   // ── Side walls ───────────────────────────────────────────────────────────────
-  function drawWalls(groundY) {
+  function drawWalls(groundY, sideWalls) {
+    if (sideWalls === false) return; // mobile open arena — no painted walls
     const WALL = 14; // matches physics WALL_INSET
     for (const x0 of [0, W - WALL]) {
       const g = ctx.createLinearGradient(x0, 0, x0 + WALL, 0);
       const flip = x0 === 0;
-      g.addColorStop(0, flip ? 'rgba(42,28,18,0.95)' : 'rgba(90,60,36,0.75)');
-      g.addColorStop(1, flip ? 'rgba(90,60,36,0.75)' : 'rgba(42,28,18,0.95)');
+      g.addColorStop(0, flip ? 'rgba(28,40,58,0.95)' : 'rgba(58,78,105,0.75)');
+      g.addColorStop(1, flip ? 'rgba(58,78,105,0.75)' : 'rgba(28,40,58,0.95)');
       ctx.fillStyle = g;
       ctx.fillRect(x0, 0, WALL, groundY);
     }
     // inner edge highlights
-    ctx.fillStyle = 'rgba(197,154,74,0.28)';
+    ctx.fillStyle = 'rgba(150,185,215,0.30)';
     ctx.fillRect(WALL - 2, 0, 2, groundY);
     ctx.fillRect(W - WALL, 0, 2, groundY);
   }
 
   // ── Result text ────────────────────────────────────────────────────────────
-  function drawResult(text, color, alpha) {
+  // `sub` is an optional second line under the verdict — the rare "Great Save"
+  // callout, big enough for the whole room, not just a corner banner.
+  function drawResult(text, color, alpha, sub) {
     // Pop: scale overshoots to ~1.18 as it appears, settles back to 1.0.
     const pop = reduceMotion ? 1 : 1 + 0.18 * Math.sin(Math.min(alpha, 1) * Math.PI);
     ctx.save();
@@ -484,40 +409,264 @@ const Renderer = (() => {
     ctx.shadowBlur    = 36;
     ctx.translate(W / 2, H / 2 - 60);
     ctx.scale(pop, pop);
-    ctx.font          = 'bold 76px Georgia, "Times New Roman", serif';
+    ctx.font          = 'bold 76px system-ui, sans-serif';
     ctx.fillText(text, 0, 0);
+    if (sub) {
+      ctx.font        = 'bold 30px system-ui, sans-serif';
+      ctx.fillStyle   = '#ffd21a';
+      ctx.shadowColor = '#ffd21a';
+      ctx.shadowBlur  = 22;
+      ctx.fillText(sub, 0, 60);
+    }
+    ctx.restore();
+  }
+
+  // ── "Make it or break it" intense overlay + sudden-death tag ─────────────────
+  let clock = 0;
+  function drawIntense(intense, suddenDeath, awaitingFlick) {
+    if (suddenDeath) {
+      const fs = Math.round(Math.min(W, H) * 0.032);
+      ctx.save();
+      ctx.globalAlpha = reduceMotion ? 0.85 : 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(clock * 5));
+      ctx.fillStyle = '#ff3b3b';
+      ctx.font = `bold ${fs}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 16;
+      ctx.fillText('⚡ SUDDEN DEATH ⚡', W / 2, 10);
+      ctx.restore();
+    }
+    if (!intense) return;
+    const pulse = reduceMotion ? 0.6 : 0.5 + 0.5 * Math.sin(clock * 6);
+    // Pulsing red vignette — darkens the edges, "time stands still" mood.
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.18, W / 2, H / 2, Math.max(W, H) * 0.72);
+    g.addColorStop(0, 'rgba(110,0,0,0)');
+    g.addColorStop(1, `rgba(${90 + Math.round(70 * pulse)},0,0,${0.42 + 0.22 * pulse})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    if (awaitingFlick) {
+      const fs = Math.min(H * 0.115, W * 0.14);
+      ctx.save();
+      ctx.globalAlpha = 0.82 + 0.18 * pulse;
+      ctx.fillStyle = '#ff2e2e';
+      ctx.font = `900 ${fs}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 34;
+      ctx.fillText('MAKE IT', W / 2, H * 0.26);
+      ctx.fillText('OR BREAK IT', W / 2, H * 0.26 + fs * 1.05);
+      ctx.restore();
+    }
+  }
+
+  // ── Stake display — lives at risk, grows bigger + scarier as it climbs ───────
+  function drawStake(stake) {
+    if (!stake || stake < 1) return;
+    const s = Math.min(stake, 12);
+    const danger = Math.min(1, (stake - 1) / 7);          // 0 at 1 → 1 at 8+
+    const fs = Math.min(W, H) * (0.075 + s * 0.017);      // grows with stake
+    const pulse = reduceMotion ? 1 : 1 + (0.04 + danger * 0.06) * Math.sin(clock * (5 + danger * 7));
+    const g = Math.round(190 * (1 - danger));             // amber → red
+    const col = `rgb(255,${g},40)`;
+    const shake = (!reduceMotion && danger > 0.45) ? (danger - 0.45) * 14 : 0;
+    const ox = shake ? Math.sin(clock * 41) * shake : 0;
+    const oy = shake ? Math.cos(clock * 37) * shake : 0;
+
+    ctx.save();
+    ctx.translate(W / 2 + ox, H * 0.165 + oy);
+    ctx.scale(pulse, pulse);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 14 + danger * 46;
+    ctx.font = `900 ${fs}px system-ui, sans-serif`;
+    ctx.fillText(String(stake), 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `rgba(255,${g + 30},80,0.92)`;
+    ctx.font = `800 ${fs * 0.19}px system-ui, sans-serif`;
+    ctx.fillText(stake === 1 ? 'LIFE ON THE LINE' : 'LIVES ON THE LINE', 0, fs * 0.62);
     ctx.restore();
   }
 
   // ── Main frame ─────────────────────────────────────────────────────────────
-  function frame(dt, state) {
-    const { bottle, liquid, drag, groundY, result, resultAlpha, showGlow, isOnFire, liquidColor } = state;
-    updateParticles(dt);
-
-    let sx = 0, sy = 0;
-    if (shakeAmp > 0.2) {
-      sx = (Math.random() - 0.5) * 2 * shakeAmp;
-      sy = (Math.random() - 0.5) * 2 * shakeAmp;
-      shakeAmp = Math.max(0, shakeAmp - shakeDecay * dt);
-    }
+  // ── Bounce-mode arena (see physics.js profiles) ────────────────────────────
+  // Only drawn when the active edition asks for it: the landing pad on the
+  // table, the wedge overhead that splits a straight-up shot, and the saucers
+  // drifting in between.
+  function drawTargetPad(target, groundY) {
+    if (!target) return;
+    const { x, halfWidth: hw } = target;
+    const hitHW = target.hitHalfWidth != null ? target.hitHalfWidth : hw;
+    const pulse = 0.5 + 0.5 * Math.sin(clock * 3);
     ctx.save();
-    ctx.translate(sx, sy);
-
-    drawBackground(groundY, isOnFire);
-    drawWalls(groundY);
-    drawFlickIndicator(drag, bottle);
-    if (showGlow) drawLandingGlow(bottle, groundY);
-    drawBottle(bottle, liquid, isOnFire, liquidColor, groundY);
-    drawParticles();
-
-    if (result) {
-      const color = result === 'MAKE' ? '#7dcea0' : '#c23b22';
-      drawResult(result === 'MAKE' ? 'MAKE!' : 'MISS', color, resultAlpha);
-    }
+    const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.15);
+    glow.addColorStop(0, `rgba(105,240,174,${0.22 + pulse * 0.12})`);
+    glow.addColorStop(1, 'rgba(105,240,174,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.ellipse(x, groundY, hw * 1.15, hw * 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Outer ring = visual pad (soft), inner ring = actual MAKE radius
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(105,240,174,${0.35 + pulse * 0.15})`;
+    ctx.beginPath();
+    ctx.ellipse(x, groundY, hw, hw * 0.29, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = `rgba(105,240,174,${0.85 + pulse * 0.15})`;
+    ctx.beginPath();
+    ctx.ellipse(x, groundY, hitHW, hitHW * 0.29, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(x, groundY, hitHW * 0.35, hitHW * 0.12, 0, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 
-  // drawBottle is exported for the art-iteration harness (drawing one bird
+  function drawDeflectorPoly(d) {
+    if (!d || !d.vertices || !d.vertices.length) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(d.vertices[0].x, d.vertices[0].y);
+    for (let i = 1; i < d.vertices.length; i++) ctx.lineTo(d.vertices[i].x, d.vertices[i].y);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, d.vertices[0].y, 0, d.vertices[0].y + 90);
+    g.addColorStop(0, '#8fa7bd');
+    g.addColorStop(1, '#4a5f75');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#26384a';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawObstacles(obstacles) {
+    if (!obstacles) return;
+    const list = obstacles.deflectors && obstacles.deflectors.length
+      ? obstacles.deflectors
+      : (obstacles.deflector ? [obstacles.deflector] : []);
+    for (const d of list) drawDeflectorPoly(d);
+
+    for (const s of obstacles.saucers || []) {
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.angle * 0.35);
+      ctx.beginPath();
+      ctx.ellipse(0, -s.ry * 0.55, s.rx * 0.46, s.ry * 0.85, 0, Math.PI, 0);
+      ctx.fillStyle = '#bfe7ff';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#5d7f97';
+      ctx.stroke();
+      const g = ctx.createLinearGradient(0, -s.ry, 0, s.ry);
+      g.addColorStop(0, '#e7edf2');
+      g.addColorStop(1, '#8c99a5');
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s.rx, s.ry * 0.62, 0, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.strokeStyle = '#43586b';
+      ctx.stroke();
+      const blink = 0.45 + 0.55 * Math.sin(clock * 5 + s.x * 0.05);
+      ctx.fillStyle = `rgba(255,210,63,${blink})`;
+      for (const lx of [-s.rx * 0.62, 0, s.rx * 0.62]) {
+        ctx.beginPath();
+        ctx.arc(lx, s.ry * 0.22, 3.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function applyCamera(view) {
+    const targetZoom = view && view.zoom != null ? view.zoom : 1;
+    const tx = view && view.camX != null ? view.camX : W / 2;
+    const ty = view && view.camY != null ? view.camY : H / 2;
+    // Ease toward the needed framing so zoom-outs aren't jumpy.
+    const k = reduceMotion ? 1 : 0.14;
+    camZoom += (targetZoom - camZoom) * k;
+    camX += (tx - camX) * k;
+    camY += (ty - camY) * k;
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(camZoom, camZoom);
+    ctx.translate(-camX, -camY);
+    return true;
+  }
+
+  function frame(dt, state) {
+    const { bottle, liquid, drag, groundY, result, resultAlpha, specialLabel, showGlow, isOnFire,
+            liquidColor, intense, suddenDeath, awaitingFlick, stake, skin,
+            target, obstacles, view } = state;
+    clock += dt;
+    updateParticles(dt);
+
+    // Reset any camera transform from the previous frame (DPR setTransform
+    // lives on the canvas from main.resize — we only add a logical camera).
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Re-apply DPR from the canvas backing store ratio.
+    const dpr = canvas.width / Math.max(1, W);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.clearRect(0, 0, W, H);
+    drawBackground(groundY, isOnFire, { skyOnly: true });
+
+    ctx.save();
+    applyCamera(view);
+    drawBackground(groundY, isOnFire, { tableOnly: true });
+    drawWalls(groundY, view ? view.sideWalls : true);
+    drawTargetPad(target, groundY);
+    drawObstacles(obstacles);
+    drawFlickIndicator(drag, bottle, groundY);
+    if (showGlow) drawLandingGlow(bottle, groundY);
+    drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin);
+    drawParticles();
+    ctx.restore();
+
+    // HUD overlays stay screen-fixed (not affected by world zoom).
+    drawStake(stake);
+    drawIntense(intense, suddenDeath, awaitingFlick);
+
+    if (result) {
+      const color = result === 'MAKE' ? '#69f0ae' : '#ff5252';
+      drawResult(result === 'MAKE' ? 'MAKE!' : 'MISS', color, resultAlpha, specialLabel);
+    }
+  }
+
+  // Paint one upright object into some OTHER canvas (the setup-screen skin
+  // previews). Borrows the module ctx for the call and puts it back, so this
+  // must stay synchronous — it runs from setup, never from inside frame().
+  // groundY is pushed far below so projectPoint's airborne lift clamps to 0
+  // and the object is drawn flat-on rather than in flight perspective.
+  function drawPreview(target, skin, liquidColor) {
+    const prevCanvas = canvas, prevCtx = ctx, prevW = W, prevH = H;
+    canvas = target;
+    ctx = target.getContext('2d');
+    W = target.width;
+    H = target.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    // Fit box measured off the real drawn pixels of EVERY family (ink bounding
+    // box per family, then the union). Widest is the T-Rex at x≈±148; the art
+    // spans y≈-346 (pineapple's crown) to y≈+66 (the parrot's tail), so it
+    // centers on y≈-140, not 0. Already includes the BOTTLE_DRAW_SCALE that
+    // drawBottle applies. Re-measure if any family's art grows.
+    //
+    // The old 216x284 @ -81 box was ~27% too narrow, ~31% too short AND sat 59
+    // units too low, so nearly every family was clipped — most at the top, and
+    // trex/vending/ocean/pets/parrot at the sides too.
+    const CONTENT_W = 300, CONTENT_H = 420, CONTENT_MID_Y = -140;
+    const scale = Math.min(W / CONTENT_W, H / CONTENT_H) * 0.95;
+    ctx.translate(W / 2, H / 2 - CONTENT_MID_Y * scale);
+    ctx.scale(scale, scale);
+    try {
+      drawBottle({ position: { x: 0, y: 0 }, angle: 0 }, { slosh: 0, vel: 0 },
+        false, liquidColor, -10000, skin);
+    } finally {
+      canvas = prevCanvas; ctx = prevCtx; W = prevW; H = prevH;
+    }
+  }
+
+  // drawBottle is exported for the art-iteration harness (drawing one object
   // without the full scene); the game itself only calls frame().
-  return { init, resize, frame, kick, setReduceMotion, preloadParrots, drawBottle };
+  return { init, resize, frame, setReduceMotion, projectPoint, projectBottleCenter, bottleDrawScale, drawBottle, drawPreview };
 })();

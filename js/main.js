@@ -1789,13 +1789,15 @@
   if (Records.syncUnlocksFromWins) Records.syncUnlocksFromWins();
   renderRecordsPanel();
 
-  // ── Secret: tap Bottle / Game / Bottle / Game / Bottle / Game ───────────────
-  // Alternating title words, 3 of each. Unlocks every character (demo) or, if
-  // already fully unlocked, wipes progress back to bottle.
-  const secretBottle = setupScreen.querySelector('[data-secret="bottle"]');
-  const secretGame = setupScreen.querySelector('[data-secret="game"]');
-  if (secretBottle && secretGame) {
-    const SECRET_SEQ = ['bottle', 'game', 'bottle', 'game', 'bottle', 'game'];
+  // ── Secret: tap the two title words alternating, 3× each ───────────────────
+  // Bottle Game → Bottle/Game/Bottle/Game/Bottle/Game.
+  // Parrot Flip  → Parrot/Flip/Parrot/Flip/Parrot/Flip (same pattern via data-secret).
+  // Unlocks every character (demo) or, if already fully unlocked, wipes progress.
+  const secretParts = [...setupScreen.querySelectorAll('h1 [data-secret]')];
+  if (secretParts.length >= 2) {
+    const a = secretParts[0].dataset.secret;
+    const b = secretParts[1].dataset.secret;
+    const SECRET_SEQ = [a, b, a, b, a, b];
     let seq = [];
     let lastTap = 0;
     function triggerSecret() {
@@ -1831,7 +1833,6 @@
       lastTap = now;
       const expect = SECRET_SEQ[seq.length];
       if (which !== expect) {
-        // Wrong word — restart if they hit the first step, else clear.
         seq = (which === SECRET_SEQ[0]) ? [which] : [];
         return;
       }
@@ -1840,8 +1841,12 @@
       seq = [];
       triggerSecret();
     }
-    secretBottle.addEventListener('click', (e) => { e.stopPropagation(); onSecretTap('bottle'); });
-    secretGame.addEventListener('click', (e) => { e.stopPropagation(); onSecretTap('game'); });
+    secretParts.forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onSecretTap(el.dataset.secret);
+      });
+    });
   }
 
   // Sprites are SVG data URIs that decode a beat after they're requested, so

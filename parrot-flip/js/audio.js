@@ -55,6 +55,9 @@ const Sound = (() => {
     ignite: () => { tone({ freq: 200, slideTo: 900, type: 'sawtooth', dur: 0.4, gain: 0.22 });
                     [392, 494, 587, 784].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.12, gain: 0.16, delay: 0.12 + i * 0.06 })); },
     win:    () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.3, delay: i * 0.12 })),
+    // Rare-event sparkle — the Great Save + achievement unlocks.
+    greatsave: () => [784, 988, 1175, 1568, 1976].forEach((f, i) =>
+      tone({ freq: f, type: 'sine', dur: 0.35, gain: 0.22, delay: i * 0.05 })),
     // Make-it-or-break-it: a low ominous two-note sting + heartbeat thump.
     tension: () => {
       tone({ freq: 110, slideTo: 70, type: 'sine', dur: 0.7, gain: 0.24 });

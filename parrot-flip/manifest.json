@@ -1,13 +1,13 @@
 {
   "name": "Parrot Flip",
   "short_name": "Parrot Flip",
-  "description": "Flip pirate parrots with bottle-flip physics. Eye patches mandatory.",
+  "description": "A bottle-flip physics game — flip, stack streaks, catch fire.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#142f4b",
-  "theme_color": "#142f4b",
+  "background_color": "#0d1b2a",
+  "theme_color": "#0d1b2a",
   "icons": [
     {
       "src": "icons/icon-192.png",
