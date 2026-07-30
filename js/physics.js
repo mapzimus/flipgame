@@ -80,7 +80,7 @@ const Physics = (() => {
   // down is where it landed, and it counts if the body is over the pad.
   const DEFAULT_PROFILE = {
     gravity: 1.5,
-    frictionAir: 0.027,    // was 0.025 — a touch more drag, less floaty/wild
+    frictionAir: 0.024,    // a touch less drag so soft flicks still complete the turn
     friction: 0.85,
     restitution: 0.02,
     spinScale: 1,
@@ -589,9 +589,9 @@ const Physics = (() => {
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
 
-    const jSpin   = 1 + (rand() - 0.5) * 0.205;  // less spin chaos
-    const jLaunch = 1 + (rand() - 0.5) * 0.102; // less height chaos
-    const jDrift  = (rand() - 0.5) * 2.05;       // less sideways chaos
+    const jSpin   = 1 + (rand() - 0.5) * 0.15;   // less spin chaos
+    const jLaunch = 1 + (rand() - 0.5) * 0.08;   // less height chaos
+    const jDrift  = (rand() - 0.5) * 1.5;        // less sideways chaos
 
     // Slightly lower arcs than the "harder/higher/wilder" feel (was 16 + power*5).
     const launchY = -(15.2 + power * 4.7) * jLaunch * profile.launchScale;
