@@ -2,7 +2,7 @@
 // Bump CACHE_NAME on every release so stale caches are purged and users get
 // the fresh build. All paths are RELATIVE so they resolve under /flipgame/
 // on GitHub Pages (the SW lives at repo root → scope is /flipgame/).
-const CACHE_NAME = 'parrotflip-v81';
+const CACHE_NAME = 'parrotflip-v82';
 
 const PRECACHE_URLS = [
   './',

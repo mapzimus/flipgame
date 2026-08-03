@@ -13,6 +13,7 @@ const Records = (() => {
     totalFlips: 0,
     longestOnFire: 0,   // most bonus makes in one ON FIRE run
     greatSaves: 0,      // lifetime tip-past-the-brink-and-recover MAKEs
+    capLands: 0,        // lifetime rare upside-down / on-cap MAKEs (worth 2)
     mostWins: {},       // name -> win count
     totalWins: 0,       // wins on this device, across all players — drives skin unlocks
     unlockedSkins: [BASE_SKIN],  // flippable editions earned on this device
@@ -148,6 +149,7 @@ const Records = (() => {
     if (g.onFireBonus > data.longestOnFire) data.longestOnFire = g.onFireBonus;
     if ((g.endedFireBonus || 0) > data.longestOnFire) data.longestOnFire = g.endedFireBonus;
     if (extra && extra.greatSave) data.greatSaves = (data.greatSaves || 0) + 1;
+    if (extra && extra.capLand) data.capLands = (data.capLands || 0) + 1;
     save();
     return clone(data);
   }
@@ -171,6 +173,7 @@ const Records = (() => {
       ['⚡', 'Top stake',   '×' + data.highestStake],
       ['🔥', 'Hot run',     '+' + data.longestOnFire],
       ['🧤', 'Great Saves', data.greatSaves || 0],
+      ['🙃', 'Cap lands',   data.capLands || 0],
       ['✓',  'Total makes', data.totalMakes],
       ['Σ',  'Total flips', data.totalFlips],
     ];

@@ -67,6 +67,10 @@ const Achievements = (() => {
       desc: 'Tip past the point of no return — and stand back up anyway.',
       test: (c) => !!c.greatSave },
 
+    { id: 'cap_land', emoji: '🙃', name: 'Cap Land', rare: true, mystery: true,
+      desc: 'Stick it upside-down on the cap — worth 2.',
+      test: (c) => !!c.capLand },
+
     { id: 'mothership', emoji: '👽', name: 'Mothership',
       desc: 'Land the alien bank shot dead on the pad.',
       test: (c) => c.landingReason === 'on-target' },

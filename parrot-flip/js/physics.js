@@ -7,6 +7,7 @@ const Physics = (() => {
   let groundedFrames = 0;
   let angleWin = [];   // sliding window of recent angles (settle detection)
   let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
+  let capSticky = false;   // rare: this landing is damping toward an inverted settle
   let lastLandingInfo = null;
   let lastFlickInfo = null;
   let canvasW;
@@ -41,6 +42,12 @@ const Physics = (() => {
   const MAKE_ANGLE      = 1.00;  // ≤±~57° upright = MAKE (was feeling stingy)
   const PERFECT_ANGLE   = 0.22;  // perfect-landing flair
   const FALLEN_ANGLE    = 1.40;  // ≥~80° tilt = toppled past recovery → certain MISS
+  // Cap / upside-down MAKE: settle within this of ±π. Normally the heavy base
+  // tips these over; the rare "cap sticky" assist (see stepOnce) makes ~1/100
+  // flips actually stick on the neck/cap — those are worth 2 in game.js.
+  const CAP_WINDOW      = 0.48;  // ±~27° of fully inverted
+  const CAP_ZONE        = 0.95;  // first-touch zone that can roll the sticky lottery
+  const CAP_STICK_CHANCE = 0.09; // × share of landings in CAP_ZONE ≈ ~1/100 overall
   const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
   const ABS_MISS_FRAMES = 600;   // ~10s after leaving the floor → forced MISS no matter what
   const SETTLE_ANG_VEL  = 0.018; // "at rest" spin threshold
@@ -355,6 +362,12 @@ const Physics = (() => {
     reset()        { this.slosh = 0; this.vel = 0; this.settleTimer = 0; },
   };
 
+  function normalizeSignedAngle(a) {
+    let angle = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    if (angle > Math.PI) angle -= 2 * Math.PI;
+    return angle;
+  }
+
   function recordLanding(result, tilt, reason) {
     let padOffset = null;
     if (profile.landOnTarget && targetX != null && bottle) {
@@ -376,6 +389,7 @@ const Physics = (() => {
       tilt,
       perfect,
       reason,
+      onCap: reason === 'cap',
       maxTilt: profile.floorResolve ? 0 : maxGroundedTilt,
       padOffset,
     };
@@ -453,11 +467,15 @@ const Physics = (() => {
       for (const a of angleWin) { if (a < lo) lo = a; if (a > hi) hi = a; }
       if (angleWin.length >= SETTLE_FRAMES && (hi - lo) < SETTLE_RANGE) {
         if (profile.requireFlip && !hasFlipped) return recordLanding('MISS', null, 'underrotated');
-        let angle = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-        if (angle > Math.PI) angle -= 2 * Math.PI;
+        const angle = normalizeSignedAngle(bottle.angle);
         const tilt = Math.abs(angle);
+        const invErr = Math.abs(tilt - Math.PI);
         if (tilt < MAKE_ANGLE) {
           return recordLanding('MAKE', tilt, 'upright');
+        }
+        // Rare upside-down / on-cap settle — worth 2 in the rules layer.
+        if (invErr < CAP_WINDOW) {
+          return recordLanding('MAKE', tilt, 'cap');
         }
         if (tilt >= FALLEN_ANGLE) return recordLanding('MISS', tilt, 'fallen');
       }
@@ -544,6 +562,7 @@ const Physics = (() => {
     hasFlipped     = false;
     launchAngle    = 0;
     hasLanded      = false;
+    capSticky      = false;
     lastLandingInfo = null;
     lastFlickInfo  = null;
     launched       = false;
@@ -633,8 +652,23 @@ const Physics = (() => {
     if (!profile.floorResolve && hasFlipped && !hasLanded &&
         bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
       hasLanded = true;
-      const kick = liquid.vel * 0.028 + (rand() - 0.5) * 0.06;
+      const a = normalizeSignedAngle(bottle.angle);
+      const invErr = Math.abs(Math.abs(a) - Math.PI);
+      // Rare cap-stick lottery: touch down roughly inverted → sometimes the
+      // neck/cap grips and we damp hard toward ±π (~1-in-100 flips overall).
+      if (invErr < CAP_ZONE && rand() < CAP_STICK_CHANCE) capSticky = true;
+      const kickScale = (capSticky || invErr < CAP_WINDOW) ? 0.25 : 1;
+      const kick = (liquid.vel * 0.028 + (rand() - 0.5) * 0.06) * kickScale;
       Body.setAngularVelocity(bottle, bottle.angularVelocity + kick);
+    }
+
+    // Cap-sticky assist: pull gently toward fully inverted and kill spin so a
+    // rare on-cap balance can actually settle instead of tippling over.
+    if (capSticky && launched && !profile.floorResolve) {
+      const a = normalizeSignedAngle(bottle.angle);
+      const target = a >= 0 ? Math.PI : -Math.PI;
+      const pull = (target - a) * 0.045;
+      Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.78 + pull);
     }
 
     liquid.update(bottle.angularVelocity, FIXED_DT);
@@ -723,6 +757,7 @@ const Physics = (() => {
       tilt: info && info.tilt != null ? info.tilt : null,
       perfect: !!(info && info.perfect),
       reason: (info && info.reason) || 'net-authority',
+      onCap: !!(info && (info.onCap || info.reason === 'cap')),
       maxTilt: (info && info.maxTilt) || 0,
     };
     return result;

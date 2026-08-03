@@ -54,6 +54,7 @@ const game = {
   startingLives: 10,
   maxLives: 20,
   perfectLanding: false,
+  capLand: false,          // last make was a rare upside-down / on-cap land (worth 2)
 
   // defs: [{ name, color, isAI }]
   init(defs, direction, opts = {}) {
@@ -85,6 +86,7 @@ const game = {
     this.practiceMakes = this.practiceAttempts = this.practiceStreak = this.practiceBest = 0;
     this.turnCounter = 0;
     this.perfectLanding = false;
+    this.capLand = false;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
     // ambiguous when two players share a name). Ignored in practice.
@@ -150,6 +152,9 @@ const game = {
     this.justEliminated = false;
     this.endedFireBonus = 0;
     this.perfectLanding = result === 'MAKE' && !!meta.perfect;
+    this.capLand        = result === 'MAKE' && !!meta.onCap;
+    // Cap / upside-down makes are worth 2 (stake steps, or ON FIRE lives).
+    const worth = this.capLand ? 2 : 1;
 
     // ── Practice: just track stats, no lives/turns/sudden-death counter ─────
     if (this.practice) {
@@ -174,11 +179,12 @@ const game = {
         // +1 life per flip while ON FIRE — bounded by the match life cap. In SUDDEN
         // DEATH, ON FIRE stops minting free lives (the deflation valve) but the
         // run continues until a miss (or a real life/+5 cap below).
+        // Cap lands are worth 2 lives (same rarity bonus as the stake).
         if (!sd) {
           const before = player.lives;
-          player.lives    = Math.min(player.lives + 1, this.maxLives);
-          this.onFireGain = player.lives - before;   // 0 once at the match cap
-          if (this.onFireGain > 0) this.onFireBonus++;
+          player.lives    = Math.min(player.lives + worth, this.maxLives);
+          this.onFireGain = player.lives - before;
+          if (this.onFireGain > 0) this.onFireBonus += Math.min(worth, this.onFireGain);
         } else {
           this.onFireGain = 0;
         }
@@ -226,7 +232,7 @@ const game = {
     // ── Normal flip ─────────────────────────────────────────────────────────
     if (result === 'MAKE') {
       player.streak++;
-      this.pointCount++;
+      this.pointCount += worth;   // upright +1; rare cap/upside-down +2
       player.isHeatingUp = player.streak === 2;
       if (player.streak >= 3) {
         player.isOnFire    = true;

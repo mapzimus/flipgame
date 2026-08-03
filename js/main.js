@@ -793,6 +793,7 @@
   let timerActive = false, turnTimeLeft = 0, turnTimeLimit = 0, timedOut = false;
   let lastFlickPower = null;   // 0..1 strength of the current flip's flick (achievements)
   let greatSaveActive = false; // the RESULT being shown is a rare Great Save
+  let capLandActive = false;   // the RESULT being shown is a rare on-cap / upside-down make
   let onlineMode = false;      // playing via Net rooms
   let netAuthority = false;    // this client owns the current flick's verdict
   let pendingNetResult = null; // authoritative result waiting to apply
@@ -846,6 +847,7 @@
   function landingMeta(landingInfo = null) {
     return {
       perfect: !!(landingInfo && landingInfo.perfect),
+      onCap:   !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
     };
   }
 
@@ -988,6 +990,7 @@
                 tilt: landingInfo && landingInfo.tilt,
                 perfect: !!(landingInfo && landingInfo.perfect),
                 reason: landingInfo && landingInfo.reason,
+                onCap: !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
                 maxTilt: landingInfo && landingInfo.maxTilt,
                 padOffset: landingInfo && landingInfo.padOffset,
               },
@@ -1033,7 +1036,11 @@
       drag:        Input.getDragState(),
       result:      game.state === GAME_STATES.RESULT ? game.lastResult : null,
       resultAlpha,
-      specialLabel: game.state === GAME_STATES.RESULT && greatSaveActive ? '🧤 THE GREAT SAVE!' : null,
+      specialLabel: game.state === GAME_STATES.RESULT
+        ? (capLandActive ? '🙃 CAP LAND! ×2'
+          : greatSaveActive ? '🧤 THE GREAT SAVE!'
+          : null)
+        : null,
       showGlow,
       isOnFire:    !!(game.onFirePlayer),
       liquidColor: game.currentPlayer()?.color,
@@ -1075,6 +1082,7 @@
     intenseTurn = false;
     timedOut    = false;
     greatSaveActive = false;
+    capLandActive   = false;
     lastFlickPower  = null;
     stopTurnTimer();
     clearTimeout(aiTimer);
@@ -1143,6 +1151,7 @@
     showGlow    = false;
     timedOut    = false;
     greatSaveActive = false;
+    capLandActive   = false;
     lastFlickPower  = null;
     stopTurnTimer();
     clearTimeout(aiTimer);
@@ -1195,11 +1204,15 @@
     const landing = Physics.getLastLandingInfo();
     greatSaveActive = !!(game.lastResult === 'MAKE' && landing &&
                          landing.maxTilt > GREAT_SAVE_TILT);
+    capLandActive = !!(game.lastResult === 'MAKE' && (game.capLand ||
+                      (landing && (landing.onCap || landing.reason === 'cap'))));
+    // Cap land wins the special label over Great Save (mutually exclusive anyway).
     const counts = progressCounts();
     const rec = counts
-      ? Records.recordFlip(game, { greatSave: greatSaveActive })
+      ? Records.recordFlip(game, { greatSave: greatSaveActive, capLand: capLandActive })
       : null;
-    if (greatSaveActive) Sound.play('greatsave');
+    if (capLandActive) Sound.play('capland');
+    else if (greatSaveActive) Sound.play('greatsave');
 
     const p = game.currentPlayer();
 
@@ -1231,6 +1244,7 @@
         perfect:       !!game.perfectLanding,
         power:         lastFlickPower,
         greatSave:     greatSaveActive,
+        capLand:       capLandActive,
         landingReason: landing ? landing.reason : null,
         padOffset: landing && landing.padOffset != null ? landing.padOffset : null,
         totalFlipsLifetime: rec.totalFlips,
@@ -1243,11 +1257,16 @@
 
     if (game.practice) {
       if (game.lastResult === 'MAKE') {
-        streakBannerEl.textContent = game.practiceStreak > 1
-          ? `${game.practiceStreak} in a row!`
-          : (game.perfectLanding ? 'Perfect make!' : 'Make!');
-        streakBannerEl.className = 'streak-banner on-fire';
-        Sound.play('make');
+        if (capLandActive) {
+          streakBannerEl.textContent = '🙃 Cap land! Worth 2!';
+          streakBannerEl.className = 'streak-banner on-fire';
+        } else {
+          streakBannerEl.textContent = game.practiceStreak > 1
+            ? `${game.practiceStreak} in a row!`
+            : (game.perfectLanding ? 'Perfect make!' : 'Make!');
+          streakBannerEl.className = 'streak-banner on-fire';
+        }
+        Sound.play(capLandActive ? 'capland' : 'make');
       } else {
         streakBannerEl.textContent = '✗ Miss';
         streakBannerEl.className = 'streak-banner miss-penalty';
@@ -1258,7 +1277,14 @@
     }
 
     if (game.lastResult === 'MAKE') {
-      if (greatSaveActive) {
+      if (capLandActive) {
+        // Rare upside-down / on-cap — celebrates over everything else this flip.
+        const stakeBit = game.onFireGain > 0
+          ? `+${game.onFireGain} life!`
+          : `Miss now costs ${game.pointCount}!`;
+        streakBannerEl.textContent = `🙃 CAP LAND! Worth 2 — ${stakeBit}`;
+        streakBannerEl.className   = 'streak-banner on-fire';
+      } else if (greatSaveActive) {
         // The freak comeback — celebrate over everything else this flip.
         streakBannerEl.textContent = '🧤 THE GREAT SAVE! It came back from the brink!';
         streakBannerEl.className   = 'streak-banner on-fire';
