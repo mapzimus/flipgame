@@ -21,6 +21,15 @@ Same flick-to-flip Matter.js physics as Flip Game; instead of a bottle you see a
 
 ---
 
+## Current product direction (Aug 2026)
+
+**Parrot Flip is bare bones again:** base party game + colored parrots only.
+No achievements, no Hall of Fame, no unlockable skins/characters, no roster page.
+Bottle Flip (repo root) keeps all of those features separately.
+
+
+---
+
 ## Why this exists
 
 1. Max has Flip Game (bottle flip) in `mapzimus/flipgame`.

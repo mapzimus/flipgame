@@ -55,15 +55,6 @@ const Sound = (() => {
     ignite: () => { tone({ freq: 200, slideTo: 900, type: 'sawtooth', dur: 0.4, gain: 0.22 });
                     [392, 494, 587, 784].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.12, gain: 0.16, delay: 0.12 + i * 0.06 })); },
     win:    () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.3, delay: i * 0.12 })),
-    // Rare-event sparkle — the Great Save + achievement unlocks.
-    greatsave: () => [784, 988, 1175, 1568, 1976].forEach((f, i) =>
-      tone({ freq: f, type: 'sine', dur: 0.35, gain: 0.22, delay: i * 0.05 })),
-    // Rare upside-down / on-cap land — ascending then a bright chime.
-    capland: () => {
-      [392, 523, 659, 880].forEach((f, i) =>
-        tone({ freq: f, type: 'triangle', dur: 0.22, gain: 0.26, delay: i * 0.06 }));
-      tone({ freq: 1319, type: 'sine', dur: 0.4, gain: 0.2, delay: 0.28 });
-    },
     // Make-it-or-break-it: a low ominous two-note sting + heartbeat thump.
     tension: () => {
       tone({ freq: 110, slideTo: 70, type: 'sine', dur: 0.7, gain: 0.24 });
@@ -82,8 +73,6 @@ const Sound = (() => {
     life:    [12, 16, 12],              // ON FIRE +life — quick double tick
     ignite:  [60, 40, 60, 40, 110],     // ON FIRE ignite — distinct rumble
     win:     [70, 40, 70, 40, 130],
-    greatsave: [20, 30, 20, 30, 80],
-    capland: [30, 20, 30, 20, 50, 20, 100],
     tension: [25, 70, 25, 70],          // ominous pulse
   };
   function buzz(name) {

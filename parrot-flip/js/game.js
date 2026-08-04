@@ -41,7 +41,6 @@ const game = {
   fireEnded: false,      // last miss ended an ON FIRE run (no penalty)
   fireCapped: false,     // ON FIRE run hit the big-lobby +cap and passed on (no penalty)
   justEliminated: false, // last miss eliminated the current player
-  endedFireBonus: 0,     // peak ON FIRE bonus from the run that just ended (stats/achievements)
 
   // Modes
   practice: false,       // solo free-flip practice (no lives/turns)
@@ -54,23 +53,17 @@ const game = {
   startingLives: 10,
   maxLives: 20,
   perfectLanding: false,
-  capLand: false,          // last make was a rare upside-down / on-cap land (worth 2)
 
   // defs: [{ name, color, isAI }]
   init(defs, direction, opts = {}) {
     this.practice   = !!opts.practice;
     this.difficulty = opts.difficulty || 'medium';
     this.startingLives = STARTING_LIFE_PRESETS.includes(+opts.startingLives) ? +opts.startingLives : 10;
-    // Headroom above the start count so ON FIRE can actually mint lives.
-    // Classic 10-life games keep the old 20 cap; 100-life games were stuck at
-    // max==start so every fire make gained 0 and immediately "Fire maxed".
-    this.maxLives = Math.max(20, this.startingLives + ONFIRE_CAP_LIVES);
+    this.maxLives = Math.max(20, this.startingLives);
     this.players = defs.map(d => ({
       name: d.name,
       color: d.color || '#0b86ff',
       isAI: !!d.isAI,
-      skin: d.skin || 'bottle',   // which flippable edition this player throws
-      netId: d.netId || null,    // online multiplayer peer id (null = local/pass-and-play)
       lives: this.startingLives,
       streak: 0,
       isHeatingUp: false,
@@ -86,7 +79,6 @@ const game = {
     this.practiceMakes = this.practiceAttempts = this.practiceStreak = this.practiceBest = 0;
     this.turnCounter = 0;
     this.perfectLanding = false;
-    this.capLand = false;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
     // ambiguous when two players share a name). Ignored in practice.
@@ -116,15 +108,8 @@ const game = {
   },
 
   // ── Sudden death ────────────────────────────────────────────────────────
-  // resolveFlip increments turnCounter before reading SD, so UI helpers that
-  // predict "this upcoming flip" must use turnCounter+1 to stay in sync.
   inSuddenDeath() { return !this.practice && this.turnCounter > SD_THRESHOLD; },
   sdLevel()       { return this.inSuddenDeath() ? Math.floor((this.turnCounter - SD_THRESHOLD) / SD_STEP) + 1 : 0; },
-  sdLevelForNextFlip() {
-    if (this.practice) return 0;
-    const next = this.turnCounter + 1;
-    return next > SD_THRESHOLD ? Math.floor((next - SD_THRESHOLD) / SD_STEP) + 1 : 0;
-  },
 
   // Would the current player be ELIMINATED if they miss this flip? Drives the
   // "Make it or break it" intense finale. (No risk during a normal ON FIRE run,
@@ -132,13 +117,14 @@ const game = {
   missWouldEliminate() {
     const p = this.currentPlayer();
     if (!p || p.eliminated) return false;
-    const sd = this.sdLevelForNextFlip();
+    const sd = this.sdLevel();
     const penalty = p.isOnFire ? sd : this.pointCount + sd;
     return penalty > 0 && p.lives - penalty <= 0;
   },
 
   // Called by physics when bottle result is determined
   resolveFlip(result, meta = {}) {
+    this.turnCounter++;
     this.lastResult = result;
     const player = this.currentPlayer();
     const wasOnFire = player.isOnFire;   // capture BEFORE we mutate any flags
@@ -150,13 +136,9 @@ const game = {
     this.fireEnded      = false;
     this.fireCapped     = false;
     this.justEliminated = false;
-    this.endedFireBonus = 0;
     this.perfectLanding = result === 'MAKE' && !!meta.perfect;
-    this.capLand        = result === 'MAKE' && !!meta.onCap;
-    // Cap / upside-down makes are worth 2 (stake steps, or ON FIRE lives).
-    const worth = this.capLand ? 2 : 1;
 
-    // ── Practice: just track stats, no lives/turns/sudden-death counter ─────
+    // ── Practice: just track stats, no lives/streak stakes ──────────────────
     if (this.practice) {
       this.practiceAttempts++;
       if (result === 'MAKE') {
@@ -170,37 +152,34 @@ const game = {
       return;
     }
 
-    this.turnCounter++;
     const sd = this.sdLevel();   // 0 normally; >0 once sudden death begins
 
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
         // +1 life per flip while ON FIRE — bounded by the match life cap. In SUDDEN
-        // DEATH, ON FIRE stops minting free lives (the deflation valve) but the
-        // run continues until a miss (or a real life/+5 cap below).
-        // Cap lands are worth 2 lives (same rarity bonus as the stake).
+        // DEATH, ON FIRE stops minting free lives (the deflation valve).
         if (!sd) {
           const before = player.lives;
-          player.lives    = Math.min(player.lives + worth, this.maxLives);
-          this.onFireGain = player.lives - before;
-          if (this.onFireGain > 0) this.onFireBonus += Math.min(worth, this.onFireGain);
+          player.lives    = Math.min(player.lives + 1, this.maxLives);
+          this.onFireGain = player.lives - before;   // 0 once at the match cap
+          if (this.onFireGain > 0) this.onFireBonus++;
         } else {
           this.onFireGain = 0;
         }
-        // End the run gracefully (keep gains, NO penalty, NOT a miss) when the
-        // player hits the match life cap, or when a big lobby (>4) has handed
-        // out its +5 bonus lives. Do NOT treat "gain 0 because SD" as a cap —
-        // that wrongly ended every SD ON FIRE make in 5+ player games.
-        const hitLifeCap = player.lives >= this.maxLives;
-        const hitLobbyCap = this.players.length > ONFIRE_CAP_PLAYERS &&
-                            this.onFireBonus >= ONFIRE_CAP_LIVES;
-        if (hitLifeCap || hitLobbyCap) {
+        // Big lobbies (>4 players): cap the ON FIRE run at +5 lives (or once it
+        // can't gain) and pass on — so 5-7 others aren't kept waiting through a
+        // long run. Graceful end: keep the gains, NO penalty, NOT a miss.
+        // End the ON FIRE run gracefully (keep gains, NO penalty, NOT a miss) when
+        // the player hits the match life cap — no point flipping for nothing — or when
+        // a big lobby (>4) has handed out its +5 / can no longer gain.
+        if (player.lives >= this.maxLives ||
+            (this.players.length > ONFIRE_CAP_PLAYERS &&
+             (this.onFireBonus >= ONFIRE_CAP_LIVES || this.onFireGain === 0))) {
           player.isOnFire    = false;
           player.isHeatingUp = false;
           player.streak      = 0;
           this.onFirePlayer  = null;
-          this.endedFireBonus = this.onFireBonus; // preserve for Inferno / hot-run stats
           this.onFireBonus   = 0;
           this.fireCapped    = true;
         }
@@ -217,7 +196,6 @@ const game = {
         player.isHeatingUp = false;
         player.streak      = 0;
         this.onFirePlayer  = null;
-        this.endedFireBonus = this.onFireBonus;
         this.onFireBonus   = 0;
         // Stake is PRESERVED across an ON FIRE run: the main game "pauses" while
         // the hot player takes bonus shots, so the communal stake the table
@@ -232,7 +210,7 @@ const game = {
     // ── Normal flip ─────────────────────────────────────────────────────────
     if (result === 'MAKE') {
       player.streak++;
-      this.pointCount += worth;   // upright +1; rare cap/upside-down +2
+      this.pointCount++;
       player.isHeatingUp = player.streak === 2;
       if (player.streak >= 3) {
         player.isOnFire    = true;
@@ -256,27 +234,6 @@ const game = {
     }
 
     this.setState(GAME_STATES.RESULT);
-  },
-
-  // Forfeit a player by netId (peer left / disconnected). Returns true if someone
-  // was removed from play. If it was their turn, sets justEliminated so advance
-  // shows the out banner then continues.
-  forfeitPlayer(netId, reason) {
-    if (!netId || this.practice) return false;
-    const idx = this.players.findIndex(p => p.netId === netId && !p.eliminated);
-    if (idx < 0) return false;
-    const p = this.players[idx];
-    p.eliminated = true;
-    p.isOnFire = false;
-    p.isHeatingUp = false;
-    p.streak = 0;
-    if (this.onFirePlayer === p) {
-      this.onFirePlayer = null;
-      this.onFireBonus = 0;
-    }
-    this.forfeitReason = reason || 'left';
-    if (idx === this.currentPlayerIndex) this.justEliminated = true;
-    return true;
   },
 
   // Called after result display to advance turn
