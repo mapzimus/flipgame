@@ -191,22 +191,33 @@ After changing JS/CSS:
 
 ---
 
-## Whydah-Unit port (not done in that repo yet)
+## Whydah-Unit port (ready — needs a human push)
 
-Goal: ship at `https://whydahstory.com/parrot-flip/`.
+Goal: ship this bare-bones build at `https://whydahstory.com/parrot-flip/`.
 
-Whydah-Unit uses a **whitelist `.gitignore`** (`*` then `!folder/**`). To publish:
+The Games hub already links there. Whydah’s `.gitignore` already whitelists `parrot-flip/`. What’s left is replacing the old unlock-heavy copy with this bare-bones one.
 
+### One-command sync (from a machine that can push to Whydah-Unit)
+
+```bash
+# flipgame and Whydah-Unit as siblings, then:
+cd flipgame
+./tools/apply-parrot-flip-whydah.sh ../Whydah-Unit
+# follow the printed git push / PR steps onto Whydah-Unit main
 ```
-!parrot-flip/
-!parrot-flip/**
+
+Or apply the ready patch:
+
+```bash
+cd Whydah-Unit
+git apply /path/to/flipgame/tools/whydah-parrot-flip-barebones.patch
+# or: git am /path/to/flipgame/tools/whydah-parrot-flip-barebones.patch
+git push origin HEAD:main   # or open a PR
 ```
 
-Also link from homepage / dashboard Games section (same pattern as `navigator/` and `black-sam/`).
+`tools/sync-parrot-flip.js` copies **`parrot-flip/`** (bare bones only), injects `/games-gate.js`, sets the Whydah title + back link to `/games/`, and deletes stale unlock files (`achievements.js`, `skins.js`, etc.).
 
-**Access note:** The cloud agent that built this could push to `flipgame` but got **403** writing to `mapzimus/Whydah-Unit`. A human (or an agent with Whydah write access) must copy `parrot-flip/` over and open the PR there.
-
-Earlier “Grog Flip” patch artifacts may exist on older branches; ignore them — product direction is Parrot Flip only.
+**Access note:** Cloud agents for `flipgame` still get **403** writing to `mapzimus/Whydah-Unit`. A human with Whydah write access must run the sync/push above.
 
 ---
 
