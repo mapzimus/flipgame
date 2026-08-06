@@ -172,11 +172,14 @@ const Renderer = (() => {
     // frame (origin = CG, ground plane ≈ +39) and we're done. See js/skins.js.
     if (skin && skin !== 'bottle' && window.Skins && window.Skins.hasDraw(skin)) {
       // Pass angle so vessel skins can keep liquid world-level and pour when open.
+      // Hourglass also gets sandBottom/sandFlow from the physics sand sim.
       window.Skins.draw(ctx, skin, {
         color: liquidColor,
         slosh: liquid.slosh,
         angle,
         pour: !!(window.Skins.liquidFor && (window.Skins.liquidFor(skin) || {}).mode === 'open'),
+        sandBottom: liquid.sandBottom,
+        sandFlow: liquid.sandFlow,
       });
       ctx.restore();
       // Open-top pour splash when really inverted + sloshing hard

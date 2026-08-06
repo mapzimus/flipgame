@@ -206,6 +206,21 @@
 
   function drawHourglass(ctx, opts) {
     const frame = opts.color || '#8a3ffc';
+    // Sand stays sandy — frame tint is the wood/plastic, not the grains.
+    const sand = '#d4b06a';
+    const sandLo = '#a8843e';
+    const sandHi = '#e8d49a';
+    // Fraction of sand in the local-bottom bulb (physics-driven). Rest sits up top.
+    const bottom = Math.max(0, Math.min(1, opts.sandBottom == null ? 0.18 : opts.sandBottom));
+    const top = 1 - bottom;
+    const flow = opts.sandFlow || 0;
+    const angle = opts.angle || 0;
+    // cos>0 upright (local +Y is world-down); cos<0 inverted (local −Y is world-down).
+    const upright = Math.cos(angle) >= 0;
+    // Avalanche tilt — sand piles steeper than water.
+    const tilt = Math.max(-0.55, Math.min(0.55, (opts.slosh || 0) * 1.4));
+
+    // Frame + glass
     ctx.beginPath(); ctx.roundRect(-34, -120, 68, 14, 4); strokeFill(ctx, shade(frame, -0.2));
     ctx.beginPath(); ctx.roundRect(-34, 20, 68, 14, 4); strokeFill(ctx, shade(frame, -0.2));
     ctx.beginPath();
@@ -213,12 +228,92 @@
     ctx.lineTo(28, 20); ctx.lineTo(8, -20); ctx.lineTo(28, -106);
     ctx.closePath();
     strokeFill(ctx, 'rgba(200,230,255,0.35)', shade(frame, -0.4));
-    paintLiquid(ctx, Object.assign({}, opts, { liquid: { mode: 'closed', fill: 0.5, sand: true } }), () => {
+
+    // Clip to glass interior
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(-24, -100); ctx.lineTo(-6, -20); ctx.lineTo(-24, 16);
+    ctx.lineTo(24, 16); ctx.lineTo(6, -20); ctx.lineTo(24, -100);
+    ctx.closePath();
+    ctx.clip();
+
+    // Draw a mound in a bulb. `floorY` is where grains rest; `towardY` is the
+    // free surface direction (toward the neck or outer tip).
+    function mound(amt, floorY, towardY, widthAtFloor) {
+      if (amt < 0.01) return;
+      const h = 6 + amt * 40;
+      const dir = towardY < floorY ? -1 : 1;
+      const surface = floorY + dir * h;
+      const clamped = dir < 0
+        ? Math.max(towardY, surface)
+        : Math.min(towardY, surface);
+      const half = widthAtFloor;
+      const halfTop = Math.max(6, half * (0.35 + amt * 0.35));
+      ctx.fillStyle = sand;
       ctx.beginPath();
-      ctx.moveTo(-24, -100); ctx.lineTo(-6, -20); ctx.lineTo(-24, 16);
-      ctx.lineTo(24, 16); ctx.lineTo(6, -20); ctx.lineTo(24, -100);
+      ctx.moveTo(-half, floorY);
+      ctx.lineTo(-halfTop + tilt * 10, clamped);
+      ctx.lineTo(halfTop + tilt * 10, clamped + tilt * 5);
+      ctx.lineTo(half, floorY);
       ctx.closePath();
-    }, 0);
+      ctx.fill();
+      // Highlight ridge
+      ctx.strokeStyle = sandHi;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      ctx.moveTo(-halfTop + tilt * 10, clamped);
+      ctx.lineTo(halfTop + tilt * 10, clamped + tilt * 5);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      // Grain speckles
+      ctx.fillStyle = sandLo;
+      const span = Math.abs(clamped - floorY);
+      for (let i = 0; i < 6; i++) {
+        const t = 0.15 + (i % 5) * 0.16;
+        const gx = (-half + half * 2 * ((i * 0.37) % 1)) * 0.7 + tilt * 4;
+        const gy = floorY + dir * span * t;
+        ctx.beginPath(); ctx.arc(gx, gy, 1.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    // Bottom bulb (local +Y): rests on outer floor when upright, against neck when inverted.
+    if (upright) mound(bottom, 16, -18, 24);
+    else mound(bottom, -22, 16, 10);
+
+    // Top bulb (local −Y): rests on neck when upright, on outer tip when inverted.
+    if (upright) mound(top, -24, -100, 10);
+    else mound(top, -100, -24, 24);
+
+    // ── Neck stream while sand is flowing ────────────────────────────────────
+    if (Math.abs(flow) > 0.05) {
+      ctx.strokeStyle = sand;
+      ctx.lineWidth = 3.2;
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = Math.min(1, Math.abs(flow) * 1.2);
+      ctx.beginPath();
+      // Stream runs along local Y through the waist; direction follows flow.
+      if (flow > 0) {
+        ctx.moveTo(tilt * 3, -28);
+        ctx.lineTo(tilt * 2, 8);
+      } else {
+        ctx.moveTo(tilt * 3, 8);
+        ctx.lineTo(tilt * 2, -28);
+      }
+      ctx.stroke();
+      // Falling grains
+      ctx.fillStyle = sandLo;
+      const t = Math.abs(angle) * 7 + bottom * 20;
+      for (let i = 0; i < 4; i++) {
+        const gy = flow > 0 ? (-22 + ((t * 30 + i * 9) % 28)) : (6 - ((t * 30 + i * 9) % 28));
+        ctx.beginPath();
+        ctx.arc(tilt * 3 + (i % 2 ? 2 : -2), gy, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
   }
 
   function drawBowlingpin(ctx, opts) {
@@ -527,7 +622,7 @@
     { id: 'babybottle', name: 'Baby Bottle', emoji: '🍼', drawAs: 'babybottle', unlock: 16, tint: '#5fcfe6', liquid: { mode: 'closed', fill: 0.35 } },
     { id: 'extinguisher', name: 'Extinguisher', emoji: '🧯', drawAs: 'extinguisher', unlock: 20, tint: '#e3263c', liquid: { mode: 'closed', fill: 0.3 } },
     { id: 'soap', name: 'Soap Pump', emoji: '🧼', drawAs: 'soap', unlock: 24, tint: '#1f9bff', liquid: { mode: 'closed', fill: 0.38 } },
-    { id: 'hourglass', name: 'Hourglass', emoji: '⌛', drawAs: 'hourglass', unlock: 28, tint: '#8a3ffc', liquid: { mode: 'closed', fill: 0.5, sand: true } },
+    { id: 'hourglass', name: 'Hourglass', emoji: '⌛', drawAs: 'hourglass', unlock: 28, tint: '#8a3ffc', liquid: { mode: 'sand', fill: 0.5, sand: true } },
     { id: 'bowlingpin', name: 'Bowling Pin', emoji: '🎳', drawAs: 'bowlingpin', unlock: 32, tint: '#f5f0e8', liquid: null },
     { id: 'cone', name: 'Traffic Cone', emoji: '🚧', drawAs: 'cone', unlock: 36, tint: '#ff7a00', liquid: null },
     { id: 'flask', name: 'Lab Flask', emoji: '🧪', drawAs: 'flask', unlock: 40, tint: '#8ed11a', liquid: { mode: 'open', fill: 0.4 } },

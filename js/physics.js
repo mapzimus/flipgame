@@ -338,13 +338,20 @@ const Physics = (() => {
            bottle.bounds.min.x <= targetX + hitHW;
   }
 
-  // ── Liquid oscillator ──────────────────────────────────────────────────────
+  // ── Liquid / sand oscillator ───────────────────────────────────────────────
+  // Closed liquids use slosh/vel. Hourglass sand ALSO tracks how much of the
+  // grain sits in the local-bottom bulb (sandBottom 0..1) and drains through
+  // the neck when the glass is upright or inverted — never when sideways.
+  const SAND_FLOW_RATE = 0.42;   // fraction of bulb per second at full upright
   const liquid = {
     slosh: 0,
     vel: 0,
     settleTimer: 0,
+    // Most sand starts in the top bulb so the hourglass visibly drains in play.
+    sandBottom: 0.18,
+    sandFlow: 0,       // signed: + drains top→bottom, − drains bottom→top
 
-    update(bottleAngVel, dt) {
+    update(bottleAngVel, dt, bottleAngle) {
       const spring  = -0.10 * this.slosh;
       const drive   =  0.40 * bottleAngVel;
       const damping = -0.08 * this.vel;
@@ -355,11 +362,30 @@ const Physics = (() => {
       this.settleTimer = Math.abs(this.vel) < 0.10
         ? this.settleTimer + dt
         : 0;
+
+      // Sand drain: cos(angle) ≈ +1 upright, −1 inverted, 0 on its side.
+      const a = bottleAngle == null ? 0 : bottleAngle;
+      const uprightness = Math.cos(a);
+      const aligned = Math.abs(uprightness) > 0.35;
+      const room = uprightness > 0
+        ? (1 - this.sandBottom)   // can still accept sand in bottom
+        : this.sandBottom;        // can still leave the bottom
+      if (aligned && room > 0.001) {
+        const step = SAND_FLOW_RATE * uprightness * dt;
+        this.sandBottom = Math.max(0, Math.min(1, this.sandBottom + step));
+        this.sandFlow = uprightness * Math.min(1, room * 8);
+      } else {
+        this.sandFlow *= Math.max(0, 1 - 6 * dt); // stream fades when tipped over
+        if (Math.abs(this.sandFlow) < 0.02) this.sandFlow = 0;
+      }
     },
 
     renderOffset() { return this.slosh * 13; },
     isSettled()    { return this.settleTimer > 0.25; },
-    reset()        { this.slosh = 0; this.vel = 0; this.settleTimer = 0; },
+    reset() {
+      this.slosh = 0; this.vel = 0; this.settleTimer = 0;
+      this.sandBottom = 0.18; this.sandFlow = 0;
+    },
   };
 
   function normalizeSignedAngle(a) {
@@ -671,7 +697,7 @@ const Physics = (() => {
       Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.78 + pull);
     }
 
-    liquid.update(bottle.angularVelocity, FIXED_DT);
+    liquid.update(bottle.angularVelocity, FIXED_DT, bottle.angle);
     updateSaucers(FIXED_DT);
   }
 
