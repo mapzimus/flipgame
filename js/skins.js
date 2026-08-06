@@ -1755,95 +1755,139 @@ ${crown}
     mobileArenaZoom: 0.58,
   };
 
-  // One unique default name per flavor color, for every skin family.
-  // Index-aligned to FLAVOR_HEXES. Used by Skins.nameFor / setup defaults.
+  // One silly default name per flavor color × object. Index-aligned to
+  // FLAVOR_HEXES. Keep ≤14 chars (setup input maxlength). Used by Skins.nameFor.
+  // Order: blue, red, lime, orange, purple, ice, green, berry, navy, lemon, cherry, pink.
   const FAMILY_COLOR_NAMES = {
     bottle: [
       'Blue Steel', 'Sucker Punch', 'Lime Light', 'Orange Crush',
-      'Grape Expectations', 'Ice Ice Baby', 'Apple-solutely', 'Berry Nice',
+      'Grape Juice', 'Ice Ice Baby', 'Apple Sauce', 'Berry Nice',
       'Making Waves', 'Lemon Aid', 'Very Cherry', 'Pink Fluff',
     ],
-    parrot: [
-      'Blue Squawk', 'Scarlet Macaw', 'Lime Wire', 'Orange Julius',
-      'Purple Rainbird', 'Ice Beak', 'Green Jay', 'Pink Polly',
-      'Admiral Bird', 'Gold Crest', 'Cherry Chirp', 'Pretty in Pink',
+    ketchup: [
+      'Blue Condiment', 'Splat Attack', 'Lime Ketchup', 'Orange Squirt',
+      'Grape-up', 'Frosty Squirt', 'Relish Rush', 'Berry Ketchup',
+      'Navy Sauce', 'Mustard Buddy', 'Cherry Squirt', 'Pink Puddle',
     ],
-    plunger: [
-      'Blue Lagoon', 'Red Rover', 'Flush Gordon', 'Orange You Glad',
-      'Grape Drain', 'Ice Pick', 'Green Clean', 'Pink Plunge',
-      'Deep Dive', 'Lemon Squeeze', 'Cherry Bomb', 'Blush Flush',
+    maple: [
+      'Blue Stacks', 'Red Maple', 'Lime Syrup', 'OJ on Tap',
+      'Grape Glaze', 'Ice Cap', 'Green Timber', 'Berry Syrup',
+      'Deep Woods', 'Lemon Sap', 'Cherry Sap', 'Pink Pancake',
+    ],
+    honeybear: [
+      'Blue Bear', 'Red Teddy', 'Lime Cub', 'Orange Squeeze',
+      'Grape Bear', 'Ice Bear', 'Honey Do', 'Berry Bear',
+      'Navy Nuzzle', 'Goldilocks', 'Cherry Cub', 'Pink Paws',
+    ],
+    babybottle: [
+      'Blue Sippy', 'Red Nap', 'Lime Formula', 'OJ Jr',
+      'Grape Dream', 'Ice Bottle', 'Peas Please', 'Berry Baby',
+      'Navy Nighty', 'Lemon Drop', 'Cherry Tot', 'Pink Burp',
+    ],
+    extinguisher: [
+      'Blue Blaze', 'Red Alert', 'Lime Foam', 'Orange Alarm',
+      'Grape Hose', 'Ice Hose', 'Green Hose', 'Berry Blast',
+      'Navy Nozzle', 'Lemon Spray', 'Cherry Fire', 'Pink Foam',
+    ],
+    soap: [
+      'Blue Suds', 'Red Suds', 'Lime Clean', 'Orange Suds',
+      'Grape Wash', 'Ice Clean', 'Green Clean', 'Berry Bubbles',
+      'Navy Lather', 'Lemon Fresh', 'Cherry Suds', 'Pink Bubbles',
+    ],
+    hourglass: [
+      'Blue Sands', 'Red Sands', 'Lime Glass', 'Orange Glass',
+      'Grape Time', 'Ice Timer', 'Green Glass', 'Berry Timer',
+      'Navy Hour', 'Lemon Timer', 'Cherry Sand', 'Pink Sands',
+    ],
+    bowlingpin: [
+      'Blue Strike', 'Red Pin', 'Lime Spare', 'Orange Pin',
+      'Grape Bowl', 'Ice Pin', 'Green Pin', 'Berry Bowl',
+      'Navy Alley', 'Lemon Pin', 'Cherry Pin', 'Pink Strike',
+    ],
+    cone: [
+      'Blue Zone', 'Red Zone', 'Lime Cone', 'Orange Cone',
+      'Grape Cone', 'Ice Cone', 'Green Cone', 'Berry Cone',
+      'Navy Cone', 'Lemon Cone', 'Cherry Cone', 'Pink Cone',
+    ],
+    flask: [
+      'Blue Beaker', 'Red React', 'Lime Lab', 'Orange Lab',
+      'Grape Acid', 'Ice Beaker', 'Green Slime', 'Berry Brew',
+      'Navy Flask', 'Lemon Fizz', 'Cherry Fizz', 'Pink Potion',
+    ],
+    shell: [
+      'Blue Shell', 'Red Shell', 'Lime Shell', 'Orange Boom',
+      'Grape Bomb', 'Ice Shell', 'Green Shell', 'Berry Boom',
+      'Navy Ordnance', 'Lemon Shell', 'Cherry Boom', 'Pink Shell',
+    ],
+    pawn: [
+      'Blue Pawn', 'Red Pawn', 'Lime Pawn', 'Orange Pawn',
+      'Grape Pawn', 'Ice Pawn', 'Green Pawn', 'Berry Pawn',
+      'Navy Knight', 'Lemon Pawn', 'Cherry Pawn', 'Pink Pawn',
+    ],
+    buoy: [
+      'Blue Buoy', 'Red Buoy', 'Lime Buoy', 'Orange Buoy',
+      'Grape Buoy', 'Ice Buoy', 'Green Buoy', 'Berry Buoy',
+      'Navy Marker', 'Lemon Buoy', 'Cherry Buoy', 'Pink Buoy',
+    ],
+    wineglass: [
+      'Blue Wine', 'Red Wine', 'Lime Spritz', 'Orange Wine',
+      'Grape Crush', 'Ice Wine', 'Green Grapes', 'Berry Wine',
+      'Navy Pour', 'Lemon Wine', 'Cherry Wine', 'Pink Rosé',
+    ],
+    toucan: [
+      'Blue Beak', 'Red Toucan', 'Lime Bill', 'Orange Bill',
+      'Grape Squawk', 'Ice Beak', 'Green Toucan', 'Berry Bird',
+      'Navy Nest', 'Lemon Crest', 'Cherry Chirp', 'Pink Polly',
     ],
     trex: [
-      'Blue-rassic Park', 'Tyrannosaurus Red', 'Limeasaurus', 'Tea Rex',
+      'Blue Rex', 'Red Rex', 'Limeasaurus', 'Tea Rex',
       'Grape Scott', 'Ice Age', 'Dino-mite', 'Pinkasaurus',
-      'Claw and Order', 'Solid Gold Rex', 'Cherry Chomp', 'Rosé Rex',
+      'Claw Order', 'Gold Rex', 'Cherry Chomp', 'Rosé Rex',
     ],
-    vending: [
-      'Blue Light Special', 'Red Bull-ion', 'Lime Rickey', 'Orange Soda',
-      'Ven Diesel', 'Ice Cold', 'Green Machine', 'Pink Panther Pop',
-      'Wave Runner', 'Lemon Drop', 'Cherry Coke’d', 'Pink Lemonade',
+    whippedcream: [
+      'Blue Whip', 'Red Whip', 'Lime Cream', 'Orange Whip',
+      'Grape Cream', 'Ice Creamed', 'Green Whip', 'Berry Whip',
+      'Navy Nozzle', 'Lemon Cream', 'Cherry Top', 'Pink Fluff',
     ],
-    pineapple: [
-      'Blue Hawaii', 'Red Spikes', 'Lime Colada', 'Orange You Pine',
-      'Grape Fruit', 'Piña Colossus', 'Green Crown', 'Pink Prickles',
-      'Pineapple Express', 'Lemon Spire', 'Cherry Top', 'Piña Pinkada',
+    potion: [
+      'Blue Brew', 'Red Brew', 'Lime Elixir', 'Orange Hex',
+      'Grape Hex', 'Ice Potion', 'Green Brew', 'Berry Hex',
+      'Navy Magic', 'Lemon Hex', 'Cherry Hex', 'Pink Hex',
     ],
-    gorilla: [
-      'Blue Banana', 'Red Kong', 'Lime Time', 'Orange Crusha',
-      'Grape Ape', 'Ice Kong', 'Hairy Styles', 'Pink Paws',
-      'Navy Knuckles', 'Solid Goldback', 'Cherry Bombilla', 'Bubblegum Kong',
+    tabasco: [
+      'Blue Heat', 'Red Hot', 'Lime Burn', 'Orange Burn',
+      'Grape Fire', 'Ice Hot', 'Green Heat', 'Berry Burn',
+      'Navy Spice', 'Lemon Heat', 'Cherry Hot', 'Pink Heat',
     ],
-    people: [
-      'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
-      'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
-      'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
+    coke: [
+      'Blue Cola', 'Red Pop', 'Lime Fizz', 'Orange Pop',
+      'Grape Fizz', 'Ice Cold', 'Green Pop', 'Berry Pop',
+      'Navy Cola', 'Lemon Pop', 'Cherry Cola', 'Pink Pop',
     ],
-    // Punned, but each still recognizable as its landmark — this family used to
-    // be the only one with flat literal names.
-    buildings: [
-      'Eiffel Great', 'Ben There Done That', 'Torch Song', 'Taj Ma-Halo',
-      'Sails Pitch', 'Empire Strikes Back', 'Pharaoh Enough', 'Tower of Pizza',
-      'Column Me Maybe', 'Needle Say More', 'Basil Instinct', 'Pagoda Be Kidding',
+    stanley: [
+      'Blue Sip', 'Red Sip', 'Lime Tumbler', 'Orange Sip',
+      'Grape Sip', 'Ice Tumbler', 'Green Sip', 'Berry Sip',
+      'Navy Handle', 'Lemon Sip', 'Cherry Sip', 'Pink Sip',
     ],
-    gods: [
-      'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
-      'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
-      'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
+    lavalamp: [
+      'Blue Lava', 'Red Lava', 'Lime Blob', 'Orange Blob',
+      'Grape Blob', 'Ice Lava', 'Green Lava', 'Berry Blob',
+      'Navy Blob', 'Lemon Blob', 'Cherry Lava', 'Pink Lava',
     ],
-    pets: [
-      'Purrlock Holmes', 'Good Boy Gary', 'Hare Today', 'Fin-tastic',
-      'Ham Solo', 'Chirp Norris', 'Shell Yeah', 'Piggie Smalls',
-      'Ferret Bueller', 'Corgi Board', 'Bow Tie Bill', 'Lots of Lox',
+    lawnchair: [
+      'Blue Deck', 'Red Deck', 'Lime Lounge', 'Orange Deck',
+      'Grape Deck', 'Ice Lounge', 'Green Deck', 'Berry Deck',
+      'Navy Lounge', 'Lemon Deck', 'Cherry Deck', 'Pink Lounge',
     ],
-    garden: [
-      'Sunny Side', 'You Say Tomato', 'Fun-gi', 'Prickly Pal',
-      'What’s Up Doc', 'Berry Good', 'Broccoli Rob', 'Pumpkin Spice',
-      'Rosebud', 'A-maize-ing', 'Guac and Roll', 'Hot Stuff',
-    ],
-    robots: [
-      'Toast of the Town', 'Vacuum Packed', 'Boombox Hero', 'Tin Can Alley',
-      'Spin Cycle', 'Blend It Like Beckham', 'Channel Surfer', 'Calc This',
-      'Drone Alone', 'Snooze Button', 'Nuke It', 'Lamp Shade',
-    ],
-    ocean: [
-      'Whale Hello', 'Flipper Dipper', 'Shark Week', 'Inkredible',
-      'Crab Apple', 'Sea Horse Power', 'Finding Funny', 'Shell Shock',
-      'Lobster Roll', 'Star Fishin’', 'Jelly Belly', 'Narwhal of Fame',
-    ],
-    snacks: [
-      'Hole-y Donut', 'Taco ‘Bout It', 'Twist & Shout', 'Juice Loose',
-      'Slice of Life', 'Tough Cookie', 'Ice Ice Creamy', 'Pop Star',
-      'Frankly My Dear', 'Cupcake Boss', 'Chip Happens', 'Candy Crush…ed',
-    ],
-    cryptids: [
-      'Big Softie', 'Nessie Business', 'Mothman Monday', 'Chupa-cuppa',
-      'Jersey Fresh', 'Snowball Chance', 'Jacka-lope Hope', 'Thunder Buddy',
-      'Flatwoods Friendly', 'Kraken Me Up', 'Bunyip Yap', 'Nightcrawler Pete',
+    octopus: [
+      'Blue Ink', 'Red Ink', 'Lime Tentacle', 'Orange Ink',
+      'Grape Ink', 'Ice Octo', 'Green Octo', 'Berry Ink',
+      'Navy Arms', 'Lemon Ink', 'Cherry Ink', 'Pink Octo',
     ],
     alien: [
-      'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
-      'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
-      'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Pink Probe',
+      'Blue Probe', 'Red Probe', 'Lime Alien', 'Orange Alien',
+      'Grape Probe', 'Ice Alien', 'Greenie', 'Berry Probe',
+      'Navy Saucer', 'Lemon Probe', 'Cherry Probe', 'Pink Probe',
     ],
   };
 
@@ -1929,7 +1973,11 @@ ${crown}
     // Default player name for a skin family + color (always unique per flavor).
     nameFor: (id, color) => {
       const c = character(id);
-      // Bare-bones: each unlock has one name; color just recolors the art.
+      const family = (c && c.drawAs) || id;
+      const list = FAMILY_COLOR_NAMES[family];
+      const hex = colorToHexKey(color || (c && c.tint) || '#1f9bff');
+      const idx = FLAVOR_HEXES.indexOf(hex);
+      if (list && idx >= 0 && list[idx]) return list[idx];
       if (c && c.name) return c.name;
       return 'Player';
     },
