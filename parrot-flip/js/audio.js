@@ -55,6 +55,12 @@ const Sound = (() => {
     ignite: () => { tone({ freq: 200, slideTo: 900, type: 'sawtooth', dur: 0.4, gain: 0.22 });
                     [392, 494, 587, 784].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.12, gain: 0.16, delay: 0.12 + i * 0.06 })); },
     win:    () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.3, delay: i * 0.12 })),
+    // Knockout sting — descending pair so elimination isn't silent.
+    eliminated: () => {
+      tone({ freq: 220, slideTo: 90, type: 'sawtooth', dur: 0.45, gain: 0.22 });
+      tone({ freq: 165, slideTo: 70, type: 'triangle', dur: 0.55, gain: 0.16, delay: 0.08 });
+      noise(0.14, 0.22, 700);
+    },
     // Make-it-or-break-it: a low ominous two-note sting + heartbeat thump.
     tension: () => {
       tone({ freq: 110, slideTo: 70, type: 'sine', dur: 0.7, gain: 0.24 });
@@ -73,6 +79,7 @@ const Sound = (() => {
     life:    [12, 16, 12],              // ON FIRE +life — quick double tick
     ignite:  [60, 40, 60, 40, 110],     // ON FIRE ignite — distinct rumble
     win:     [70, 40, 70, 40, 130],
+    eliminated: [50, 40, 90],
     tension: [25, 70, 25, 70],          // ominous pulse
   };
   function buzz(name) {

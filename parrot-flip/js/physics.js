@@ -29,12 +29,27 @@ const Physics = (() => {
   // so we wait it out instead of calling a premature miss. Only if nothing
   // resolves within MISS_CAP_FRAMES (the glitch / teeter-stall fallback) do we
   // force a MISS so a turn can never soft-lock in EVALUATING.
-  const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
-  const SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
-  const MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
-  const PERFECT_ANGLE   = 0.16;  // ≤~9° upright = perfect landing flair
-  const FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
-  const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
+  // Landing knobs — Feel (forgiving/standard/pro) retunes MAKE_ANGLE etc via setFeel.
+  let SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
+  let SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
+  let MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
+  const PERFECT_ANGLE = 0.16;  // ≤~9° upright = perfect landing flair
+  let FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
+  const MISS_CAP_FRAMES = 300; // ~5s grounded with no verdict → forced MISS (fallback)
+
+  const FEELS = {
+    forgiving: { MAKE_ANGLE: 0.85, SETTLE_FRAMES: 18, SETTLE_RANGE: 0.045, FALLEN_ANGLE: 1.30 },
+    standard:  { MAKE_ANGLE: 0.61, SETTLE_FRAMES: 22, SETTLE_RANGE: 0.03,  FALLEN_ANGLE: 1.20 },
+    pro:       { MAKE_ANGLE: 0.42, SETTLE_FRAMES: 26, SETTLE_RANGE: 0.025, FALLEN_ANGLE: 1.10 },
+  };
+
+  function setFeel(name) {
+    const f = FEELS[name] || FEELS.standard;
+    MAKE_ANGLE    = f.MAKE_ANGLE;
+    SETTLE_FRAMES = f.SETTLE_FRAMES;
+    SETTLE_RANGE  = f.SETTLE_RANGE;
+    FALLEN_ANGLE  = f.FALLEN_ANGLE;
+  }
 
 
   // ── Liquid oscillator ──────────────────────────────────────────────────────
@@ -288,5 +303,5 @@ const Physics = (() => {
   function getLastLandingInfo() { return lastLandingInfo; }
   function getLastFlickInfo()   { return lastFlickInfo; }
 
-  return { init, reflow, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo };
+  return { init, reflow, setFeel, step, resetBottle, applyFlick, checkLanding, getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo };
 })();

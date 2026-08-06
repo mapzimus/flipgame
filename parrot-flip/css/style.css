@@ -377,7 +377,8 @@ html, body {
 
 #flip-hint {
   position: fixed;
-  bottom: 140px;
+  /* Sit above the bottom score-card strip (~18vh / 92–150px physics inset) */
+  bottom: max(168px, calc(18vh + 28px));
   left: 0;
   right: 0;
   text-align: center;
@@ -392,12 +393,13 @@ html, body {
   50%       { opacity: 0.9;  }
 }
 
-/* Player cards */
+/* Player cards — sit above the canvas playfield (physics floor inset matches) */
 #player-list {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 5;
   display: flex;
   gap: 6px;
   padding: 8px 10px 12px;
@@ -643,7 +645,7 @@ html, body {
 /* ── Practice strength meter ─────────────────────────────── */
 #practice-meter {
   position: fixed;
-  bottom: 132px;
+  bottom: max(160px, calc(18vh + 20px));
   left: 50%;
   transform: translateX(-50%);
   width: min(420px, 72vw);
