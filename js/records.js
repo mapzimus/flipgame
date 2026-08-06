@@ -69,71 +69,57 @@ const Records = (() => {
     return true;
   }
 
-  // ── Mystery boxes ─────────────────────────────────────────────────────────
-  // Every WINS_PER_BOX wins earns one box, and a box grants ONE RANDOM
-  // still-locked character (Smash-Bros style reveal). Deliberately not the
-  // ordered `unlock` ladder any more: the old order dumped the six cartoon casts
-  // in an arbitrary block at the end, so the last families sat behind 300+ wins
-  // and nobody ever saw them.
-  //
-  // Nothing new is persisted to track this. The count of characters owned beyond
-  // the free base skin IS the count of boxes opened, so "owed" is derivable —
-  // which also means the old threshold saves migrate for free.
-  const WINS_PER_BOX = 2;
+  // ── Threshold unlocks (bare-bones ladder) ──────────────────────────────────
+  // Free bottle at 0 wins, then one character every 4 wins up to Alien at 100.
+  // No random mystery draws — the ladder order in Skins.list() is the order.
+  const WINS_PER_BOX = 4;   // kept name for main.js UI (“wins to next unlock”)
 
-  function boxesEarned() { return Math.floor((data.totalWins || 0) / WINS_PER_BOX); }
-  function boxesOpened() { return Math.max(0, unlockedSkins().length - 1); }
   function allChars() {
     return (typeof window !== 'undefined' && window.Skins && typeof Skins.list === 'function')
       ? Skins.list() : [];
   }
   function lockedChars() { return allChars().filter((s) => !isSkinUnlocked(s.id)); }
 
-  // Aliens are the capstone (unique bank-shot physics), so they're held out of
-  // the pool until everything else is collected — the collection always ends
-  // on aliens no matter how the draws fall.
-  function drawPool() {
-    const locked = lockedChars();
-    const nonAlien = locked.filter((s) =>
-      (window.Skins.familyKey ? Skins.familyKey(s.id) : s.drawAs) !== 'alien');
-    return nonAlien.length ? nonAlien : locked;
+  // Grant every character whose unlock threshold is <= totalWins.
+  function grantEarnedUnlocks() {
+    const wins = data.totalWins || 0;
+    const newly = [];
+    for (const c of allChars()) {
+      if (c.unlock == null) continue;
+      if (wins >= c.unlock && !isSkinUnlocked(c.id)) {
+        data.unlockedSkins = unlockedSkins().concat(c.id);
+        newly.push(c.id);
+      }
+    }
+    if (newly.length) save();
+    return newly;
   }
 
-  // Boxes earned but not yet opened, clamped to what's actually left to give.
   function pendingBoxes() {
-    return Math.max(0, Math.min(boxesEarned() - boxesOpened(), lockedChars().length));
+    // How many threshold unlocks are earned but not yet in unlockedSkins.
+    const wins = data.totalWins || 0;
+    return allChars().filter((c) => c.unlock != null && wins >= c.unlock && !isSkinUnlocked(c.id)).length;
   }
   function winsToNextBox() {
-    const w = data.totalWins || 0;
-    return lockedChars().length ? WINS_PER_BOX - (w % WINS_PER_BOX) : 0;
+    const wins = data.totalWins || 0;
+    const next = allChars()
+      .filter((c) => c.unlock != null && !isSkinUnlocked(c.id))
+      .map((c) => c.unlock)
+      .sort((a, b) => a - b)[0];
+    return next == null ? 0 : Math.max(0, next - wins);
   }
 
-  function openBoxes(n) {
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      const pool = drawPool();
-      if (!pool.length) break;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      data.unlockedSkins = unlockedSkins().concat(pick.id);
-      out.push(pick.id);
-    }
-    if (out.length) save();
-    return out;
-  }
-
-  // BOOT: reconcile quietly. A returning player on the old 1-per-3-wins ladder
-  // is owed a few boxes under the new 1-per-2 rate; granting those with five
-  // reveal animations before they've even played would be nonsense.
+  // BOOT: quietly grant anything already earned (returning players / migrations).
   function syncUnlocksFromWins() {
     if (!allChars().length) return [];
     migrateEditionUnlocks();
-    return openBoxes(pendingBoxes());
+    return grantEarnedUnlocks();
   }
 
-  // GAME OVER: claim boxes earned during play, for an animated reveal.
+  // GAME OVER: grant newly earned unlocks for the reveal animation.
   function claimBoxes() {
     if (!allChars().length) return [];
-    return openBoxes(pendingBoxes());
+    return grantEarnedUnlocks();
   }
 
   // Call AFTER each game.resolveFlip() (normal play and practice).

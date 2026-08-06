@@ -171,8 +171,19 @@ const Renderer = (() => {
     // Skin dispatch: a non-bottle edition paints the object in the same local
     // frame (origin = CG, ground plane ≈ +39) and we're done. See js/skins.js.
     if (skin && skin !== 'bottle' && window.Skins && window.Skins.hasDraw(skin)) {
-      window.Skins.draw(ctx, skin, { color: liquidColor, slosh: liquid.slosh });
+      // Pass angle so vessel skins can keep liquid world-level and pour when open.
+      window.Skins.draw(ctx, skin, {
+        color: liquidColor,
+        slosh: liquid.slosh,
+        angle,
+        pour: !!(window.Skins.liquidFor && (window.Skins.liquidFor(skin) || {}).mode === 'open'),
+      });
       ctx.restore();
+      // Open-top pour splash when really inverted + sloshing hard
+      const liq = window.Skins.liquidFor && window.Skins.liquidFor(skin);
+      if (!reduceMotion && liq && liq.mode === 'open' && Math.abs(angle) > 1.6 && Math.abs(liquid.vel) > 0.8) {
+        spawnSplash(x, y - 40 * BOTTLE_DRAW_SCALE, 3, hexToRgba(liquidColor || '#0b86ff', 0.85));
+      }
       return;
     }
 

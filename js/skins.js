@@ -1851,103 +1851,23 @@ ${crown}
   const BUILDING_HEXES = FLAVOR_HEXES.map((h) => '#' + h);
 
   function buildCharacters() {
-    const out = [];
-    const add = (c) => out.push(c);
-    const nameAt = (family, i) => (FAMILY_COLOR_NAMES[family] && FAMILY_COLOR_NAMES[family][i]) || family;
-
-    // Classic single-object flippers (one unlock each; all 12 colors recolor).
-    [
-      { id: 'bottle', emoji: '🍾', drawAs: 'bottle', tint: '#1f9bff' },
-      { id: 'parrot', emoji: '🦜', drawAs: 'parrot', tint: '#e3263c' },
-      { id: 'plunger', emoji: '🪠', drawAs: 'plunger', tint: '#8ed11a' },
-      { id: 'trex', emoji: '🦖', drawAs: 'trex', tint: '#ff7a00' },
-      { id: 'vending', emoji: '🥤', drawAs: 'vending', tint: '#8a3ffc' },
-      { id: 'pineapple', emoji: '🍍', drawAs: 'pineapple', tint: '#5fcfe6' },
-      { id: 'gorilla', emoji: '🦍', drawAs: 'gorilla', tint: '#3fae1a' },
-    ].forEach((c) => {
-      const idx = FLAVOR_HEXES.indexOf(c.tint.slice(1));
-      add({ ...c, name: nameAt(c.drawAs, idx >= 0 ? idx : 0) });
-    });
-
-    FLAVOR_HEXES.forEach((h, i) => {
-      const hex = '#' + h;
-      const label = (PERSONS[hex] && PERSONS[hex].label) || ('person-' + i);
-      add({
-        id: 'people-' + String(label).replace(/\s+/g, '-'),
-        name: nameAt('people', i),
-        emoji: '🧑',
-        drawAs: 'people',
-        tint: hex,
-      });
-    });
-
-    BUILDING_HEXES.forEach((hex, i) => {
-      // Skip the old Redeemer art — yellow uses Space Needle instead.
-      let label = (BUILDING_CAST[hex] && BUILDING_CAST[hex].label) || hex.slice(1);
-      if (label === 'redeemer') label = 'needle';
-      add({
-        id: 'building-' + label,
-        name: nameAt('buildings', i),
-        emoji: '🏙️',
-        drawAs: 'buildings',
-        tint: hex,
-      });
-    });
-
-    FLAVOR_HEXES.forEach((h, i) => {
-      const hex = '#' + h;
-      const label = (GOD_CAST[hex] && GOD_CAST[hex].label) || ('god-' + i);
-      add({
-        id: 'gods-' + String(label).replace(/\s+/g, '-'),
-        name: nameAt('gods', i),
-        emoji: '⚡',
-        drawAs: 'gods',
-        tint: hex,
-      });
-    });
-
-    // Mid-ladder cartoon casts (SVG). Aliens stay last.
-    [
-      { family: 'pets', emoji: '🐾', cast: CC.pets && CC.pets.CAST },
-      { family: 'garden', emoji: '🌻', cast: CC.garden && CC.garden.CAST },
-      { family: 'robots', emoji: '🤖', cast: CC.robots && CC.robots.CAST },
-      { family: 'ocean', emoji: '🌊', cast: CC.ocean && CC.ocean.CAST },
-      { family: 'snacks', emoji: '🍩', cast: CC.snacks && CC.snacks.CAST },
-      { family: 'cryptids', emoji: '🦶', cast: CC.cryptids && CC.cryptids.CAST },
-    ].forEach(({ family, emoji, cast }) => {
-      FLAVOR_HEXES.forEach((h, i) => {
-        const hex = '#' + h;
-        const label = (cast && cast[hex] && cast[hex].label) || h;
-        add({
-          id: family + '-' + String(label).replace(/\s+/g, '-'),
-          name: nameAt(family, i),
-          emoji,
-          drawAs: family,
-          tint: hex,
-        });
-      });
-    });
-
-    // Capstone bank-shot cast — ALWAYS last so Alien is the final unlock tier.
-    FLAVOR_HEXES.forEach((h, i) => {
-      add({
-        id: 'alien-' + h,
-        name: nameAt('alien', i),
-        emoji: '👽',
-        drawAs: 'alien',
-        tint: '#' + h,
-        physics: ALIEN_PHYSICS,
-      });
-    });
-
-    // Assign default swatch color (= tint) + every-3-wins unlock index.
-    // Player color always drives drawing: cast editions swap to that hex's
-    // variant art, classics/bottle recolor in place.
-    out.forEach((c, i) => {
-      c.color = c.tint;
-      c.unlock = i === 0 ? null : i * 3;
-    });
-    return out;
+    // Bare-bones ladder from js/cast25.js — free bottle, then one unlock every
+    // 4 wins up to Alien at 100. Old people/buildings/gods/cartoon casts retired.
+    const cast = (typeof window !== 'undefined' && window.FLIP_CAST25) || null;
+    const roster = (cast && cast.ROSTER) || [
+      { id: 'bottle', name: 'Bottle', emoji: '🍾', drawAs: 'bottle', unlock: null, tint: '#1f9bff', liquid: { mode: 'closed', fill: 0.32 } },
+    ];
+    return roster.map((r) => ({
+      id: r.id,
+      name: r.name,
+      emoji: r.emoji,
+      drawAs: r.drawAs,
+      unlock: r.unlock,
+      tint: r.tint,
+      color: r.tint,
+      liquid: r.liquid || null,
+      physics: r.id === 'alien' || r.drawAs === 'alien' ? ALIEN_PHYSICS : null,
+    }));
   }
 
   const CHARACTERS = buildCharacters();
@@ -1955,19 +1875,14 @@ ${crown}
   for (const c of CHARACTERS) CHAR_BY_ID[c.id] = c;
 
   // Legacy edition ids → character ids (migration for older saves).
+  // Retired casts collapse onto the nearest bare-bones stand-in.
   const EDITION_TO_CHARS = {
-    bottle: ['bottle'], parrot: ['parrot'], plunger: ['plunger'], trex: ['trex'],
-    vending: ['vending'], pineapple: ['pineapple'], gorilla: ['gorilla'],
-    people: CHARACTERS.filter((c) => c.drawAs === 'people').map((c) => c.id),
-    buildings: CHARACTERS.filter((c) => c.drawAs === 'buildings').map((c) => c.id),
-    gods: CHARACTERS.filter((c) => c.drawAs === 'gods').map((c) => c.id),
-    pets: CHARACTERS.filter((c) => c.drawAs === 'pets').map((c) => c.id),
-    garden: CHARACTERS.filter((c) => c.drawAs === 'garden').map((c) => c.id),
-    robots: CHARACTERS.filter((c) => c.drawAs === 'robots').map((c) => c.id),
-    ocean: CHARACTERS.filter((c) => c.drawAs === 'ocean').map((c) => c.id),
-    snacks: CHARACTERS.filter((c) => c.drawAs === 'snacks').map((c) => c.id),
-    cryptids: CHARACTERS.filter((c) => c.drawAs === 'cryptids').map((c) => c.id),
-    alien: CHARACTERS.filter((c) => c.drawAs === 'alien').map((c) => c.id),
+    bottle: ['bottle'], parrot: ['toucan'], plunger: ['bowlingpin'], trex: ['trex'],
+    vending: ['stanley'], pineapple: ['honeybear'], gorilla: ['octopus'],
+    people: ['pawn'], buildings: ['cone'], gods: ['potion'],
+    pets: ['toucan'], garden: ['maple'], robots: ['extinguisher'],
+    ocean: ['buoy'], snacks: ['ketchup'], cryptids: ['shell'],
+    alien: ['alien'],
   };
 
   function character(id) {
@@ -1979,13 +1894,15 @@ ${crown}
     return id; // legacy edition id
   }
 
-  const drawFns = {
-    parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,
-    vending: drawVend, people: drawPeople, alien: drawAlien,
-    pineapple: drawPineapple, gorilla: drawGorilla, buildings: drawBuildings,
-    gods: drawGods, pets: drawPets, garden: drawGarden, robots: drawRobots,
-    ocean: drawOcean, snacks: drawSnacks, cryptids: drawCryptids,
-  };   // 'bottle' is drawn by renderer.js
+  const CAST25_FNS = (typeof window !== 'undefined' && window.FLIP_CAST25 && window.FLIP_CAST25.drawFns) || {};
+  const drawFns = Object.assign({
+    // Kept from the classic set — T-Rex never gets touched; alien keeps bank-shot art.
+    trex: drawTrex,
+    alien: drawAlien,
+    // Toucan can fall back to macaw paint if cast25 failed to load.
+    toucan: CAST25_FNS.toucan || drawParrot,
+    parrot: drawParrot,
+  }, CAST25_FNS);   // 'bottle' is drawn by renderer.js
 
   // ── Per-deployment branding ────────────────────────────────────────────────
   // A branded port sets window.FLIP_BRAND before the scripts load. Setting
@@ -2012,13 +1929,15 @@ ${crown}
     // Default player name for a skin family + color (always unique per flavor).
     nameFor: (id, color) => {
       const c = character(id);
-      const family = (c && c.drawAs) || id;
-      const list = FAMILY_COLOR_NAMES[family];
-      const hex = colorToHexKey(color || (c && c.tint) || '#1f9bff');
-      const idx = FLAVOR_HEXES.indexOf(hex);
-      if (list && idx >= 0 && list[idx]) return list[idx];
+      // Bare-bones: each unlock has one name; color just recolors the art.
       if (c && c.name) return c.name;
       return 'Player';
+    },
+    liquidFor: (id) => {
+      const c = character(id);
+      if (c && c.liquid) return c.liquid;
+      const cast = typeof window !== 'undefined' && window.FLIP_CAST25;
+      return cast && cast.liquidFor ? cast.liquidFor(id) : null;
     },
     physicsFor: (id) => {
       const c = character(id);
@@ -2037,7 +1956,8 @@ ${crown}
       if (!f) return;
       // Prefer the player's chosen color so the color picker always changes art.
       const color = (opts && opts.color) || (c && c.tint) || '#1f9bff';
-      f(ctx, Object.assign({}, opts || {}, { color }));
+      const liquid = (c && c.liquid) || null;
+      f(ctx, Object.assign({}, opts || {}, { color, liquid }));
     },
     drawAs: resolveDraw,
     tintFor: (id) => {
@@ -2067,14 +1987,7 @@ ${crown}
     familyLabel: (id) => {
       const c = character(id);
       if (!c) return 'Character';
-      const labels = {
-        bottle: 'Bottle', parrot: 'Parrot', plunger: 'Plunger', trex: 'T-Rex',
-        vending: 'Vending', pineapple: 'Pineapple', gorilla: 'Gorilla',
-        people: 'People', buildings: 'Buildings', gods: 'Gods',
-        pets: 'Pets', garden: 'Garden', robots: 'Robots', ocean: 'Ocean',
-        snacks: 'Snacks', cryptids: 'Cryptids', alien: 'Aliens',
-      };
-      return labels[c.drawAs] || c.name;
+      return c.name || 'Character';
     },
     isCastFamily: (id) => {
       const c = character(id);

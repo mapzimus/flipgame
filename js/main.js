@@ -467,7 +467,7 @@
       const row = sw.closest('.player-input-row');
       if (sw.classList.contains('locked')) {
         const id = row.dataset.char || defaultCharId();
-        showToast(`🔒 ${defaultNameFor(id, sw.dataset.color)} hasn’t turned up in a mystery box yet.`);
+        showToast(`🔒 ${defaultNameFor(id, sw.dataset.color)} unlocks later — keep winning!`);
         return;
       }
       // Keep the family, switch the color — resolveCharForColor swaps a cast to
@@ -592,12 +592,12 @@
     if (window.Skins && Skins.preload) Skins.preload([tint]);
 
     mysteryScreen.classList.remove('opening');
-    mysteryHeadlineEl.textContent = 'A new flippable appears!';
+    mysteryHeadlineEl.textContent = 'New unlock!';
     mysteryNameEl.textContent = '';
     mysteryFamilyEl.textContent = '';
-    mysteryGoBtn.textContent = 'Tap to open';
+    mysteryGoBtn.textContent = 'Tap to reveal';
     mysteryQueueEl.textContent = mysteryQueue.length
-      ? `${mysteryQueue.length} more box${mysteryQueue.length === 1 ? '' : 'es'} to open`
+      ? `${mysteryQueue.length} more unlock${mysteryQueue.length === 1 ? '' : 's'} waiting`
       : '';
     mysteryScreen.classList.remove('hidden');
     mysteryGoBtn.focus();
@@ -617,10 +617,10 @@
     mysteryOpened = true;
     paintMysteryArt();
     mysteryScreen.classList.add('opening');
-    mysteryHeadlineEl.textContent = 'Collected — yours forever!';
+    mysteryHeadlineEl.textContent = 'Unlocked — yours forever!';
     mysteryNameEl.textContent = defaultNameFor(mysteryCurrent, null);
-    mysteryFamilyEl.textContent = familyLabel(mysteryCurrent);
-    mysteryGoBtn.textContent = mysteryQueue.length ? 'Next box ▶' : 'Nice!';
+    mysteryFamilyEl.textContent = `Win #${(characterById(mysteryCurrent) && characterById(mysteryCurrent).unlock) || '—'} on the ladder`;
+    mysteryGoBtn.textContent = mysteryQueue.length ? 'Next ▶' : 'Nice!';
     Sound.play('win');
   }
 
@@ -1423,9 +1423,8 @@
       if (humansPlayed) {
         winRec = Records.recordWin(active.length ? active[0].name : null);
         renderRecordsPanel();
-        // Mystery boxes: every 2 wins earns one, and each grants a RANDOM
-        // still-locked character. Winning several thresholds in one sitting
-        // queues several reveals.
+        // Threshold unlocks: every 4 wins earns the next character on the
+        // bare-bones ladder (Alien at 100). Multiple thresholds queue reveals.
         if (active.length && window.Skins) {
           const drawn = Records.claimBoxes();
           if (drawn.length) {
