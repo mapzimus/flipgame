@@ -1,5 +1,5 @@
 // main.js — game loop, wires everything together (loaded last)
-// build: parrot-flip-v4 (uses Physics.reflow, not resizeWorld)
+// build: parrot-flip-v11 (floor inset above score cards + larger birds)
 
 (function () {
   const canvas       = document.getElementById('game-canvas');
@@ -28,6 +28,30 @@
   // Scale the backing store by devicePixelRatio so everything is crisp on a
   // hi-DPI smartboard. We draw in LOGICAL (CSS) pixels — the transform maps
   // them to physical pixels — so physics/renderer keep using logical coords.
+  //
+  // Raise the physics floor above the fixed bottom score cards so birds land
+  // in the clear playfield instead of under the HUD (matches root Flip Game).
+  function stageBottomInset() {
+    return Math.min(150, Math.max(92, Math.round(window.innerHeight * 0.18)));
+  }
+
+  let gameStarted = false;
+  let reflowTimer = null;
+
+  function scheduleReflow() {
+    clearTimeout(reflowTimer);
+    reflowTimer = setTimeout(() => {
+      if (!gameStarted) return;
+      const w = window.innerWidth, h = window.innerHeight;
+      Physics.reflow(w, h, stageBottomInset());
+      // Only re-place the bird when at rest — never mid-flick.
+      if (!evaluating &&
+          (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
+        Physics.resetBottle();
+      }
+    }, 150);
+  }
+
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap at 2 (fill-rate)
     const w = window.innerWidth, h = window.innerHeight;
@@ -37,7 +61,7 @@
     canvas.style.height = h + 'px';
     canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
     Renderer.resize(w, h);
-    Physics.reflow(w, h);        // keep ground/walls in sync (no-op before init)
+    scheduleReflow();
   }
   window.addEventListener('resize', resize);
 
@@ -371,7 +395,9 @@
     // the first flick never shows the loading placeholder.
     Renderer.preloadParrots(defs.map((d) => d.color).filter(Boolean));
     resize();   // sets DPR transform + renderer logical dims (must run after init)
-    Physics.init(window.innerWidth, window.innerHeight);  // logical coords
+    Physics.init(window.innerWidth, window.innerHeight, stageBottomInset());
+    if (Physics.setFeel) Physics.setFeel(opts.feel || 'standard');
+    gameStarted = true;
 
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
