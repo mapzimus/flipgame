@@ -278,15 +278,16 @@
       // Cast families report progress; single-object skins are all-or-nothing.
       const count = e.cast ? `${e.owned}/${e.total}` : '';
       if (!e.unlocked) {
+        const need = (e.rep && e.rep.unlock != null) ? e.rep.unlock : '?';
         // aria-disabled, NOT disabled: a disabled button drops out of the tab
         // order and tells a screen-reader user nothing about why. This stays
         // focusable and the click handler explains itself with a toast.
         return `<button type="button" class="fam-tile" data-locked="1" aria-disabled="true"` +
-          ` data-label="${escapeHtml(label)}"` +
-          ` aria-label="${escapeHtml(label)} — not collected yet">` +
+          ` data-label="${escapeHtml(label)}" data-need="${need}"` +
+          ` aria-label="${escapeHtml(label)} — unlocks at ${need} wins">` +
           art(artId) +
           `<span class="fam-name">${escapeHtml(label)}</span>` +
-          `<span class="fam-need">🔒 not yet</span>` +
+          `<span class="fam-need">🔒 ${need} wins</span>` +
           `</button>`;
       }
       const sel = e.key === curFam;
