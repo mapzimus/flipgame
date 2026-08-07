@@ -175,9 +175,6 @@ break at phone size or mid-tumble.
 
 - Pages source branch: **`master`**
 - URL path: `/flipgame/parrot-flip/`
-- Old experiments redirect:
-  - `/flipgame/grog-flip/` → parrot-flip
-  - `/flipgame/parrott-flip/` → parrot-flip
 
 After changing JS/CSS:
 
