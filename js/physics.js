@@ -379,11 +379,11 @@ const Physics = (() => {
     if (!world) return;
     clearObstacles();
     const arenaH = h || (groundY + 30);
+    const compact = isCompactScreen();
 
     if (profile.deflector) {
       // Mobile: a single launch-spot wedge. Desktop: full count, flat-side
       // bolted to the ceiling so they read as roof teeth across a wide arena.
-      const compact = isCompactScreen();
       const count = compact ? 1 : Math.max(1, profile.deflectorCount || 3);
       const halfW = compact ? 62 : 70;
       const height = compact ? 78 : 88;
@@ -405,8 +405,13 @@ const Physics = (() => {
       }
     }
 
-    for (let i = 0; i < profile.saucerCount; i++) {
-      const lane = (i + 0.5) / Math.max(1, profile.saucerCount);
+    // Phones: fewer saucers so the court isn't a UFO traffic jam when the
+    // camera is pulled back to show the whole bank-shot arena.
+    const saucerN = compact
+      ? Math.min(profile.saucerCount, 3)
+      : profile.saucerCount;
+    for (let i = 0; i < saucerN; i++) {
+      const lane = (i + 0.5) / Math.max(1, saucerN);
       const x = WALL_INSET + 50 + lane * Math.max(40, canvasW - WALL_INSET * 2 - 100);
       const y = groundY - 150 - (i % 4) * 70 - (i % 3) * 18;
       const rx = 38 + (i % 3) * 4, ry = 16 + (i % 2) * 3;
@@ -982,11 +987,15 @@ const Physics = (() => {
         worldH: plinko.bottom + 90,
       };
     }
+    // Forced-zoom courts (alien): bias the camera a hair upward so the ceiling
+    // bank has room and the table sits nearer the HUD instead of dead-center.
+    const forcedCamY = forced != null ? groundY * 0.46 : cy;
     if (!bottle) {
       return {
         openArena, sideWalls: sideWallsEnabled,
         zoom: forced != null ? forced : 1,
-        camX: cx, camY: cy,
+        camX: cx, camY: forcedCamY,
+        courtFrame: forced != null,
       };
     }
     if (!openArena) {
@@ -995,9 +1004,10 @@ const Physics = (() => {
         sideWalls: sideWallsEnabled,
         zoom: forced != null ? forced : 1,
         camX: cx,
-        camY: cy,
+        camY: forcedCamY,
         worldW: canvasW,
         worldH: groundY + 30,
+        courtFrame: forced != null,
       };
     }
     const pad = 48;

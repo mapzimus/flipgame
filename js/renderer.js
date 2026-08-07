@@ -497,6 +497,50 @@ const Renderer = (() => {
     ctx.fillRect(W - WALL, 0, 2, groundY);
   }
 
+  // When a walled court is camera-zoomed out (alien bank shot), sky would show
+  // in the side gutters and make the playfield look like a postage stamp. Paint
+  // those gutters as an outer hull and extend the table so the phone still
+  // reads full-bleed. Runs in SCREEN space after the world camera restore.
+  function drawCourtGutters(view, groundY) {
+    if (!view || !view.courtFrame || view.sideWalls === false || view.openArena) return;
+    if (fxPlinko) return;
+    if (camZoom >= 0.97) return;
+
+    const leftEdge = W / 2 + camZoom * (0 - camX);
+    const rightEdge = W / 2 + camZoom * (W - camX);
+    const tableY = H / 2 + camZoom * (groundY - camY);
+    const roofY = H / 2 + camZoom * (0 - camY);
+    const courtTop = Math.max(0, Math.min(H, roofY));
+    const courtBot = Math.max(0, Math.min(H, tableY));
+
+    if (leftEdge > 1) {
+      const g = ctx.createLinearGradient(0, 0, leftEdge, 0);
+      g.addColorStop(0, '#070c14');
+      g.addColorStop(0.65, '#0e1724');
+      g.addColorStop(1, '#1c283a');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, leftEdge + 1, H);
+      ctx.fillStyle = 'rgba(150,185,215,0.22)';
+      ctx.fillRect(leftEdge - 2, courtTop, 2, Math.max(0, courtBot - courtTop));
+    }
+    if (rightEdge < W - 1) {
+      const g = ctx.createLinearGradient(W, 0, rightEdge, 0);
+      g.addColorStop(0, '#070c14');
+      g.addColorStop(0.65, '#0e1724');
+      g.addColorStop(1, '#1c283a');
+      ctx.fillStyle = g;
+      ctx.fillRect(rightEdge - 1, 0, W - rightEdge + 2, H);
+      ctx.fillStyle = 'rgba(150,185,215,0.22)';
+      ctx.fillRect(rightEdge, courtTop, 2, Math.max(0, courtBot - courtTop));
+    }
+    if (tableY < H) {
+      ctx.fillStyle = '#3e2723';
+      ctx.fillRect(0, tableY, W, H - tableY + 2);
+      ctx.fillStyle = '#5d4037';
+      ctx.fillRect(0, tableY - 2, W, 3);
+    }
+  }
+
   // ── Result text ────────────────────────────────────────────────────────────
   // `sub` is an optional second line under the verdict — the rare "Great Save"
   // callout, big enough for the whole room, not just a corner banner.
@@ -810,6 +854,10 @@ const Renderer = (() => {
     drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin);
     drawParticles();
     ctx.restore();
+
+    // Alien (etc.) pulled-back courts: fill letterbox gutters so the phone
+    // still feels full-screen instead of a floating postage-stamp arena.
+    drawCourtGutters(view, groundY);
 
     // HUD overlays stay screen-fixed (not affected by world zoom).
     drawStake(stake);

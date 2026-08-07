@@ -1750,11 +1750,11 @@ ${crown}
     strictTarget: false,   // AABB overlap with pad = make (whole alien counts)
     allowSlideIn: true,    // can still slide onto the pad after touchdown
     hitScale: 0.90,        // nearly the full drawn pad scores
-    // Desktop: slight pull-back so the pad + roof teeth read as a wide arena.
-    // Phones: fill the screen (0.58 used to letterbox a tiny playfield inside
-    // a sea of sky — walls must sit at the iPhone edges like every other mode).
+    // Pulled-back court so bank shots read (pad + furniture + ceiling room).
+    // Phones use ~0.80 — zoom 1 felt cramped; 0.58 letterboxed a postage stamp.
+    // Renderer fills the side gutters so the phone still looks full-bleed.
     arenaZoom: 0.82,
-    mobileArenaZoom: 1,
+    mobileArenaZoom: 0.80,
   };
 
   // One silly default name per flavor color × object. Index-aligned to
