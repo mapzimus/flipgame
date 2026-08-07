@@ -1865,7 +1865,11 @@
       if (!window.Skins) return;
       const allUnlocked = Skins.list().every((s) => Records.isSkinUnlocked(s.id));
       if (!allUnlocked) {
-        const fresh = Skins.list().filter((s) => Records.unlockSkin(s.id));
+        // unlockAll also raises totalWins to the top threshold — the ladder is
+        // strictly win-derived now, so plain unlockSkin calls wouldn't survive
+        // the next boot reconcile.
+        const fresh = Records.unlockAll ? Records.unlockAll()
+          : Skins.list().filter((s) => Records.unlockSkin(s.id));
         showToast(`🔓 Secret! Unlocked everything (+${fresh.length}).`);
         Sound.play('win');
         renderFrom(readRows());
