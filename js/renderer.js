@@ -253,9 +253,9 @@ const Renderer = (() => {
     ctx.scale(drawScale, drawScale);
     // Ghost name egg: the object flips see-through. Cosmetic only.
     if (fxGhost) ctx.globalAlpha = 0.55;
-    // Ninja: pure silhouette. Rainbow: slow hue cycle over the whole object.
-    if (fxNinja) ctx.filter = 'brightness(0.07)';
-    else if (fxRainbow) ctx.filter = `hue-rotate(${Math.round((clock * 80) % 360)}deg)`;
+    // Ninja: darken toward silhouette where ctx.filter is supported (the dark
+    // color re-bake from main.js carries the effect everywhere else).
+    if (fxNinja) ctx.filter = 'brightness(0.3)';
 
     // Skin dispatch: a non-bottle edition paints the object in the same local
     // frame (origin = CG, ground plane ≈ +39) and we're done. See js/skins.js.

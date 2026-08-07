@@ -8,6 +8,7 @@ const Physics = (() => {
   let angleWin = [];   // sliding window of recent angles (settle detection)
   let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
   let capSticky = false;   // rare: this landing is damping toward an inverted settle
+  let capThrowArmed = false; // seed-rolled over-spin throw aiming for a cap land
   let lastLandingInfo = null;
   let lastFlickInfo = null;
   let canvasW;
@@ -200,10 +201,9 @@ const Physics = (() => {
   // into a plinko board below the table. Center slot = automatic game win;
   // mid slots zap every opponent −1 life; outer slots = +2 lives. Seed-derived
   // but main.js disables it for online games (it rewrites lives directly).
-  // Slot layouts sized to the flipped object (~74×140 px): wide boards get the
-  // full 5 slots, phones get 3 so the object actually fits in a slot.
-  const PLINKO_KINDS_5 = ['lives', 'zap', 'win', 'zap', 'lives'];
-  const PLINKO_KINDS_3 = ['lives', 'win', 'zap'];
+  // Always 5 slots. The board can be WIDER than the screen (the camera zooms
+  // out to frame it), so slots stay big enough for the ball on any device.
+  const PLINKO_KINDS = ['lives', 'zap', 'win', 'zap', 'lives'];
   let plinkoEnabled = true;
   let plinkoForced = false;   // secret test trigger — consumed by the next flick
   let plinko = null;          // { left, right, top, bottom, pegs, dividers, slots }
@@ -216,9 +216,11 @@ const Physics = (() => {
 
   function startPlinko() {
     clearPlinko();
-    const left = WALL_INSET + 4;
-    const right = canvasW - WALL_INSET - 4;
-    const bw = right - left;
+    // Board width is independent of the screen — at least 640 so five slots
+    // stay ball-sized; the camera pulls back to show all of it.
+    const bw = Math.max(640, Math.min(canvasW - 36, 980));
+    const left = canvasW / 2 - bw / 2;
+    const right = left + bw;
     const top = groundY + 26;
     // The flipped object is BIG (~74×140), so peg gaps and slots must be wide
     // enough for it to tumble through — this is bottle plinko, not puck plinko.
@@ -243,18 +245,21 @@ const Physics = (() => {
         plinkoBodies.push(Bodies.circle(x, y, 9, opts));
       }
     }
-    // Slots: 5 on wide boards, 3 on phones. Dividers get a pointed cap so the
-    // object sheds off instead of balancing on top.
-    const kinds = bw >= 560 ? PLINKO_KINDS_5 : PLINKO_KINDS_3;
+    // Dividers get a pointed cap so the object sheds off instead of balancing.
+    const kinds = PLINKO_KINDS;
     for (let k = 1; k < kinds.length; k++) {
       const x = left + (bw / kinds.length) * k;
       dividers.push({ x, y0: bottom - slotH, y1: bottom });
       plinkoBodies.push(Bodies.rectangle(x, bottom - slotH / 2, 10, slotH, opts));
       plinkoBodies.push(Bodies.circle(x, bottom - slotH, 9, opts));
     }
-    plinkoBodies.push(Bodies.rectangle(canvasW / 2, bottom + 22, canvasW * 2, 44, {
+    plinkoBodies.push(Bodies.rectangle(canvasW / 2, bottom + 22, Math.max(canvasW, bw) * 2, 44, {
       ...opts, friction: 0.8, restitution: 0.02,
     }));
+    // The board brings its own side rails (it may be wider than the arena).
+    const railH = bottom + 500;
+    plinkoBodies.push(Bodies.rectangle(left - 24, bottom - railH / 2, 48, railH, opts));
+    plinkoBodies.push(Bodies.rectangle(right + 24, bottom - railH / 2, 48, railH, opts));
     const slots = kinds.map((kind, i) => ({
       kind,
       x0: left + (bw / kinds.length) * i,
@@ -262,11 +267,11 @@ const Physics = (() => {
     }));
     World.add(world, plinkoBodies);
 
-    // The floor "disappears" — and the walls come back on (mobile open arena
-    // included) so the object always funnels into the board.
+    // The floor "disappears", and the arena walls go dead too — the board's
+    // own rails take over (the board may extend past the screen edges).
     ground.collisionFilter.mask = 0;
-    if (leftWall)  leftWall.collisionFilter.mask = 0xFFFFFFFF;
-    if (rightWall) rightWall.collisionFilter.mask = 0xFFFFFFFF;
+    if (leftWall)  leftWall.collisionFilter.mask = 0;
+    if (rightWall) rightWall.collisionFilter.mask = 0;
 
     plinko = { left, right, top, bottom, slotH, pegs, dividers, slots,
                drift: rand() < 0.5 ? -1 : 1 };
@@ -763,6 +768,7 @@ const Physics = (() => {
     lastFlickInfo  = null;
     launched       = false;
     leanFrames     = 0;
+    capThrowArmed  = false;
     wasAirborne    = false;
     floorTouched   = false;
     slideFrames    = 0;
@@ -809,6 +815,13 @@ const Physics = (() => {
     plinkoForced = false;
     if (plinkoRoll) startPlinko();
 
+    // CAP THROW (~1/100, seed-rolled): normal spin tuning lands completed
+    // flips upright, so an inverted touchdown never occurs naturally. These
+    // throws over-rotate by ~an extra half turn so the object genuinely
+    // arrives upside down, then the cap-sticky assist below can balance it
+    // on the cap for the ×2. A cap throw that arrives badly just misses.
+    capThrowArmed = !profile.floorResolve && !plinkoRoll && (s % 101) === 55;
+
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
 
@@ -827,7 +840,8 @@ const Physics = (() => {
     }
 
     const dir  = vx >= 0 ? 1 : -1;
-    const spin = dir * (SPIN_BASE + power * SPIN_RANGE) * jSpin * profile.spinScale;
+    const spin = dir * (SPIN_BASE + power * SPIN_RANGE) * jSpin * profile.spinScale *
+      (capThrowArmed ? 1.52 : 1);
 
     lastFlickInfo = {
       upSpeed: Math.round(upSpeed),
@@ -870,7 +884,10 @@ const Physics = (() => {
       const invErr = Math.abs(Math.abs(a) - Math.PI);
       // Rare cap-stick lottery: touch down roughly inverted → sometimes the
       // neck/cap grips and we damp hard toward ±π (~1-in-100 flips overall).
-      if (invErr < CAP_ZONE && rand() < CAP_STICK_CHANCE) capSticky = true;
+      // Seed-rolled cap throws (over-spun to arrive inverted) stick whenever
+      // they get anywhere close.
+      if (capThrowArmed && invErr < 1.35) capSticky = true;
+      else if (invErr < CAP_ZONE && rand() < CAP_STICK_CHANCE) capSticky = true;
       const kickScale = (capSticky || invErr < CAP_WINDOW) ? 0.25 : 1;
       const kick = (liquid.vel * 0.028 + (rand() - 0.5) * 0.06) * kickScale;
       Body.setAngularVelocity(bottle, bottle.angularVelocity + kick);
@@ -881,8 +898,8 @@ const Physics = (() => {
     if (capSticky && launched && !profile.floorResolve && !plinko) {
       const a = normalizeSignedAngle(bottle.angle);
       const target = a >= 0 ? Math.PI : -Math.PI;
-      const pull = (target - a) * 0.045;
-      Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.78 + pull);
+      const pull = (target - a) * 0.085;
+      Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.72 + pull);
     }
 
     liquid.update(bottle.angularVelocity, FIXED_DT, bottle.angle);
@@ -919,20 +936,22 @@ const Physics = (() => {
     // Plinko drop: frame the whole board (plus the object) — this is what
     // makes the camera "zoom out" as the floor opens up.
     if (plinko && bottle) {
-      const minX = Math.min(bottle.bounds.min.x - 30, plinko.left - 20);
-      const maxX = Math.max(bottle.bounds.max.x + 30, plinko.right + 20);
-      const minY = Math.min(bottle.bounds.min.y - 40, groundY - 200);
-      const maxY = Math.max(bottle.bounds.max.y, plinko.bottom + 50);
+      const minX = Math.min(bottle.bounds.min.x - 40, plinko.left - 70);
+      const maxX = Math.max(bottle.bounds.max.x + 40, plinko.right + 70);
+      const minY = Math.min(bottle.bounds.min.y - 60, groundY - 280);
+      const maxY = Math.max(bottle.bounds.max.y, plinko.bottom + 90);
       const spanX = maxX - minX, spanY = maxY - minY;
-      const zoom = Math.max(0.28, Math.min(1, canvasW / spanX, arenaH / Math.max(spanY, 1)));
+      // The extra ×0.88 pulls back past the tight fit for real spectacle.
+      const zoom = Math.max(0.2,
+        Math.min(1, canvasW / spanX, arenaH / Math.max(spanY, 1)) * 0.88);
       return {
         openArena,
-        sideWalls: true,
+        sideWalls: false,   // arena walls are dead + the board has its own rails
         zoom,
         camX: (minX + maxX) / 2,
         camY: (minY + maxY) / 2,
         worldW: canvasW,
-        worldH: plinko.bottom + 60,
+        worldH: plinko.bottom + 90,
       };
     }
     if (!bottle) {

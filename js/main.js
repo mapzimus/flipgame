@@ -825,6 +825,13 @@
   // type the letters p-l-i-n-k-o on a keyboard (arms the next flick only).
   const isPlinkoName = (n) => /^plinko$/i.test(String(n || '').trim());
   let plinkoArmed = false;
+  // Rainbow egg: cycle the 12 flavor colors (~1.1s each) — each is a cached
+  // sprite bake, so no per-frame cache churn.
+  function rainbowColor() {
+    const flavors = (window.FLIP_CAST25 && FLIP_CAST25.flavors) ||
+      ['#1f9bff', '#e3263c', '#8ed11a', '#ff7a00', '#8a3ffc', '#5fcfe6'];
+    return flavors[Math.floor(Date.now() / 1100) % flavors.length];
+  }
   // Konami code (keyboard) toggles party mode without the secret name.
   let konamiParty = false;
   try { konamiParty = localStorage.getItem('flipgame.party') === '1'; } catch (_) {}
@@ -1083,7 +1090,12 @@
         : null,
       showGlow,
       isOnFire:    !!(game.onFirePlayer),
-      liquidColor: goldenFlipActive ? GOLDEN_COLOR : game.currentPlayer()?.color,
+      // Ninja/rainbow work by re-baking the sprite in a different color (the
+      // old ctx.filter approach silently no-ops on older iOS Safari).
+      liquidColor: goldenFlipActive ? GOLDEN_COLOR
+        : isNinjaName(game.currentPlayer()?.name) ? '#2a2633'
+        : isRainbowName(game.currentPlayer()?.name) ? rainbowColor()
+        : game.currentPlayer()?.color,
       golden:      goldenFlipActive,
       moon:        moonFlipActive,
       ghostly:     isGhostName(game.currentPlayer()?.name),
@@ -1634,7 +1646,13 @@
     game.setState(GAME_STATES.EVALUATING);
   }
 
-  function onFlick(vx, vy) {
+  function onFlick(vx, vy, ptrType) {
+    // Flick-feel equalizer: a thumb flick on glass reports far fewer px/s than
+    // a mouse sweep for the same intent, so touch gets a boost and mouse/pen a
+    // small trim. AI flicks pass no pointer type and stay untouched (their
+    // aim is tuned to raw speeds).
+    if (ptrType === 'touch') { vx *= 1.32; vy *= 1.32; }
+    else if (ptrType) { vx *= 0.92; vy *= 0.92; }
     // Online: only the current player may flick, and only on their device.
     if (onlineMode && window.Net) {
       const cur = game.currentPlayer();
