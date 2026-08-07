@@ -68,10 +68,10 @@
   <div id="root">Loading…</div>
 
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=85"></script>
-  <script src="js/renderer.js?v=85"></script>
-  <script src="js/cast25.js?v=85"></script>
-  <script src="js/skins.js?v=85"></script>
+  <script src="js/polyfills.js?v=86"></script>
+  <script src="js/renderer.js?v=86"></script>
+  <script src="js/cast25.js?v=86"></script>
+  <script src="js/skins.js?v=86"></script>
   <script>
     const GROUP_LABELS = {
       bottle: 'Starter',
@@ -156,25 +156,21 @@
       root.appendChild(section);
     }
 
-    // Second pass after PNG sprites decode
-    if (Skins.onSpriteLoad) {
-      Skins.onSpriteLoad(() => {
-        document.querySelectorAll('.card').forEach((card, i) => {
-          const c = list[i];
-          // rebuild map by walking DOM order instead
-        });
-        // simpler: redraw all cards from list order
-        const canvases = [...document.querySelectorAll('.card canvas')];
-        list.forEach((c, i) => {
-          const cv = canvases[i];
-          if (!cv) return;
-          const tint = c.tint || c.color || '#1f9bff';
-          try {
-            Renderer.drawPreview(cv, c.drawAs === 'bottle' ? 'bottle' : c.id, tint);
-          } catch (_) {}
-        });
+    // Second pass after SVG sprites decode (skins.js and cast25.js each keep
+    // their own sprite caches, so subscribe to both).
+    function redrawAll() {
+      const canvases = [...document.querySelectorAll('.card canvas')];
+      list.forEach((c, i) => {
+        const cv = canvases[i];
+        if (!cv) return;
+        const tint = c.tint || c.color || '#1f9bff';
+        try {
+          Renderer.drawPreview(cv, c.drawAs === 'bottle' ? 'bottle' : c.id, tint);
+        } catch (_) {}
       });
     }
+    if (Skins.onSpriteLoad) Skins.onSpriteLoad(redrawAll);
+    if (window.FLIP_CAST25 && FLIP_CAST25.onSpriteLoad) FLIP_CAST25.onSpriteLoad(redrawAll);
     // Warm PNG caches
     if (Skins.preload) {
       const tints = [...new Set(list.map((c) => c.tint || c.color).filter(Boolean))];

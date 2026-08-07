@@ -1894,6 +1894,7 @@
     });
   }
   if (window.Skins && Skins.onSpriteLoad) Skins.onSpriteLoad(schedulePreviewRepaint);
+  if (window.FLIP_CAST25 && FLIP_CAST25.onSpriteLoad) FLIP_CAST25.onSpriteLoad(schedulePreviewRepaint);
   paintAllPreviews();
 
   // Show setup on load
