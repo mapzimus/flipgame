@@ -1,7 +1,7 @@
 // physics.js — Matter.js world, bottle body, liquid sim
 
 const Physics = (() => {
-  const { Engine, Bodies, Body, World } = Matter;
+  const { Engine, Bodies, Body, World, Events } = Matter;
 
   let engine, world, bottle, ground, leftWall, rightWall, ceilingBody;
   let groundedFrames = 0;
@@ -11,6 +11,9 @@ const Physics = (() => {
   let capThrowArmed = false; // seed-rolled over-spin throw aiming for a cap land
   let lastLandingInfo = null;
   let lastFlickInfo = null;
+  let onImpact = null;          // (type, speed, x, y) → wall/ceiling/ground juice
+  let groundImpactSent = false; // one thud per flick
+  function setImpactCallback(fn) { onImpact = fn; }
   let canvasW;            // PHYSICS world width (may exceed the screen on alien)
   let groundY;
   let arenaH;             // view height — used for some camera / furniture math
@@ -824,6 +827,26 @@ const Physics = (() => {
     World.add(world, [ground, leftWall, rightWall, ceilingBody]);
     layoutArena(); // honor any pre-set bank-shot expand profile
     syncSideWalls();
+
+    // Wall / ceiling / furniture hits → impact juice (SFX + sparks). Ground
+    // thuds are positional in stepOnce so we get exactly one per landing.
+    Events.on(engine, 'collisionStart', (ev) => {
+      if (!onImpact || !launched || !bottle) return;
+      for (const { bodyA, bodyB } of ev.pairs) {
+        const aIsBottle = bodyA === bottle || bodyA.parent === bottle;
+        const bIsBottle = bodyB === bottle || bodyB.parent === bottle;
+        if (aIsBottle === bIsBottle) continue;
+        const other = aIsBottle ? bodyB : bodyA;
+        const label = other.label;
+        if (label !== 'wall' && label !== 'ceiling' &&
+            label !== 'deflector' && label !== 'saucer') continue;
+        const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
+        if (speed < 1.8) continue;
+        const type = (label === 'deflector' || label === 'saucer') ? 'wall' : label;
+        onImpact(type, speed, bottle.position.x, bottle.position.y);
+      }
+    });
+
     resetBottle();
   }
 
@@ -862,6 +885,7 @@ const Physics = (() => {
     slideFrames    = 0;
     maxGroundedTilt = 0;
     flightFrames   = 0;
+    groundImpactSent = false;
     liquid.reset();
     acc = 0;
 
@@ -959,6 +983,16 @@ const Physics = (() => {
     arenaTime += FIXED_DT;
 
     if (launched && !wasAirborne && bottle.bounds.max.y < groundY - 24) wasAirborne = true;
+
+    // One ground thud per flick (positional — Matter ground collisions are dead
+    // / masked in bounce mode, so we can't rely on collisionStart for the floor).
+    if (onImpact && launched && wasAirborne && !groundImpactSent && !plinko &&
+        bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX && bottle.velocity.y > 0.5) {
+      groundImpactSent = true;
+      const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
+      onImpact('ground', speed, bottle.position.x, groundY);
+    }
+
     if (!hasFlipped) {
       totalRotation = Math.abs(bottle.angle - launchAngle);
       if (totalRotation >= 5.6) hasFlipped = true;
@@ -1065,6 +1099,7 @@ const Physics = (() => {
         camX: cx, camY: courtCamY,
         worldW: canvasW,
         worldH: groundY + 30,
+        ceilingY,
         courtFrame: expanded,
       };
     }
@@ -1077,6 +1112,7 @@ const Physics = (() => {
         camY: courtCamY,
         worldW: canvasW,
         worldH: groundY + 30,
+        ceilingY,
         courtFrame: expanded,
       };
     }
@@ -1125,6 +1161,6 @@ const Physics = (() => {
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
     seedTurn, setPlinkoEnabled, forcePlinko, getPlinko, setFeel,
-    getFeel: () => feelMode,
+    getFeel: () => feelMode, setImpactCallback,
   };
 })();

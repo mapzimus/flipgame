@@ -83,6 +83,18 @@ html, body {
   -webkit-user-select: none;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.92rem;
+  color: var(--muted, #9bb0c9);
+  cursor: pointer;
+  user-select: none;
+}
+.checkbox-row input { accent-color: var(--accent, #69f0ae); width: 16px; height: 16px; }
+
 .section-label {
   font-size: 0.78rem;
   font-weight: 600;

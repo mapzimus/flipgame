@@ -15,8 +15,19 @@ const Renderer = (() => {
   let fxPlinko = null;   // plinko board geometry while a drop is live
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;
+  let shakeAmp = 0;   // brief impact / verdict screen shake (screen space)
 
   function setReduceMotion(v) { reduceMotion = !!v; }
+
+  function burst(x, y, color, count = 14) {
+    if (reduceMotion) return;
+    spawnSplash(x, y, count, color || '#69f0ae');
+  }
+
+  function nudge(amount = 3) {
+    if (reduceMotion) return;
+    shakeAmp = Math.max(shakeAmp, amount);
+  }
 
   function init(cvs) {
     canvas = cvs;
@@ -641,26 +652,29 @@ const Renderer = (() => {
   // Only drawn when the active edition asks for it: the landing pad on the
   // table, the wedge overhead that splits a straight-up shot, and the saucers
   // drifting in between.
-  function drawTargetPad(target, groundY) {
+  function drawTargetPad(target, groundY, aiming) {
     if (!target) return;
     const { x, halfWidth: hw } = target;
     const hitHW = target.hitHalfWidth != null ? target.hitHalfWidth : hw;
-    const pulse = 0.5 + 0.5 * Math.sin(clock * 3);
+    const pulse = 0.5 + 0.5 * Math.sin(clock * (aiming ? 5.5 : 3));
+    // Aim telegraph: brighter / wider while the player is dragging a bank shot.
+    const aim = aiming ? 1 : 0;
+    const glowR = hw * (1.15 + aim * 0.28);
     ctx.save();
-    const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, hw * 1.15);
-    glow.addColorStop(0, `rgba(105,240,174,${0.22 + pulse * 0.12})`);
+    const glow = ctx.createRadialGradient(x, groundY, 4, x, groundY, glowR);
+    glow.addColorStop(0, `rgba(105,240,174,${0.22 + pulse * 0.12 + aim * 0.22})`);
     glow.addColorStop(1, 'rgba(105,240,174,0)');
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.ellipse(x, groundY, hw * 1.15, hw * 0.34, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, groundY, glowR, hw * (0.34 + aim * 0.08), 0, 0, Math.PI * 2);
     ctx.fill();
     // Outer ring = visual pad (soft), inner ring = actual MAKE radius
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = `rgba(105,240,174,${0.35 + pulse * 0.15})`;
+    ctx.lineWidth = 2 + aim;
+    ctx.strokeStyle = `rgba(105,240,174,${0.35 + pulse * 0.15 + aim * 0.25})`;
     ctx.beginPath();
     ctx.ellipse(x, groundY, hw, hw * 0.29, 0, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 + aim;
     ctx.strokeStyle = `rgba(105,240,174,${0.85 + pulse * 0.15})`;
     ctx.beginPath();
     ctx.ellipse(x, groundY, hitHW, hitHW * 0.29, 0, 0, Math.PI * 2);
@@ -668,6 +682,31 @@ const Renderer = (() => {
     ctx.beginPath();
     ctx.ellipse(x, groundY, hitHW * 0.35, hitHW * 0.12, 0, 0, Math.PI * 2);
     ctx.stroke();
+    if (aiming) {
+      ctx.fillStyle = `rgba(255,255,255,${0.45 + pulse * 0.35})`;
+      ctx.beginPath();
+      ctx.arc(x, groundY - 1, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Bank-shot ceiling rail — the bounce plane is physical but was invisible.
+  function drawCeiling(view) {
+    if (!view || view.sideWalls === false || view.openArena) return;
+    if (view.ceilingY == null && !(view.worldW > 0)) return;
+    // Only draw when a bounce profile is active (ceiling collisions live).
+    // getViewHint always sends ceilingY for walled courts; skip open arena.
+    const ww = view.worldW > 0 ? view.worldW : W;
+    const y = view.ceilingY != null ? view.ceilingY : 0;
+    ctx.save();
+    const g = ctx.createLinearGradient(0, y - 6, 0, y + 18);
+    g.addColorStop(0, 'rgba(90,120,160,0.55)');
+    g.addColorStop(1, 'rgba(90,120,160,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y - 6, ww, 24);
+    ctx.fillStyle = 'rgba(170,205,235,0.55)';
+    ctx.fillRect(0, y, ww, 3);
     ctx.restore();
   }
 
@@ -832,6 +871,7 @@ const Renderer = (() => {
     fxSize    = (state.sizeFx || 1) * (fxPlinko ? 0.6 : 1);
     clock += dt;
     updateParticles(dt);
+    if (shakeAmp > 0) shakeAmp = Math.max(0, shakeAmp - dt * 18);
 
     // Reset any camera transform from the previous frame (DPR setTransform
     // lives on the canvas from main.resize — we only add a logical camera).
@@ -844,11 +884,19 @@ const Renderer = (() => {
     drawBackground(groundY, isOnFire, { skyOnly: true });
     drawAmbience();
 
+    // Brief impact/verdict shake — screen space, before the world camera.
+    if (shakeAmp > 0.05) {
+      ctx.save();
+      ctx.translate((Math.random() - 0.5) * shakeAmp, (Math.random() - 0.5) * shakeAmp);
+    }
+
     ctx.save();
     applyCamera(view);
     drawBackground(groundY, isOnFire, { tableOnly: true });
     drawWalls(groundY, view ? view.sideWalls : true, view && view.worldW);
-    drawTargetPad(target, groundY);
+    if (target) drawCeiling(view);
+    const aimingPad = !!(target && drag && awaitingFlick);
+    drawTargetPad(target, groundY, aimingPad);
     drawObstacles(obstacles);
     if (fxPlinko) drawPlinko(fxPlinko);
     drawFlickIndicator(drag, bottle, groundY);
@@ -869,6 +917,8 @@ const Renderer = (() => {
       const color = result === 'MAKE' ? '#69f0ae' : '#ff5252';
       drawResult(result === 'MAKE' ? 'MAKE!' : 'MISS', color, resultAlpha, specialLabel);
     }
+
+    if (shakeAmp > 0.05) ctx.restore();
   }
 
   // Paint one upright object into some OTHER canvas (the setup-screen skin
@@ -910,5 +960,8 @@ const Renderer = (() => {
 
   // drawBottle is exported for the art-iteration harness (drawing one object
   // without the full scene); the game itself only calls frame().
-  return { init, resize, frame, setReduceMotion, projectPoint, projectBottleCenter, bottleDrawScale, drawBottle, drawPreview };
+  return {
+    init, resize, frame, setReduceMotion, projectPoint, projectBottleCenter,
+    bottleDrawScale, drawBottle, drawPreview, burst, nudge,
+  };
 })();

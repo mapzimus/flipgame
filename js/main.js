@@ -458,6 +458,7 @@
     const defs = readRows();
     defs.push(seatDefaults(defs.length, defs.map((d) => d.color)));
     renderFrom(defs);
+    if (typeof saveSetup === 'function') saveSetup();
   }
 
   // event delegation: open picker, color, AI toggle, remove
@@ -478,6 +479,7 @@
       // Keep the family, switch the color — resolveCharForColor swaps a cast to
       // that color's variant and leaves a single-object skin to recolor in place.
       applyRowChar(row, null, sw.dataset.color);
+      if (typeof saveSetup === 'function') saveSetup();
       return;
     }
     const ai = e.target.closest('.ai-toggle');
@@ -487,6 +489,7 @@
       row.dataset.ai = on ? '0' : '1';
       ai.textContent = on ? 'Human' : 'CPU';
       ai.classList.toggle('cpu', !on);
+      if (typeof saveSetup === 'function') saveSetup();
       return;
     }
     const rm = e.target.closest('.remove-player-btn');
@@ -494,7 +497,17 @@
       const defs = readRows();
       defs.splice([...playerInputs.children].indexOf(rm.closest('.player-input-row')), 1);
       renderFrom(defs);
+      if (typeof saveSetup === 'function') saveSetup();
     }
+  });
+  // Debounced name typing → persist the lobby.
+  let nameSaveTimer = null;
+  playerInputs.addEventListener('input', (e) => {
+    if (!e.target || e.target.tagName !== 'INPUT') return;
+    clearTimeout(nameSaveTimer);
+    nameSaveTimer = setTimeout(() => {
+      if (typeof saveSetup === 'function') saveSetup();
+    }, 400);
   });
 
   addPlayerBtn.addEventListener('click', addPlayerInput);
@@ -664,16 +677,85 @@
     const v = parseInt(document.querySelector('input[name="starting-lives"]:checked')?.value || '10', 10);
     return [3, 5, 10, 20, 100].includes(v) ? v : 10;
   }
-  function setFeelRadio(value) {
-    const el = document.querySelector(`input[name="feel"][value="${value}"]`);
+  function flickFeedbackOn() {
+    const el = document.getElementById('flick-feedback-toggle');
+    if (el) return !!el.checked;
+    return !!(window.Settings && Settings.flickFeedback);
+  }
+  function setRadio(name, value) {
+    const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
     if (el) el.checked = true;
   }
-  // Persist feel whenever the player picks a radio (survives reloads).
+  function setFeelRadio(value) { setRadio('feel', value); }
+
+  // ── Setup persistence — names, lives, direction, difficulty, feel ──────────
+  const SETUP_KEY = 'flipgame.setup.v2';
+  function saveSetup() {
+    try {
+      localStorage.setItem(SETUP_KEY, JSON.stringify({
+        rows: readRows().map((r) => ({
+          name: String(r.name || '').slice(0, 14),
+          charId: r.charId,
+          color: r.color,
+          ai: !!r.ai,
+        })),
+        direction:  document.querySelector('input[name="direction"]:checked')?.value ?? '1',
+        difficulty: chosenDifficulty(),
+        feel:       chosenFeel(),
+        startingLives: String(chosenStartingLives()),
+        feedback:   flickFeedbackOn(),
+      }));
+    } catch (_) {}
+  }
+  function loadSetup() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SETUP_KEY));
+      if (!s || !Array.isArray(s.rows) || s.rows.length < 1) return false;
+      const rows = s.rows.slice(0, 8).map((r, i) => {
+        const color = normalizeColor(r.color || defaultColorFor(r.charId || defaultCharId()));
+        const charId = resolveCharForColor(r.charId || defaultCharId(), color);
+        return {
+          name: String(r.name ?? '').slice(0, 14),
+          charId,
+          color,
+          ai: !!r.ai,
+          // Keep seatDefaults-compatible shape for rowHtml
+        };
+      });
+      // Need at least 2 seats for a lobby; pad if a solo save somehow landed.
+      while (rows.length < 2) rows.push(seatDefaults(rows.length, rows.map((x) => x.color)));
+      renderFrom(rows);
+      setRadio('direction', s.direction);
+      setRadio('difficulty', s.difficulty);
+      setRadio('feel', s.feel);
+      setRadio('starting-lives', s.startingLives);
+      const fb = document.getElementById('flick-feedback-toggle');
+      if (fb) fb.checked = !!s.feedback;
+      if (window.Settings) {
+        if (s.feel) Settings.setFeel(s.feel);
+        Settings.setFlickFeedback(!!s.feedback);
+      }
+      return true;
+    } catch (_) { return false; }
+  }
+
+  // Persist feel / flick-feedback whenever the player picks them.
   document.querySelectorAll('input[name="feel"]').forEach((el) => {
     el.addEventListener('change', () => {
       if (window.Settings) Settings.setFeel(el.value);
+      saveSetup();
     });
   });
+  const flickFeedbackEl = document.getElementById('flick-feedback-toggle');
+  if (flickFeedbackEl) {
+    if (window.Settings) flickFeedbackEl.checked = !!Settings.flickFeedback;
+    flickFeedbackEl.addEventListener('change', () => {
+      if (window.Settings) Settings.setFlickFeedback(flickFeedbackEl.checked);
+      saveSetup();
+    });
+  }
+  document.querySelectorAll('input[name="direction"], input[name="difficulty"], input[name="starting-lives"]')
+    .forEach((el) => el.addEventListener('change', saveSetup));
   if (window.Settings) setFeelRadio(Settings.feel);
 
   // ── Start game ─────────────────────────────────────────────────────────────
@@ -702,6 +784,7 @@
     const defs = rowsToDefs(readRows());
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
+    saveSetup();
     Sound.unlock();   // first user gesture — unlock audio
     onlineMode = false;
     if (window.Net) Net.leave();
@@ -728,6 +811,7 @@
       isAI: false,
       skin: charId,
     };
+    saveSetup();
     Sound.unlock();
     onlineMode = false;
     if (window.Net) Net.leave();
@@ -795,12 +879,14 @@
     }
   });
 
-  // initial two rows — rotate families, and never two seats on the same flavor
-  renderFrom((() => {
-    const seats = [];
-    for (let i = 0; i < 2; i++) seats.push(seatDefaults(i, seats.map((s) => s.color)));
-    return seats;
-  })());
+  // Restore yesterday's lobby, else two fresh seats (rotate families / colors).
+  if (!loadSetup()) {
+    renderFrom((() => {
+      const seats = [];
+      for (let i = 0; i < 2; i++) seats.push(seatDefaults(i, seats.map((s) => s.color)));
+      return seats;
+    })());
+  }
 
   // ── Game loop state ────────────────────────────────────────────────────────
   let lastTime    = 0;
@@ -963,6 +1049,24 @@
     const feel = (opts && opts.feel) || chosenFeel();
     if (Physics.setFeel) Physics.setFeel(feel);
     if (window.Settings && !onlineMode) Settings.setFeel(feel);
+    if (Physics.setImpactCallback) {
+      let lastWallT = 0;
+      Physics.setImpactCallback((type, speed, x, y) => {
+        if (type === 'ground') {
+          Sound.play('thud');
+          if (Renderer.burst) Renderer.burst(x, y, '#c4a484', 8);
+          if (Renderer.nudge) Renderer.nudge(Math.min(5, 1.5 + speed * 0.15));
+          return;
+        }
+        // Caroms can fire many collisions per bounce — throttle the juice.
+        const now = performance.now();
+        if (now - lastWallT < 80) return;
+        lastWallT = now;
+        Sound.play('wall');
+        if (Renderer.burst) Renderer.burst(x, y, '#9ec9ff', 10);
+        if (Renderer.nudge) Renderer.nudge(Math.min(4, 1.2 + speed * 0.1));
+      });
+    }
 
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
@@ -1143,10 +1247,49 @@
   }
 
   // ── State callbacks ────────────────────────────────────────────────────────
+  function currentIsBankShot() {
+    const skin = game.currentPlayer()?.skin || BASE_SKIN;
+    const bank = window.Skins && Skins.physicsFor && Skins.physicsFor(skin);
+    return !!(bank && bank.floorResolve);
+  }
+
+  function updateFlipHint() {
+    if (!flipHintEl) return;
+    flipHintEl.textContent = currentIsBankShot()
+      ? 'Flick sideways — bank off the walls onto the pad!'
+      : 'Flick up to flip!';
+  }
+
+  // First time an alien/bank-shot seat comes up, teach the mode once.
+  const ALIEN_HINT_KEY = 'flipgame.alienHintSeen';
+  function maybeTeachBankShot() {
+    if (!currentIsBankShot()) return;
+    let seen = false;
+    try { seen = localStorage.getItem(ALIEN_HINT_KEY) === '1'; } catch (_) {}
+    if (seen) return;
+    try { localStorage.setItem(ALIEN_HINT_KEY, '1'); } catch (_) {}
+    showToast('👽 Bank shot! Flick sideways — walls & ceiling bounce, green pad scores.');
+  }
+
+  function nearMissLabel(landing) {
+    if (!landing || landing.result === 'MAKE') return null;
+    // Alien bank shot: just outside the pad / slide window.
+    if (landing.padOffset != null && landing.padOffset < 1.35) return 'Almost on the pad!';
+    // Normal flip: tipped just past the make cone (not a flat under-rotate).
+    if (landing.reason === 'underrotated') return null;
+    if (landing.tilt != null && landing.tilt < 0.95 &&
+        (landing.reason === 'leaning' || landing.reason === 'fallen')) {
+      return 'So close!';
+    }
+    return null;
+  }
+
   // Arm a human's turn: show the hint, fire the make-or-break sting (timed to
   // when the player is actually ready), enable input, start the flip clock.
   function armHumanTurn() {
     passScreen.classList.add('hidden');
+    updateFlipHint();
+    maybeTeachBankShot();
     flipHintEl.classList.remove('hidden');
     if (intenseTurn) Sound.play('tension');
     Input.enable();
@@ -1181,6 +1324,7 @@
     applyTurnPhysics();
     Physics.resetBottle();
     prepareTurnArena();
+    updateFlipHint();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -1190,6 +1334,7 @@
     if (game.practice) {
       turnBannerEl.textContent = '🎯 Practice';
       pointCountEl.textContent = '';
+      maybeTeachBankShot();
       Input.enable();
       updateHUD();
       return;
@@ -1250,6 +1395,7 @@
     applyTurnPhysics();
     Physics.resetBottle();
     prepareTurnArena();
+    updateFlipHint();
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
@@ -1373,10 +1519,19 @@
         }
         Sound.play(capLandActive ? 'capland' : 'make');
       } else {
-        streakBannerEl.textContent = '✗ Miss';
+        const almost = nearMissLabel(landing);
+        streakBannerEl.textContent = almost ? `✗ ${almost}` : '✗ Miss';
         streakBannerEl.className = 'streak-banner miss-penalty';
         Sound.play('miss');
       }
+      // Verdict juice in practice too.
+      const b = Physics.getBottle && Physics.getBottle();
+      if (b && Renderer.burst) {
+        Renderer.burst(b.position.x, b.position.y,
+          game.lastResult === 'MAKE' ? '#69f0ae' : '#ff5252',
+          game.lastResult === 'MAKE' ? 18 : 10);
+      }
+      if (game.lastResult === 'MAKE' && Renderer.nudge) Renderer.nudge(3);
       updateHUD();
       return;
     }
@@ -1444,7 +1599,10 @@
     } else {
       const n = game.lastPenalty;
       const lives = `${n} ${n === 1 ? 'life' : 'lives'}`;
-      streakBannerEl.textContent = timedOut ? `⏱ Out of time!  −${lives}` : `−${lives}`;
+      const almost = !timedOut ? nearMissLabel(landing) : null;
+      streakBannerEl.textContent = timedOut
+        ? `⏱ Out of time!  −${lives}`
+        : (almost ? `${almost}  −${lives}` : `−${lives}`);
       streakBannerEl.className   = 'streak-banner miss-penalty';
       Sound.play('miss');
     }
@@ -1458,6 +1616,15 @@
         streakBannerEl.className = 'streak-banner heating-up';
       }
     }
+
+    // MAKE/MISS celebration burst at the object.
+    const b = Physics.getBottle && Physics.getBottle();
+    if (b && Renderer.burst) {
+      Renderer.burst(b.position.x, b.position.y,
+        game.lastResult === 'MAKE' ? '#69f0ae' : '#ff5252',
+        game.lastResult === 'MAKE' ? 20 : 12);
+    }
+    if (game.lastResult === 'MAKE' && Renderer.nudge) Renderer.nudge(3.5);
 
     updateHUD();
   }
@@ -1667,6 +1834,17 @@
     } else if (moonFlipActive) {
       streakBannerEl.textContent = '🌙 MOON GRAVITY!';
       streakBannerEl.className = 'streak-banner on-fire';
+    } else if (flickFeedbackOn() && fi && !currentIsBankShot()) {
+      // Learning aid during airtime (onResult overwrites). Sweet spot ~2500 px/s.
+      const d = fi.upSpeed - 2500;
+      streakBannerEl.textContent = Math.abs(d) < 280 ? '✦ Sweet spot'
+        : (d < 0 ? 'Too soft' : 'Too hard');
+      streakBannerEl.className = 'streak-banner';
+    } else if (flickFeedbackOn() && fi && currentIsBankShot()) {
+      const side = Math.abs(fi.vx || 0);
+      streakBannerEl.textContent = side < 400 ? 'More sideways!'
+        : (side > 2200 ? 'Easy on the side' : '✦ Nice bank angle');
+      streakBannerEl.className = 'streak-banner';
     }
     game.setState(GAME_STATES.EVALUATING);
   }
