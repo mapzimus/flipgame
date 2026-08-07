@@ -15,6 +15,7 @@
   const turnTimerEl  = document.getElementById('turn-timer');
   const turnTimerFillEl = document.getElementById('turn-timer-fill');
   const flipHintEl   = document.getElementById('flip-hint');
+  const practiceMeterEl = document.getElementById('practice-meter');
   const startBtn     = document.getElementById('start-btn');
   const practiceBtn  = document.getElementById('practice-btn');
   const onlineBtn    = document.getElementById('online-btn');
@@ -1068,6 +1069,16 @@
       });
     }
 
+    if (practiceMeterEl) {
+      practiceMeterEl.classList.toggle('hidden', !(opts && opts.practice));
+      practiceMeterEl.classList.remove('pm-bank');
+      // Reset markers until the first drag/flick.
+      const pm = document.getElementById('pm-power-marker');
+      const sm = document.getElementById('pm-side-marker');
+      if (pm) pm.style.left = '50%';
+      if (sm) sm.style.left = '50%';
+    }
+
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
     game.on(GAME_STATES.ON_FIRE,    onOnFire);
@@ -1176,6 +1187,13 @@
           break;
         }
       }
+    }
+
+    // Practice trainer: live needle while dragging (before the flick fires).
+    if (game.practice && !evaluating &&
+        (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
+      const live = practiceMeterFromDrag(Input.getDragState && Input.getDragState());
+      if (live) updatePracticeMeter(live, true);
     }
 
     // Per-turn flip clock (human turns only) — runs out → forfeited miss
@@ -1335,6 +1353,7 @@
       turnBannerEl.textContent = '🎯 Practice';
       pointCountEl.textContent = '';
       maybeTeachBankShot();
+      configurePracticeMeter();
       Input.enable();
       updateHUD();
       return;
@@ -1827,6 +1846,7 @@
     goldenFlipActive = !!(fi && fi.seed % 150 === 77);
     moonFlipActive = !!(fi && fi.moon);
     plinkoFlipActive = !!(fi && fi.plinko);
+    if (game.practice) updatePracticeMeter(fi, false);
     if (plinkoFlipActive) {
       streakBannerEl.textContent = '🎰 PLINKO DROP! The floor is gone!';
       streakBannerEl.className = 'streak-banner on-fire';
@@ -1847,6 +1867,105 @@
       streakBannerEl.className = 'streak-banner';
     }
     game.setState(GAME_STATES.EVALUATING);
+  }
+
+  // ── Practice trainer meter ─────────────────────────────────────────────────
+  // Flip mode: one track for flick strength (sweet spot ~2500 px/s).
+  // Bank-shot (alien) mode: strength + sideways aim vs the pad diamond.
+  function configurePracticeMeter() {
+    if (!practiceMeterEl || !game.practice) {
+      if (practiceMeterEl) practiceMeterEl.classList.add('hidden');
+      return;
+    }
+    practiceMeterEl.classList.remove('hidden');
+    const bank = currentIsBankShot();
+    practiceMeterEl.classList.toggle('pm-bank', bank);
+    const sideRow = document.getElementById('pm-side-row');
+    if (sideRow) sideRow.classList.toggle('hidden', !bank);
+
+    const powerBand = document.getElementById('pm-power-band');
+    const powerLabel = document.getElementById('pm-power-label');
+    // Map px/s → % on a fixed scale. Flip sweet ~2500; alien wants less pure-up.
+    if (bank) {
+      // Alien scale 600..3200; green 1100..2300
+      if (powerBand) { powerBand.style.left = '19.2%'; powerBand.style.width = '46.2%'; }
+      if (powerLabel) powerLabel.textContent = 'launch power — green keeps the bank airborne';
+    } else {
+      // Flip scale 1000..3600; green 2100..2900 around the 2500 sweet spot
+      if (powerBand) { powerBand.style.left = '42.3%'; powerBand.style.width = '30.8%'; }
+      if (powerLabel) powerLabel.textContent = 'flick strength — green ≈ one clean flip';
+    }
+
+    const sideBand = document.getElementById('pm-side-band');
+    if (sideBand) {
+      // Sideways |vx| isn't the pad — the pad diamond is. Keep a soft "useful
+      // sideways" band in the middle of the aim track as a training cue.
+      sideBand.style.left = '22%';
+      sideBand.style.width = '56%';
+    }
+    syncPracticePadMark();
+  }
+
+  function syncPracticePadMark() {
+    const padEl = document.getElementById('pm-pad-mark');
+    if (!padEl || !practiceMeterEl || practiceMeterEl.classList.contains('hidden')) return;
+    const t = Physics.getTarget && Physics.getTarget();
+    const view = Physics.getViewHint && Physics.getViewHint();
+    const worldW = (view && view.worldW) || window.innerWidth;
+    if (!t || !worldW) {
+      padEl.style.display = 'none';
+      return;
+    }
+    padEl.style.display = '';
+    padEl.style.left = Math.max(2, Math.min(98, (t.x / worldW) * 100)) + '%';
+  }
+
+  function powerPct(upSpeed, bank) {
+    if (bank) return Math.max(0, Math.min(1, (upSpeed - 600) / 2600)) * 100;
+    return Math.max(0, Math.min(1, (upSpeed - 1000) / 2600)) * 100;
+  }
+
+  // Sideways aim: map gesture/flick horizontal onto the arena (0=left wall).
+  function sideAimPct(vx, liveDx) {
+    if (liveDx != null) {
+      const span = Math.max(160, window.innerWidth * 0.42);
+      return Math.max(0, Math.min(100, 50 + (liveDx / span) * 50));
+    }
+    // Post-flick: vx px/s → same track (±2400 ≈ full width)
+    return Math.max(0, Math.min(100, 50 + (vx / 2400) * 50));
+  }
+
+  function updatePracticeMeter(info, live) {
+    if (!practiceMeterEl || !game.practice || !info) return;
+    configurePracticeMeter();
+    const bank = currentIsBankShot();
+    const pm = document.getElementById('pm-power-marker');
+    const sm = document.getElementById('pm-side-marker');
+    if (pm) {
+      pm.style.left = powerPct(info.upSpeed || 0, bank) + '%';
+      pm.classList.toggle('pm-live', !!live);
+    }
+    if (sm && bank) {
+      sm.style.left = sideAimPct(info.vx || 0, info.liveDx) + '%';
+      sm.classList.toggle('pm-live', !!live);
+    }
+  }
+
+  function practiceMeterFromDrag(drag) {
+    if (!drag) return null;
+    const dx = drag.curX - drag.startX;
+    const dy = drag.curY - drag.startY;
+    if (Math.hypot(dx, dy) < 18) return null;
+    // Distance→speed proxy matches Input's fallback (dx*10); a bit hotter so
+    // the live needle reaches the green band before you release.
+    let vx = dx * 12, vy = dy * 12;
+    // Same equalizer as onFlick so the live needle matches the real throw.
+    if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+      vx *= 1.32; vy *= 1.32;
+    } else {
+      vx *= 0.92; vy *= 0.92;
+    }
+    return { upSpeed: Math.max(0, -vy), vx, vy, liveDx: dx };
   }
 
   function onFlick(vx, vy, ptrType) {
@@ -1943,6 +2062,7 @@
     gameScreen.classList.add('hidden');
     gameOverEl.classList.add('hidden');
     passScreen.classList.add('hidden');
+    if (practiceMeterEl) practiceMeterEl.classList.add('hidden');
     dismissMystery();
     if (onlineScreen) onlineScreen.classList.add('hidden');
     renderRecordsPanel();
