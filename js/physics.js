@@ -195,6 +195,129 @@ const Physics = (() => {
     }
   }
 
+  // ── PLINKO DROP (1/1000 easter egg) ────────────────────────────────────────
+  // On the roll, the floor vanishes at the flick and the object falls through
+  // into a plinko board below the table. Center slot = automatic game win;
+  // mid slots zap every opponent −1 life; outer slots = +2 lives. Seed-derived
+  // but main.js disables it for online games (it rewrites lives directly).
+  // Slot layouts sized to the flipped object (~74×140 px): wide boards get the
+  // full 5 slots, phones get 3 so the object actually fits in a slot.
+  const PLINKO_KINDS_5 = ['lives', 'zap', 'win', 'zap', 'lives'];
+  const PLINKO_KINDS_3 = ['lives', 'win', 'zap'];
+  let plinkoEnabled = true;
+  let plinkoForced = false;   // secret test trigger — consumed by the next flick
+  let plinko = null;          // { left, right, top, bottom, pegs, dividers, slots }
+  let plinkoBodies = [];
+  let plinkoSettle = 0;
+  let plinkoNudges = 0;       // "machine shakes" applied to a wedged object
+
+  function setPlinkoEnabled(v) { plinkoEnabled = !!v; }
+  function forcePlinko() { plinkoForced = true; }
+
+  function startPlinko() {
+    clearPlinko();
+    const left = WALL_INSET + 4;
+    const right = canvasW - WALL_INSET - 4;
+    const bw = right - left;
+    const top = groundY + 26;
+    // The flipped object is BIG (~74×140), so peg gaps and slots must be wide
+    // enough for it to tumble through — this is bottle plinko, not puck plinko.
+    const rows = 4, rowGap = 82, slotH = 130;
+    const bottom = top + 42 + rows * rowGap + slotH;
+    const pegs = [];
+    const dividers = [];
+    const opts = { isStatic: true, label: 'plinko', friction: 0.05, restitution: 0.55 };
+
+    // Offset peg grid — the object becomes a ball (r=34) for the drop, so
+    // ~110px gaps give real plinko action without wedging.
+    const cols = Math.max(3, Math.min(10, Math.floor(bw / 112)));
+    for (let r = 0; r < rows; r++) {
+      const y = top + 42 + r * rowGap;
+      const n = cols + (r % 2 ? 0 : 1);
+      for (let i = 0; i < n; i++) {
+        const x = r % 2
+          ? left + (bw / (n + 1)) * (i + 1)
+          : left + (bw / n) * (i + 0.5);
+        if (x < left + 20 || x > right - 20) continue;
+        pegs.push({ x, y, r: 9 });
+        plinkoBodies.push(Bodies.circle(x, y, 9, opts));
+      }
+    }
+    // Slots: 5 on wide boards, 3 on phones. Dividers get a pointed cap so the
+    // object sheds off instead of balancing on top.
+    const kinds = bw >= 560 ? PLINKO_KINDS_5 : PLINKO_KINDS_3;
+    for (let k = 1; k < kinds.length; k++) {
+      const x = left + (bw / kinds.length) * k;
+      dividers.push({ x, y0: bottom - slotH, y1: bottom });
+      plinkoBodies.push(Bodies.rectangle(x, bottom - slotH / 2, 10, slotH, opts));
+      plinkoBodies.push(Bodies.circle(x, bottom - slotH, 9, opts));
+    }
+    plinkoBodies.push(Bodies.rectangle(canvasW / 2, bottom + 22, canvasW * 2, 44, {
+      ...opts, friction: 0.8, restitution: 0.02,
+    }));
+    const slots = kinds.map((kind, i) => ({
+      kind,
+      x0: left + (bw / kinds.length) * i,
+      x1: left + (bw / kinds.length) * (i + 1),
+    }));
+    World.add(world, plinkoBodies);
+
+    // The floor "disappears" — and the walls come back on (mobile open arena
+    // included) so the object always funnels into the board.
+    ground.collisionFilter.mask = 0;
+    if (leftWall)  leftWall.collisionFilter.mask = 0xFFFFFFFF;
+    if (rightWall) rightWall.collisionFilter.mask = 0xFFFFFFFF;
+
+    plinko = { left, right, top, bottom, slotH, pegs, dividers, slots,
+               drift: rand() < 0.5 ? -1 : 1 };
+    plinkoSettle = 0;
+    plinkoNudges = 0;
+
+    // The object "curls up" into a ball for the drop — a bottle-shaped body
+    // bridges pegs and wedges, a ball plinkos properly. The renderer draws
+    // the character at ~60% scale so it reads as the same object tumbling.
+    const pos = { x: bottle.position.x, y: bottle.position.y };
+    World.remove(world, bottle);
+    bottle = Bodies.circle(pos.x, pos.y, 34, {
+      label: 'bottle',
+      density: 0.008,
+      friction: 0.15,
+      frictionAir: 0.004,
+      restitution: 0.5,
+    });
+    World.add(world, bottle);
+  }
+
+  function clearPlinko() {
+    for (const b of plinkoBodies) World.remove(world, b);
+    plinkoBodies = [];
+    plinko = null;
+    plinkoSettle = 0;
+    if (ground) ground.collisionFilter.mask = 0xFFFFFFFF;
+    syncSideWalls();
+  }
+
+  function plinkoVerdict() {
+    const bw = plinko.right - plinko.left;
+    const n = plinko.slots.length;
+    const i = Math.max(0, Math.min(n - 1,
+      Math.floor((bottle.position.x - plinko.left) / (bw / n))));
+    lastLandingInfo = {
+      result: 'MAKE',
+      tilt: null,
+      perfect: false,
+      reason: 'plinko',
+      plinko: plinko.slots[i].kind,
+      plinkoSlot: i,
+      onCap: false,
+      maxTilt: 0,
+      padOffset: null,
+    };
+    return 'MAKE';
+  }
+
+  function getPlinko() { return plinko; }
+
   // ── Obstacles: deflector wedges + saucers (alien bank shot) ────────────────
   let deflectors = [];
   let saucers = [];      // { body, vx, phase, rx, ry }
@@ -433,6 +556,35 @@ const Physics = (() => {
   function checkLanding() {
     if (!bottle) return null;
 
+    // Plinko drop: the only verdict is which slot it settles in.
+    if (plinko && launched) {
+      flightFrames++;
+      if (flightFrames > 1500) return plinkoVerdict();   // ~25s failsafe
+      const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
+      const inPegZone = bottle.position.y < plinko.bottom - plinko.slotH - 20;
+      if (inPegZone) {
+        // A bottle-sized puck loves to bridge two pegs and doze off, so the
+        // machine "shakes" while it's slow up here: a continuous seeded drift
+        // push (reversing periodically if it stays stuck) until it drops into
+        // the slot zone. Verdict only happens down in the slots.
+        if (speed < 2.5) {
+          plinkoNudges++;   // shake-frame counter
+          const dir = plinko.drift * (Math.floor(plinkoNudges / 70) % 2 === 0 ? 1 : -1);
+          Body.setVelocity(bottle, {
+            x: bottle.velocity.x + dir * 0.45,
+            y: bottle.velocity.y - 0.12,
+          });
+        }
+        if (plinkoNudges > 700) return plinkoVerdict();  // pathological wedge
+        plinkoSettle = 0;
+        return null;
+      }
+      if (speed < 1.2 && Math.abs(bottle.angularVelocity) < 0.05) plinkoSettle++;
+      else plinkoSettle = 0;
+      if (plinkoSettle > 40) return plinkoVerdict();
+      return null;
+    }
+
     // Bounce mode: first contact / slide-on is the verdict (alien profile).
     if (profile.floorResolve && launched && wasAirborne) {
       const grounded = touchingFloor();
@@ -599,6 +751,7 @@ const Physics = (() => {
   function resetBottle() {
     if (bottle) World.remove(world, bottle);
     if (engine) engine.gravity.y = profile.gravity;   // clear any moon throw
+    if (plinko) clearPlinko();                        // restore the floor
     groundedFrames = 0;
     angleWin       = [];
     totalRotation  = 0;
@@ -648,6 +801,14 @@ const Physics = (() => {
     const moon = !profile.floorResolve && (s % 199) === 42;
     if (engine) engine.gravity.y = profile.gravity * (moon ? 0.42 : 1);
 
+    // Easter egg: ~1/1000 flips the floor vanishes and this throw drops into
+    // a plinko board (see startPlinko). Not in bank-shot mode. The secret
+    // trigger (name "plinko" / typing "plinko") forces the next one.
+    const plinkoRoll = !profile.floorResolve &&
+      (plinkoForced || (plinkoEnabled && (s % 997) === 123));
+    plinkoForced = false;
+    if (plinkoRoll) startPlinko();
+
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
 
@@ -674,6 +835,7 @@ const Physics = (() => {
       spin: +spin.toFixed(3),
       seed: s,
       moon,
+      plinko: plinkoRoll,
       vx: Math.round(vx),
       vy: Math.round(vy),
     };
@@ -701,7 +863,7 @@ const Physics = (() => {
     // Landing kick is for normal flips (liquid slosh punch). Bank-shot editions
     // accumulate "hasFlipped" from wall caroms and must not get a random shove.
     // v78: softened — the old kick tipped a lot of near-makes into misses.
-    if (!profile.floorResolve && hasFlipped && !hasLanded &&
+    if (!plinko && !profile.floorResolve && hasFlipped && !hasLanded &&
         bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
       hasLanded = true;
       const a = normalizeSignedAngle(bottle.angle);
@@ -716,7 +878,7 @@ const Physics = (() => {
 
     // Cap-sticky assist: pull gently toward fully inverted and kill spin so a
     // rare on-cap balance can actually settle instead of tippling over.
-    if (capSticky && launched && !profile.floorResolve) {
+    if (capSticky && launched && !profile.floorResolve && !plinko) {
       const a = normalizeSignedAngle(bottle.angle);
       const target = a >= 0 ? Math.PI : -Math.PI;
       const pull = (target - a) * 0.045;
@@ -754,6 +916,25 @@ const Physics = (() => {
     const forced = profileArenaZoom();
     const cx = canvasW / 2;
     const cy = groundY / 2;
+    // Plinko drop: frame the whole board (plus the object) — this is what
+    // makes the camera "zoom out" as the floor opens up.
+    if (plinko && bottle) {
+      const minX = Math.min(bottle.bounds.min.x - 30, plinko.left - 20);
+      const maxX = Math.max(bottle.bounds.max.x + 30, plinko.right + 20);
+      const minY = Math.min(bottle.bounds.min.y - 40, groundY - 200);
+      const maxY = Math.max(bottle.bounds.max.y, plinko.bottom + 50);
+      const spanX = maxX - minX, spanY = maxY - minY;
+      const zoom = Math.max(0.28, Math.min(1, canvasW / spanX, arenaH / Math.max(spanY, 1)));
+      return {
+        openArena,
+        sideWalls: true,
+        zoom,
+        camX: (minX + maxX) / 2,
+        camY: (minY + maxY) / 2,
+        worldW: canvasW,
+        worldH: plinko.bottom + 60,
+      };
+    }
     if (!bottle) {
       return {
         openArena, sideWalls: sideWallsEnabled,
@@ -819,6 +1000,6 @@ const Physics = (() => {
     init, reflow, step, resetBottle, applyFlick, checkLanding, forceLanding,
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
-    seedTurn,
+    seedTurn, setPlinkoEnabled, forcePlinko, getPlinko,
   };
 })();

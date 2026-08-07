@@ -807,6 +807,10 @@
   // Easter egg: ~1/200 throws happen on the moon (physics rolls it from the
   // flick seed) — floaty low-gravity flight, moon in the sky, normal scoring.
   let moonFlipActive = false;
+  // Easter egg: ~1/1000 flips the floor vanishes and the throw drops into a
+  // plinko board (center = auto win). Physics rolls it from the flick seed;
+  // disabled online because prizes rewrite lives directly.
+  let plinkoFlipActive = false;
   // Easter egg: secret player names — all pure cosmetics.
   //   party/disco   → rainbow table edge      ghost/boo     → see-through object
   //   tiny/smol     → pocket-sized object     giant/jumbo   → oversized object
@@ -817,6 +821,10 @@
   const isGiantName = (n) => /^(giant|jumbo|biggie)$/i.test(String(n || '').trim());
   const isNinjaName = (n) => /^(ninja|shadow)$/i.test(String(n || '').trim());
   const isRainbowName = (n) => /^(rainbow|unicorn)$/i.test(String(n || '').trim());
+  // Secret plinko triggers: name a player "plinko" (every flick drops), or
+  // type the letters p-l-i-n-k-o on a keyboard (arms the next flick only).
+  const isPlinkoName = (n) => /^plinko$/i.test(String(n || '').trim());
+  let plinkoArmed = false;
   // Konami code (keyboard) toggles party mode without the secret name.
   let konamiParty = false;
   try { konamiParty = localStorage.getItem('flipgame.party') === '1'; } catch (_) {}
@@ -875,6 +883,7 @@
       perfect: !!(landingInfo && landingInfo.perfect),
       onCap:   !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
       golden:  goldenFlipActive,
+      plinko:  (landingInfo && landingInfo.plinko) || null,
     };
   }
 
@@ -1025,7 +1034,9 @@
             });
           }
           netAuthority = false;
-          game.resolveFlip(result, landingMeta(landingInfo));
+          const meta = landingMeta(landingInfo);
+          if (meta.plinko && game.resolvePlinko) game.resolvePlinko(meta.plinko);
+          else game.resolveFlip(result, meta);
           break;
         }
       }
@@ -1064,7 +1075,8 @@
       result:      game.state === GAME_STATES.RESULT ? game.lastResult : null,
       resultAlpha,
       specialLabel: game.state === GAME_STATES.RESULT
-        ? (capLandActive ? '🙃 CAP LAND! ×2'
+        ? (game.plinkoPrize ? (game.plinkoPrize === 'win' ? '🎰 JACKPOT!' : '🎰 PLINKO!')
+          : capLandActive ? '🙃 CAP LAND! ×2'
           : goldenShowActive ? '🌟 GOLDEN FLIP! ×2'
           : greatSaveActive ? '🧤 THE GREAT SAVE!'
           : null)
@@ -1080,6 +1092,7 @@
       sizeFx:      isTinyName(game.currentPlayer()?.name) ? 0.68
                    : isGiantName(game.currentPlayer()?.name) ? 1.28 : 1,
       party:       konamiParty || game.players.some((pl) => isPartyName(pl.name)),
+      plinkoBoard: Physics.getPlinko ? Physics.getPlinko() : null,
       skin:        game.currentPlayer()?.skin,
       intense:     intenseTurn,
       suddenDeath: game.sdLevelForNextFlip ? game.sdLevelForNextFlip() > 0 : game.inSuddenDeath(),
@@ -1122,7 +1135,9 @@
     goldenFlipActive = false;
     goldenShowActive = false;
     moonFlipActive  = false;
+    plinkoFlipActive = false;
     lastFlickPower  = null;
+    if (Physics.setPlinkoEnabled) Physics.setPlinkoEnabled(!onlineMode);
     stopTurnTimer();
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
@@ -1302,7 +1317,12 @@
 
     if (game.practice) {
       if (game.lastResult === 'MAKE') {
-        if (capLandActive) {
+        if (game.plinkoPrize) {
+          streakBannerEl.textContent = game.plinkoPrize === 'win'
+            ? '🎰👑 PLINKO JACKPOT!' : '🎰 Plinko drop — nice!';
+          streakBannerEl.className = 'streak-banner on-fire';
+          Sound.play('win');
+        } else if (capLandActive) {
           streakBannerEl.textContent = '🙃 Cap land! Worth 2!';
           streakBannerEl.className = 'streak-banner on-fire';
         } else if (goldenShowActive) {
@@ -1325,7 +1345,15 @@
     }
 
     if (game.lastResult === 'MAKE') {
-      if (capLandActive) {
+      if (game.plinkoPrize) {
+        // 1/1000 plinko drop — the prize IS the outcome.
+        streakBannerEl.textContent =
+          game.plinkoPrize === 'win' ? `🎰👑 PLINKO JACKPOT — ${p.name} WINS THE GAME!`
+          : game.plinkoPrize === 'zap' ? '🎰⚡ Plinko: every opponent loses a life!'
+          : '🎰❤️ Plinko: +2 lives!';
+        streakBannerEl.className = 'streak-banner on-fire';
+        Sound.play(game.plinkoPrize === 'win' ? 'win' : 'life');
+      } else if (capLandActive) {
         // Rare upside-down / on-cap — celebrates over everything else this flip.
         const stakeBit = game.onFireGain > 0
           ? `+${game.onFireGain} life!`
@@ -1582,13 +1610,24 @@
     Sound.unlock();
     Sound.play('flick');
     lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);
+    // Secret plinko test triggers (never online — prizes rewrite lives).
+    if (!onlineMode && Physics.forcePlinko &&
+        (plinkoArmed || isPlinkoName(game.currentPlayer()?.name))) {
+      Physics.forcePlinko();
+      plinkoArmed = false;
+    }
     Physics.applyFlick(vx, vy, seed);
     // Golden flip lottery — read the seed physics actually used (it generates
     // one when we pass undefined) so local and replayed flicks agree.
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     goldenFlipActive = !!(fi && fi.seed % 150 === 77);
     moonFlipActive = !!(fi && fi.moon);
-    if (moonFlipActive) {
+    plinkoFlipActive = !!(fi && fi.plinko);
+    if (plinkoFlipActive) {
+      streakBannerEl.textContent = '🎰 PLINKO DROP! The floor is gone!';
+      streakBannerEl.className = 'streak-banner on-fire';
+      Sound.play('ignite');
+    } else if (moonFlipActive) {
       streakBannerEl.textContent = '🌙 MOON GRAVITY!';
       streakBannerEl.className = 'streak-banner on-fire';
     }
@@ -1957,15 +1996,31 @@
     const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown',
                     'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
     let konamiIdx = 0;
+    // Typed-word secrets (skip when focus is in a text input — player names).
+    const WORDS = { plinko: () => {
+      plinkoArmed = true;
+      showToast('🎰 Plinko armed — next flip drops!');
+      Sound.play('ignite');
+    } };
+    let typed = '';
     window.addEventListener('keydown', (e) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       konamiIdx = (k === KONAMI[konamiIdx]) ? konamiIdx + 1 : (k === KONAMI[0] ? 1 : 0);
-      if (konamiIdx < KONAMI.length) return;
-      konamiIdx = 0;
-      konamiParty = !konamiParty;
-      try { localStorage.setItem('flipgame.party', konamiParty ? '1' : '0'); } catch (_) {}
-      showToast(konamiParty ? '🪩 Party mode ON!' : '🪩 Party mode off.');
-      Sound.play('win');
+      if (konamiIdx >= KONAMI.length) {
+        konamiIdx = 0;
+        konamiParty = !konamiParty;
+        try { localStorage.setItem('flipgame.party', konamiParty ? '1' : '0'); } catch (_) {}
+        showToast(konamiParty ? '🪩 Party mode ON!' : '🪩 Party mode off.');
+        Sound.play('win');
+        return;
+      }
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') { typed = ''; return; }
+      if (e.key.length !== 1) return;
+      typed = (typed + e.key.toLowerCase()).slice(-12);
+      for (const [word, fire] of Object.entries(WORDS)) {
+        if (typed.endsWith(word)) { typed = ''; fire(); }
+      }
     });
   }
 

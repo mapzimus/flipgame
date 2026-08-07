@@ -12,6 +12,7 @@ const Renderer = (() => {
   // Easter-egg cosmetics for the current frame (set in frame() from state).
   let fxGolden = false, fxGhost = false, fxParty = false;
   let fxMoon = false, fxNinja = false, fxRainbow = false, fxSize = 1;
+  let fxPlinko = null;   // plinko board geometry while a drop is live
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;
 
@@ -126,6 +127,7 @@ const Renderer = (() => {
       ctx.fillRect(0, 0, W, H);
     }
     if (skyOnly) return;
+    if (fxPlinko) return;   // plinko drop: the floor has vanished
 
     // Extra-wide table so open-arena zoom-outs still show a floor.
     const x0 = -W * 2, tw = W * 5;
@@ -679,6 +681,80 @@ const Renderer = (() => {
     }
   }
 
+  // ── Plinko board (1/1000 drop) ──────────────────────────────────────────────
+  function drawPlinko(p) {
+    const bw = p.right - p.left;
+    ctx.save();
+    // Backboard
+    ctx.fillStyle = 'rgba(12, 24, 40, 0.92)';
+    ctx.strokeStyle = 'rgba(150, 190, 230, 0.55)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(p.left - 8, p.top - 8, bw + 16, (p.bottom - p.top) + 20, 14);
+    ctx.fill();
+    ctx.stroke();
+    // Marquee dots around the rim
+    ctx.fillStyle = 'rgba(255, 210, 63, 0.9)';
+    const per = Math.max(10, Math.round(bw / 46));
+    for (let i = 0; i <= per; i++) {
+      const t = 0.35 + 0.65 * Math.abs(Math.sin(clock * 4 + i));
+      ctx.globalAlpha = t;
+      ctx.beginPath();
+      ctx.arc(p.left - 8 + ((bw + 16) / per) * i, p.top - 8, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Slots (behind pegs so long labels never hide a peg)
+    const n = p.slots.length;
+    const slotW = bw / n;
+    for (let i = 0; i < n; i++) {
+      const s = p.slots[i];
+      const x = p.left + slotW * i;
+      const isWin = s.kind === 'win';
+      if (isWin) {
+        const pulse = 0.28 + 0.2 * Math.sin(clock * 5);
+        ctx.fillStyle = `rgba(255, 200, 40, ${pulse})`;
+      } else {
+        ctx.fillStyle = s.kind === 'zap' ? 'rgba(140, 90, 255, 0.18)' : 'rgba(90, 220, 140, 0.15)';
+      }
+      ctx.fillRect(x + 3, p.bottom - p.slotH, slotW - 6, p.slotH);
+      // Label
+      ctx.fillStyle = isWin ? '#ffd23f' : '#e8f2fa';
+      ctx.font = `900 ${isWin ? 26 : 20}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const label = isWin ? '👑 WIN' : (s.kind === 'zap' ? '⚡ −1 ALL' : '+2 ❤️');
+      ctx.fillText(label, x + slotW / 2, p.bottom - p.slotH / 2 + 14);
+    }
+    // Dividers
+    ctx.fillStyle = '#9fb6c8';
+    for (const d of p.dividers) {
+      ctx.beginPath();
+      ctx.roundRect(d.x - 5, d.y0, 10, d.y1 - d.y0, 5);
+      ctx.fill();
+    }
+    // Floor lip
+    ctx.fillStyle = '#7d93a6';
+    ctx.fillRect(p.left - 8, p.bottom, bw + 16, 8);
+    // Pegs
+    for (const peg of p.pegs) {
+      ctx.beginPath();
+      ctx.arc(peg.x, peg.y + 2, peg.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(peg.x, peg.y, peg.r, 0, Math.PI * 2);
+      ctx.fillStyle = '#dfe9f2';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(peg.x - 2, peg.y - 2, peg.r * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function applyCamera(view) {
     const targetZoom = view && view.zoom != null ? view.zoom : 1;
     const tx = view && view.camX != null ? view.camX : W / 2;
@@ -704,7 +780,10 @@ const Renderer = (() => {
     fxMoon    = !!state.moon;
     fxNinja   = !!state.ninja;
     fxRainbow = !!state.rainbow;
-    fxSize    = state.sizeFx || 1;
+    fxPlinko  = state.plinkoBoard || null;
+    // During a plinko drop the physics body is a ball — draw the character
+    // curled up small so it visually fits the peg gaps it's bouncing through.
+    fxSize    = (state.sizeFx || 1) * (fxPlinko ? 0.6 : 1);
     clock += dt;
     updateParticles(dt);
 
@@ -725,8 +804,9 @@ const Renderer = (() => {
     drawWalls(groundY, view ? view.sideWalls : true);
     drawTargetPad(target, groundY);
     drawObstacles(obstacles);
+    if (fxPlinko) drawPlinko(fxPlinko);
     drawFlickIndicator(drag, bottle, groundY);
-    if (showGlow) drawLandingGlow(bottle, groundY);
+    if (showGlow && !fxPlinko) drawLandingGlow(bottle, groundY);
     drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin);
     drawParticles();
     ctx.restore();
