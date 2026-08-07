@@ -276,13 +276,19 @@ the *same* bottle tumble live on their own screen; one tiny message per flip
 hybrid — **replay is for visuals, the flicking player's device is authoritative for
 the MAKE/MISS result.**
 
-**Status (v42):**
-1. Seeded RNG — **DONE ✓** `physics.js` reseeds a mulberry32 stream per flick.
-2. Fixed-timestep accumulator — **DONE ✓** physics steps at fixed 60Hz.
-3. Rooms + lockstep client — **DONE ✓** (`js/net.js`, Online button on setup).
-   - Default transport: MQTT over WSS to the public EMQX broker (school-WiFi friendly).
-   - Optional self-hosted relay: `relay/server.mjs` then `?relay=ws://host:8787`.
-   - Same-browser testing: `?net=local` (BroadcastChannel).
+**Prep / status:**
+1. Seed the RNG — **DONE ✓** `physics.js` reseeds a mulberry32 stream per flick; the
+   seed is recorded in `getLastFlickInfo().seed`, and `applyFlick(vx, vy, seed)`
+   replays a flick's randomness exactly.
+2. Fixed-timestep accumulator — **DONE ✓** physics steps at a fixed 60Hz regardless
+   of display refresh (`FIXED_DT` in `physics.js`); same flick + seed = identical
+   outcome at any frame rate (verified headless at 60/120/144fps render loops).
+3. Matter.js is already pinned/vendored (0.19). ✓
+4. Rooms + lockstep client — **DONE ✓** on the feature branch (`js/net.js`, Online
+   button on setup). Default transport: MQTT over WSS to the public EMQX broker;
+   optional self-hosted relay `relay/server.mjs` (`?relay=ws://host:8787`);
+   same-browser testing via `?net=local` (BroadcastChannel). Whether this lands
+   on `main` depends on the root-game product merge decision.
 
 **Design that fits the classroom:** create a room code on the smartboard or a phone;
 students join and take turns flicking on their own device. Pass-and-play handoff is

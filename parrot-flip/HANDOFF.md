@@ -34,7 +34,7 @@ Bottle Flip (repo root) keeps all of those features separately.
 
 1. Max has Flip Game (bottle flip) in `mapzimus/flipgame`.
 2. Wanted a pirate-themed copy for the Whydah / Caribbean classroom unit (`whydahstory.com`).
-3. First attempt (“Grog Flip” — rum bottle) was rejected.
+3. First attempt (“Grog Flip” — rum bottle) was rejected and removed from the repo.
 4. Final direction: **Parrot Flip** — pick colored Caribbean macaws/parrots; physics unchanged; menu labels stay normal (Easy / Medium / Hard).
 
 Spelling note: **parrot** (one *t*). “Parrott” was a typo. Historically sailors traded New World parrots (including macaws); “parrot” is the umbrella word they used.
@@ -175,9 +175,6 @@ break at phone size or mid-tumble.
 
 - Pages source branch: **`master`**
 - URL path: `/flipgame/parrot-flip/`
-- Old experiments redirect:
-  - `/flipgame/grog-flip/` → parrot-flip
-  - `/flipgame/parrott-flip/` → parrot-flip
 
 After changing JS/CSS:
 

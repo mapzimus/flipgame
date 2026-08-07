@@ -55,6 +55,12 @@ const Sound = (() => {
     ignite: () => { tone({ freq: 200, slideTo: 900, type: 'sawtooth', dur: 0.4, gain: 0.22 });
                     [392, 494, 587, 784].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.12, gain: 0.16, delay: 0.12 + i * 0.06 })); },
     win:    () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.3, delay: i * 0.12 })),
+    // Physical contact — gain scales with impact speed (see main.js wiring)
+    thud:   (gain = 0.22) => noise(0.09, Math.min(0.4, gain), 700),
+    wall:   () => tone({ freq: 540, type: 'triangle', dur: 0.07, gain: 0.10 }),
+    // Elimination beat — a descending "you're out" + low rumble
+    eliminated: () => { tone({ freq: 330, slideTo: 130, type: 'sawtooth', dur: 0.6, gain: 0.22 });
+                        noise(0.18, 0.2, 500); },
     // Rare-event sparkle — the Great Save + achievement unlocks.
     greatsave: () => [784, 988, 1175, 1568, 1976].forEach((f, i) =>
       tone({ freq: f, type: 'sine', dur: 0.35, gain: 0.22, delay: i * 0.05 })),
@@ -82,6 +88,7 @@ const Sound = (() => {
     life:    [12, 16, 12],              // ON FIRE +life — quick double tick
     ignite:  [60, 40, 60, 40, 110],     // ON FIRE ignite — distinct rumble
     win:     [70, 40, 70, 40, 130],
+    eliminated: [50, 40, 90],
     greatsave: [20, 30, 20, 30, 80],
     capland: [30, 20, 30, 20, 50, 20, 100],
     tension: [25, 70, 25, 70],          // ominous pulse
@@ -143,7 +150,8 @@ const Sound = (() => {
 
   return {
     unlock,
-    play: (name) => { if (sfx[name]) sfx[name](); buzz(name); },
+    // Optional arg (e.g. thud gain); haptics fire on named events when available.
+    play: (name, arg) => { if (sfx[name]) sfx[name](arg); buzz(name); },
     setMuted,
     toggleMute: () => { setMuted(!muted); return muted; },
     isMuted: () => muted,
