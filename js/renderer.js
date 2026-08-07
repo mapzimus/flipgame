@@ -11,6 +11,7 @@ const Renderer = (() => {
   const FLIGHT_LIFT = 0.18;
   // Easter-egg cosmetics for the current frame (set in frame() from state).
   let fxGolden = false, fxGhost = false, fxParty = false;
+  let fxMoon = false, fxNinja = false, fxRainbow = false, fxSize = 1;
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;
 
@@ -156,6 +157,55 @@ const Renderer = (() => {
     }
   }
 
+  // ── Sky ambience: moon throws + seasonal easter eggs ───────────────────────
+  // Drawn in screen space right after the sky, before the camera transform.
+  // Pure cosmetics; dates use the device clock.
+  function drawAmbience() {
+    const now = new Date();
+    const mo = now.getMonth(), day = now.getDate();
+    const spooky = mo === 9 && day >= 24;            // late October
+    const snowy  = mo === 11;                        // December
+    const hearts = mo === 1 && day === 14;           // Valentine's
+    const newyr  = mo === 0 && day === 1;            // New Year's Day
+
+    if (fxMoon || spooky) {
+      const mx = W - 86, my = 84;
+      ctx.save();
+      ctx.fillStyle = spooky ? '#f4d9a8' : '#f2ecdc';
+      ctx.beginPath(); ctx.arc(mx, my, 36, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.10)';
+      for (const [cx2, cy2, r2] of [[-12, -8, 7], [10, 6, 9], [2, -16, 4]]) {
+        ctx.beginPath(); ctx.arc(mx + cx2, my + cy2, r2, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+    if (snowy || hearts || newyr) {
+      ctx.save();
+      for (let i = 0; i < 22; i++) {
+        // Deterministic drift lanes so no particle state is needed.
+        const seed = (i * 2654435761 % 1000) / 1000;
+        const x = ((seed * W + clock * (12 + seed * 16) * (i % 2 ? 1 : -1)) % W + W) % W;
+        const y = ((seed * 700 + clock * (26 + seed * 30)) % (H + 40)) - 20;
+        if (snowy) {
+          ctx.fillStyle = 'rgba(255,255,255,0.75)';
+          ctx.beginPath(); ctx.arc(x, y, 1.6 + seed * 2.2, 0, Math.PI * 2); ctx.fill();
+        } else if (hearts) {
+          ctx.fillStyle = `rgba(255,110,150,${0.25 + seed * 0.3})`;
+          const s2 = 5 + seed * 6;
+          ctx.beginPath();
+          ctx.moveTo(x, y + s2 * 0.8);
+          ctx.bezierCurveTo(x - s2, y - s2 * 0.2, x - s2 * 0.5, y - s2, x, y - s2 * 0.3);
+          ctx.bezierCurveTo(x + s2 * 0.5, y - s2, x + s2, y - s2 * 0.2, x, y + s2 * 0.8);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = `hsl(${Math.round(seed * 360)}, 90%, 62%)`;
+          ctx.fillRect(x, y, 4, 7);
+        }
+      }
+      ctx.restore();
+    }
+  }
+
   // ── Bottle ─────────────────────────────────────────────────────────────────
   // Wide squat Gatorade bottle: 74px body, short neck, wide orange cap, blue fill.
   // Local coords centered at bottle.position (physics CG, ~40px above visual base).
@@ -193,11 +243,17 @@ const Renderer = (() => {
     }
 
     ctx.save();
-    ctx.translate(x, y);
+    // tiny/giant name eggs scale the paint; the extra y shift keeps the drawn
+    // base on the table (projectBottleCenter compensates for the stock scale).
+    const drawScale = BOTTLE_DRAW_SCALE * (fxSize || 1);
+    ctx.translate(x, y + (BOTTLE_DRAW_SCALE - drawScale) * 43);
     ctx.rotate(angle);
-    ctx.scale(BOTTLE_DRAW_SCALE, BOTTLE_DRAW_SCALE);
+    ctx.scale(drawScale, drawScale);
     // Ghost name egg: the object flips see-through. Cosmetic only.
     if (fxGhost) ctx.globalAlpha = 0.55;
+    // Ninja: pure silhouette. Rainbow: slow hue cycle over the whole object.
+    if (fxNinja) ctx.filter = 'brightness(0.07)';
+    else if (fxRainbow) ctx.filter = `hue-rotate(${Math.round((clock * 80) % 360)}deg)`;
 
     // Skin dispatch: a non-bottle edition paints the object in the same local
     // frame (origin = CG, ground plane ≈ +39) and we're done. See js/skins.js.
@@ -642,9 +698,13 @@ const Renderer = (() => {
     const { bottle, liquid, drag, groundY, result, resultAlpha, specialLabel, showGlow, isOnFire,
             liquidColor, intense, suddenDeath, awaitingFlick, stake, skin,
             target, obstacles, view } = state;
-    fxGolden = !!state.golden;
-    fxGhost  = !!state.ghostly;
-    fxParty  = !!state.party;
+    fxGolden  = !!state.golden;
+    fxGhost   = !!state.ghostly;
+    fxParty   = !!state.party;
+    fxMoon    = !!state.moon;
+    fxNinja   = !!state.ninja;
+    fxRainbow = !!state.rainbow;
+    fxSize    = state.sizeFx || 1;
     clock += dt;
     updateParticles(dt);
 
@@ -657,6 +717,7 @@ const Renderer = (() => {
 
     ctx.clearRect(0, 0, W, H);
     drawBackground(groundY, isOnFire, { skyOnly: true });
+    drawAmbience();
 
     ctx.save();
     applyCamera(view);
@@ -687,7 +748,8 @@ const Renderer = (() => {
   // and the object is drawn flat-on rather than in flight perspective.
   function drawPreview(target, skin, liquidColor) {
     const prevCanvas = canvas, prevCtx = ctx, prevW = W, prevH = H;
-    fxGolden = fxGhost = false;   // never leak in-game egg cosmetics into previews
+    fxGolden = fxGhost = fxNinja = fxRainbow = false;   // never leak egg cosmetics into previews
+    fxSize = 1;
     canvas = target;
     ctx = target.getContext('2d');
     W = target.width;

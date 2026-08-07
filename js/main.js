@@ -804,10 +804,22 @@
   let goldenFlipActive = false;  // this flick rolled golden
   let goldenShowActive = false;  // the RESULT being shown is a golden make
   const GOLDEN_COLOR = '#f2c14e';
-  // Easter egg: secret player names. "party"/"disco" light up the table;
-  // "ghost"/"boo" flip a see-through object. Pure cosmetics.
+  // Easter egg: ~1/200 throws happen on the moon (physics rolls it from the
+  // flick seed) — floaty low-gravity flight, moon in the sky, normal scoring.
+  let moonFlipActive = false;
+  // Easter egg: secret player names — all pure cosmetics.
+  //   party/disco   → rainbow table edge      ghost/boo     → see-through object
+  //   tiny/smol     → pocket-sized object     giant/jumbo   → oversized object
+  //   ninja/shadow  → silhouette object       rainbow/unicorn → hue-cycling object
   const isPartyName = (n) => /^(party|disco)$/i.test(String(n || '').trim());
   const isGhostName = (n) => /^(ghost|boo)$/i.test(String(n || '').trim());
+  const isTinyName  = (n) => /^(tiny|smol)$/i.test(String(n || '').trim());
+  const isGiantName = (n) => /^(giant|jumbo|biggie)$/i.test(String(n || '').trim());
+  const isNinjaName = (n) => /^(ninja|shadow)$/i.test(String(n || '').trim());
+  const isRainbowName = (n) => /^(rainbow|unicorn)$/i.test(String(n || '').trim());
+  // Konami code (keyboard) toggles party mode without the secret name.
+  let konamiParty = false;
+  try { konamiParty = localStorage.getItem('flipgame.party') === '1'; } catch (_) {}
   let onlineMode = false;      // playing via Net rooms
   let netAuthority = false;    // this client owns the current flick's verdict
   let pendingNetResult = null; // authoritative result waiting to apply
@@ -1061,8 +1073,13 @@
       isOnFire:    !!(game.onFirePlayer),
       liquidColor: goldenFlipActive ? GOLDEN_COLOR : game.currentPlayer()?.color,
       golden:      goldenFlipActive,
+      moon:        moonFlipActive,
       ghostly:     isGhostName(game.currentPlayer()?.name),
-      party:       game.players.some((pl) => isPartyName(pl.name)),
+      ninja:       isNinjaName(game.currentPlayer()?.name),
+      rainbow:     isRainbowName(game.currentPlayer()?.name),
+      sizeFx:      isTinyName(game.currentPlayer()?.name) ? 0.68
+                   : isGiantName(game.currentPlayer()?.name) ? 1.28 : 1,
+      party:       konamiParty || game.players.some((pl) => isPartyName(pl.name)),
       skin:        game.currentPlayer()?.skin,
       intense:     intenseTurn,
       suddenDeath: game.sdLevelForNextFlip ? game.sdLevelForNextFlip() > 0 : game.inSuddenDeath(),
@@ -1104,6 +1121,7 @@
     capLandActive   = false;
     goldenFlipActive = false;
     goldenShowActive = false;
+    moonFlipActive  = false;
     lastFlickPower  = null;
     stopTurnTimer();
     clearTimeout(aiTimer);
@@ -1236,6 +1254,11 @@
     if (capLandActive || goldenShowActive) Sound.play('capland');
     else if (greatSaveActive) Sound.play('greatsave');
 
+    // Lifetime flip milestones on this device — tiny celebration, no effect.
+    if (rec && [100, 500, 1000, 2500, 5000, 10000, 25000].includes(rec.totalFlips)) {
+      showToast(`🎉 Flip #${rec.totalFlips.toLocaleString()} on this device!`);
+    }
+
     const p = game.currentPlayer();
 
     if (!game.practice && gameStats) {
@@ -1359,6 +1382,16 @@
       streakBannerEl.textContent = timedOut ? `⏱ Out of time!  −${lives}` : `−${lives}`;
       streakBannerEl.className   = 'streak-banner miss-penalty';
       Sound.play('miss');
+    }
+
+    // 11:11 (AM or PM) — land a make on the wishing minute and the banner
+    // sparkles. Pure flourish.
+    const wish = new Date();
+    if (game.lastResult === 'MAKE' && wish.getHours() % 12 === 11 && wish.getMinutes() === 11) {
+      streakBannerEl.textContent = `${streakBannerEl.textContent || 'Make!'}  11:11 ✨`;
+      if (!streakBannerEl.className.includes('on-fire')) {
+        streakBannerEl.className = 'streak-banner heating-up';
+      }
     }
 
     updateHUD();
@@ -1554,6 +1587,11 @@
     // one when we pass undefined) so local and replayed flicks agree.
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     goldenFlipActive = !!(fi && fi.seed % 150 === 77);
+    moonFlipActive = !!(fi && fi.moon);
+    if (moonFlipActive) {
+      streakBannerEl.textContent = '🌙 MOON GRAVITY!';
+      streakBannerEl.className = 'streak-banner on-fire';
+    }
     game.setState(GAME_STATES.EVALUATING);
   }
 
@@ -1911,6 +1949,23 @@
         e.stopPropagation();
         onSecretTap(el.dataset.secret);
       });
+    });
+  }
+
+  // ── Secret: Konami code toggles party mode (keyboard / smartboard) ─────────
+  {
+    const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown',
+                    'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+    let konamiIdx = 0;
+    window.addEventListener('keydown', (e) => {
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      konamiIdx = (k === KONAMI[konamiIdx]) ? konamiIdx + 1 : (k === KONAMI[0] ? 1 : 0);
+      if (konamiIdx < KONAMI.length) return;
+      konamiIdx = 0;
+      konamiParty = !konamiParty;
+      try { localStorage.setItem('flipgame.party', konamiParty ? '1' : '0'); } catch (_) {}
+      showToast(konamiParty ? '🪩 Party mode ON!' : '🪩 Party mode off.');
+      Sound.play('win');
     });
   }
 

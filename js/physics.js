@@ -598,6 +598,7 @@ const Physics = (() => {
 
   function resetBottle() {
     if (bottle) World.remove(world, bottle);
+    if (engine) engine.gravity.y = profile.gravity;   // clear any moon throw
     groundedFrames = 0;
     angleWin       = [];
     totalRotation  = 0;
@@ -640,6 +641,13 @@ const Physics = (() => {
       : Math.floor(Math.random() * 0xffffffff)) >>> 0;
     seedRng(s);
 
+    // Easter egg: ~1/200 throws happen on the moon — gravity drops to 42% for
+    // this one flight. Seed-derived so online peers replaying the same seed
+    // float identically. Bank-shot profiles (alien) keep normal gravity: their
+    // furniture and pad tuning assume it.
+    const moon = !profile.floorResolve && (s % 199) === 42;
+    if (engine) engine.gravity.y = profile.gravity * (moon ? 0.42 : 1);
+
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
 
@@ -665,6 +673,7 @@ const Physics = (() => {
       power: +power.toFixed(2),
       spin: +spin.toFixed(3),
       seed: s,
+      moon,
       vx: Math.round(vx),
       vy: Math.round(vy),
     };
