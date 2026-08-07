@@ -655,10 +655,25 @@
   function chosenDifficulty() {
     return document.querySelector('input[name="difficulty"]:checked')?.value || 'medium';
   }
+  function chosenFeel() {
+    return document.querySelector('input[name="feel"]:checked')?.value ||
+      (window.Settings && Settings.feel) || 'standard';
+  }
   function chosenStartingLives() {
     const v = parseInt(document.querySelector('input[name="starting-lives"]:checked')?.value || '10', 10);
     return [3, 5, 10, 20, 100].includes(v) ? v : 10;
   }
+  function setFeelRadio(value) {
+    const el = document.querySelector(`input[name="feel"][value="${value}"]`);
+    if (el) el.checked = true;
+  }
+  // Persist feel whenever the player picks a radio (survives reloads).
+  document.querySelectorAll('input[name="feel"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      if (window.Settings) Settings.setFeel(el.value);
+    });
+  });
+  if (window.Settings) setFeelRadio(Settings.feel);
 
   // ── Start game ─────────────────────────────────────────────────────────────
   // ── Immersive mode: fullscreen + keep the screen awake (panel ergonomics) ──
@@ -695,6 +710,7 @@
     gameOverEl.classList.add('hidden');
     startGame(defs, dir, {
       difficulty: chosenDifficulty(),
+      feel: chosenFeel(),
       startingLives: chosenStartingLives(),
       newMatch: true,
     });
@@ -720,6 +736,7 @@
     gameOverEl.classList.add('hidden');
     startGame([def], 1, {
       practice: true,
+      feel: chosenFeel(),
       startingLives: chosenStartingLives(),
       newMatch: true,
     });
@@ -739,11 +756,13 @@
         const payload = {
           defs, direction: game.direction, startingLives: game.startingLives,
           startIndex: game.winnerIndex, newMatch: false,
+          feel: game.feel || chosenFeel(),
         };
         Net.startMatch(payload);
         if (playAgainBtn) playAgainBtn.textContent = 'Play Again';
         startGame(defs, game.direction, {
           difficulty: 'medium',
+          feel: payload.feel,
           startingLives: game.startingLives,
           startIndex: game.winnerIndex,
           newMatch: false,
@@ -760,7 +779,7 @@
         [{ name: game.players[0].name, color: game.players[0].color, isAI: false,
            skin: FORCE_SKIN || game.players[0].skin || BASE_SKIN }],
         1,
-        { practice: true, startingLives: game.startingLives }
+        { practice: true, feel: game.feel || chosenFeel(), startingLives: game.startingLives }
       );
     } else {
       const defs = game.players.map(p => ({ name: p.name, color: p.color, isAI: p.isAI,
@@ -768,6 +787,7 @@
       // Winner starts the next game (by index — robust to duplicate names).
       startGame(defs, game.direction, {
         difficulty: game.difficulty,
+        feel: game.feel || chosenFeel(),
         startingLives: game.startingLives,
         startIndex: game.winnerIndex,
       });
@@ -939,6 +959,9 @@
     if (window.Skins) Skins.preload(defs.map(d => d.color));   // warm skin sprites
     resize();   // sets DPR transform + renderer logical dims (must run after init)
     Physics.init(window.innerWidth, window.innerHeight, stageBottomInset());  // logical coords
+    const feel = (opts && opts.feel) || chosenFeel();
+    if (Physics.setFeel) Physics.setFeel(feel);
+    if (window.Settings && !onlineMode) Settings.setFeel(feel);
 
     game.on(GAME_STATES.TURN_START, onTurnStart);
     game.on(GAME_STATES.RESULT,     onResult);
@@ -947,6 +970,7 @@
     game.on(GAME_STATES.GAME_OVER,  onGameOver);
 
     game.init(defs, dir, opts || {});
+    game.feel = feel;
     gameStarted = true;
     gameStats = {
       topStake: 0, longestFire: 0, sawSuddenDeath: false, ignitionsThisGame: 0,
@@ -1812,6 +1836,7 @@
     if (playAgainBtn) playAgainBtn.textContent = 'Play Again';
     startGame(defs, dir || 1, {
       difficulty: 'medium',
+      feel: (opts && opts.feel) || chosenFeel(),
       startingLives: (opts && opts.startingLives) || chosenStartingLives(),
       startIndex: (opts && Number.isInteger(opts.startIndex)) ? opts.startIndex : undefined,
       // Default true for first match; rematch host sends newMatch: false.
@@ -1882,6 +1907,7 @@
         defs,
         direction: 1,
         startingLives: chosenStartingLives(),
+        feel: chosenFeel(),
       };
       Net.startMatch(payload);
       beginOnlineMatch(defs, 1, payload);

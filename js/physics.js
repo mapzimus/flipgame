@@ -20,9 +20,28 @@ const Physics = (() => {
   // Spin tuning (rad/step) — see applyFlick. Normal throws should usually land
   // if you give a decent flick; only wild overshoots tip. v78: cut high-end
   // over-rotation (hard flicks were falling ~70% of the time).
-  const SPIN_BASE   = 0.138;  // soft/medium flicks clear 360°
-  const SPIN_RANGE  = 0.082;  // flat high end — hard flicks tip less
+  //
+  // "Feel" knob: a flatter spin curve widens the make window (soft/hard flicks
+  // differ less), a steeper one narrows it. The curve PIVOTS around the sweet
+  // spot (~2500 px/s) so every feel makes the same ideal flick — only the
+  // punishment for being off-speed changes. 'standard' == today's default.
+  const SPIN_BASE_DEFAULT  = 0.138;  // soft/medium flicks clear 360°
+  const SPIN_RANGE_DEFAULT = 0.082;  // flat high end — hard flicks tip less
   const POWER_SPEED = 4000;   // flick px/s that maps to full power
+  const SWEET_POWER = 2500 / POWER_SPEED; // AI / measured sweet-spot power
+  const SWEET_SPIN  = SPIN_BASE_DEFAULT + SWEET_POWER * SPIN_RANGE_DEFAULT;
+  // Relative to standard (0.082): forgiving ≈ 0.7×, pro ≈ 1.3× — same ratios
+  // as the v8-era knob, retargeted onto the current spin curve.
+  const FEEL_RANGES = { forgiving: 0.057, standard: 0.082, pro: 0.107 };
+  let spinRange = SPIN_RANGE_DEFAULT;
+  let spinBase  = SPIN_BASE_DEFAULT;
+  let feelMode  = 'standard';
+  function setFeel(mode) {
+    const m = FEEL_RANGES[mode] != null ? mode : 'standard';
+    feelMode  = m;
+    spinRange = FEEL_RANGES[m];
+    spinBase  = SWEET_SPIN - SWEET_POWER * spinRange; // standard → exactly 0.138
+  }
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
   const FIXED_DT    = 1 / 60; // multiplayer-safe fixed physics step
   let acc = 0;
@@ -840,7 +859,7 @@ const Physics = (() => {
     }
 
     const dir  = vx >= 0 ? 1 : -1;
-    const spin = dir * (SPIN_BASE + power * SPIN_RANGE) * jSpin * profile.spinScale *
+    const spin = dir * (spinBase + power * spinRange) * jSpin * profile.spinScale *
       (capThrowArmed ? 1.52 : 1);
 
     lastFlickInfo = {
@@ -1019,6 +1038,7 @@ const Physics = (() => {
     init, reflow, step, resetBottle, applyFlick, checkLanding, forceLanding,
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
-    seedTurn, setPlinkoEnabled, forcePlinko, getPlinko,
+    seedTurn, setPlinkoEnabled, forcePlinko, getPlinko, setFeel,
+    getFeel: () => feelMode,
   };
 })();

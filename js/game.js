@@ -46,6 +46,7 @@ const game = {
   // Modes
   practice: false,       // solo free-flip practice (no lives/turns)
   difficulty: 'medium',  // AI skill: 'easy' | 'medium' | 'hard'
+  feel: 'standard',      // physics spin-curve knob: forgiving | standard | pro
   practiceMakes: 0,
   practiceAttempts: 0,
   practiceStreak: 0,
@@ -60,6 +61,7 @@ const game = {
   init(defs, direction, opts = {}) {
     this.practice   = !!opts.practice;
     this.difficulty = opts.difficulty || 'medium';
+    this.feel = ['forgiving', 'standard', 'pro'].includes(opts.feel) ? opts.feel : 'standard';
     this.startingLives = STARTING_LIFE_PRESETS.includes(+opts.startingLives) ? +opts.startingLives : 10;
     // Headroom above the start count so ON FIRE can actually mint lives.
     // Classic 10-life games keep the old 20 cap; 100-life games were stuck at
