@@ -1,8 +1,6 @@
-// service-worker.js — offline precache for Flip Game.
-// Bump CACHE_NAME on every release so stale caches are purged and users get
-// the fresh build. All paths are RELATIVE so they resolve under /flipgame/
-// on GitHub Pages (the SW lives at repo root → scope is /flipgame/).
-const CACHE_NAME = 'flipgame-v83';
+// service-worker.js — offline support for Parrot Flip.
+// Network-first for HTML/JS/CSS so fixes aren't stuck behind a stale cache.
+const CACHE_NAME = 'parrot-flip-v11';
 
 const PRECACHE_URLS = [
   './',
@@ -13,8 +11,6 @@ const PRECACHE_URLS = [
   './js/input.js',
   './js/renderer.js',
   './js/audio.js',
-  './js/records.js',
-  './js/achievements.js',
   './js/main.js',
   './js/vendor/matter.min.js',
   './manifest.json',
@@ -34,14 +30,36 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Cache-first: serve from cache, fall back to network (and cache the result).
+function isAppShell(url) {
+  const p = url.pathname;
+  return p.endsWith('.html') || p.endsWith('.js') || p.endsWith('.css') ||
+         p.endsWith('/') || p.endsWith('/parrot-flip');
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // HTML/JS/CSS: network first, fall back to cache (prevents sticky bugs)
+  if (isAppShell(url)) {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Everything else: cache first
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;

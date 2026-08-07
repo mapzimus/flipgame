@@ -1,0 +1,3641 @@
+From 5d8cb966afec4e33ddb5690b757109f8fed06f80 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Thu, 30 Jul 2026 14:35:23 +0000
+Subject: [PATCH] Sync Parrot Flip from flipgame v80
+
+Full current Bottle Game build with parrot as the free starter skin,
+online multiplayer removed, cartoon SVG casts included.
+---
+ parrot-flip/css/style.css       | 393 +++++++++++++++--
+ parrot-flip/index.html          |  68 ++-
+ parrot-flip/js/achievements.js  |  95 ++++-
+ parrot-flip/js/cartoon-casts.js | 637 ++++++++++++++++++++++++++++
+ parrot-flip/js/game.js          |   5 +-
+ parrot-flip/js/main.js          | 725 +++++++++++++++++++++++++-------
+ parrot-flip/js/physics.js       | 107 +++--
+ parrot-flip/js/records.js       | 107 ++++-
+ parrot-flip/js/renderer.js      |  32 +-
+ parrot-flip/js/skins.js         | 566 +++++++++++++++++++------
+ parrot-flip/roster.html         | 185 ++++++++
+ parrot-flip/service-worker.js   |   6 +-
+ 12 files changed, 2511 insertions(+), 415 deletions(-)
+ create mode 100644 parrot-flip/js/cartoon-casts.js
+ create mode 100644 parrot-flip/roster.html
+
+diff --git a/parrot-flip/css/style.css b/parrot-flip/css/style.css
+index dc45fa5..da64f7b 100644
+--- a/parrot-flip/css/style.css
++++ b/parrot-flip/css/style.css
+@@ -21,7 +21,11 @@ html, body {
+   background: var(--bg);
+   color: var(--text);
+   font-family: system-ui, -apple-system, sans-serif;
+-  touch-action: none;
++  /* pan-y, NOT none: touch-action resolves as the intersection up the ancestor
++     chain, so `none` here killed drag-to-scroll in every scroll container in the
++     app (the setup card, the picker). #game-canvas sets its own `none` below and
++     Input only binds pointers to the canvas, so flicking is unaffected. */
++  touch-action: pan-y;
+   user-select: none;
+ }
+ 
+@@ -42,6 +46,7 @@ html, body {
+   background: linear-gradient(160deg, #0d1b2a 0%, #1b3a5c 100%);
+   align-items: flex-start;   /* a tall card scrolls from the top instead of being clipped */
+   overflow-y: auto;
++  touch-action: pan-y;       /* required: body-level `none` would otherwise win */
+   padding: 16px 10px;
+ }
+ 
+@@ -54,6 +59,7 @@ html, body {
+   width: min(440px, 96vw);
+   max-height: 96vh;
+   overflow-y: auto;
++  touch-action: pan-y;
+   display: flex;
+   flex-direction: column;
+   gap: 14px;
+@@ -71,6 +77,11 @@ html, body {
+ }
+ 
+ .setup-card h1 .emoji { font-size: 1.6rem; -webkit-text-fill-color: initial; }
++.setup-card h1.title-secret [data-secret] {
++  cursor: pointer;
++  user-select: none;
++  -webkit-user-select: none;
++}
+ 
+ .section-label {
+   font-size: 0.78rem;
+@@ -104,10 +115,12 @@ html, body {
+   min-width: 32px;
+ }
+ 
+-/* Live preview of the edition + color this player will flip */
++/* Live preview of the edition + color this player will flip.
++   ~5:7 to match the renderer's 300x420 content box, so the art fills the box
++   instead of letterboxing. */
+ .skin-preview {
+-  width: 44px;
+-  height: 54px;
++  width: 76px;
++  height: 106px;
+   flex: 0 0 auto;
+   background: rgba(0,0,0,0.22);
+   border: 1px solid rgba(255,255,255,0.10);
+@@ -135,6 +148,8 @@ html, body {
+   border-radius: 8px;
+   padding: 7px 0;
+   min-width: 58px;
++  min-height: 44px;          /* matches the Change button beside it */
++  flex: 0 0 auto;
+   text-align: center;
+   font-size: 0.8rem;
+   font-weight: 700;
+@@ -145,54 +160,347 @@ html, body {
+ }
+ .ai-toggle.cpu { background: rgba(255,179,0,0.22); border-color: var(--heat); color: var(--heat); }
+ 
+-/* Flavor swatches */
+-.flavor-picker {
++/* Right-hand column of a player row: two stacked control lines, sized so the
++   pair is exactly as tall as the 80px preview beside it. Everything here must
++   tolerate min-width:0 or a long name pushes the row wider than the card. */
++.prow-main {
++  flex: 1;
++  min-width: 0;
+   display: flex;
+-  flex-wrap: wrap;
+-  gap: 7px;
+-  padding-left: 42px;
++  flex-direction: column;
++  gap: 6px;
++}
++.prow-line {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  min-width: 0;
++}
++
++/* Opens the character picker overlay for this row. */
++.char-change-btn {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 4px;
++  min-height: 44px;
++  flex: 1;                   /* fill the line; the label ellipsizes if long */
++  min-width: 0;
++  padding: 0 10px;
++  border-radius: 8px;
++  border: 1px solid rgba(255,255,255,0.15);
++  background: rgba(255,255,255,0.08);
++  color: var(--text);
++  font-size: 0.8rem;
++  font-weight: 700;
++  cursor: pointer;
++}
++.char-change-btn:hover { background: rgba(255,255,255,0.14); }
++.charbtn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++
++/* Color swatches (flavor) */
++.picker-label {
++  font-size: 0.68rem;
++  font-weight: 700;
++  letter-spacing: 0.06em;
++  text-transform: uppercase;
++  color: rgba(255,255,255,0.45);
++  padding: 8px 0 4px;
++}
++/* The selected flavor's pun name, shown inline in the Color label. */
++.flavor-name { color: var(--text); font-weight: 800; text-transform: none; letter-spacing: 0; }
++
++/* 6x2 grid of 44px dots. A swatch's background IS its visual, so it can't be
++   padded up to a legal tap target — the dot itself has to be 44px. */
++.flavor-picker {
++  display: grid;
++  grid-template-columns: repeat(6, minmax(0, 1fr));
++  gap: 8px;
++  justify-items: center;
+ }
+ .flavor-swatch {
+-  width: 26px;
+-  height: 26px;
++  width: 100%;
++  max-width: 44px;
++  aspect-ratio: 1;
+   border-radius: 50%;
+   border: 2px solid rgba(255,255,255,0.25);
+   cursor: pointer;
+   padding: 0;
+   transition: transform 0.12s, border-color 0.12s;
+ }
+-.flavor-swatch:hover { transform: scale(1.12); }
++.flavor-swatch:hover { transform: scale(1.08); }
+ .flavor-swatch.selected {
+   border-color: #fff;
+   box-shadow: 0 0 0 2px rgba(0,0,0,0.4), 0 0 10px rgba(255,255,255,0.5);
+-  transform: scale(1.15);
++  transform: scale(1.1);
+ }
+ 
+-/* ── Skin picker (bottle / parrot / …) — appears once an edition is unlocked ── */
+-.skin-picker {
++/* ── Character picker overlay ─────────────────────────────
++   Above #pass-screen (z-index 20); #skin-toast (9999) still floats over it so
++   the locked-tile toast stays visible. */
++#char-picker-screen {
++  background: rgba(0,0,0,0.82);
++  backdrop-filter: blur(6px);
++  z-index: 30;
++  align-items: flex-start;
++  overflow-y: auto;
++  touch-action: pan-y;
++  padding: 16px 10px;
++}
++.charpick-card {
++  margin: auto;
++  width: min(520px, 96vw);
++  max-height: 92vh;
++  overflow-y: auto;
++  touch-action: pan-y;
++  overscroll-behavior: contain;
++  background: var(--surface);
++  border: 1px solid rgba(79,195,247,0.25);
++  border-radius: 18px;
++  padding: 16px;
+   display: flex;
+-  flex-wrap: wrap;
+-  gap: 7px;
+-  padding-left: 42px;
+-  margin-top: 7px;
++  flex-direction: column;
++  gap: 12px;
++  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+ }
+-.skin-choice {
+-  padding: 4px 11px;
+-  border-radius: 999px;
+-  border: 2px solid rgba(255,255,255,0.22);
+-  background: rgba(255,255,255,0.06);
+-  color: #e8eef5;
+-  font: inherit;
+-  font-size: 0.85rem;
++.charpick-head {
++  display: flex;
++  align-items: center;
++  gap: 10px;
++  position: sticky;
++  top: -16px;                /* cancels the card's own padding */
++  background: var(--surface);
++  padding: 8px 0;
++  z-index: 1;
++}
++.charpick-title { flex: 1; font-weight: 800; font-size: 1.05rem; }
++.charpick-close {
++  min-width: 44px;
++  min-height: 44px;
++  border-radius: 10px;
++  border: 1px solid rgba(255,255,255,0.15);
++  background: rgba(255,255,255,0.08);
++  color: var(--text);
++  font-size: 1rem;
++  cursor: pointer;
++  flex: 0 0 auto;
++}
++.charpick-close:hover { background: rgba(255,255,255,0.16); }
++.charpick-grid {
++  display: grid;
++  grid-template-columns: repeat(4, minmax(0, 1fr));
++  gap: 8px;
++}
++@media (min-width: 520px) {
++  .charpick-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
++}
++
++/* One tile per family — the art is drawn in the player's current color. */
++.fam-tile {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  gap: 4px;
++  padding: 6px 4px;
++  border-radius: 12px;
++  border: 2px solid rgba(255,255,255,0.14);
++  background: rgba(255,255,255,0.05);
++  color: var(--text);
+   cursor: pointer;
+   transition: transform 0.12s, border-color 0.12s, background 0.12s;
+ }
+-.skin-choice:hover { transform: scale(1.06); }
+-.skin-choice.selected {
+-  border-color: #ffd166;
+-  background: rgba(255,209,102,0.16);
+-  box-shadow: 0 0 8px rgba(255,209,102,0.35);
++.fam-tile:hover { transform: translateY(-1px); border-color: rgba(255,255,255,0.35); }
++.fam-tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
++.fam-tile.selected {
++  border-color: #fff;
++  background: rgba(255,255,255,0.12);
++  box-shadow: 0 0 0 2px rgba(0,0,0,0.35), 0 0 12px rgba(255,255,255,0.28);
+ }
++.fam-art {
++  width: 100%;
++  height: auto;
++  display: block;
++  background: rgba(0,0,0,0.22);
++  border-radius: 8px;
++}
++/* Locked: the real art, ghosted. Teases what's coming without giving it away. */
++.fam-tile[data-locked="1"] { cursor: not-allowed; }
++.fam-tile[data-locked="1"] .fam-art {
++  filter: grayscale(1) brightness(0.5) contrast(0.6);
++  opacity: 0.45;
++}
++.fam-name {
++  font-size: 0.62rem;
++  font-weight: 700;
++  line-height: 1.2;
++  text-align: center;
++  max-width: 100%;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++.fam-need { font-size: 0.56rem; font-weight: 800; color: var(--heat); }
++/* "7/12 collected" on a cast family; green once the set is complete. */
++.fam-count {
++  font-size: 0.56rem;
++  font-weight: 800;
++  color: var(--muted);
++  font-variant-numeric: tabular-nums;
++}
++.fam-count.complete { color: var(--make); }
++
++/* A colour of a cast family that hasn't turned up in a box yet. */
++.flavor-swatch.locked {
++  filter: grayscale(0.85) brightness(0.5);
++  border-style: dashed;
++  border-color: rgba(255,255,255,0.3);
++  cursor: not-allowed;
++}
++.flavor-swatch.locked:hover { transform: none; }
++
++/* ── Mystery box reveal ───────────────────────────────────
++   Above game-over (10) and the picker (30); #skin-toast (9999) still wins. */
++#mystery-screen {
++  background: rgba(4,10,18,0.9);
++  backdrop-filter: blur(8px);
++  z-index: 40;
++  flex-direction: column;
++  touch-action: pan-y;
++  padding: 16px 10px;
++  overflow-y: auto;
++}
++.mystery-card {
++  margin: auto;
++  width: min(420px, 94vw);
++  background: var(--surface);
++  border: 2px solid rgba(255,204,0,0.5);
++  border-radius: 20px;
++  padding: 24px 20px;
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  gap: 10px;
++  box-shadow: 0 0 70px rgba(255,204,0,0.22), 0 12px 50px rgba(0,0,0,0.6);
++  text-align: center;
++}
++.mystery-headline {
++  font-size: 0.82rem;
++  font-weight: 800;
++  letter-spacing: 0.2em;
++  text-transform: uppercase;
++  color: var(--heat);
++}
++/* Box and prize share one grid cell so the prize can pop out of the box. */
++.mystery-stage {
++  display: grid;
++  place-items: center;
++  width: 100%;
++  min-height: 240px;
++}
++.mystery-stage > * { grid-area: 1 / 1; }
++
++.mystery-box {
++  width: 130px;
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  animation: mbox-shake 0.5s ease-in-out infinite;
++}
++.mbox-lid {
++  width: 130px;
++  height: 22px;
++  border-radius: 6px 6px 3px 3px;
++  background: linear-gradient(180deg, #ffd76a, #e0a51c);
++  box-shadow: 0 2px 0 rgba(0,0,0,0.25);
++  transform-origin: 50% 100%;
++}
++.mbox-body {
++  width: 112px;
++  height: 100px;
++  border-radius: 4px 4px 10px 10px;
++  background: linear-gradient(160deg, #c98a12, #8f5f06);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  font-size: 3rem;
++  font-weight: 900;
++  color: rgba(255,255,255,0.85);
++  text-shadow: 0 2px 8px rgba(0,0,0,0.5);
++}
++/* Opening: lid flies off, body drops away. */
++#mystery-screen.opening .mystery-box { animation: none; }
++#mystery-screen.opening .mbox-lid {
++  animation: mbox-lid-off 0.55s cubic-bezier(0.3, -0.4, 0.7, 1.4) forwards;
++}
++#mystery-screen.opening .mbox-body {
++  animation: mbox-body-out 0.45s ease-in forwards;
++}
++
++.mystery-prize {
++  width: 190px;
++  opacity: 0;
++  transform: scale(0.3);
++}
++.mystery-art { width: 100%; height: auto; display: block; }
++#mystery-screen.opening .mystery-prize {
++  animation: prize-in 0.6s 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
++}
++
++.mystery-name {
++  font-size: 1.7rem;
++  font-weight: 900;
++  line-height: 1.1;
++  background: linear-gradient(90deg, #ffcc00, #ff8a00);
++  -webkit-background-clip: text;
++  -webkit-text-fill-color: transparent;
++  background-clip: text;
++  min-height: 1.1em;
++}
++.mystery-family {
++  font-size: 0.72rem;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  color: var(--muted);
++  min-height: 1em;
++}
++#mystery-go-btn {
++  margin-top: 8px;
++  background: linear-gradient(135deg, #ff9100, #ffcc00);
++  border: none;
++  color: #2a1a00;
++  font-weight: 900;
++  font-size: 1.05rem;
++  padding: 14px 34px;
++  border-radius: 14px;
++  cursor: pointer;
++  min-height: 48px;
++}
++#mystery-go-btn:active { transform: scale(0.97); }
++.mystery-queue {
++  font-size: 0.72rem;
++  color: var(--muted);
++  min-height: 1em;
++}
++
++@keyframes mbox-shake {
++  0%, 100% { transform: rotate(-3deg) translateY(0); }
++  25%      { transform: rotate(3deg) translateY(-3px); }
++  50%      { transform: rotate(-2deg) translateY(0); }
++  75%      { transform: rotate(2deg) translateY(-2px); }
++}
++@keyframes mbox-lid-off {
++  to { transform: translateY(-150px) rotate(-38deg); opacity: 0; }
++}
++@keyframes mbox-body-out {
++  to { transform: translateY(60px) scale(0.85); opacity: 0; }
++}
++@keyframes prize-in {
++  0%   { opacity: 0; transform: scale(0.3) translateY(20px); }
++  100% { opacity: 1; transform: scale(1) translateY(0); }
++}
++
++/* Legacy edition picker kept hidden. */
++.skin-picker, .skin-choice { display: none !important; }
+ 
+ /* ── Unlock toast ── */
+ #skin-toast {
+@@ -221,6 +529,9 @@ html, body {
+   color: var(--miss);
+   border-radius: 6px;
+   padding: 6px 10px;
++  min-width: 44px;
++  min-height: 44px;
++  flex: 0 0 auto;
+   cursor: pointer;
+   font-size: 0.85rem;
+ }
+@@ -836,8 +1147,15 @@ html, body {
+   .player-card { transition: none; }
+   .player-card.active { transform: none; }
+   .player-card.on-fire { animation: none; }
+-  .flavor-swatch { transition: none; }
++  .flavor-swatch, .fam-tile { transition: none; }
++  .flavor-swatch:hover, .fam-tile:hover { transform: none; }
+   .trophy-emoji { animation: none; }
++  /* The prize starts at opacity 0 and is revealed BY the animation, so killing
++     the animation alone would leave it invisible. Reveal it statically instead —
++     but only once .opening is set, or the box would give the prize away early. */
++  .mystery-box, .mbox-lid, .mbox-body { animation: none !important; }
++  #mystery-screen.opening .mystery-box { display: none; }
++  #mystery-screen.opening .mystery-prize { animation: none; opacity: 1; transform: none; }
+ }
+ 
+ /* ── Achievements grid (inside #records-panel) ───────────── */
+@@ -857,10 +1175,17 @@ html, body {
+   align-items: center;
+   gap: 3px;
+   text-align: center;
+-  opacity: 0.55;
++  opacity: 0.72;
++}
++.ach-card.locked {
++  filter: grayscale(0.35);
++}
++.ach-card.mystery {
++  opacity: 0.5;
+ }
+ .ach-card.unlocked {
+   opacity: 1;
++  filter: none;
+   background: rgba(105,240,174,0.08);
+   border-color: rgba(105,240,174,0.35);
+ }
+diff --git a/parrot-flip/index.html b/parrot-flip/index.html
+index f192d25..ff05fbc 100644
+--- a/parrot-flip/index.html
++++ b/parrot-flip/index.html
+@@ -21,17 +21,17 @@
+   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+   <meta name="apple-mobile-web-app-title" content="Parrot Flip">
+ 
+-  <link rel="stylesheet" href="css/style.css?v=63">
++  <link rel="stylesheet" href="css/style.css?v=80">
+ </head>
+ <body>
+ 
+   <!-- ── Setup ───────────────────────────────────────── -->
+   <div id="setup-screen" class="screen hidden">
+     <div class="setup-card">
+-      <h1>🦜 Parrot Flip</h1>
++      <h1 class="title-secret"><span data-secret="parrot">Parrot</span> <span data-secret="flip">Flip</span></h1>
+ 
+       <div>
+-        <div class="section-label">Players — pick a name &amp; flavor (tap Human/CPU to switch)</div>
++        <div class="section-label">Players — pick character &amp; color (tap Human/CPU to switch)</div>
+         <div id="player-inputs"><!-- rendered by main.js --></div>
+         <button id="add-player-btn">+ Add Player</button>
+       </div>
+@@ -70,6 +70,45 @@
+     </div>
+   </div>
+ 
++  <!-- ── Character picker (overlay; edits one player row) ──
++       MUST stay ABOVE the Online lobby block: tools/sync-parrot-flip.js strips
++       everything from the lobby marker to the NEXT "<!-- ── " heading, so markup
++       placed after it vanishes from the branded build. No <h1> here either —
++       the same tool rewrites the first <h1> to the parrot brand title. -->
++  <div id="char-picker-screen" class="screen hidden" role="dialog" aria-modal="true"
++       aria-labelledby="charpick-title">
++    <div class="charpick-card">
++      <div class="charpick-head">
++        <div id="charpick-title" class="charpick-title">Choose a character</div>
++        <button type="button" id="charpick-close" class="charpick-close" aria-label="Close">✕</button>
++      </div>
++      <div id="charpick-grid" class="charpick-grid"><!-- rendered by main.js --></div>
++    </div>
++  </div>
++
++  <!-- ── Mystery box reveal (a won box hatches a random flippable) ──
++       Same placement rule as the picker above: must stay ABOVE the Online lobby
++       marker or sync-parrot-flip.js strips it. No <h1>. -->
++  <div id="mystery-screen" class="screen hidden" role="dialog" aria-modal="true"
++       aria-labelledby="mystery-headline">
++    <div class="mystery-card">
++      <div id="mystery-headline" class="mystery-headline">A new flippable appears!</div>
++      <div class="mystery-stage">
++        <div id="mystery-box" class="mystery-box" aria-hidden="true">
++          <div class="mbox-lid"></div>
++          <div class="mbox-body">?</div>
++        </div>
++        <div id="mystery-prize" class="mystery-prize">
++          <canvas id="mystery-art" class="mystery-art" width="300" height="420" aria-hidden="true"></canvas>
++        </div>
++      </div>
++      <div id="mystery-name" class="mystery-name" aria-live="polite"></div>
++      <div id="mystery-family" class="mystery-family"></div>
++      <button type="button" id="mystery-go-btn">Tap to open</button>
++      <div id="mystery-queue" class="mystery-queue"></div>
++    </div>
++  </div>
++
+   <!-- ── Game ────────────────────────────────────────── -->
+   <div id="game-screen" class="screen hidden">
+     <canvas id="game-canvas"></canvas>
+@@ -112,17 +151,18 @@
+   <!-- ?v= forces the browser to refetch on each release (dev server sends no
+        cache headers). Bump alongside the service-worker CACHE_NAME. -->
+   <script src="js/vendor/matter.min.js"></script>
+-  <script src="js/polyfills.js?v=63"></script>
+-  <script src="js/game.js?v=63"></script>
+-  <script src="js/physics.js?v=63"></script>
+-  <script src="js/input.js?v=63"></script>
+-  <script src="js/renderer.js?v=63"></script>
+-  <script src="js/audio.js?v=63"></script>
+-  <script src="js/settings.js?v=63"></script>
+-  <script src="js/records.js?v=63"></script>
+-  <script src="js/achievements.js?v=63"></script>
+-  <script src="js/skins.js?v=63"></script>
+-  <script src="js/main.js?v=63"></script>
++  <script src="js/polyfills.js?v=80"></script>
++  <script src="js/game.js?v=80"></script>
++  <script src="js/physics.js?v=80"></script>
++  <script src="js/input.js?v=80"></script>
++  <script src="js/renderer.js?v=80"></script>
++  <script src="js/audio.js?v=80"></script>
++  <script src="js/settings.js?v=80"></script>
++  <script src="js/records.js?v=80"></script>
++  <script src="js/achievements.js?v=80"></script>
++  <script src="js/cartoon-casts.js?v=80"></script>
++  <script src="js/skins.js?v=80"></script>
++  <script src="js/main.js?v=80"></script>
+   <script>
+     window.onerror = (msg, src, line) => {
+       const el = document.getElementById('err-overlay') || (() => {
+diff --git a/parrot-flip/js/achievements.js b/parrot-flip/js/achievements.js
+index df9c1cc..fb6630b 100644
+--- a/parrot-flip/js/achievements.js
++++ b/parrot-flip/js/achievements.js
+@@ -1,12 +1,23 @@
+ // achievements.js — unlockable achievement catalog + persisted unlock state.
+ // Pure display/meta layer: reads flip/game outcomes reported by main.js,
+ // never influences them. Loaded after records.js, before main.js.
++//
++// Progress is only awarded when main.js reports a lobby with ≥1 human player
++// (AI-only spam games do not unlock anything). Locked cards show their name
++// + description up front, except a few `mystery` entries that stay ???.
+ const Achievements = (() => {
+   const KEY = 'flipgame.achievements.v1';
+ 
++  function esc(s) {
++    return String(s == null ? '' : s)
++      .replace(/&/g, '&amp;')
++      .replace(/"/g, '&quot;')
++      .replace(/</g, '&lt;');
++  }
++
+   // Each test(ctx) runs against the context reported for the flip/game that
+   // just resolved (see main.js onResult/onGameOver) and returns true/false.
+-  // `rare` flags the toast/card for special styling.
++  // `rare` → gold card styling. `mystery` → name/desc hidden until unlocked.
+   const CATALOG = [
+     { id: 'first_flip', emoji: '🎬', name: 'First Flip',
+       desc: 'Take your very first flip.',
+@@ -21,20 +32,24 @@ const Achievements = (() => {
+       test: (c) => !!c.justIgnited },
+ 
+     { id: 'inferno', emoji: '🌋', name: 'Inferno',
+-      desc: 'Ride an ON FIRE run to +5 bonus lives.',
+-      test: (c) => c.onFireBonus >= 5 },
++      desc: 'Ride an ON FIRE run to +7 bonus lives.',
++      test: (c) => c.onFireBonus >= 7 },
+ 
+     { id: 'supernova', emoji: '☄️', name: 'Supernova',
+       desc: 'Max out an ON FIRE run at +10 bonus lives.',
+       test: (c) => c.onFireBonus >= 10 },
+ 
+     { id: 'streak_master', emoji: '⚡', name: 'Streak Master',
+-      desc: 'String together 6 makes in a row.',
+-      test: (c) => c.streak >= 6 },
++      desc: 'String together 10 makes in a row.',
++      test: (c) => c.streak >= 10 },
+ 
+     { id: 'high_roller', emoji: '🎲', name: 'High Roller',
+-      desc: 'Make it with 6+ lives on the line.',
+-      test: (c) => c.result === 'MAKE' && c.pointCount >= 6 },
++      desc: 'Make it with 8+ lives on the line.',
++      test: (c) => c.result === 'MAKE' && c.pointCount >= 8 },
++
++    { id: 'table_setter', emoji: '🏦', name: 'Table Setter',
++      desc: 'Make it with 12+ lives on the line.',
++      test: (c) => c.result === 'MAKE' && c.pointCount >= 12 },
+ 
+     { id: 'bullseye', emoji: '🎯', name: 'Bullseye',
+       desc: 'Stick a perfect, dead-vertical landing.',
+@@ -45,10 +60,10 @@ const Achievements = (() => {
+       test: (c) => c.result === 'MAKE' && c.power != null && c.power >= 0.95 },
+ 
+     { id: 'feather_touch', emoji: '🪶', name: 'Feather Touch',
+-      desc: 'MAKE it on a soft, gentle flick.',
+-      test: (c) => c.result === 'MAKE' && c.power != null && c.power > 0 && c.power <= 0.32 },
++      desc: 'MAKE it on a whisper-soft flick (≤25% power).',
++      test: (c) => c.result === 'MAKE' && c.power != null && c.power > 0 && c.power <= 0.25 },
+ 
+-    { id: 'great_save', emoji: '🧤', name: 'The Great Save', rare: true,
++    { id: 'great_save', emoji: '🧤', name: 'The Great Save', rare: true, mystery: true,
+       desc: 'Tip past the point of no return — and stand back up anyway.',
+       test: (c) => !!c.greatSave },
+ 
+@@ -62,15 +77,19 @@ const Achievements = (() => {
+ 
+     { id: 'deadeye', emoji: '🎯', name: 'Deadeye',
+       desc: 'Bank the alien into the dead center of the pad.',
+-      test: (c) => c.landingReason === 'on-target' && c.padOffset != null && c.padOffset <= 0.35 },
++      test: (c) => c.landingReason === 'on-target' && c.padOffset != null && c.padOffset <= 0.22 },
+ 
+     { id: 'last_one_standing', emoji: '🏆', name: 'Last One Standing',
+-      desc: 'Win a game.',
++      desc: 'Win a game with at least one human player.',
+       test: (c) => !!c.won },
+ 
+     { id: 'dynasty', emoji: '👑', name: 'Dynasty',
+-      desc: 'One name racks up 3 wins on this device.',
+-      test: (c) => c.winnerWins >= 3 },
++      desc: 'One name racks up 5 wins on this device.',
++      test: (c) => c.winnerWins >= 5 },
++
++    { id: 'empire', emoji: '🏰', name: 'Empire',
++      desc: 'One name racks up 15 wins on this device.',
++      test: (c) => c.winnerWins >= 15 },
+ 
+     { id: 'iron_will', emoji: '🛡️', name: 'Iron Will',
+       desc: 'Win a game after dropping to 1 life.',
+@@ -84,9 +103,37 @@ const Achievements = (() => {
+       desc: 'Win a game that went to sudden death.',
+       test: (c) => !!c.won && !!c.sawSuddenDeath },
+ 
++    { id: 'comeback_kid', emoji: '♻️', name: 'Comeback Kid', rare: true,
++      desc: 'Win after hitting 1 life AND surviving sudden death.',
++      test: (c) => !!c.won && !!c.droppedToOneLife && !!c.sawSuddenDeath },
++
++    { id: 'party_animal', emoji: '🎉', name: 'Party Animal',
++      desc: 'Win a game with 6 or more players.',
++      test: (c) => !!c.won && (c.playerCount || 0) >= 6 },
++
++    { id: 'full_house', emoji: '🎱', name: 'Full House',
++      desc: 'Win a packed 8-player game.',
++      test: (c) => !!c.won && (c.playerCount || 0) >= 8 },
++
+     { id: 'century_club', emoji: '💯', name: 'Century Club',
+-      desc: 'Reach 100 lifetime flips.',
+-      test: (c) => c.totalFlipsLifetime >= 100 },
++      desc: 'Reach 250 lifetime flips.',
++      test: (c) => c.totalFlipsLifetime >= 250 },
++
++    { id: 'millennial', emoji: '📚', name: 'Millennial',
++      desc: 'Reach 1,000 lifetime flips.',
++      test: (c) => c.totalFlipsLifetime >= 1000 },
++
++    { id: 'hot_hands', emoji: '✋', name: 'Hot Hands',
++      desc: 'Ignite ON FIRE twice in the same game.',
++      test: (c) => (c.ignitionsThisGame || 0) >= 2 },
++
++    { id: 'ghost_protocol', emoji: '👻', name: 'Ghost Protocol', rare: true, mystery: true,
++      desc: 'Win a clean sweep that also went to sudden death.',
++      test: (c) => !!c.won && !!c.wonWithoutMiss && !!c.sawSuddenDeath },
++
++    { id: 'close_encounter', emoji: '🛸', name: 'Close Encounter', mystery: true,
++      desc: 'Slide an alien onto the pad after missing it first.',
++      test: (c) => c.landingReason === 'slid-on' && c.padOffset != null && c.padOffset <= 0.4 },
+   ];
+ 
+   let unlocked = load();
+@@ -122,9 +169,19 @@ const Achievements = (() => {
+     return `<div class="records-title ach-heading">🏅 Achievements · ${unlocked.size}/${CATALOG.length}</div>` +
+       '<div class="ach-grid">' + CATALOG.map((a) => {
+         const on = unlocked.has(a.id);
+-        return `<div class="ach-card${on ? ' unlocked' : ''}${on && a.rare ? ' rare' : ''}" title="${on ? a.desc : '???'}">
+-          <div class="ach-emoji">${on ? a.emoji : '🔒'}</div>
+-          <div class="ach-name">${on ? a.name : '???'}</div>
++        const hide = !on && a.mystery;
++        const tip = hide ? 'Secret achievement — keep playing!' : a.desc;
++        const name = hide ? '???' : a.name;
++        const emoji = on ? a.emoji : (hide ? '🔒' : a.emoji);
++        const cls = [
++          'ach-card',
++          on ? 'unlocked' : 'locked',
++          on && a.rare ? 'rare' : '',
++          hide ? 'mystery' : '',
++        ].filter(Boolean).join(' ');
++        return `<div class="${cls}" title="${esc(tip)}">
++          <div class="ach-emoji">${emoji}</div>
++          <div class="ach-name">${esc(name)}</div>
+         </div>`;
+       }).join('') + '</div>';
+   }
+diff --git a/parrot-flip/js/cartoon-casts.js b/parrot-flip/js/cartoon-casts.js
+new file mode 100644
+index 0000000..0ee7e0e
+--- /dev/null
++++ b/parrot-flip/js/cartoon-casts.js
+@@ -0,0 +1,637 @@
++// cartoon-casts.js — flat cartoony SVG casts for Pets / Garden / Robots /
++// Ocean / Snacks / Cryptids. Loaded before skins.js; exposes builders on
++// window.FLIP_CARTOON_CASTS that skins.js wires into drawFns + the roster.
++(function () {
++  function shade(hex, t) {
++    const n = parseInt(String(hex).slice(1), 16);
++    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
++    const m = t >= 0 ? 255 : 0, u = Math.abs(t);
++    const rr = Math.round(r + (m - r) * u);
++    const gg = Math.round(g + (m - g) * u);
++    const bb = Math.round(b + (m - b) * u);
++    return '#' + [rr, gg, bb].map((x) => x.toString(16).padStart(2, '0')).join('');
++  }
++
++  function eyes(cx1, cy1, cx2, cy2, r) {
++    r = r || 8;
++    return `<circle cx="${cx1}" cy="${cy1}" r="${r}" fill="#fff" stroke="#2a2430" stroke-width="2"/>`
++      + `<circle cx="${cx2}" cy="${cy2}" r="${r}" fill="#fff" stroke="#2a2430" stroke-width="2"/>`
++      + `<circle cx="${cx1 + 1}" cy="${cy1 + 1}" r="${r * 0.45}" fill="#2a2430"/>`
++      + `<circle cx="${cx2 + 1}" cy="${cy2 + 1}" r="${r * 0.45}" fill="#2a2430"/>`
++      + `<circle cx="${cx1 - 2}" cy="${cy1 - 2}" r="${r * 0.2}" fill="#fff"/>`
++      + `<circle cx="${cx2 - 2}" cy="${cy2 - 2}" r="${r * 0.2}" fill="#fff"/>`;
++  }
++  function smile(x, y, w) {
++    return `<path d="M ${x} ${y} Q ${x + w / 2} ${y + 12} ${x + w} ${y}" fill="none" stroke="#2a2430" stroke-width="3"/>`;
++  }
++  function wrap(p, art) {
++    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420">
++<defs>
++<linearGradient id="gC" x1="90" y1="40" x2="220" y2="360" gradientUnits="userSpaceOnUse">
++<stop offset="0" stop-color="${p.hi}"/><stop offset="0.55" stop-color="${p.base}"/><stop offset="1" stop-color="${p.lo}"/>
++</linearGradient>
++</defs>
++<g stroke-linecap="round" stroke-linejoin="round">${art}</g></svg>`;
++  }
++
++  // ── Pets ───────────────────────────────────────────────────────────────────
++  const PET_CAST = {
++    '#1f9bff': { label: 'cat', draw: (p) => `
++<ellipse cx="150" cy="300" rx="70" ry="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="180" r="62" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 100 140 L 88 78 L 128 118 Z M 200 140 L 212 78 L 172 118 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++${eyes(128, 172, 172, 172, 9)}
++<path d="M 150 188 L 142 200 L 158 200 Z" fill="#ff9ecf"/>
++${smile(132, 208, 36)}
++<path d="M 80 250 Q 40 230 50 200 M 220 250 Q 260 230 250 200" fill="none" stroke="${p.lo}" stroke-width="8"/>
++<path d="M 200 320 Q 250 280 260 220" fill="none" stroke="${p.base}" stroke-width="14"/>` },
++    '#e3263c': { label: 'dog', draw: (p) => `
++<ellipse cx="150" cy="300" rx="72" ry="58" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="178" r="64" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="88" cy="190" rx="22" ry="34" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++<ellipse cx="212" cy="190" rx="22" ry="34" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++${eyes(128, 170, 172, 170, 9)}
++<ellipse cx="150" cy="198" rx="16" ry="12" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++${smile(130, 212, 40)}
++<path d="M 70 280 Q 40 300 55 340 M 230 280 Q 260 300 245 340" fill="none" stroke="${p.lo}" stroke-width="10"/>
++<path d="M 210 310 Q 255 290 270 250" fill="none" stroke="${p.base}" stroke-width="12"/>` },
++    '#8ed11a': { label: 'rabbit', draw: (p) => `
++<ellipse cx="150" cy="310" rx="60" ry="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="200" r="58" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="120" cy="100" rx="16" ry="55" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<ellipse cx="180" cy="100" rx="16" ry="55" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<ellipse cx="120" cy="105" rx="8" ry="35" fill="#ff9ecf" opacity="0.7"/>
++<ellipse cx="180" cy="105" rx="8" ry="35" fill="#ff9ecf" opacity="0.7"/>
++${eyes(130, 192, 170, 192, 8)}
++${smile(134, 220, 32)}
++<path d="M 200 300 Q 240 270 250 230" fill="none" stroke="${p.base}" stroke-width="10"/>` },
++    '#ff7a00': { label: 'fish', draw: (p) => `
++<ellipse cx="150" cy="220" rx="90" ry="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 60 220 L 20 170 L 20 270 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 150 165 L 150 120 L 175 165 Z M 150 275 L 150 320 L 175 275 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++${eyes(175, 210, 175, 210, 0)}
++<circle cx="185" cy="210" r="12" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<circle cx="188" cy="212" r="5" fill="#2a2430"/>
++<path d="M 200 230 Q 220 240 200 248" fill="none" stroke="#2a2430" stroke-width="3"/>
++<path d="M 110 200 Q 150 185 190 200" fill="none" stroke="${p.hi}" stroke-width="4" opacity="0.5"/>` },
++    '#8a3ffc': { label: 'hamster', draw: (p) => `
++<ellipse cx="150" cy="280" rx="75" ry="65" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="190" r="60" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="100" cy="175" r="18" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++<circle cx="200" cy="175" r="18" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++${eyes(130, 185, 170, 185, 8)}
++<ellipse cx="150" cy="210" rx="10" ry="8" fill="#ff9ecf"/>
++${smile(132, 220, 36)}
++<path d="M 90 300 L 70 340 M 210 300 L 230 340" fill="none" stroke="${p.lo}" stroke-width="10"/>` },
++    '#5fcfe6': { label: 'bird', draw: (p) => `
++<ellipse cx="150" cy="260" rx="55" ry="70" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="160" r="48" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 100 240 Q 40 200 70 160 Q 110 200 115 230 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 200 240 Q 260 200 230 160 Q 190 200 185 230 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++${eyes(135, 155, 165, 155, 7)}
++<path d="M 150 175 L 135 195 L 165 195 Z" fill="#ffc233" stroke="#2a2430" stroke-width="2"/>
++<path d="M 130 330 L 120 360 M 170 330 L 180 360" fill="none" stroke="${p.lo}" stroke-width="8"/>` },
++    '#3fae1a': { label: 'turtle', draw: (p) => `
++<ellipse cx="150" cy="250" rx="95" ry="70" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${[0,1,2].map((r) => [0,1,2].map((c) =>
++  `<ellipse cx="${110 + c * 40}" cy="${220 + r * 28}" rx="16" ry="12" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5" opacity="0.85"/>`
++).join('')).join('')}
++<circle cx="150" cy="145" r="40" fill="${p.base}" stroke="${p.line}" stroke-width="3"/>
++${eyes(135, 140, 165, 140, 7)}
++${smile(136, 160, 28)}
++<path d="M 70 250 L 40 240 M 230 250 L 260 240 M 90 310 L 70 340 M 210 310 L 230 340" fill="none" stroke="${p.lo}" stroke-width="10"/>` },
++    '#ff5b86': { label: 'pig', draw: (p) => `
++<ellipse cx="150" cy="290" rx="78" ry="62" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="180" r="68" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="100" cy="130" rx="14" ry="22" fill="#ff9ecf" stroke="${p.line}" stroke-width="2"/>
++<ellipse cx="200" cy="130" rx="14" ry="22" fill="#ff9ecf" stroke="${p.line}" stroke-width="2"/>
++${eyes(128, 170, 172, 170, 9)}
++<ellipse cx="150" cy="205" rx="28" ry="20" fill="#ff9ecf" stroke="${p.line}" stroke-width="2"/>
++<circle cx="138" cy="205" r="5" fill="${p.line}"/><circle cx="162" cy="205" r="5" fill="${p.line}"/>
++<path d="M 90 310 L 75 350 M 210 310 L 225 350" fill="none" stroke="${p.lo}" stroke-width="12"/>
++<path d="M 210 300 Q 250 280 255 240" fill="none" stroke="${p.base}" stroke-width="10"/>` },
++    '#4f63e0': { label: 'ferret', draw: (p) => `
++<ellipse cx="150" cy="300" rx="45" ry="40" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 150 300 Q 90 240 100 170 Q 150 120 200 170 Q 210 240 150 300 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="150" cy="155" rx="42" ry="38" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
++${eyes(135, 150, 165, 150, 7)}
++${smile(136, 172, 28)}
++<path d="M 200 280 Q 260 260 270 200 Q 250 180 230 220" fill="none" stroke="${p.hi}" stroke-width="16"/>` },
++    '#ffc233': { label: 'corgi', draw: (p) => `
++<ellipse cx="150" cy="300" rx="80" ry="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="200" r="58" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 100 170 L 70 110 L 120 150 Z M 200 170 L 230 110 L 180 150 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++${eyes(130, 195, 170, 195, 8)}
++<ellipse cx="150" cy="220" rx="14" ry="10" fill="${p.lo}"/>
++${smile(132, 230, 36)}
++<path d="M 95 330 L 90 360 M 130 335 L 128 360 M 170 335 L 172 360 M 205 330 L 210 360" fill="none" stroke="${p.lo}" stroke-width="10"/>
++<path d="M 220 290 Q 255 270 250 230" fill="none" stroke="${p.base}" stroke-width="10"/>` },
++    '#c8203a': { label: 'bowtie-cat', draw: (p) => `
++<ellipse cx="150" cy="300" rx="68" ry="52" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="185" r="60" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 105 145 L 95 85 L 130 125 Z M 195 145 L 205 85 L 170 125 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++${eyes(130, 178, 170, 178, 8)}
++${smile(134, 205, 32)}
++<path d="M 150 240 L 120 255 L 150 248 L 180 255 Z" fill="#ffc233" stroke="#2a2430" stroke-width="2"/>
++<circle cx="150" cy="248" r="6" fill="#fff"/>
++<path d="M 210 300 Q 250 250 245 200" fill="none" stroke="${p.base}" stroke-width="12"/>` },
++    '#ff9ecf': { label: 'goldfish', draw: (p) => `
++<ellipse cx="150" cy="220" rx="85" ry="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 65 220 L 25 175 L 30 265 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 150 170 Q 130 130 160 140 Q 170 170 150 170 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++<circle cx="185" cy="210" r="14" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<circle cx="188" cy="212" r="6" fill="#2a2430"/>
++<path d="M 200 228 Q 218 236 200 244" fill="none" stroke="#2a2430" stroke-width="3"/>
++<path d="M 120 200 Q 150 188 180 200" fill="none" stroke="#fff" stroke-width="3" opacity="0.45"/>` },
++  };
++
++  // ── Garden ─────────────────────────────────────────────────────────────────
++  const GARDEN_CAST = {
++    '#1f9bff': { label: 'sunflower', draw: (p) => `
++<rect x="140" y="220" width="20" height="140" rx="8" fill="#3fae1a" stroke="#2a6b12" stroke-width="2"/>
++${[0,1,2,3,4,5,6,7].map((i) => {
++  const a = (i / 8) * Math.PI * 2;
++  const x = 150 + Math.cos(a) * 70, y = 170 + Math.sin(a) * 70;
++  return `<ellipse cx="${x}" cy="${y}" rx="22" ry="14" transform="rotate(${(a * 180) / Math.PI} ${x} ${y})" fill="url(#gC)" stroke="${p.line}" stroke-width="2"/>`;
++}).join('')}
++<circle cx="150" cy="170" r="40" fill="#5b3a22" stroke="#2a2430" stroke-width="3"/>
++${eyes(138, 165, 162, 165, 7)}
++${smile(138, 185, 24)}` },
++    '#e3263c': { label: 'tomato', draw: (p) => `
++<ellipse cx="150" cy="240" rx="85" ry="80" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 120 170 Q 150 140 180 170" fill="#3fae1a" stroke="#2a6b12" stroke-width="2"/>
++<path d="M 150 155 L 150 120" fill="none" stroke="#3fae1a" stroke-width="8"/>
++${eyes(125, 230, 175, 230, 10)}
++${smile(130, 265, 40)}` },
++    '#8ed11a': { label: 'mushroom', draw: (p) => `
++<path d="M 70 200 Q 70 110 150 100 Q 230 110 230 200 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="110" cy="160" rx="14" ry="10" fill="#fff" opacity="0.85"/>
++<ellipse cx="170" cy="145" rx="18" ry="12" fill="#fff" opacity="0.75"/>
++<ellipse cx="190" cy="175" rx="10" ry="8" fill="#fff" opacity="0.7"/>
++<rect x="115" y="200" width="70" height="130" rx="20" fill="#f5e6c8" stroke="#2a2430" stroke-width="3"/>
++${eyes(132, 250, 168, 250, 8)}
++${smile(136, 280, 28)}` },
++    '#ff7a00': { label: 'cactus', draw: (p) => `
++<rect x="125" y="160" width="50" height="190" rx="25" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 125 230 Q 70 220 70 270 Q 70 300 110 295" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 175 210 Q 230 200 230 250 Q 230 280 190 275" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${[180,220,260,300].map((y) => `<path d="M 135 ${y} L 145 ${y - 8} M 165 ${y} L 155 ${y - 8}" fill="none" stroke="${p.hi}" stroke-width="2"/>`).join('')}
++${eyes(138, 200, 162, 200, 7)}
++${smile(140, 225, 20)}` },
++    '#8a3ffc': { label: 'carrot', draw: (p) => `
++<path d="M 150 120 L 95 340 L 205 340 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 120 340 L 110 360 M 150 340 L 150 365 M 180 340 L 190 360" fill="none" stroke="#3fae1a" stroke-width="8"/>
++${eyes(135, 220, 165, 220, 8)}
++${smile(138, 250, 24)}
++<path d="M 120 180 L 180 200 M 115 250 L 185 270" fill="none" stroke="${p.hi}" stroke-width="3" opacity="0.5"/>` },
++    '#5fcfe6': { label: 'strawberry', draw: (p) => `
++<path d="M 150 140 Q 230 180 220 280 Q 150 360 80 280 Q 70 180 150 140 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 120 150 L 100 110 L 130 130 M 150 145 L 150 100 L 165 130 M 180 150 L 200 110 L 170 130" fill="#3fae1a" stroke="#2a6b12" stroke-width="2"/>
++${[0,1,2,3,4].map((i) => `<ellipse cx="${110 + (i % 3) * 40}" cy="${200 + Math.floor(i / 3) * 45}" rx="5" ry="7" fill="#ffc233"/>`).join('')}
++${eyes(130, 230, 170, 230, 9)}
++${smile(135, 265, 30)}` },
++    '#3fae1a': { label: 'broccoli', draw: (p) => `
++<rect x="130" y="240" width="40" height="110" rx="12" fill="#c4a574" stroke="#2a2430" stroke-width="2"/>
++<circle cx="110" cy="200" r="45" fill="url(#gC)" stroke="${p.line}" stroke-width="2.5"/>
++<circle cx="190" cy="200" r="45" fill="url(#gC)" stroke="${p.line}" stroke-width="2.5"/>
++<circle cx="150" cy="160" r="50" fill="url(#gC)" stroke="${p.line}" stroke-width="2.5"/>
++${eyes(135, 165, 165, 165, 8)}
++${smile(138, 190, 24)}` },
++    '#ff5b86': { label: 'pumpkin', draw: (p) => `
++<ellipse cx="150" cy="250" rx="100" ry="85" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 90 250 Q 150 180 210 250 M 90 250 Q 150 320 210 250" fill="none" stroke="${p.lo}" stroke-width="3"/>
++<path d="M 150 165 L 150 120" fill="none" stroke="#3fae1a" stroke-width="10"/>
++<path d="M 150 130 Q 180 110 175 145" fill="#3fae1a" stroke="#2a6b12" stroke-width="2"/>
++${eyes(120, 240, 180, 240, 11)}
++${smile(125, 280, 50)}` },
++    '#4f63e0': { label: 'rose', draw: (p) => `
++<rect x="142" y="230" width="16" height="130" rx="6" fill="#3fae1a" stroke="#2a6b12" stroke-width="2"/>
++<path d="M 142 280 Q 100 260 110 230 Q 140 250 142 260 M 158 300 Q 200 280 195 250 Q 160 270 158 285" fill="#3fae1a" stroke="#2a6b12" stroke-width="2"/>
++<circle cx="150" cy="170" r="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 150 170 Q 120 140 150 120 Q 180 140 150 170 Q 120 200 150 220 Q 180 200 150 170" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++${eyes(135, 165, 165, 165, 7)}
++${smile(138, 188, 24)}` },
++    '#ffc233': { label: 'corn', draw: (p) => `
++<ellipse cx="150" cy="240" rx="50" ry="110" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${[0,1,2,3,4,5].map((r) => [0,1].map((c) =>
++  `<ellipse cx="${130 + c * 40}" cy="${160 + r * 30}" rx="14" ry="12" fill="${p.hi}" stroke="${p.line}" stroke-width="1.2"/>`
++).join('')).join('')}
++<path d="M 100 180 Q 60 220 90 300 M 200 180 Q 240 220 210 300" fill="#3fae1a" stroke="#2a6b12" stroke-width="2"/>
++${eyes(135, 200, 165, 200, 8)}
++${smile(138, 230, 24)}` },
++    '#c8203a': { label: 'avocado', draw: (p) => `
++<path d="M 150 120 Q 230 160 220 280 Q 150 370 80 280 Q 70 160 150 120 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="250" r="40" fill="#5b3a22" stroke="#2a2430" stroke-width="3"/>
++<circle cx="150" cy="250" r="18" fill="#c4a574"/>
++${eyes(125, 180, 175, 180, 9)}
++${smile(130, 210, 40)}` },
++    '#ff9ecf': { label: 'chili', draw: (p) => `
++<path d="M 160 140 Q 230 200 200 320 Q 150 370 100 300 Q 90 200 140 150 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 155 140 Q 150 100 170 90 Q 185 120 160 145" fill="#3fae1a" stroke="#2a6b12" stroke-width="2"/>
++${eyes(140, 220, 175, 230, 8)}
++${smile(145, 260, 30)}` },
++  };
++
++  // ── Robots ─────────────────────────────────────────────────────────────────
++  const ROBOT_CAST = {
++    '#1f9bff': { label: 'toaster', draw: (p) => `
++<rect x="70" y="180" width="160" height="140" rx="18" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<rect x="95" y="150" width="40" height="40" rx="6" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++<rect x="165" y="150" width="40" height="40" rx="6" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++${eyes(115, 230, 185, 230, 12)}
++${smile(125, 270, 50)}
++<path d="M 220 200 L 250 180 L 250 220 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++<circle cx="100" cy="330" r="12" fill="${p.lo}"/><circle cx="200" cy="330" r="12" fill="${p.lo}"/>` },
++    '#e3263c': { label: 'vacuum', draw: (p) => `
++<ellipse cx="150" cy="300" rx="90" ry="45" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<rect x="110" y="160" width="80" height="140" rx="20" fill="${p.base}" stroke="${p.line}" stroke-width="3"/>
++${eyes(130, 210, 170, 210, 10)}
++${smile(135, 245, 30)}
++<path d="M 190 200 Q 250 160 260 100" fill="none" stroke="${p.lo}" stroke-width="14"/>
++<circle cx="260" cy="90" r="18" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>` },
++    '#8ed11a': { label: 'boombox', draw: (p) => `
++<rect x="55" y="180" width="190" height="120" rx="16" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="100" cy="240" r="32" fill="${p.lo}" stroke="${p.line}" stroke-width="3"/>
++<circle cx="200" cy="240" r="32" fill="${p.lo}" stroke="${p.line}" stroke-width="3"/>
++<circle cx="100" cy="240" r="12" fill="${p.hi}"/><circle cx="200" cy="240" r="12" fill="${p.hi}"/>
++${eyes(140, 210, 160, 210, 6)}
++${smile(138, 250, 24)}
++<path d="M 90 180 L 90 150 L 210 150 L 210 180" fill="none" stroke="${p.line}" stroke-width="6"/>` },
++    '#ff7a00': { label: 'tin-can', draw: (p) => `
++<rect x="95" y="140" width="110" height="200" rx="20" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="150" cy="140" rx="55" ry="18" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++<ellipse cx="150" cy="340" rx="55" ry="18" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++${eyes(130, 220, 170, 220, 10)}
++${smile(135, 260, 30)}
++<path d="M 110 180 L 190 180" fill="none" stroke="${p.hi}" stroke-width="4" opacity="0.5"/>` },
++    '#8a3ffc': { label: 'washer', draw: (p) => `
++<rect x="75" y="120" width="150" height="220" rx="18" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="230" r="55" fill="#9ad7ef" stroke="${p.line}" stroke-width="4"/>
++<circle cx="150" cy="230" r="35" fill="#fff" opacity="0.35"/>
++${eyes(125, 160, 175, 160, 8)}
++${smile(130, 300, 40)}
++<circle cx="200" cy="145" r="8" fill="#ffc233"/>` },
++    '#5fcfe6': { label: 'blender', draw: (p) => `
++<rect x="100" y="250" width="100" height="90" rx="12" fill="${p.lo}" stroke="${p.line}" stroke-width="3"/>
++<path d="M 110 250 L 120 130 L 180 130 L 190 250 Z" fill="#9ad7ef" stroke="${p.line}" stroke-width="3" opacity="0.85"/>
++<ellipse cx="150" cy="130" rx="35" ry="12" fill="url(#gC)" stroke="${p.line}" stroke-width="2"/>
++${eyes(135, 180, 165, 180, 8)}
++${smile(138, 210, 24)}
++<path d="M 130 200 L 170 200 M 140 220 L 160 220" fill="none" stroke="${p.base}" stroke-width="3"/>` },
++    '#3fae1a': { label: 'tv', draw: (p) => `
++<rect x="60" y="140" width="180" height="140" rx="14" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<rect x="80" y="160" width="140" height="90" rx="8" fill="#9ad7ef" stroke="${p.line}" stroke-width="2"/>
++${eyes(120, 195, 180, 195, 12)}
++${smile(125, 230, 50)}
++<path d="M 100 280 L 80 330 M 200 280 L 220 330" fill="none" stroke="${p.lo}" stroke-width="8"/>
++<path d="M 120 140 L 110 100 M 180 140 L 190 100" fill="none" stroke="${p.line}" stroke-width="4"/>
++<circle cx="110" cy="95" r="8" fill="${p.hi}"/><circle cx="190" cy="95" r="8" fill="${p.hi}"/>` },
++    '#ff5b86': { label: 'calculator', draw: (p) => `
++<rect x="90" y="110" width="120" height="220" rx="16" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<rect x="105" y="130" width="90" height="40" rx="8" fill="#9ad7ef" stroke="${p.line}" stroke-width="2"/>
++${[0,1,2,3].map((r) => [0,1,2].map((c) =>
++  `<rect x="${110 + c * 28}" y="${190 + r * 30}" width="22" height="22" rx="4" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>`
++).join('')).join('')}
++${eyes(125, 145, 175, 145, 7)}` },
++    '#4f63e0': { label: 'drone', draw: (p) => `
++<ellipse cx="150" cy="230" rx="55" ry="35" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(135, 225, 165, 225, 8)}
++${[[70,170],[230,170],[70,290],[230,290]].map(([x,y]) =>
++  `<line x1="150" y1="230" x2="${x}" y2="${y}" stroke="${p.lo}" stroke-width="6"/>`
++  + `<circle cx="${x}" cy="${y}" r="22" fill="none" stroke="${p.hi}" stroke-width="5"/>`
++).join('')}
++<path d="M 150 265 L 140 300 L 160 300 Z" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>` },
++    '#ffc233': { label: 'alarm', draw: (p) => `
++<circle cx="150" cy="230" r="85" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="230" r="60" fill="#fff" opacity="0.2"/>
++${eyes(125, 215, 175, 215, 10)}
++${smile(130, 255, 40)}
++<path d="M 150 170 L 150 230 L 185 250" fill="none" stroke="#2a2430" stroke-width="5"/>
++<path d="M 90 160 L 70 120 M 210 160 L 230 120" fill="none" stroke="${p.lo}" stroke-width="8"/>
++<circle cx="70" cy="115" r="14" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++<circle cx="230" cy="115" r="14" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++<path d="M 130 315 L 120 350 M 170 315 L 180 350" fill="none" stroke="${p.lo}" stroke-width="8"/>` },
++    '#c8203a': { label: 'microwave', draw: (p) => `
++<rect x="55" y="150" width="190" height="150" rx="14" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<rect x="75" y="170" width="110" height="110" rx="8" fill="#1a2430" stroke="${p.line}" stroke-width="2"/>
++${eyes(100, 210, 150, 210, 10)}
++${smile(105, 245, 40)}
++<rect x="200" y="175" width="30" height="100" rx="6" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++${[0,1,2].map((i) => `<circle cx="215" cy="${195 + i * 28}" r="8" fill="${p.hi}"/>`).join('')}
++<path d="M 90 310 L 80 340 M 210 310 L 220 340" fill="none" stroke="${p.lo}" stroke-width="8"/>` },
++    '#ff9ecf': { label: 'lamp', draw: (p) => `
++<path d="M 90 200 L 150 80 L 210 200 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<rect x="140" y="200" width="20" height="110" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++<ellipse cx="150" cy="320" rx="55" ry="16" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
++${eyes(130, 160, 170, 160, 8)}
++${smile(135, 185, 30)}
++<path d="M 150 100 L 150 70" fill="none" stroke="#ffc233" stroke-width="4"/>
++<circle cx="150" cy="60" r="12" fill="#ffc233"/>` },
++  };
++
++  // ── Ocean ──────────────────────────────────────────────────────────────────
++  const OCEAN_CAST = {
++    '#1f9bff': { label: 'whale', draw: (p) => `
++<ellipse cx="150" cy="230" rx="110" ry="60" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 40 230 L 10 190 L 15 270 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 150 170 L 140 130 L 170 160 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++${eyes(190, 215, 190, 215, 0)}
++<circle cx="195" cy="215" r="12" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<circle cx="198" cy="217" r="5" fill="#2a2430"/>
++<path d="M 210 240 Q 230 250 210 258" fill="none" stroke="#2a2430" stroke-width="3"/>
++<path d="M 100 250 Q 150 270 200 250" fill="none" stroke="${p.hi}" stroke-width="4" opacity="0.4"/>` },
++    '#e3263c': { label: 'dolphin', draw: (p) => `
++<ellipse cx="160" cy="230" rx="95" ry="45" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 70 230 L 30 195 L 35 265 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 150 185 L 145 145 L 175 175 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++<circle cx="210" cy="220" r="11" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<circle cx="213" cy="222" r="5" fill="#2a2430"/>
++<path d="M 220 238 Q 245 245 225 255" fill="none" stroke="#2a2430" stroke-width="3"/>
++<path d="M 180 270 Q 200 310 170 300" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>` },
++    '#8ed11a': { label: 'shark', draw: (p) => `
++<ellipse cx="155" cy="230" rx="100" ry="48" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 55 230 L 15 200 L 20 260 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 150 182 L 150 130 L 175 182 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++<circle cx="210" cy="220" r="10" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<circle cx="213" cy="222" r="4" fill="#2a2430"/>
++<path d="M 220 240 L 255 250 L 220 255 Z" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<path d="M 120 255 L 200 255" fill="none" stroke="${p.hi}" stroke-width="3" opacity="0.4"/>` },
++    '#ff7a00': { label: 'octopus', draw: (p) => `
++<circle cx="150" cy="180" r="70" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(125, 170, 175, 170, 12)}
++${smile(130, 205, 40)}
++${[[90,250],[120,270],[150,280],[180,270],[210,250],[75,220],[225,220],[150,300]].map(([x,y],i) =>
++  `<path d="M ${140 + (i % 3) * 10} 230 Q ${x} ${y - 20} ${x} ${y}" fill="none" stroke="${p.base}" stroke-width="12"/>`
++  + `<circle cx="${x}" cy="${y}" r="10" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>`
++).join('')}` },
++    '#8a3ffc': { label: 'crab', draw: (p) => `
++<ellipse cx="150" cy="240" rx="80" ry="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(125, 220, 175, 220, 10)}
++${smile(130, 255, 40)}
++<path d="M 80 220 Q 30 180 40 140 Q 70 160 90 200 M 220 220 Q 270 180 260 140 Q 230 160 210 200" fill="none" stroke="${p.hi}" stroke-width="10"/>
++<path d="M 40 140 L 20 120 M 40 140 L 25 145 M 260 140 L 280 120 M 260 140 L 275 145" fill="none" stroke="${p.lo}" stroke-width="6"/>
++${[100,130,170,200].map((x) => `<path d="M ${x} 290 L ${x - 5} 340" fill="none" stroke="${p.lo}" stroke-width="8"/>`).join('')}` },
++    '#5fcfe6': { label: 'seahorse', draw: (p) => `
++<path d="M 160 120 Q 220 160 200 220 Q 160 260 170 320 Q 140 360 120 330 Q 150 300 140 250 Q 120 200 150 160 Q 130 130 160 120 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(175, 155, 175, 155, 0)}
++<circle cx="180" cy="155" r="9" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<circle cx="182" cy="157" r="4" fill="#2a2430"/>
++<path d="M 195 175 Q 210 185 195 195" fill="none" stroke="#2a2430" stroke-width="2.5"/>
++<path d="M 155 200 L 130 190 M 160 230 L 135 225 M 165 260 L 140 260" fill="none" stroke="${p.hi}" stroke-width="4"/>` },
++    '#3fae1a': { label: 'fishy', draw: (p) => `
++<ellipse cx="150" cy="230" rx="90" ry="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 60 230 L 20 185 L 25 275 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 150 180 L 135 145 L 170 175 Z M 150 280 L 135 315 L 170 275 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++<circle cx="190" cy="220" r="12" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<circle cx="193" cy="222" r="5" fill="#2a2430"/>
++${smile(195, 240, 20)}` },
++    '#ff5b86': { label: 'clam', draw: (p) => `
++<path d="M 60 240 Q 150 120 240 240 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 60 240 Q 150 340 240 240 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="3"/>
++${eyes(120, 210, 180, 210, 10)}
++${smile(130, 245, 40)}
++<path d="M 90 240 L 210 240" fill="none" stroke="${p.lo}" stroke-width="3"/>` },
++    '#4f63e0': { label: 'lobster', draw: (p) => `
++<ellipse cx="150" cy="240" rx="45" ry="90" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(135, 180, 165, 180, 8)}
++${smile(138, 205, 24)}
++<path d="M 110 200 Q 40 160 50 120 Q 80 140 115 185 M 190 200 Q 260 160 250 120 Q 220 140 185 185" fill="none" stroke="${p.hi}" stroke-width="12"/>
++<path d="M 50 120 L 30 100 M 50 120 L 35 125 M 250 120 L 270 100 M 250 120 L 265 125" fill="none" stroke="${p.lo}" stroke-width="6"/>
++${[0,1,2,3].map((i) => `<path d="M 120 ${260 + i * 20} L 90 ${280 + i * 22} M 180 ${260 + i * 20} L 210 ${280 + i * 22}" fill="none" stroke="${p.lo}" stroke-width="6"/>`).join('')}
++<path d="M 150 330 Q 130 360 150 370 Q 170 360 150 330" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>` },
++    '#ffc233': { label: 'starfish', draw: (p) => `
++<path d="M 150 100 L 170 180 L 250 180 L 185 230 L 210 320 L 150 270 L 90 320 L 115 230 L 50 180 L 130 180 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(130, 200, 170, 200, 9)}
++${smile(135, 230, 30)}` },
++    '#c8203a': { label: 'jellyfish', draw: (p) => `
++<path d="M 80 160 Q 80 100 150 95 Q 220 100 220 160 Q 220 200 150 210 Q 80 200 80 160 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(125, 150, 175, 150, 9)}
++${smile(130, 175, 40)}
++${[100,125,150,175,200].map((x,i) =>
++  `<path d="M ${x} 210 Q ${x + (i % 2 ? 15 : -15)} ${260 + i * 10} ${x} ${320 + i * 8}" fill="none" stroke="${p.hi}" stroke-width="6" opacity="0.85"/>`
++).join('')}` },
++    '#ff9ecf': { label: 'narwhal', draw: (p) => `
++<ellipse cx="150" cy="240" rx="95" ry="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 55 240 L 20 205 L 25 275 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 220 200 L 270 120" fill="none" stroke="#e8eef5" stroke-width="10"/>
++<path d="M 220 200 L 270 120" fill="none" stroke="${p.line}" stroke-width="2"/>
++<circle cx="195" cy="225" r="11" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<circle cx="198" cy="227" r="5" fill="#2a2430"/>
++${smile(200, 245, 25)}` },
++  };
++
++  // ── Snacks ─────────────────────────────────────────────────────────────────
++  const SNACK_CAST = {
++    '#1f9bff': { label: 'donut', draw: (p) => `
++<circle cx="150" cy="220" r="95" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="220" r="40" fill="#0b1a2b" stroke="${p.line}" stroke-width="3"/>
++<path d="M 70 180 Q 150 140 230 180 Q 200 160 150 155 Q 100 160 70 180" fill="#ff9ecf" opacity="0.9"/>
++${[0,1,2,3,4,5,6,7].map((i) => {
++  const a = (i / 8) * Math.PI * 2;
++  return `<circle cx="${150 + Math.cos(a) * 70}" cy="${220 + Math.sin(a) * 70}" r="6" fill="${['#ffc233','#8ed11a','#e3263c','#1f9bff'][i % 4]}"/>`;
++}).join('')}
++${eyes(120, 200, 180, 200, 10)}
++${smile(125, 245, 50)}` },
++    '#e3263c': { label: 'taco', draw: (p) => `
++<path d="M 60 280 Q 60 140 150 130 Q 240 140 240 280 Z" fill="#ffc233" stroke="#2a2430" stroke-width="3"/>
++<path d="M 75 270 Q 150 200 225 270" fill="url(#gC)" stroke="${p.line}" stroke-width="2"/>
++<path d="M 100 240 L 120 200 L 140 240 M 160 235 L 180 195 L 200 235" fill="#3fae1a" stroke="#2a6b12" stroke-width="1.5"/>
++${eyes(120, 210, 180, 210, 9)}
++${smile(130, 245, 40)}` },
++    '#8ed11a': { label: 'pretzel', draw: (p) => `
++<path d="M 90 280 Q 60 180 120 140 Q 150 120 180 140 Q 240 180 210 280 Q 190 320 150 300 Q 110 320 90 280 M 120 200 Q 150 240 180 200" fill="none" stroke="url(#gC)" stroke-width="28"/>
++<path d="M 90 280 Q 60 180 120 140 Q 150 120 180 140 Q 240 180 210 280 Q 190 320 150 300 Q 110 320 90 280 M 120 200 Q 150 240 180 200" fill="none" stroke="${p.line}" stroke-width="3"/>
++${[110,150,190,130,170].map((x,i) => `<circle cx="${x}" cy="${180 + (i % 3) * 40}" r="4" fill="#fff" opacity="0.7"/>`).join('')}
++${eyes(125, 200, 175, 200, 8)}
++${smile(135, 240, 30)}` },
++    '#ff7a00': { label: 'juice', draw: (p) => `
++<path d="M 100 160 L 110 340 L 190 340 L 200 160 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 100 160 L 200 160 L 190 130 L 110 130 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++<rect x="140" y="100" width="20" height="35" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++${eyes(130, 220, 170, 220, 9)}
++${smile(135, 260, 30)}
++<path d="M 120 180 L 180 180" fill="none" stroke="#fff" stroke-width="4" opacity="0.35"/>` },
++    '#8a3ffc': { label: 'pizza', draw: (p) => `
++<path d="M 150 120 L 250 320 L 50 320 Z" fill="#ffc233" stroke="#2a2430" stroke-width="3"/>
++<path d="M 150 145 L 230 305 L 70 305 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="2"/>
++${[[130,200],[170,220],[120,260],[160,270],[150,240]].map(([x,y]) =>
++  `<circle cx="${x}" cy="${y}" r="12" fill="#e3263c" stroke="#2a2430" stroke-width="1.5"/>`
++).join('')}
++${eyes(130, 230, 170, 245, 8)}
++${smile(135, 275, 30)}` },
++    '#5fcfe6': { label: 'cookie', draw: (p) => `
++<circle cx="150" cy="220" r="95" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${[[110,180],[180,170],[150,220],[120,260],[190,250],[160,280],[100,220]].map(([x,y]) =>
++  `<circle cx="${x}" cy="${y}" r="10" fill="#5b3a22"/>`
++).join('')}
++${eyes(120, 200, 180, 200, 11)}
++${smile(125, 245, 50)}` },
++    '#3fae1a': { label: 'icecream', draw: (p) => `
++<path d="M 100 240 L 150 360 L 200 240 Z" fill="#e8b892" stroke="#2a2430" stroke-width="3"/>
++<circle cx="150" cy="190" r="70" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="120" cy="150" r="35" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++<circle cx="180" cy="155" r="32" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++${eyes(130, 185, 170, 185, 9)}
++${smile(135, 215, 30)}
++<path d="M 150 120 L 150 90" fill="none" stroke="#ff9ecf" stroke-width="6"/>
++<circle cx="150" cy="85" r="8" fill="#ff9ecf"/>` },
++    '#ff5b86': { label: 'popcorn', draw: (p) => `
++<path d="M 90 200 L 80 340 L 220 340 L 210 200 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${[0,1,2,3].map((i) => `<path d="M 90 ${220 + i * 30} L 210 ${220 + i * 30}" fill="none" stroke="#fff" stroke-width="8" opacity="${i % 2 ? 0.35 : 0}"/>`).join('')}
++${[[110,160],[150,140],[190,165],[130,180],[170,175]].map(([x,y]) =>
++  `<circle cx="${x}" cy="${y}" r="22" fill="#ffc233" stroke="#2a2430" stroke-width="2"/>`
++).join('')}
++${eyes(125, 250, 175, 250, 9)}
++${smile(130, 285, 40)}` },
++    '#4f63e0': { label: 'hotdog', draw: (p) => `
++<path d="M 60 200 Q 60 160 150 155 Q 240 160 240 200 Q 240 280 150 290 Q 60 280 60 200 Z" fill="#e8b892" stroke="#2a2430" stroke-width="3"/>
++<path d="M 80 200 Q 80 175 150 170 Q 220 175 220 200 Q 220 255 150 260 Q 80 255 80 200 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="2"/>
++${eyes(120, 200, 180, 200, 9)}
++${smile(130, 230, 40)}
++<path d="M 100 185 Q 150 175 200 185" fill="none" stroke="#e3263c" stroke-width="4"/>` },
++    '#ffc233': { label: 'cupcake', draw: (p) => `
++<path d="M 95 230 L 105 340 L 195 340 L 205 230 Z" fill="#ff9ecf" stroke="#2a2430" stroke-width="3"/>
++${[0,1,2,3].map((i) => `<path d="M 100 ${245 + i * 22} L 200 ${245 + i * 22}" fill="none" stroke="#fff" stroke-width="4" opacity="0.35"/>`).join('')}
++<ellipse cx="150" cy="220" rx="70" ry="40" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="180" r="45" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++${eyes(130, 195, 170, 195, 8)}
++${smile(135, 220, 30)}
++<path d="M 150 140 L 150 110" fill="none" stroke="#e3263c" stroke-width="5"/>
++<circle cx="150" cy="105" r="10" fill="#e3263c"/>` },
++    '#c8203a': { label: 'chips', draw: (p) => `
++<path d="M 100 140 L 90 340 L 210 340 L 200 140 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 100 140 Q 150 110 200 140" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++${eyes(125, 200, 175, 200, 10)}
++${smile(130, 245, 40)}
++<path d="M 120 160 L 180 160" fill="none" stroke="#fff" stroke-width="3" opacity="0.4"/>
++<text x="150" y="300" text-anchor="middle" font-size="28" fill="#fff" font-family="sans-serif" font-weight="700" opacity="0.5">CHIP</text>` },
++    '#ff9ecf': { label: 'candy', draw: (p) => `
++<ellipse cx="150" cy="220" rx="55" ry="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 95 200 L 40 160 L 45 240 Z M 205 200 L 260 160 L 255 240 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++<path d="M 100 220 L 200 220" fill="none" stroke="#fff" stroke-width="8" opacity="0.35"/>
++${eyes(130, 210, 170, 210, 9)}
++${smile(135, 240, 30)}` },
++  };
++
++  // ── Cryptids ───────────────────────────────────────────────────────────────
++  const CRYPTID_CAST = {
++    '#1f9bff': { label: 'bigfoot', draw: (p) => `
++<ellipse cx="150" cy="300" rx="55" ry="45" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="150" cy="210" rx="50" ry="70" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="130" r="45" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(135, 125, 165, 125, 8)}
++${smile(138, 150, 24)}
++<path d="M 100 200 Q 50 240 60 300 M 200 200 Q 250 240 240 300" fill="none" stroke="${p.lo}" stroke-width="16"/>
++<path d="M 110 340 L 90 370 M 190 340 L 210 370" fill="none" stroke="${p.lo}" stroke-width="14"/>` },
++    '#e3263c': { label: 'nessie', draw: (p) => `
++<path d="M 40 300 Q 80 260 120 280 Q 160 310 200 270 Q 240 230 270 260" fill="none" stroke="url(#gC)" stroke-width="36"/>
++<path d="M 40 300 Q 80 260 120 280 Q 160 310 200 270 Q 240 230 270 260" fill="none" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="230" cy="200" rx="40" ry="45" fill="${p.base}" stroke="${p.line}" stroke-width="3"/>
++${eyes(220, 190, 245, 190, 7)}
++${smile(220, 215, 28)}
++<path d="M 250 165 L 270 130" fill="none" stroke="${p.hi}" stroke-width="8"/>` },
++    '#8ed11a': { label: 'mothman', draw: (p) => `
++<ellipse cx="150" cy="250" rx="40" ry="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="170" r="40" fill="${p.base}" stroke="${p.line}" stroke-width="3"/>
++${eyes(132, 165, 168, 165, 10)}
++<path d="M 110 220 Q 30 160 50 100 Q 100 150 120 200 M 190 220 Q 270 160 250 100 Q 200 150 180 200" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5" opacity="0.9"/>
++<path d="M 130 300 L 120 350 M 170 300 L 180 350" fill="none" stroke="${p.lo}" stroke-width="8"/>
++<path d="M 140 195 L 160 195" fill="none" stroke="#2a2430" stroke-width="3"/>` },
++    '#ff7a00': { label: 'chupacabra', draw: (p) => `
++<ellipse cx="150" cy="280" rx="60" ry="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="150" cy="190" rx="50" ry="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${[110,130,150,170,190].map((x,i) => `<path d="M ${x} 145 L ${x} ${110 - i * 2}" fill="none" stroke="${p.hi}" stroke-width="5"/>`).join('')}
++${eyes(130, 185, 170, 185, 9)}
++<path d="M 135 210 L 150 225 L 165 210" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++<path d="M 90 240 Q 50 260 55 300 M 210 240 Q 250 260 245 300" fill="none" stroke="${p.lo}" stroke-width="10"/>
++<path d="M 120 325 L 100 360 M 180 325 L 200 360" fill="none" stroke="${p.lo}" stroke-width="10"/>` },
++    '#8a3ffc': { label: 'jersey', draw: (p) => `
++<ellipse cx="150" cy="270" rx="45" ry="70" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="160" r="48" fill="${p.base}" stroke="${p.line}" stroke-width="3"/>
++<path d="M 120 130 L 100 80 L 140 115 M 180 130 L 200 80 L 160 115" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++${eyes(132, 155, 168, 155, 9)}
++${smile(136, 180, 28)}
++<path d="M 105 220 Q 60 200 55 250 Q 80 260 110 240 M 195 220 Q 240 200 245 250 Q 220 260 190 240" fill="none" stroke="${p.lo}" stroke-width="8"/>
++<path d="M 130 340 L 110 380 M 170 340 L 190 380" fill="none" stroke="${p.lo}" stroke-width="12"/>
++<path d="M 200 300 Q 250 280 260 230" fill="none" stroke="${p.base}" stroke-width="10"/>` },
++    '#5fcfe6': { label: 'yeti', draw: (p) => `
++<ellipse cx="150" cy="290" rx="70" ry="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="150" cy="200" rx="65" ry="75" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="120" r="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(130, 115, 170, 115, 9)}
++${smile(134, 145, 32)}
++<path d="M 90 190 Q 40 220 50 280 M 210 190 Q 260 220 250 280" fill="none" stroke="${p.hi}" stroke-width="18"/>
++<path d="M 110 340 L 95 375 M 190 340 L 205 375" fill="none" stroke="${p.lo}" stroke-width="14"/>` },
++    '#3fae1a': { label: 'jackalope', draw: (p) => `
++<ellipse cx="150" cy="300" rx="65" ry="50" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="200" r="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 120 160 L 100 60 L 95 100 L 80 50 L 110 120 M 180 160 L 200 60 L 205 100 L 220 50 L 190 120" fill="none" stroke="${p.hi}" stroke-width="6"/>
++${eyes(130, 195, 170, 195, 8)}
++${smile(134, 220, 32)}
++<path d="M 210 290 Q 250 250 245 200" fill="none" stroke="${p.base}" stroke-width="12"/>` },
++    '#ff5b86': { label: 'thunderbird', draw: (p) => `
++<ellipse cx="150" cy="240" rx="40" ry="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<circle cx="150" cy="160" r="38" fill="${p.base}" stroke="${p.line}" stroke-width="3"/>
++${eyes(135, 155, 165, 155, 7)}
++<path d="M 150 175 L 140 195 L 160 195 Z" fill="#ffc233" stroke="#2a2430" stroke-width="2"/>
++<path d="M 110 220 Q 20 180 30 100 Q 90 140 115 200 M 190 220 Q 280 180 270 100 Q 210 140 185 200" fill="${p.hi}" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 130 295 L 120 340 M 170 295 L 180 340" fill="none" stroke="${p.lo}" stroke-width="8"/>
++<path d="M 40 120 L 20 90 M 260 120 L 280 90" fill="none" stroke="#ffc233" stroke-width="4"/>` },
++    '#4f63e0': { label: 'flatwoods', draw: (p) => `
++<path d="M 100 140 L 200 140 L 220 200 L 80 200 Z" fill="${p.hi}" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="150" cy="260" rx="55" ry="75" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(130, 180, 170, 180, 12)}
++${smile(135, 210, 30)}
++<path d="M 100 240 Q 50 280 60 340 M 200 240 Q 250 280 240 340" fill="none" stroke="${p.lo}" stroke-width="12"/>
++<path d="M 120 330 L 110 370 M 180 330 L 190 370" fill="none" stroke="${p.lo}" stroke-width="10"/>` },
++    '#ffc233': { label: 'kraken', draw: (p) => `
++<ellipse cx="150" cy="180" rx="75" ry="60" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(120, 170, 180, 170, 14)}
++<path d="M 130 200 L 150 220 L 170 200" fill="#fff" stroke="#2a2430" stroke-width="2"/>
++${[[70,250],[100,280],[130,300],[170,300],[200,280],[230,250],[60,200],[240,200]].map(([x,y],i) =>
++  `<path d="M ${140 + (i % 4) * 5} 220 Q ${x} ${y - 30} ${x} ${y}" fill="none" stroke="${p.base}" stroke-width="11"/>`
++  + `<circle cx="${x}" cy="${y}" r="9" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>`
++).join('')}` },
++    '#c8203a': { label: 'bunyip', draw: (p) => `
++<ellipse cx="150" cy="280" rx="70" ry="55" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<ellipse cx="150" cy="190" rx="60" ry="65" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++<path d="M 110 150 L 95 100 L 130 135 M 190 150 L 205 100 L 170 135" fill="${p.hi}" stroke="${p.line}" stroke-width="2"/>
++${eyes(128, 180, 172, 180, 10)}
++${smile(132, 215, 36)}
++<path d="M 90 230 Q 40 250 50 310 M 210 230 Q 260 250 250 310" fill="none" stroke="${p.lo}" stroke-width="12"/>
++<path d="M 200 300 Q 250 320 270 280" fill="none" stroke="${p.base}" stroke-width="14"/>` },
++    '#ff9ecf': { label: 'nightcrawler', draw: (p) => `
++<path d="M 150 100 Q 200 160 180 240 Q 160 320 150 360 Q 140 320 120 240 Q 100 160 150 100 Z" fill="url(#gC)" stroke="${p.line}" stroke-width="3"/>
++${eyes(135, 160, 165, 160, 8)}
++${smile(138, 190, 24)}
++<path d="M 130 140 L 115 110 M 170 140 L 185 110" fill="none" stroke="${p.hi}" stroke-width="5"/>
++<path d="M 120 250 Q 80 260 85 300 M 180 250 Q 220 260 215 300" fill="none" stroke="${p.lo}" stroke-width="8"/>` },
++  };
++
++  function makeEdition(name, CAST) {
++    const fallback = CAST['#1f9bff'];
++    function palette(base) {
++      return {
++        base,
++        hi: shade(base, 0.2),
++        lo: shade(base, -0.28),
++        line: shade(base, -0.55),
++        v: CAST[String(base).toLowerCase()] || fallback,
++      };
++    }
++    function bodySVG(p) {
++      const art = typeof p.v.draw === 'function' ? p.v.draw(p) : '';
++      return wrap(p, art);
++    }
++    return { CAST, palette, bodySVG, name };
++  }
++
++  window.FLIP_CARTOON_CASTS = {
++    pets: makeEdition('pets', PET_CAST),
++    garden: makeEdition('garden', GARDEN_CAST),
++    robots: makeEdition('robots', ROBOT_CAST),
++    ocean: makeEdition('ocean', OCEAN_CAST),
++    snacks: makeEdition('snacks', SNACK_CAST),
++    cryptids: makeEdition('cryptids', CRYPTID_CAST),
++  };
++})();
+diff --git a/parrot-flip/js/game.js b/parrot-flip/js/game.js
+index ed03d0f..1ef6ead 100644
+--- a/parrot-flip/js/game.js
++++ b/parrot-flip/js/game.js
+@@ -60,7 +60,10 @@ const game = {
+     this.practice   = !!opts.practice;
+     this.difficulty = opts.difficulty || 'medium';
+     this.startingLives = STARTING_LIFE_PRESETS.includes(+opts.startingLives) ? +opts.startingLives : 10;
+-    this.maxLives = Math.max(20, this.startingLives);
++    // Headroom above the start count so ON FIRE can actually mint lives.
++    // Classic 10-life games keep the old 20 cap; 100-life games were stuck at
++    // max==start so every fire make gained 0 and immediately "Fire maxed".
++    this.maxLives = Math.max(20, this.startingLives + ONFIRE_CAP_LIVES);
+     this.players = defs.map(d => ({
+       name: d.name,
+       color: d.color || '#0b86ff',
+diff --git a/parrot-flip/js/main.js b/parrot-flip/js/main.js
+index 6a8a8ab..41dc116 100644
+--- a/parrot-flip/js/main.js
++++ b/parrot-flip/js/main.js
+@@ -33,6 +33,17 @@
+   const onlineRosterEl   = document.getElementById('online-roster');
+   const addPlayerBtn = document.getElementById('add-player-btn');
+   const playerInputs = document.getElementById('player-inputs');
++  const charPickScreen = document.getElementById('char-picker-screen');
++  const charPickGrid   = document.getElementById('charpick-grid');
++  const charPickTitle  = document.getElementById('charpick-title');
++  const charPickClose  = document.getElementById('charpick-close');
++  const mysteryScreen   = document.getElementById('mystery-screen');
++  const mysteryHeadlineEl = document.getElementById('mystery-headline');
++  const mysteryArtEl    = document.getElementById('mystery-art');
++  const mysteryNameEl   = document.getElementById('mystery-name');
++  const mysteryFamilyEl = document.getElementById('mystery-family');
++  const mysteryGoBtn    = document.getElementById('mystery-go-btn');
++  const mysteryQueueEl  = document.getElementById('mystery-queue');
+   const muteBtn      = document.getElementById('mute-btn');
+   const recordsPanel = document.getElementById('records-panel');
+   const passScreen   = document.getElementById('pass-screen');
+@@ -115,120 +126,353 @@
+     { name: 'Pink Fluff',       color: '#ff9ecf' },
+   ];
+ 
+-  // ── Player setup rows (name + flavor picker + Human/CPU) ────────────────────
++  // ── Player setup rows (skin family + color + Human/CPU) ────────────────────
++  // Character chips are one per skin family (Bottle, People, Aliens…).
++  // Color freely recolors that skin / swaps cast variants, and updates the
++  // default name to match.
+   let playerCount = 2;
+ 
+-  function swatchesHtml(sel) {
+-    return FLAVORS.map((f, i) =>
+-      `<button type="button" class="flavor-swatch${i === sel ? ' selected' : ''}" data-idx="${i}" style="background:${f.color}" title="${f.name}"></button>`
+-    ).join('');
+-  }
+-
+-  // ── Skins (flippable editions: bottle, parrot, …) ───────────────────────────
+-  // A fully-themed port (e.g. the parrot site) sets window.FLIP_FORCE_SKIN to
+-  // force one edition and hide the picker. Otherwise players choose per-row once
+-  // an edition is unlocked (see Records.unlockSkin).
+   const FORCE_SKIN = (typeof window !== 'undefined' && window.FLIP_FORCE_SKIN) || null;
+-  // Branding: which edition is free from the start, and whether this build
+-  // offers online play at all. See window.FLIP_BRAND (set by the port's HTML).
+   const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
+   const BASE_SKIN = BRAND.baseSkin || 'bottle';
+   const ONLINE_ENABLED = BRAND.online !== false;
+ 
+-  // The default player name for a given skin + flavor index — bottle (or any
+-  // skin without its own roster) falls back to the flavor name; a skin with a
+-  // `names` list (see skins.js) uses the name at the SAME index, so the color
+-  // picked doesn't change when the skin does.
+-  function defaultNameFor(skin, flavorIdx) {
+-    const names = window.Skins && Skins.namesFor ? Skins.namesFor(skin) : null;
+-    return (names && names[flavorIdx]) || FLAVORS[flavorIdx].name;
++  function characterList() {
++    return window.Skins && Skins.list ? Skins.list() : [{ id: BASE_SKIN, name: 'Bottle', emoji: '🍾', color: '#1f9bff', tint: '#1f9bff' }];
++  }
++  function characterById(id) {
++    if (window.Skins && Skins.character) return Skins.character(id);
++    return characterList().find((c) => c.id === id) || null;
++  }
++  function isCharUnlocked(id) {
++    const c = characterById(id);
++    if (!c) return false;
++    return c.id === BASE_SKIN || c.unlock == null || Records.isSkinUnlocked(c.id);
++  }
++  function availableCharacters() {
++    return characterList().filter((c) => isCharUnlocked(c.id));
++  }
++  function familyKey(id) {
++    if (window.Skins && Skins.familyKey) return Skins.familyKey(id);
++    const c = characterById(id);
++    return (c && c.drawAs) || id;
++  }
++  // One chip per unlocked skin family (first unlocked member as representative).
++  function availableFamilies() {
++    const seen = new Set();
++    const out = [];
++    for (const c of availableCharacters()) {
++      const k = familyKey(c.id);
++      if (seen.has(k)) continue;
++      seen.add(k);
++      out.push(c);
++    }
++    return out;
++  }
++  function resolveCharForColor(charId, color) {
++    if (window.Skins && Skins.resolveForColor) return Skins.resolveForColor(charId, color);
++    return charId;
++  }
++  function defaultCharId() {
++    if (FORCE_SKIN && characterById(FORCE_SKIN)) return FORCE_SKIN;
++    const avail = availableFamilies();
++    return (avail[0] && avail[0].id) || BASE_SKIN;
++  }
++  function defaultColorFor(charId) {
++    const c = characterById(charId);
++    return (c && (c.color || c.tint)) || FLAVORS[0].color;
++  }
++  function normalizeColor(hex) {
++    const h = String(hex || '').toLowerCase();
++    const hit = FLAVORS.find((f) => f.color === h);
++    return hit ? hit.color : defaultColorFor(defaultCharId());
++  }
++  // Default player name for a skin + color — always a unique pun per flavor.
++  function defaultNameFor(charId, color) {
++    const col = color != null ? normalizeColor(color) : defaultColorFor(charId);
++    if (window.Skins && Skins.nameFor) return Skins.nameFor(charId, col);
++    const f = FLAVORS.find((x) => x.color === col);
++    const c = characterById(resolveCharForColor(charId, col));
++    return (c && c.name) || (f && f.name) || 'Player';
++  }
++  function familyLabel(charId) {
++    if (window.Skins && Skins.familyLabel) return Skins.familyLabel(charId);
++    const c = characterById(charId);
++    return (c && c.name) || 'Character';
++  }
++  function drawTintFor(charId, color) {
++    if (window.Skins && Skins.drawColor) return Skins.drawColor(charId, color);
++    return color || defaultColorFor(charId);
++  }
++  function isFamilyUnlocked(id) {
++    const k = familyKey(id);
++    if (k === familyKey(BASE_SKIN)) return true;
++    return availableCharacters().some((c) => familyKey(c.id) === k);
+   }
+ 
+-  function availableSkins() {
+-    const all = window.Skins ? Skins.list() : [{ id: BASE_SKIN, name: 'Bottle', emoji: '🍾' }];
+-    return all.filter(s => s.id === BASE_SKIN || Records.isSkinUnlocked(s.id));
++  // One entry per skin family: { key, rep, members, owned, total, cast, unlocked }.
++  // Since a mystery box grants ONE random character, a family is partially
++  // collected for most of the game — `owned/total` is what the tile reports.
++  //
++  // `cast` families (people, pets, ocean…) have a distinct character per color,
++  // so an uncollected color is genuinely unavailable. Single-object families
++  // (bottle, trex, parrot…) are ONE character recolored, so owning it grants all
++  // 12 colors — Skins.isCastFamily is what distinguishes them.
++  function familyCatalog() {
++    const byFam = new Map();
++    for (const c of characterList()) {
++      const k = familyKey(c.id);
++      let e = byFam.get(k);
++      if (!e) {
++        e = { key: k, rep: c, members: [], owned: 0, total: 0,
++              cast: !!(window.Skins && Skins.isCastFamily && Skins.isCastFamily(c.id)) };
++        byFam.set(k, e);
++      }
++      e.members.push(c);
++      e.total++;
++      if (isCharUnlocked(c.id)) {
++        e.owned++;
++        // First collected member represents the family on its tile.
++        if (e.owned === 1) e.rep = c;
++      }
++    }
++    // Collected families first (most complete first), then the rest alphabetically
++    // — with random draws there's no ladder order left to preserve.
++    return [...byFam.values()].map((e) => ({ ...e, unlocked: e.owned > 0 }))
++      .sort((a, b) => (b.owned > 0) - (a.owned > 0) ||
++                      b.owned / b.total - a.owned / a.total ||
++                      familyLabel(a.rep.id).localeCompare(familyLabel(b.rep.id)));
++  }
++
++  // Is this exact color playable for the row's family? Cast families need that
++  // specific variant collected; single-object skins recolor freely.
++  function isColorAvailable(charId, color) {
++    const fam = familyCatalog().find((e) => e.key === familyKey(charId));
++    if (!fam || !fam.cast) return true;
++    return isCharUnlocked(resolveCharForColor(fam.rep.id, color));
+   }
+-  function skinChoiceHtml(sel) {
+-    const list = availableSkins();
+-    if (FORCE_SKIN || list.length < 2) return '';   // nothing to choose yet
+-    return '<div class="skin-picker">' + list.map(s =>
+-      `<button type="button" class="skin-choice${s.id === sel ? ' selected' : ''}" data-skin="${s.id}">${s.emoji} ${s.name}</button>`
+-    ).join('') + '</div>';
++  // The color to fall back to when the requested one isn't collected yet.
++  function firstOwnedColor(charId) {
++    const fam = familyCatalog().find((e) => e.key === familyKey(charId));
++    if (!fam) return defaultColorFor(charId);
++    const hit = fam.members.find((m) => isCharUnlocked(m.id));
++    return normalizeColor((hit && (hit.tint || hit.color)) || defaultColorFor(charId));
++  }
++
++  // The picker grid: one tile per family, art drawn in the player's CURRENT
++  // color so the choice previews exactly what they'll flip.
++  function familyTilesHtml(curCharId, curColor) {
++    const curFam = familyKey(curCharId);
++    return familyCatalog().map((e) => {
++      const label = familyLabel(e.rep.id);
++      // 200x280 matches the renderer's 300x420 content aspect so the art fills
++      // the tile, and keeps >=1.7x DPR at both the ~82px phone tile and the
++      // ~114px tile in the wider card. drawPreview auto-fits any canvas size.
++      const art = (id) => `<canvas class="fam-art" width="200" height="280" ` +
++        `data-preview-char="${id}" aria-hidden="true"></canvas>`;
++      // Show art the player actually owns. Resolving the current color straight
++      // through would display an uncollected variant — spoiling art they haven't
++      // earned and misrepresenting what picking this tile would give them.
++      const forColor = resolveCharForColor(e.rep.id, curColor);
++      const artId = (e.unlocked && !isCharUnlocked(forColor)) ? e.rep.id : forColor;
++      // Cast families report progress; single-object skins are all-or-nothing.
++      const count = e.cast ? `${e.owned}/${e.total}` : '';
++      if (!e.unlocked) {
++        // aria-disabled, NOT disabled: a disabled button drops out of the tab
++        // order and tells a screen-reader user nothing about why. This stays
++        // focusable and the click handler explains itself with a toast.
++        return `<button type="button" class="fam-tile" data-locked="1" aria-disabled="true"` +
++          ` data-label="${escapeHtml(label)}"` +
++          ` aria-label="${escapeHtml(label)} — not collected yet">` +
++          art(artId) +
++          `<span class="fam-name">${escapeHtml(label)}</span>` +
++          `<span class="fam-need">🔒 not yet</span>` +
++          `</button>`;
++      }
++      const sel = e.key === curFam;
++      const partial = e.cast && e.owned < e.total;
++      return `<button type="button" class="fam-tile${sel ? ' selected' : ''}"` +
++        ` data-char="${e.rep.id}"${sel ? ' aria-current="true"' : ''}` +
++        ` aria-label="${escapeHtml(label)}${count ? ' — ' + count + ' collected' : ''}">` +
++        art(artId) +
++        `<span class="fam-name">${escapeHtml(label)}</span>` +
++        (count ? `<span class="fam-count${partial ? '' : ' complete'}">${count}</span>` : '') +
++        `</button>`;
++    }).join('');
++  }
++
++  // For a cast family each color IS a separate character, so a colour the player
++  // hasn't drawn from a mystery box yet is genuinely unavailable and renders
++  // locked. Single-object skins recolor freely, so all 12 stay open.
++  function colorSwatchesHtml(selColor, charId) {
++    const sel = normalizeColor(selColor);
++    const id = charId || defaultCharId();
++    return FLAVORS.map((f) => {
++      const nm = defaultNameFor(id, f.color);
++      const open = isColorAvailable(id, f.color);
++      return `<button type="button" class="flavor-swatch${f.color === sel ? ' selected' : ''}` +
++        `${open ? '' : ' locked'}" data-color="${f.color}"${open ? '' : ' aria-disabled="true"'}` +
++        ` style="background:${f.color}"` +
++        ` title="${escapeHtml(open ? nm : nm + ' — not collected yet')}"></button>`;
++    }).join('');
+   }
+ 
+   function rowHtml(i, def) {
+-    const skin = def.skin || BASE_SKIN;
+-    return `<div class="player-input-row" data-flavor="${def.flavor}" data-ai="${def.ai ? 1 : 0}" data-skin="${skin}">
++    const col = normalizeColor(def.color || defaultColorFor(def.charId || defaultCharId()));
++    const charId = resolveCharForColor(def.charId || defaultCharId(), col);
++    const name = def.name != null ? def.name : defaultNameFor(charId, col);
++    // Two control lines beside the preview: a 440px card can't fit preview +
++    // P# + name + Change + CPU + remove on one row without crushing the input.
++    // FORCE_SKIN hides the Change button outright — rowsToDefs and the
++    // practice/online paths all hard-override the skin, so offering a choice
++    // that gets silently discarded is worse than offering none.
++    return `<div class="player-input-row" data-char="${charId}" data-color="${col}" data-ai="${def.ai ? 1 : 0}">
+       <div class="prow-top">
+-        <canvas class="skin-preview" width="76" height="92" aria-hidden="true"></canvas>
+-        <span class="player-num" style="color:${FLAVORS[def.flavor].color}">P${i + 1}</span>
+-        <input type="text" placeholder="${escapeHtml(defaultNameFor(skin, def.flavor))}" maxlength="14" value="${escapeHtml(def.name)}">
+-        <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? 'CPU' : 'Human'}</button>
+-        ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
++        <canvas class="skin-preview" width="160" height="224" aria-hidden="true"></canvas>
++        <div class="prow-main">
++          <div class="prow-line">
++            <span class="player-num" style="color:${col}">P${i + 1}</span>
++            <input type="text" placeholder="${escapeHtml(defaultNameFor(charId, col))}" maxlength="14" value="${escapeHtml(name)}">
++          </div>
++          <div class="prow-line">
++            ${FORCE_SKIN ? '' : `<button type="button" class="char-change-btn" aria-haspopup="dialog" title="Change character"><span class="charbtn-label">${escapeHtml(familyLabel(charId))}</span><span aria-hidden="true">▾</span></button>`}
++            <button type="button" class="ai-toggle${def.ai ? ' cpu' : ''}" title="Tap to switch Human / CPU">${def.ai ? 'CPU' : 'Human'}</button>
++            ${i >= 2 ? '<button type="button" class="remove-player-btn" title="Remove">✕</button>' : ''}
++          </div>
++        </div>
+       </div>
+-      <div class="flavor-picker">${swatchesHtml(def.flavor)}</div>
+-      ${skinChoiceHtml(skin)}
++      <div class="picker-label">Color — <span class="flavor-name">${escapeHtml(defaultNameFor(charId, col))}</span></div>
++      <div class="flavor-picker">${colorSwatchesHtml(col, charId)}</div>
+     </div>`;
+   }
+ 
+   function readRows() {
+-    return [...playerInputs.querySelectorAll('.player-input-row')].map(row => ({
+-      name: row.querySelector('input').value,
+-      flavor: parseInt(row.dataset.flavor) || 0,
+-      ai: row.dataset.ai === '1',
+-      skin: row.dataset.skin || BASE_SKIN,
+-    }));
++    return [...playerInputs.querySelectorAll('.player-input-row')].map(row => {
++      const color = normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char));
++      const charId = resolveCharForColor(row.dataset.char || defaultCharId(), color);
++      return {
++        name: row.querySelector('input').value,
++        charId,
++        color,
++        ai: row.dataset.ai === '1',
++      };
++    });
+   }
+ 
+-  // Live "what am I flipping" thumbnail on each setup row. Call after anything
+-  // that changes a row's skin or color.
+   function paintRowPreview(row) {
+-    // NB: renderer.js declares `const Renderer`, which lives in script scope
+-    // and never lands on `window` — checking window.Renderer here silently
+-    // skips every preview.
+     const cv = row && row.querySelector('.skin-preview');
+     if (!cv || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
+-    const idx = parseInt(row.dataset.flavor) || 0;
+-    Renderer.drawPreview(cv, row.dataset.skin || BASE_SKIN, FLAVORS[idx].color);
++    const color = normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char));
++    const charId = resolveCharForColor(row.dataset.char || defaultCharId(), color);
++    const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(charId) : charId;
++    Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : charId, drawTintFor(charId, color));
+   }
+   function paintAllPreviews() {
+     playerInputs.querySelectorAll('.player-input-row').forEach(paintRowPreview);
+   }
+ 
++  // Repaint everything on a row that's derived from data-char / data-color.
++  function syncRowChrome(row) {
++    if (!row) return;
++    const charId = row.dataset.char || defaultCharId();
++    const col = normalizeColor(row.dataset.color || defaultColorFor(charId));
++    row.querySelectorAll('.flavor-swatch').forEach((s) => {
++      s.classList.toggle('selected', s.dataset.color === col);
++      // Both of these are per-family, so they must be recomputed on every sync:
++      // the pun roster (stale titles used to show the OLD family's names), and
++      // which colors are collected (a cast family locks the ones you don't own).
++      const open = isColorAvailable(charId, s.dataset.color);
++      s.classList.toggle('locked', !open);
++      if (open) s.removeAttribute('aria-disabled'); else s.setAttribute('aria-disabled', 'true');
++      const nm = defaultNameFor(charId, s.dataset.color);
++      s.title = open ? nm : nm + ' — not collected yet';
++    });
++    const num = row.querySelector('.player-num');
++    if (num) num.style.color = col;
++    const lbl = row.querySelector('.charbtn-label');
++    if (lbl) lbl.textContent = familyLabel(charId);
++    const fl = row.querySelector('.flavor-name');
++    if (fl) fl.textContent = defaultNameFor(charId, col);
++    paintRowPreview(row);
++  }
++
++  // Single source of truth for "this row now wants character X at color Y".
++  // Pass null for either to keep the row's current family / color. A name the
++  // player typed survives; one still sitting at the old default pun is updated.
++  function applyRowChar(row, familyRepOrCharId, color) {
++    if (!row) return;
++    const oldId = row.dataset.char || defaultCharId();
++    const oldCol = normalizeColor(row.dataset.color || defaultColorFor(oldId));
++    const wantId = familyRepOrCharId || oldId;
++    let col = normalizeColor(color != null ? color : oldCol);
++    // Switching to a cast family whose variant for this color isn't collected yet
++    // would seat the player on a locked character — snap to one they do own.
++    if (!isColorAvailable(wantId, col)) col = firstOwnedColor(wantId);
++    const newId = resolveCharForColor(wantId, col);
++    const input = row.querySelector('input');
++    const oldDefault = defaultNameFor(oldId, oldCol);
++    const nextDefault = defaultNameFor(newId, col);
++    if (input && (!input.value.trim() || input.value.trim() === oldDefault)) {
++      input.value = nextDefault;
++    }
++    // State stays in data-* so readRows()/rowsToDefs keep working untouched.
++    row.dataset.char = newId;
++    row.dataset.color = col;
++    if (input) input.placeholder = nextDefault;
++    syncRowChrome(row);
++  }
++
+   function renderFrom(defs) {
++    // Re-rendering replaces the rows wholesale; an open picker would be left
++    // holding a detached node whose mutations go nowhere.
++    if (pickerRow) closeCharPicker();
+     playerCount = defs.length;
+     playerInputs.innerHTML = defs.map((d, i) => rowHtml(i, d)).join('');
+     addPlayerBtn.disabled = playerCount >= 8;
+     paintAllPreviews();
+   }
+ 
++  // Defaults for a fresh seat: rotate through the collected families, and keep
++  // the family's own tint unless another seat already took it. On a first-run
++  // device every seat is a Bottle, so without this both players start as an
++  // identical blue "Blue Steel" and there's nothing to tell them apart.
++  function seatDefaults(i, takenColors) {
++    const avail = availableFamilies();
++    const pick = avail[i % Math.max(1, avail.length)] || avail[0];
++    const famId = (pick && pick.id) || defaultCharId();
++    const taken = new Set(takenColors || []);
++    const options = [defaultColorFor(famId), ...FLAVORS.map((f) => f.color)]
++      .filter((c) => isColorAvailable(famId, c));
++    const color = options.find((c) => !taken.has(c)) || options[0] || firstOwnedColor(famId);
++    const charId = resolveCharForColor(famId, color);
++    return { name: defaultNameFor(charId, color), charId, color, ai: false };
++  }
++
+   function addPlayerInput() {
+     if (playerCount >= 8) return;
+     const defs = readRows();
+-    const fl = defs.length % FLAVORS.length;
+-    defs.push({ name: FLAVORS[fl].name, flavor: fl, ai: false });
++    defs.push(seatDefaults(defs.length, defs.map((d) => d.color)));
+     renderFrom(defs);
+   }
+ 
+-  // event delegation: flavor select, AI toggle, remove
++  // event delegation: open picker, color, AI toggle, remove
+   playerInputs.addEventListener('click', (e) => {
++    const chg = e.target.closest('.char-change-btn');
++    if (chg) {
++      openCharPicker(chg.closest('.player-input-row'), chg);
++      return;
++    }
+     const sw = e.target.closest('.flavor-swatch');
+     if (sw) {
+       const row = sw.closest('.player-input-row');
+-      const oldIdx = +row.dataset.flavor, newIdx = +sw.dataset.idx;
+-      const skin = row.dataset.skin || BASE_SKIN;
+-      const input = row.querySelector('input');
+-      // The name follows the flavor's default name for the CURRENT skin,
+-      // unless the player typed a custom one.
+-      if (!input.value.trim() || input.value.trim() === defaultNameFor(skin, oldIdx)) {
+-        input.value = defaultNameFor(skin, newIdx);
++      if (sw.classList.contains('locked')) {
++        const id = row.dataset.char || defaultCharId();
++        showToast(`🔒 ${defaultNameFor(id, sw.dataset.color)} hasn’t turned up in a mystery box yet.`);
++        return;
+       }
+-      row.dataset.flavor = newIdx;
+-      row.querySelectorAll('.flavor-swatch').forEach(s => s.classList.remove('selected'));
+-      sw.classList.add('selected');
+-      row.querySelector('.player-num').style.color = FLAVORS[newIdx].color;
+-      input.placeholder = defaultNameFor(skin, newIdx);
+-      paintRowPreview(row);
++      // Keep the family, switch the color — resolveCharForColor swaps a cast to
++      // that color's variant and leaves a single-object skin to recolor in place.
++      applyRowChar(row, null, sw.dataset.color);
+       return;
+     }
+     const ai = e.target.closest('.ai-toggle');
+@@ -240,25 +484,6 @@
+       ai.classList.toggle('cpu', !on);
+       return;
+     }
+-    const sk = e.target.closest('.skin-choice');
+-    if (sk) {
+-      const row = sk.closest('.player-input-row');
+-      const oldSkin = row.dataset.skin || BASE_SKIN;
+-      const newSkin = sk.dataset.skin;
+-      const idx = +row.dataset.flavor;
+-      const input = row.querySelector('input');
+-      // Same rule as the flavor swatch: the name follows the skin's default
+-      // unless the player typed a custom one.
+-      if (!input.value.trim() || input.value.trim() === defaultNameFor(oldSkin, idx)) {
+-        input.value = defaultNameFor(newSkin, idx);
+-      }
+-      input.placeholder = defaultNameFor(newSkin, idx);
+-      row.dataset.skin = newSkin;
+-      row.querySelectorAll('.skin-choice').forEach(s => s.classList.remove('selected'));
+-      sk.classList.add('selected');
+-      paintRowPreview(row);
+-      return;
+-    }
+     const rm = e.target.closest('.remove-player-btn');
+     if (rm && playerCount > 2) {
+       const defs = readRows();
+@@ -269,14 +494,157 @@
+ 
+   addPlayerBtn.addEventListener('click', addPlayerInput);
+ 
++  // ── Character picker overlay ────────────────────────────────────────────────
++  // Holds the live row ELEMENT, not an index, so adding/removing players can't
++  // desync it. Non-null doubles as the "picker is open" flag.
++  // NB: declared before the initial renderFrom() call below, which reads it.
++  let pickerRow = null;
++  let pickerOpener = null;   // the button to hand focus back to
++
++  function openCharPicker(row, opener) {
++    if (!row || !charPickScreen) return;
++    pickerRow = row;
++    pickerOpener = opener || null;
++    const col = normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char));
++    const charId = resolveCharForColor(row.dataset.char || defaultCharId(), col);
++    const idx = [...playerInputs.children].indexOf(row);
++    charPickTitle.textContent = `Choose a character for P${idx + 1}`;
++    // Bake every family's sprite for this color in ONE pass — otherwise each of
++    // the ~17 drawPreview calls kicks off its own lazy bake and the resulting
++    // onload storm repaints the whole grid once per sprite.
++    if (window.Skins && Skins.preload) Skins.preload([col]);
++    charPickGrid.innerHTML = familyTilesHtml(charId, col);
++    charPickScreen.classList.remove('hidden');
++    // aria-modal is a lie to screen readers without a focus trap; inert is the
++    // cheap honest version. Feature-detected — this also ships as a WebView APK.
++    if ('inert' in HTMLElement.prototype) setupScreen.inert = true;
++    paintPickerPreviews();
++    (charPickGrid.querySelector('.fam-tile.selected') || charPickClose).focus();
++  }
++
++  function closeCharPicker() {
++    if (!pickerRow) return;
++    pickerRow = null;
++    charPickScreen.classList.add('hidden');
++    charPickGrid.innerHTML = '';   // release ~17 canvases and their 2D contexts
++    if ('inert' in HTMLElement.prototype) setupScreen.inert = false;
++    if (pickerOpener && pickerOpener.isConnected) pickerOpener.focus();
++    pickerOpener = null;
++  }
++
++  function paintPickerPreviews() {
++    if (!pickerRow || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
++    const col = normalizeColor(pickerRow.dataset.color || defaultColorFor(pickerRow.dataset.char));
++    charPickGrid.querySelectorAll('canvas[data-preview-char]').forEach((cv) => {
++      const id = cv.dataset.previewChar;
++      const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
++      Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, col));
++    });
++  }
++
++  if (charPickGrid) charPickGrid.addEventListener('click', (e) => {
++    const tile = e.target.closest('.fam-tile');
++    if (!tile || !pickerRow) return;
++    if (tile.dataset.locked === '1') {
++      showToast(`🔒 ${tile.dataset.label} unlocks at ${tile.dataset.need} total wins.`);
++      return;
++    }
++    applyRowChar(pickerRow, tile.dataset.char, null);   // null = keep their color
++    closeCharPicker();
++  });
++  if (charPickClose) charPickClose.addEventListener('click', closeCharPicker);
++  if (charPickScreen) charPickScreen.addEventListener('click', (e) => {
++    if (e.target === charPickScreen) closeCharPicker();   // backdrop only
++  });
++  document.addEventListener('keydown', (e) => {
++    if (e.key !== 'Escape' && e.key !== 'Esc') return;
++    if (pickerRow) { e.preventDefault(); closeCharPicker(); return; }
++    // The characters are already granted and saved by the time a box is shown,
++    // so escaping out of the queue only skips the animation — nothing is lost.
++    if (mysteryCurrent) { e.preventDefault(); dismissMystery(); }
++  });
++
++  // ── Mystery box reveal ──────────────────────────────────────────────────────
++  // A won box hatches one random flippable. Reveals are queued so winning two
++  // thresholds in one sitting shows two boxes back to back rather than racing.
++  const mysteryQueue = [];
++  let mysteryCurrent = null;   // char id being revealed (null = idle)
++  let mysteryOpened = false;   // has the current box been popped?
++
++  function queueMysteryReveals(ids) {
++    if (!ids || !ids.length || !mysteryScreen) return;
++    mysteryQueue.push(...ids);
++    if (!mysteryCurrent) nextMysteryReveal();
++  }
++
++  function nextMysteryReveal() {
++    if (!mysteryQueue.length) {
++      mysteryCurrent = null;
++      mysteryScreen.classList.add('hidden');
++      mysteryScreen.classList.remove('opening');
++      return;
++    }
++    mysteryCurrent = mysteryQueue.shift();
++    mysteryOpened = false;
++    // Warm the sprite for this character's own tint before it's on screen.
++    const c = characterById(mysteryCurrent);
++    const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
++    if (window.Skins && Skins.preload) Skins.preload([tint]);
++
++    mysteryScreen.classList.remove('opening');
++    mysteryHeadlineEl.textContent = 'A new flippable appears!';
++    mysteryNameEl.textContent = '';
++    mysteryFamilyEl.textContent = '';
++    mysteryGoBtn.textContent = 'Tap to open';
++    mysteryQueueEl.textContent = mysteryQueue.length
++      ? `${mysteryQueue.length} more box${mysteryQueue.length === 1 ? '' : 'es'} to open`
++      : '';
++    mysteryScreen.classList.remove('hidden');
++    mysteryGoBtn.focus();
++  }
++
++  function paintMysteryArt() {
++    if (!mysteryCurrent || !mysteryArtEl || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
++    const c = characterById(mysteryCurrent);
++    const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
++    const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(mysteryCurrent) : mysteryCurrent;
++    Renderer.drawPreview(mysteryArtEl, drawAs === 'bottle' ? 'bottle' : mysteryCurrent,
++                         drawTintFor(mysteryCurrent, tint));
++  }
++
++  function openMysteryBox() {
++    if (!mysteryCurrent) return;
++    mysteryOpened = true;
++    paintMysteryArt();
++    mysteryScreen.classList.add('opening');
++    mysteryHeadlineEl.textContent = 'Collected — yours forever!';
++    mysteryNameEl.textContent = defaultNameFor(mysteryCurrent, null);
++    mysteryFamilyEl.textContent = familyLabel(mysteryCurrent);
++    mysteryGoBtn.textContent = mysteryQueue.length ? 'Next box ▶' : 'Nice!';
++    Sound.play('win');
++  }
++
++  // Abandon the whole queue (menu exit / Escape). Safe: openBoxes already saved.
++  function dismissMystery() {
++    mysteryQueue.length = 0;
++    nextMysteryReveal();
++  }
++
++  if (mysteryGoBtn) mysteryGoBtn.addEventListener('click', () => {
++    Sound.unlock();
++    if (!mysteryOpened) openMysteryBox();
++    else nextMysteryReveal();
++  });
++
+   function rowsToDefs(rows) {
+     return rows.map((r) => {
+-      const skin = FORCE_SKIN || r.skin || BASE_SKIN;
++      const color = normalizeColor(r.color || defaultColorFor(r.charId || defaultCharId()));
++      const charId = FORCE_SKIN || resolveCharForColor(r.charId || defaultCharId(), color);
+       return {
+-        name: (r.name || '').trim() || defaultNameFor(skin, r.flavor),
+-        color: FLAVORS[r.flavor].color,
++        name: (r.name || '').trim() || defaultNameFor(charId, color),
++        color,
+         isAI: r.ai,
+-        skin,
++        skin: charId, // character id — Skins.draw/physicsFor resolve it
+       };
+     });
+   }
+@@ -330,9 +698,15 @@
+ 
+   // ── Practice (solo, no lives) ───────────────────────────────────────────────
+   practiceBtn.addEventListener('click', () => {
+-    const r0 = readRows()[0] || { name: 'You', flavor: 0 };
+-    const def = { name: (r0.name || '').trim() || 'You', color: FLAVORS[r0.flavor].color, isAI: false,
+-                  skin: FORCE_SKIN || r0.skin || BASE_SKIN };
++    const r0 = readRows()[0] || { name: 'You', charId: defaultCharId(), color: defaultColorFor(defaultCharId()) };
++    const color = normalizeColor(r0.color || defaultColorFor(r0.charId || defaultCharId()));
++    const charId = FORCE_SKIN || resolveCharForColor(r0.charId || defaultCharId(), color);
++    const def = {
++      name: (r0.name || '').trim() || defaultNameFor(charId, color),
++      color,
++      isAI: false,
++      skin: charId,
++    };
+     Sound.unlock();
+     onlineMode = false;
+     if (window.Net) Net.leave();
+@@ -396,11 +770,12 @@
+     }
+   });
+ 
+-  // initial two rows — names default to the flavor (overridable)
+-  renderFrom([
+-    { name: FLAVORS[0].name, flavor: 0, ai: false },
+-    { name: FLAVORS[1].name, flavor: 1, ai: false },
+-  ]);
++  // initial two rows — rotate families, and never two seats on the same flavor
++  renderFrom((() => {
++    const seats = [];
++    for (let i = 0; i < 2; i++) seats.push(seatDefaults(i, seats.map((s) => s.color)));
++    return seats;
++  })());
+ 
+   // ── Game loop state ────────────────────────────────────────────────────────
+   let lastTime    = 0;
+@@ -529,7 +904,7 @@
+     game.init(defs, dir, opts || {});
+     gameStarted = true;
+     gameStats = {
+-      topStake: 0, longestFire: 0, sawSuddenDeath: false,
++      topStake: 0, longestFire: 0, sawSuddenDeath: false, ignitionsThisGame: 0,
+       perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0, lowestLives: Infinity })),
+     };
+     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
+@@ -803,6 +1178,12 @@
+     updateHUD();
+   }
+ 
++  // Edition unlocks + achievements only count when a human is in the lobby.
++  // Kids were farming AI-vs-AI blitz games to unlock the whole ladder.
++  function progressCounts() {
++    return game.practice || game.players.some((p) => !p.isAI);
++  }
++
+   function onResult() {
+     Input.disable();
+     stopTurnTimer();
+@@ -814,7 +1195,10 @@
+     const landing = Physics.getLastLandingInfo();
+     greatSaveActive = !!(game.lastResult === 'MAKE' && landing &&
+                          landing.maxTilt > GREAT_SAVE_TILT);
+-    const rec = Records.recordFlip(game, { greatSave: greatSaveActive });
++    const counts = progressCounts();
++    const rec = counts
++      ? Records.recordFlip(game, { greatSave: greatSaveActive })
++      : null;
+     if (greatSaveActive) Sound.play('greatsave');
+ 
+     const p = game.currentPlayer();
+@@ -832,11 +1216,12 @@
+       const firePeak = Math.max(game.onFireBonus || 0, game.endedFireBonus || 0);
+       if (firePeak > gameStats.longestFire) gameStats.longestFire = firePeak;
+       if (game.inSuddenDeath && game.inSuddenDeath()) gameStats.sawSuddenDeath = true;
++      if (game.justIgnited) gameStats.ignitionsThisGame = (gameStats.ignitionsThisGame || 0) + 1;
+     }
+ 
+     // NB: achievements.js declares `const Achievements` (script scope, not on
+     // window) — same gotcha as Renderer above, so feature-detect via typeof.
+-    if (typeof Achievements !== 'undefined') {
++    if (counts && typeof Achievements !== 'undefined' && rec) {
+       const fresh = Achievements.check({
+         result:        game.lastResult,
+         justIgnited:   game.justIgnited,
+@@ -850,6 +1235,8 @@
+         padOffset: landing && landing.padOffset != null ? landing.padOffset : null,
+         totalFlipsLifetime: rec.totalFlips,
+         totalMakesLifetime: rec.totalMakes,
++        playerCount:   game.players.length,
++        ignitionsThisGame: gameStats ? gameStats.ignitionsThisGame : 0,
+       });
+       announceAchievements(fresh);
+     }
+@@ -1004,28 +1391,30 @@
+       gameScreen.classList.add('hidden');
+       gameOverEl.classList.remove('hidden');
+       winnerNameEl.textContent = active.length ? active[0].name : '???';
+-      const winRec = Records.recordWin(active.length ? active[0].name : null);
+-      renderRecordsPanel();
+-      // Skin unlock ladder: each edition's `unlock` is a total-win threshold
+-      // (see skins.js META). Check every skin, not just one — a device that
+-      // jumps several wins at once (e.g. a long practice-free session) can
+-      // cross more than one threshold in the same game-over.
+-      if (active.length && window.Skins) {
+-        const wins = Records.totalWins();
+-        const newlyUnlocked = Skins.list().filter((s) => {
+-          const need = Skins.unlockRule(s.id);
+-          return typeof need === 'number' && wins >= need && Records.unlockSkin(s.id);
+-        });
+-        if (newlyUnlocked.length) {
+-          const names = newlyUnlocked.map((s) => `${s.emoji} ${s.name}`).join(', ');
+-          showToast(`${names} unlocked! Pick per player in setup.`);
+-          try { renderFrom(readRows()); } catch (_) {}
++      // AI-only lobbies can still finish for fun, but they do not advance the
++      // unlock ladder, hall-of-fame wins, or achievements.
++      let winRec = null;
++      if (humansPlayed) {
++        winRec = Records.recordWin(active.length ? active[0].name : null);
++        renderRecordsPanel();
++        // Mystery boxes: every 2 wins earns one, and each grants a RANDOM
++        // still-locked character. Winning several thresholds in one sitting
++        // queues several reveals.
++        if (active.length && window.Skins) {
++          const drawn = Records.claimBoxes();
++          if (drawn.length) {
++            queueMysteryReveals(drawn);
++            try { renderFrom(readRows()); } catch (_) {}
++          }
+         }
++      } else {
++        renderRecordsPanel();
++        showToast('🤖 AI-only games don’t count toward unlocks or achievements.');
+       }
+       Sound.play('win');
+ 
+-      // Win-based achievements (display-only).
+-      if (typeof Achievements !== 'undefined' && active.length && gameStats) {
++      // Win-based achievements (display-only) — human required in the lobby.
++      if (humansPlayed && typeof Achievements !== 'undefined' && active.length && gameStats) {
+         const winner = active[0];
+         const wIdx = game.players.indexOf(winner);
+         const pp = (gameStats.perPlayer && gameStats.perPlayer[wIdx]) || { makes: 0, flips: 0, lowestLives: Infinity };
+@@ -1035,6 +1424,8 @@
+           droppedToOneLife: pp.lowestLives <= 1,
+           sawSuddenDeath:   !!gameStats.sawSuddenDeath,
+           winnerWins:       (winRec && winRec.mostWins && winRec.mostWins[winner.name]) || 0,
++          playerCount:      game.players.length,
++          ignitionsThisGame: gameStats.ignitionsThisGame || 0,
+         }));
+       }
+ 
+@@ -1193,6 +1584,7 @@
+     gameScreen.classList.add('hidden');
+     gameOverEl.classList.add('hidden');
+     passScreen.classList.add('hidden');
++    dismissMystery();
+     if (onlineScreen) onlineScreen.classList.add('hidden');
+     renderRecordsPanel();
+     setupScreen.classList.remove('hidden');
+@@ -1241,15 +1633,15 @@
+ 
+   function onlinePlayerFromSetup() {
+     const rows = readRows();
+-    const r0 = rows[0] || { name: '', flavor: 0, skin: BASE_SKIN };
++    const r0 = rows[0] || { name: '', charId: defaultCharId(), color: defaultColorFor(defaultCharId()) };
++    const color = normalizeColor(r0.color || defaultColorFor(r0.charId || defaultCharId()));
++    const charId = FORCE_SKIN || resolveCharForColor(r0.charId || defaultCharId(), color);
+     const name = (onlineNameEl && onlineNameEl.value.trim()) ||
+-      (r0.name || '').trim() || defaultNameFor(r0.skin || BASE_SKIN, r0.flavor || 0);
+-    const flavor = Math.min(FLAVORS.length - 1, Math.max(0, r0.flavor || 0));
++      (r0.name || '').trim() || defaultNameFor(charId, color);
+     return {
+       name,
+-      flavor,
+-      color: FLAVORS[flavor].color,
+-      skin: FORCE_SKIN || r0.skin || BASE_SKIN,
++      color,
++      skin: charId,
+     };
+   }
+ 
+@@ -1282,7 +1674,7 @@
+       onlineLobby.classList.add('hidden');
+       if (onlineNameEl && !onlineNameEl.value) {
+         const r0 = readRows()[0];
+-        onlineNameEl.value = (r0 && r0.name) || FLAVORS[0].name;
++        onlineNameEl.value = (r0 && r0.name) || defaultNameFor(defaultCharId());
+       }
+     });
+ 
+@@ -1397,22 +1789,18 @@
+   if (Records.syncUnlocksFromWins) Records.syncUnlocksFromWins();
+   renderRecordsPanel();
+ 
+-  // ── Secret: tap the title 5× fast ──────────────────────────────────────────
+-  // A toggle. With anything still locked it unlocks every edition at once (for
+-  // showing the whole set off without grinding 50 wins); with everything
+-  // already unlocked it wipes the ladder back to zero — fresh collection, win
+-  // counter at 0 — so the same gesture undoes itself. The title is a safe
+-  // target: nothing else is bound to it, and 5 taps inside 2s won't happen by
+-  // accident.
+-  const titleEl = setupScreen.querySelector('h1');
+-  if (titleEl) {
+-    let taps = [];
+-    titleEl.addEventListener('click', () => {
+-      const now = Date.now();
+-      taps = taps.filter((t) => now - t < 2000);
+-      taps.push(now);
+-      if (taps.length < 5) return;
+-      taps = [];
++  // ── Secret: tap the two title words alternating, 3× each ───────────────────
++  // Bottle Game → Bottle/Game/Bottle/Game/Bottle/Game.
++  // Parrot Flip  → Parrot/Flip/Parrot/Flip/Parrot/Flip (same pattern via data-secret).
++  // Unlocks every character (demo) or, if already fully unlocked, wipes progress.
++  const secretParts = [...setupScreen.querySelectorAll('h1 [data-secret]')];
++  if (secretParts.length >= 2) {
++    const a = secretParts[0].dataset.secret;
++    const b = secretParts[1].dataset.secret;
++    const SECRET_SEQ = [a, b, a, b, a, b];
++    let seq = [];
++    let lastTap = 0;
++    function triggerSecret() {
+       if (!window.Skins) return;
+       const allUnlocked = Skins.list().every((s) => Records.isSkinUnlocked(s.id));
+       if (!allUnlocked) {
+@@ -1423,22 +1811,63 @@
+         return;
+       }
+       Records.resetSkinProgress();
+-      // Any row riding a now-locked edition drops back to the bottle; its
+-      // auto-filled name follows, but a custom-typed name is kept.
+       const defs = readRows().map((d) => {
+-        if (Records.isSkinUnlocked(d.skin)) return d;
+-        const wasDefault = !d.name.trim() || d.name.trim() === defaultNameFor(d.skin, d.flavor);
+-        return { ...d, skin: BASE_SKIN, name: wasDefault ? FLAVORS[d.flavor].name : d.name };
++        const id = d.charId || defaultCharId();
++        const col = normalizeColor(d.color || defaultColorFor(id));
++        if (isFamilyUnlocked(id)) return d;
++        const wasDefault = !d.name.trim() || d.name.trim() === defaultNameFor(id, col);
++        const baseCol = defaultColorFor(BASE_SKIN);
++        return {
++          ...d,
++          charId: BASE_SKIN,
++          color: baseCol,
++          name: wasDefault ? defaultNameFor(BASE_SKIN, baseCol) : d.name,
++        };
+       });
+       showToast('🔒 Secret! Progress wiped — earn it all back.');
+       renderFrom(defs);
++    }
++    function onSecretTap(which) {
++      const now = Date.now();
++      if (seq.length && now - lastTap > 2500) seq = [];
++      lastTap = now;
++      const expect = SECRET_SEQ[seq.length];
++      if (which !== expect) {
++        seq = (which === SECRET_SEQ[0]) ? [which] : [];
++        return;
++      }
++      seq.push(which);
++      if (seq.length < SECRET_SEQ.length) return;
++      seq = [];
++      triggerSecret();
++    }
++    secretParts.forEach((el) => {
++      el.addEventListener('click', (e) => {
++        e.stopPropagation();
++        onSecretTap(el.dataset.secret);
++      });
+     });
+   }
+ 
+   // Sprites are SVG data URIs that decode a beat after they're requested, so
+   // the first preview paint can land on the placeholder. Repaint when one
+   // arrives (no-op once the setup screen is gone).
+-  if (window.Skins && Skins.onSpriteLoad) Skins.onSpriteLoad(paintAllPreviews);
++  //
++  // Coalesced through a single rAF: opening the picker bakes ~18 Images, and
++  // every one of their onloads fires spriteLoaded() -> every listener. Painting
++  // synchronously there meant ~18 x 18 drawPreview calls in one burst.
++  let previewRepaintQueued = false;
++  function schedulePreviewRepaint() {
++    if (previewRepaintQueued) return;
++    previewRepaintQueued = true;
++    requestAnimationFrame(() => {
++      previewRepaintQueued = false;
++      paintAllPreviews();
++      paintPickerPreviews();
++      if (mysteryOpened) paintMysteryArt();   // the reveal art decodes late too
++    });
++  }
++  if (window.Skins && Skins.onSpriteLoad) Skins.onSpriteLoad(schedulePreviewRepaint);
+   paintAllPreviews();
+ 
+   // Show setup on load
+diff --git a/parrot-flip/js/physics.js b/parrot-flip/js/physics.js
+index d1d17b0..6c86e35 100644
+--- a/parrot-flip/js/physics.js
++++ b/parrot-flip/js/physics.js
+@@ -15,12 +15,11 @@ const Physics = (() => {
+   let sideWallsEnabled = true;
+   let openArena = false;  // mobile open sides (no wall caroms)
+ 
+-  // Spin tuning (rad/step) — see applyFlick. Single sweet spot near 1 turn:
+-  // soft flick under-rotates (<360, fails), medium ≈ one clean turn (make),
+-  // hard overshoots (~1.35 turns, miss). v63: re-tightened — the easing passes had
+-  // flattened this into a 99% plateau at ~3200px/s, i.e. "just flick hard".
+-  const SPIN_BASE   = 0.1171;  // soft flick under-rotates
+-  const SPIN_RANGE  = 0.140;  // steep: small speed errors cost real rotation
++  // Spin tuning (rad/step) — see applyFlick. Normal throws should usually land
++  // if you give a decent flick; only wild overshoots tip. v78: cut high-end
++  // over-rotation (hard flicks were falling ~70% of the time).
++  const SPIN_BASE   = 0.138;  // soft/medium flicks clear 360°
++  const SPIN_RANGE  = 0.082;  // flat high end — hard flicks tip less
+   const POWER_SPEED = 4000;   // flick px/s that maps to full power
+   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
+   const FIXED_DT    = 1 / 60; // multiplayer-safe fixed physics step
+@@ -36,19 +35,17 @@ const Physics = (() => {
+   // resolves within MISS_CAP_FRAMES (the glitch / teeter-stall fallback) do we
+   // force a MISS so a turn can never soft-lock in EVALUATING.
+   //
+-  // v54: ~10% more forgiving upright / settle thresholds so normal flips (esp.
+-  // on mobile open-arena, where wall caroms no longer bail you out) feel fairer.
+-  const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
+-  const SETTLE_RANGE    = 0.03;  // rad — max angle spread across that window
+-  const MAKE_ANGLE      = 0.61;  // ≤±35° upright = MAKE
+-  const PERFECT_ANGLE   = 0.16;  // perfect-landing flair. NB: not actually
+-                                 // selective — a settled bottle is either dead
+-                                 // vertical (median tilt 0.003 rad) or toppled,
+-                                 // so this fires on ~every make at any value.
+-  const FALLEN_ANGLE    = 1.20;  // ≥~69° tilt = toppled past recovery → certain MISS
++  // v78: normal throws — generous upright cone + softer settle / landing kick.
++  const SETTLE_FRAMES   = 14;    // frames of stillness required to read the pose
++  const SETTLE_RANGE    = 0.055; // rad — max angle spread across that window
++  const MAKE_ANGLE      = 1.00;  // ≤±~57° upright = MAKE (was feeling stingy)
++  const PERFECT_ANGLE   = 0.22;  // perfect-landing flair
++  const FALLEN_ANGLE    = 1.40;  // ≥~80° tilt = toppled past recovery → certain MISS
+   const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
+-  const SETTLE_ANG_VEL  = 0.010; // "at rest" spin threshold
+-  const SETTLE_LIN_SPD  = 7.2;   // "at rest" slide threshold
++  const ABS_MISS_FRAMES = 600;   // ~10s after leaving the floor → forced MISS no matter what
++  const SETTLE_ANG_VEL  = 0.018; // "at rest" spin threshold
++  const SETTLE_LIN_SPD  = 10.0;  // "at rest" slide threshold
++  const GROUND_TOUCH_PX = 6;     // AABB bottom within this of groundY = touching floor
+ 
+   // ── Seeded PRNG (mulberry32) ───────────────────────────────────────────────
+   // All in-flight randomness (launch jitter + landing kick + pad placement)
+@@ -69,13 +66,13 @@ const Physics = (() => {
+   // can instead ship a profile (see META.physics in skins.js) that retunes
+   // gravity, drag, bounce, the launch impulse and how a landing is judged.
+   //
+-  // BOUNCE MODE (the 50-win alien — the ONLY non-flip edition) is a different
++  // BOUNCE MODE (the 100-win alien — the ONLY non-flip edition) is a different
+   // game: a bank shot, not a flip. You aim sideways, the object caroms off the
+   // two walls and the ceiling, and the FLOOR is dead: the first time it touches
+-  // down is where it landed, and it counts if the body center is over the pad.
++  // down is where it landed, and it counts if the body is over the pad.
+   const DEFAULT_PROFILE = {
+     gravity: 1.5,
+-    frictionAir: 0.027,    // was 0.025 — a touch more drag, less floaty/wild
++    frictionAir: 0.024,    // a touch less drag so soft flicks still complete the turn
+     friction: 0.85,
+     restitution: 0.02,
+     spinScale: 1,
+@@ -129,6 +126,7 @@ const Physics = (() => {
+   let floorTouched = false; // bounce mode: first touchdown happened (slide window open)
+   let slideFrames = 0;      // frames spent in the post-touchdown slide window
+   let maxGroundedTilt = 0;  // display-only: worst |tilt| seen while grounded this flip
++  let flightFrames = 0;     // frames since the bottle left the floor (absolute soft-lock guard)
+ 
+   function wantsOpenArena() {
+     if (profile.keepWalls || profile.wallBounce > 0) return false;
+@@ -384,12 +382,16 @@ const Physics = (() => {
+     return result;
+   }
+ 
++  function touchingFloor() {
++    return !!bottle && bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX;
++  }
++
+   function checkLanding() {
+     if (!bottle) return null;
+ 
+     // Bounce mode: first contact / slide-on is the verdict (alien profile).
+     if (profile.floorResolve && launched && wasAirborne) {
+-      const grounded = bottle.bounds.max.y >= groundY - 6;
++      const grounded = touchingFloor();
+ 
+       if (!floorTouched) {
+         if (bottle.bounds.max.y < groundY - 2) return null;
+@@ -414,9 +416,18 @@ const Physics = (() => {
+       return null;
+     }
+ 
++    // Absolute soft-lock guard: once the bottle has left the floor, something
++    // MUST resolve within ~10s (off-world, perpetual bounce, etc.).
++    if (launched && wasAirborne) {
++      flightFrames++;
++      if (flightFrames > ABS_MISS_FRAMES) return recordLanding('MISS', null, 'timeout');
++    }
++
+     const angVel   = Math.abs(bottle.angularVelocity);
+     const linSpeed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
+-    const grounded = bottle.position.y >= groundY - 80;
++    // Touch the table via AABB bottom — COM can sit well above the floor when
++    // the bottle is inverted on its neck / resting on a tall corner.
++    const grounded = touchingFloor();
+ 
+     if (!grounded) {
+       groundedFrames = 0;
+@@ -540,6 +551,7 @@ const Physics = (() => {
+     floorTouched   = false;
+     slideFrames    = 0;
+     maxGroundedTilt = 0;
++    flightFrames   = 0;
+     liquid.reset();
+     acc = 0;
+ 
+@@ -569,9 +581,9 @@ const Physics = (() => {
+     const upSpeed = Math.max(0, -vy);
+     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
+ 
+-    const jSpin   = 1 + (rand() - 0.5) * 0.205;  // less spin chaos
+-    const jLaunch = 1 + (rand() - 0.5) * 0.102; // less height chaos
+-    const jDrift  = (rand() - 0.5) * 2.05;       // less sideways chaos
++    const jSpin   = 1 + (rand() - 0.5) * 0.10;   // mild spin chaos
++    const jLaunch = 1 + (rand() - 0.5) * 0.06;   // mild height chaos
++    const jDrift  = (rand() - 0.5) * 1.1;        // mild sideways chaos
+ 
+     // Slightly lower arcs than the "harder/higher/wilder" feel (was 16 + power*5).
+     const launchY = -(15.2 + power * 4.7) * jLaunch * profile.launchScale;
+@@ -597,6 +609,9 @@ const Physics = (() => {
+     launchAngle = bottle.angle;
+     launched = true;
+     wasAirborne = false;
++    flightFrames = 0;
++    groundedFrames = 0;
++    angleWin = [];
+     lastLandingInfo = null;
+     Body.setVelocity(bottle, { x: launchX, y: launchY });
+     Body.setAngularVelocity(bottle, spin);
+@@ -614,10 +629,11 @@ const Physics = (() => {
+ 
+     // Landing kick is for normal flips (liquid slosh punch). Bank-shot editions
+     // accumulate "hasFlipped" from wall caroms and must not get a random shove.
++    // v78: softened — the old kick tipped a lot of near-makes into misses.
+     if (!profile.floorResolve && hasFlipped && !hasLanded &&
+         bottle.velocity.y > 0 && bottle.position.y >= groundY - 55) {
+       hasLanded = true;
+-      const kick = liquid.vel * 0.056 + (rand() - 0.5) * 0.142;
++      const kick = liquid.vel * 0.028 + (rand() - 0.5) * 0.06;
+       Body.setAngularVelocity(bottle, bottle.angularVelocity + kick);
+     }
+ 
+@@ -634,22 +650,38 @@ const Physics = (() => {
+     }
+   }
+ 
++  // Profile-driven base zoom (Alien pulls way back so the pad is harder).
++  function profileArenaZoom() {
++    const compact = isCompactScreen();
++    const z = compact
++      ? (profile.mobileArenaZoom != null ? profile.mobileArenaZoom : profile.arenaZoom)
++      : profile.arenaZoom;
++    if (z == null || !(z > 0)) return null;
++    return Math.max(0.35, Math.min(1, z));
++  }
++
+   // Camera helper: when the bottle leaves the frame (mobile open arena), the
+   // renderer zooms out so the shot stays visible. Returns world bounds that
+-  // should remain on-screen.
++  // should remain on-screen. Some profiles (Alien) force a pulled-back zoom
++  // even with walls so phones feel like a bigger arena.
+   function getViewHint() {
++    const forced = profileArenaZoom();
++    const cx = canvasW / 2;
++    const cy = groundY / 2;
+     if (!bottle) {
+-      return { openArena, sideWalls: sideWallsEnabled, zoom: 1, camX: canvasW / 2, camY: groundY / 2 };
++      return {
++        openArena, sideWalls: sideWallsEnabled,
++        zoom: forced != null ? forced : 1,
++        camX: cx, camY: cy,
++      };
+     }
+-    // Desktop / walled arenas stay 1:1 — zoom is only for mobile open-arena
+-    // shots that leave the frame.
+     if (!openArena) {
+       return {
+         openArena: false,
+         sideWalls: sideWallsEnabled,
+-        zoom: 1,
+-        camX: canvasW / 2,
+-        camY: groundY / 2,
++        zoom: forced != null ? forced : 1,
++        camX: cx,
++        camY: cy,
+         worldW: canvasW,
+         worldH: groundY + 30,
+       };
+@@ -662,9 +694,10 @@ const Physics = (() => {
+     const spanX = maxX - minX;
+     const spanY = maxY - minY;
+     const zoom = Math.min(1, canvasW / spanX, (groundY + 30) / Math.max(spanY, 1));
+-    // Only zoom out (never in past 1). Floor raised so mobile doesn't shrink
+-    // the bottle into a speck on long open-arena shots.
+-    const z = Math.max(0.58, Math.min(1, zoom));
++    // Only zoom out (never in past 1). Floor lowered so long open-arena shots
++    // (and forced Alien zoom) can pull further back on phones.
++    let z = Math.max(0.40, Math.min(1, zoom));
++    if (forced != null) z = Math.min(z, forced);
+     return {
+       openArena,
+       sideWalls: sideWallsEnabled,
+diff --git a/parrot-flip/js/records.js b/parrot-flip/js/records.js
+index 7bea652..fbb63b2 100644
+--- a/parrot-flip/js/records.js
++++ b/parrot-flip/js/records.js
+@@ -41,21 +41,98 @@ const Records = (() => {
+   }
+   function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} }
+ 
+-  // Grant editions whose unlock threshold totalWins already meets. Call after
+-  // Skins is loaded (Records boots before skins.js). Returns newly granted ids.
+-  function syncUnlocksFromWins() {
+-    if (typeof window === 'undefined' || !window.Skins || typeof Skins.list !== 'function') return [];
+-    const wins = data.totalWins || 0;
+-    const fresh = [];
+-    for (const s of Skins.list()) {
+-      const need = s.unlock;
+-      if (typeof need === 'number' && wins >= need && !isSkinUnlocked(s.id)) {
+-        data.unlockedSkins = unlockedSkins().concat(s.id);
+-        fresh.push(s.id);
++  // Expand legacy edition unlocks (people/buildings/…) into individual
++  // character ids once Skins is available. Safe to call repeatedly.
++  function migrateEditionUnlocks() {
++    if (typeof window === 'undefined' || !window.Skins || typeof Skins.editionChars !== 'function') return false;
++    let changed = false;
++    const next = [];
++    for (const id of unlockedSkins()) {
++      // Christ the Redeemer retired → Space Needle (same yellow slot).
++      if (id === 'building-redeemer') {
++        next.push('building-needle');
++        changed = true;
++        continue;
++      }
++      const kids = Skins.editionChars(id);
++      if (kids && kids.length) {
++        next.push(...kids);
++        changed = true;
++      } else {
++        next.push(id);
+       }
+     }
+-    if (fresh.length) save();
+-    return fresh;
++    if (!changed) return false;
++    data.unlockedSkins = [...new Set(next)];
++    save();
++    return true;
++  }
++
++  // ── Mystery boxes ─────────────────────────────────────────────────────────
++  // Every WINS_PER_BOX wins earns one box, and a box grants ONE RANDOM
++  // still-locked character (Smash-Bros style reveal). Deliberately not the
++  // ordered `unlock` ladder any more: the old order dumped the six cartoon casts
++  // in an arbitrary block at the end, so the last families sat behind 300+ wins
++  // and nobody ever saw them.
++  //
++  // Nothing new is persisted to track this. The count of characters owned beyond
++  // the free base skin IS the count of boxes opened, so "owed" is derivable —
++  // which also means the old threshold saves migrate for free.
++  const WINS_PER_BOX = 2;
++
++  function boxesEarned() { return Math.floor((data.totalWins || 0) / WINS_PER_BOX); }
++  function boxesOpened() { return Math.max(0, unlockedSkins().length - 1); }
++  function allChars() {
++    return (typeof window !== 'undefined' && window.Skins && typeof Skins.list === 'function')
++      ? Skins.list() : [];
++  }
++  function lockedChars() { return allChars().filter((s) => !isSkinUnlocked(s.id)); }
++
++  // Aliens are the capstone (unique bank-shot physics), so they're held out of
++  // the pool until everything else is collected — the collection always ends
++  // on aliens no matter how the draws fall.
++  function drawPool() {
++    const locked = lockedChars();
++    const nonAlien = locked.filter((s) =>
++      (window.Skins.familyKey ? Skins.familyKey(s.id) : s.drawAs) !== 'alien');
++    return nonAlien.length ? nonAlien : locked;
++  }
++
++  // Boxes earned but not yet opened, clamped to what's actually left to give.
++  function pendingBoxes() {
++    return Math.max(0, Math.min(boxesEarned() - boxesOpened(), lockedChars().length));
++  }
++  function winsToNextBox() {
++    const w = data.totalWins || 0;
++    return lockedChars().length ? WINS_PER_BOX - (w % WINS_PER_BOX) : 0;
++  }
++
++  function openBoxes(n) {
++    const out = [];
++    for (let i = 0; i < n; i++) {
++      const pool = drawPool();
++      if (!pool.length) break;
++      const pick = pool[Math.floor(Math.random() * pool.length)];
++      data.unlockedSkins = unlockedSkins().concat(pick.id);
++      out.push(pick.id);
++    }
++    if (out.length) save();
++    return out;
++  }
++
++  // BOOT: reconcile quietly. A returning player on the old 1-per-3-wins ladder
++  // is owed a few boxes under the new 1-per-2 rate; granting those with five
++  // reveal animations before they've even played would be nonsense.
++  function syncUnlocksFromWins() {
++    if (!allChars().length) return [];
++    migrateEditionUnlocks();
++    return openBoxes(pendingBoxes());
++  }
++
++  // GAME OVER: claim boxes earned during play, for an animated reveal.
++  function claimBoxes() {
++    if (!allChars().length) return [];
++    return openBoxes(pendingBoxes());
+   }
+ 
+   // Call AFTER each game.resolveFlip() (normal play and practice).
+@@ -128,5 +205,7 @@ const Records = (() => {
+     save();
+   }
+ 
+-  return { recordFlip, recordWin, renderHtml, reset, totalWins, unlockedSkins, isSkinUnlocked, unlockSkin, resetSkinProgress, syncUnlocksFromWins };
++  return { recordFlip, recordWin, renderHtml, reset, totalWins, unlockedSkins,
++           isSkinUnlocked, unlockSkin, resetSkinProgress, syncUnlocksFromWins,
++           claimBoxes, pendingBoxes, winsToNextBox, WINS_PER_BOX };
+ })();
+diff --git a/parrot-flip/js/renderer.js b/parrot-flip/js/renderer.js
+index 1d17b07..cb92a38 100644
+--- a/parrot-flip/js/renderer.js
++++ b/parrot-flip/js/renderer.js
+@@ -302,6 +302,16 @@ const Renderer = (() => {
+   // reinforce "how hard" via count + brightness, like a throttle gauge. The
+   // raw gesture path is traced faintly underneath. Strength math is unchanged —
+   // this only repaints the same `drag` state, so the flick itself is untouched.
++  // Input drag coords are screen/CSS pixels; world drawing sits under the
++  // camera. Convert so the trail stays under the finger when zoomed out.
++  function screenToWorld(sx, sy) {
++    const z = camZoom || 1;
++    return {
++      x: camX + (sx - W / 2) / z,
++      y: camY + (sy - H / 2) / z,
++    };
++  }
++
+   function drawFlickIndicator(drag, bottle, groundY) {
+     if (!drag || !bottle) return;
+     const dx  = drag.curX - drag.startX;   // flick direction = throw direction
+@@ -315,6 +325,8 @@ const Renderer = (() => {
+     const ox = p.x, oy = p.y - 40 * BOTTLE_DRAW_SCALE;
+     const hue = 190 - strength * 150;                  // cyan → hot orange/red
+     const color = `hsl(${hue}, 95%, 60%)`;
++    const trailA = screenToWorld(drag.startX, drag.startY);
++    const trailB = screenToWorld(drag.curX, drag.curY);
+ 
+     ctx.save();
+ 
+@@ -323,8 +335,8 @@ const Renderer = (() => {
+     ctx.lineWidth = 2;
+     ctx.setLineDash([3, 5]);
+     ctx.beginPath();
+-    ctx.moveTo(drag.startX, drag.startY);
+-    ctx.lineTo(drag.curX, drag.curY);
++    ctx.moveTo(trailA.x, trailA.y);
++    ctx.lineTo(trailB.x, trailB.y);
+     ctx.stroke();
+     ctx.setLineDash([]);
+ 
+@@ -633,12 +645,16 @@ const Renderer = (() => {
+     H = target.height;
+     ctx.setTransform(1, 0, 0, 1, 0, 0);
+     ctx.clearRect(0, 0, W, H);
+-    // Fit box measured off the real drawn pixels of every edition — widest is
+-    // the T-Rex (x≈±106), tallest aliens / landmarks (y≈-221..58) whose
+-    // antennae/towers reach high. Already includes the BOTTLE_DRAW_SCALE
+-    // that drawBottle applies. The artwork sits well above the origin, so it
+-    // centers on y≈-81, not 0. Re-measure if any edition's art grows.
+-    const CONTENT_W = 216, CONTENT_H = 284, CONTENT_MID_Y = -81;
++    // Fit box measured off the real drawn pixels of EVERY family (ink bounding
++    // box per family, then the union). Widest is the T-Rex at x≈±148; the art
++    // spans y≈-346 (pineapple's crown) to y≈+66 (the parrot's tail), so it
++    // centers on y≈-140, not 0. Already includes the BOTTLE_DRAW_SCALE that
++    // drawBottle applies. Re-measure if any family's art grows.
++    //
++    // The old 216x284 @ -81 box was ~27% too narrow, ~31% too short AND sat 59
++    // units too low, so nearly every family was clipped — most at the top, and
++    // trex/vending/ocean/pets/parrot at the sides too.
++    const CONTENT_W = 300, CONTENT_H = 420, CONTENT_MID_Y = -140;
+     const scale = Math.min(W / CONTENT_W, H / CONTENT_H) * 0.95;
+     ctx.translate(W / 2, H / 2 - CONTENT_MID_Y * scale);
+     ctx.scale(scale, scale);
+diff --git a/parrot-flip/js/skins.js b/parrot-flip/js/skins.js
+index 8e36a2e..ea1b213 100644
+--- a/parrot-flip/js/skins.js
++++ b/parrot-flip/js/skins.js
+@@ -46,7 +46,8 @@ window.Skins = (function () {
+   // Foot soles map to local y≈+39 (the physics contact plane), so it lands like
+   // the bottle regardless of the scene's draw scale.
+   const SPR = (() => {
+-    const VIEW_W = 300, GROUND_SVG = 376, GROUND_LOCAL = 39, SCALE = 0.62;
++    // v67: larger baked sprites so cast editions read sharper on phones + panels.
++    const VIEW_W = 300, GROUND_SVG = 376, GROUND_LOCAL = 39, SCALE = 0.74;
+     const VIEW_H = 420;
+     const destW = VIEW_W * SCALE, destH = VIEW_H * SCALE;
+     return {
+@@ -218,6 +219,45 @@ window.Skins = (function () {
+     }
+   }
+ 
++  // ── PNG cast sprites (retired) ─────────────────────────────────────────────
++  // AI rasters under icons/skins/<edition>/<rrggbb>.png are no longer used
++  // in-game (too 3D). Helpers remain for tools / parked editions only.
++  const pngCache = new Map();
++  const FLAVOR_HEXES = [
++    '1f9bff', 'e3263c', '8ed11a', 'ff7a00', '8a3ffc', '5fcfe6',
++    '3fae1a', 'ff5b86', '4f63e0', 'ffc233', 'c8203a', 'ff9ecf',
++  ];
++  function colorToHexKey(color) {
++    const s = String(color || '').toLowerCase().replace('#', '');
++    if (/^[0-9a-f]{6}$/.test(s)) return s;
++    return FLAVOR_HEXES[0];
++  }
++  function getPngSprite(edition, color) {
++    const hex = colorToHexKey(color);
++    const key = edition + '|' + hex;
++    let entry = pngCache.get(key);
++    if (entry) return entry;
++    entry = { img: new Image(), ready: false, failed: false };
++    entry.img.onload = () => { entry.ready = true; spriteLoaded(); };
++    entry.img.onerror = () => { entry.failed = true; spriteLoaded(); };
++    entry.img.src = 'icons/skins/' + edition + '/' + hex + '.png';
++    pngCache.set(key, entry);
++    return entry;
++  }
++  function drawPngSprite(ctx, edition, color) {
++    const spr = getPngSprite(edition, color);
++    if (spr.ready) {
++      ctx.drawImage(spr.img, SPR.destX, SPR.destY, SPR.destW, SPR.destH);
++    } else {
++      ctx.fillStyle = color || '#888';
++      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
++    }
++  }
++  function preloadPngEdition(edition, colors) {
++    const list = (colors && colors.length) ? colors : FLAVOR_HEXES.map((h) => '#' + h);
++    for (const c of list) getPngSprite(edition, c);
++  }
++
+   // ── Plunger skin ───────────────────────────────────────────────────────────
+   // Rubber cup at the base (player-tinted, doubles as the physics contact
+   // point) on a fixed wood handle, with a googly-eyed face for personality.
+@@ -676,6 +716,7 @@ ${part(v.front)}
+   }
+   function drawPeople(ctx, opts) {
+     const color = opts.color || '#d62828';
++    // Flat cartoony SVG cast (AI PNG casts retired — they read too 3D).
+     drawSingleSprite(ctx, 'people', color, peoplePalette(color), peopleBodySVG);
+   }
+ 
+@@ -1045,7 +1086,7 @@ ${part(v.front)}
+   }
+ 
+   // ── Alien skin ─────────────────────────────────────────────────────────────
+-  // The 50-win capstone, and the ONLY edition that changes the rules (bank shot
++  // The 100-win capstone, and the ONLY edition that changes the rules (bank shot
+   // instead of a flip). Also an edition whose SPRITE CHANGES WITH THE PLAYER'S
+   // COLOUR — twelve distinct alien SPECIES on one shared spindly body. Cast is
+   // keyed to FLAVORS hexes so each color summons a different looking visitor
+@@ -1396,16 +1437,16 @@ ${[0,1,2,3,4,5].map((i) =>
+ <path d="M 150 120 L 150 96" fill="none" stroke="${p.accent}" stroke-width="3"/>
+ <circle cx="150" cy="90" r="7" fill="${p.accent}"/>`,
+     },
+-    '#ffc233': {                                          // Christ the Redeemer
+-      label: 'redeemer',
++    '#ffc233': {                                          // Space Needle (Redeemer retired)
++      label: 'needle',
+       draw: (p) => `
+-<path d="M 110 348 L 150 280 L 190 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
+-<rect x="138" y="180" width="24" height="110" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
+-<path d="M 70 210 L 230 210 L 230 228 L 70 228 Z" fill="${BUILD.stoneHi}" stroke="${p.line}" stroke-width="2.5"/>
+-<circle cx="150" cy="158" r="26" fill="${p.base}" stroke="${p.line}" stroke-width="2"/>
+-<path d="M 150 132 L 150 112" fill="none" stroke="${p.accent}" stroke-width="4"/>
+-<circle cx="150" cy="106" r="6" fill="${p.accent}"/>
+-<path d="M 80 218 L 64 200 M 220 218 L 236 200" fill="none" stroke="${p.line}" stroke-width="4"/>`,
++<path d="M 120 348 L 140 220 L 160 220 L 180 348 Z" fill="${p.lo}" stroke="${p.line}" stroke-width="2"/>
++<rect x="142" y="120" width="16" height="110" fill="url(#gBd)" stroke="${p.line}" stroke-width="2.5"/>
++<path d="M 110 200 L 190 200 L 200 230 L 100 230 Z" fill="${BUILD.stoneHi}" stroke="${p.line}" stroke-width="2.5"/>
++<ellipse cx="150" cy="168" rx="42" ry="18" fill="${p.base}" stroke="${p.line}" stroke-width="2.5"/>
++<ellipse cx="150" cy="160" rx="28" ry="10" fill="${p.hi}" stroke="${p.line}" stroke-width="1.5"/>
++<path d="M 150 120 L 150 72" fill="none" stroke="${p.accent}" stroke-width="4"/>
++<circle cx="150" cy="66" r="8" fill="${p.accent}" stroke="${p.line}" stroke-width="1.5"/>`,
+     },
+     '#c8203a': {                                          // St. Basil's Cathedral
+       label: 'basil',
+@@ -1632,154 +1673,399 @@ ${crown}
+     drawSingleSprite(ctx, 'gorilla', color, gorPalette(color), gorBodySVG);
+   }
+ 
+-  // ── Registry ────────────────────────────────────────────────────────────────
+-  // Add a new edition by pushing META + a drawFns entry. `unlock`: null = always
+-  // available; a number = unlocked once Records.totalWins() reaches it.
+-  const META = [
+-    { id: 'bottle', name: 'Bottle', emoji: '🍾', unlock: null },
+-    {
+-      id: 'parrot', name: 'Parrot', emoji: '🦜', unlock: 1,
+-      // Default player names for this skin, aligned BY INDEX to the base
+-      // engine's FLAVORS array (js/main.js) — so switching skins swaps the
+-      // auto-filled name without touching which color/flavor is selected.
+-      // A skin with no `names` just falls back to the flavor name.
+-      names: [
+-        'Stormy Beak', 'Captain Squawk', 'Limey Lorikeet', 'Cannonball Cal',
+-        'Sir Chirpsalot', 'Whisper Wing', 'Barnacle Bill', 'Pegleg Polly',
+-        'Riptide Rover', 'Doubloon Dave', 'Cherry Corsair', 'Berry Bandit',
+-      ],
+-    },
+-    // Pun-forward plumbing heroics.
+-    { id: 'plunger', name: 'Plunger', emoji: '🪠', unlock: 3, names: [
+-      'Flush Gordon', 'Plumb Fiction', 'Lime Clogzilla', 'Sir Plungelot',
+-      'Count Suckula', 'Cold Plunge', 'Drain Bramage', 'Plungerella',
+-      'The Unclogger', 'Potty Trained', 'Cherry Bomb', 'Loo-Tenant',
+-    ] },
+-    // B-movie monster casting sheet.
+-    { id: 'trex', name: 'T-Rex', emoji: '🦖', unlock: 5, names: [
+-      'Tea Rex', 'Jurassic Mark', 'Veloci-rapper', 'Tiny Arms Tony',
+-      'Grape Chompsky', 'Chillasaurus', 'Applesaurus', 'Sue Nami',
+-      'Dino Mite', 'Rexcalibur', 'Pit Spitter', 'Berry-dactyl',
+-    ] },
+-    // Everything that has ever gone wrong at a vending machine.
+-    { id: 'vending', name: 'Vending Machine', emoji: '🥤', unlock: 7, names: [
+-      'Ven Diesel', 'Vendetta', 'Vend Diagram', 'Quarter Back',
+-      'Snacky Chan', 'Out of Order', 'Snack Overflow', 'Insert Coin',
+-      'Press B4', 'Exact Change', 'Jammed Cherry', 'Snackzilla',
+-    ] },
+-    // Tropical, spiky, and extremely pleased about both.
+-    { id: 'pineapple', name: 'Pineapple', emoji: '🍍', unlock: 9, names: [
+-      'Piña Colossus', 'Spike Lee', 'Sir Prickles', 'Tropic Thunder',
+-      'Juice Springsteen', 'Crown Jewel', 'Fine-apple', 'Pokey Dokey',
+-      'Sweet & Spiky', 'Hula Hooper', 'Cherry on Top', 'Upside-Down Cake',
+-    ] },
+-    // 400 pounds of gym membership.
+-    { id: 'gorilla', name: 'Gorilla', emoji: '🦍', unlock: 11, names: [
+-      'Hairy Styles', 'King Wrong', 'Chest Thumper', 'Banana Split',
+-      'Grape Ape', 'Chill Gorilla', 'Silverback Sam', 'Monkey Business',
+-      'Gorilla Warfare', 'Kong Fu', 'Jungle Gym', 'Ape Lincoln',
+-    ] },
+-    // The twelve-figure cast — held just before Landmarks because it's the
+-    // biggest ordinary unlock before the landmark set.
+-    // One name per figure — this edition's sprite changes with the color, so
+-    // the names are matched to the PERSONS costume at the same index:
+-    // astronaut, pirate, army man, builder, wizard, diver, chef, dancer,
+-    // hero, cowpoke, firefighter, clown.
+-    { id: 'people', name: 'People', emoji: '🧑‍🚀', unlock: 13, names: [
++  // Cartoon SVG casts (pets/garden/robots/ocean/snacks/cryptids) live in
++  // js/cartoon-casts.js and register on window.FLIP_CARTOON_CASTS.
++  const CC = (typeof window !== 'undefined' && window.FLIP_CARTOON_CASTS) || {};
++  function drawCartoonEdition(edition, ctx, opts) {
++    const pack = CC[edition];
++    const color = (opts && opts.color) || '#1f9bff';
++    if (!pack) {
++      ctx.fillStyle = color;
++      ctx.beginPath(); ctx.ellipse(0, -12, 30, 52, 0, 0, Math.PI * 2); ctx.fill();
++      return;
++    }
++    drawSingleSprite(ctx, edition, color, pack.palette(color), pack.bodySVG);
++  }
++  function drawPets(ctx, opts) { drawCartoonEdition('pets', ctx, opts); }
++  function drawGarden(ctx, opts) { drawCartoonEdition('garden', ctx, opts); }
++  function drawRobots(ctx, opts) { drawCartoonEdition('robots', ctx, opts); }
++  function drawOcean(ctx, opts) { drawCartoonEdition('ocean', ctx, opts); }
++  function drawSnacks(ctx, opts) { drawCartoonEdition('snacks', ctx, opts); }
++  function drawCryptids(ctx, opts) { drawCartoonEdition('cryptids', ctx, opts); }
++
++  // ── Unified character roster ───────────────────────────────────────────────
++  // One unlock = one character. Setup is only color/character swatches — no
++  // separate People/Buildings/Pets edition picker. Each entry paints via
++  // `drawAs` (the old edition drawer) using `tint` (cast key / color).
++  // Unlock cadence: free bottle, then every 3 wins; Alien species are LAST.
++  const ALIEN_PHYSICS = {
++    gravity: 1.28,
++    frictionAir: 0.0045,
++    friction: 0.02,
++    restitution: 0.90,
++    spinScale: 0.7,
++    launchScale: 1.50,
++    horizDivisor: 140,
++    horizMax: 15,
++    wallBounce: 0.96,
++    ceiling: true,
++    floorResolve: true,
++    landOnTarget: true,
++    // Bigger pad; any body overlap scores (not just center/feet).
++    targetHalfWidth: 72,
++    requireFlip: false,
++    deflector: true,
++    deflectorCount: 3,
++    saucerCount: 6,
++    keepWalls: true,
++    minHorizRatio: 0.12,
++    strictTarget: false,   // AABB overlap with pad = make (whole alien counts)
++    allowSlideIn: true,    // can still slide onto the pad after touchdown
++    hitScale: 0.90,        // nearly the full drawn pad scores
++    // Still pulled back a bit on phones, but not as extreme as before.
++    arenaZoom: 0.78,
++    mobileArenaZoom: 0.58,
++  };
++
++  // One unique default name per flavor color, for every skin family.
++  // Index-aligned to FLAVOR_HEXES. Used by Skins.nameFor / setup defaults.
++  const FAMILY_COLOR_NAMES = {
++    bottle: [
++      'Blue Steel', 'Sucker Punch', 'Lime Light', 'Orange Crush',
++      'Grape Expectations', 'Ice Ice Baby', 'Apple-solutely', 'Berry Nice',
++      'Making Waves', 'Lemon Aid', 'Very Cherry', 'Pink Fluff',
++    ],
++    parrot: [
++      'Blue Squawk', 'Scarlet Macaw', 'Lime Wire', 'Orange Julius',
++      'Purple Rainbird', 'Ice Beak', 'Green Jay', 'Pink Polly',
++      'Admiral Bird', 'Gold Crest', 'Cherry Chirp', 'Pretty in Pink',
++    ],
++    plunger: [
++      'Blue Lagoon', 'Red Rover', 'Flush Gordon', 'Orange You Glad',
++      'Grape Drain', 'Ice Pick', 'Green Clean', 'Pink Plunge',
++      'Deep Dive', 'Lemon Squeeze', 'Cherry Bomb', 'Blush Flush',
++    ],
++    trex: [
++      'Blue-rassic Park', 'Tyrannosaurus Red', 'Limeasaurus', 'Tea Rex',
++      'Grape Scott', 'Ice Age', 'Dino-mite', 'Pinkasaurus',
++      'Claw and Order', 'Solid Gold Rex', 'Cherry Chomp', 'Rosé Rex',
++    ],
++    vending: [
++      'Blue Light Special', 'Red Bull-ion', 'Lime Rickey', 'Orange Soda',
++      'Ven Diesel', 'Ice Cold', 'Green Machine', 'Pink Panther Pop',
++      'Wave Runner', 'Lemon Drop', 'Cherry Coke’d', 'Pink Lemonade',
++    ],
++    pineapple: [
++      'Blue Hawaii', 'Red Spikes', 'Lime Colada', 'Orange You Pine',
++      'Grape Fruit', 'Piña Colossus', 'Green Crown', 'Pink Prickles',
++      'Pineapple Express', 'Lemon Spire', 'Cherry Top', 'Piña Pinkada',
++    ],
++    gorilla: [
++      'Blue Banana', 'Red Kong', 'Lime Time', 'Orange Crusha',
++      'Grape Ape', 'Ice Kong', 'Hairy Styles', 'Pink Paws',
++      'Navy Knuckles', 'Solid Goldback', 'Cherry Bombilla', 'Bubblegum Kong',
++    ],
++    people: [
+       'Astro-Nut', 'Plank Sinatra', 'Sole Survivor', 'Permit Pending',
+       'Merlin Monroe', 'Bubbles McGee', 'Sir Loin-a-Lot', 'Tutu Much',
+       'Capt. Obvious', 'Tumbleweed Ted', 'Stop Drop Bob', 'Balloonatic',
+-    ] },
+-    // Twelve famous landmarks — one silhouette per player colour (see BUILDING_CAST).
+-    // Names are the real landmarks, index-aligned to FLAVORS / BUILDING_CAST.
+-    { id: 'buildings', name: 'Buildings', emoji: '🏛️', unlock: 15, names: [
+-      'Eiffel Tower', 'Big Ben', 'Statue of Liberty', 'Taj Mahal',
+-      'Sydney Opera House', 'Empire State', 'Great Pyramid', 'Leaning Tower',
+-      'Parthenon', 'Christ the Redeemer', "St. Basil's", 'Pagoda',
+-    ] },
+-    // ── Mid-ladder pantheon. Twelve deities, one per colour (see GOD_CAST). ──
+-    // Normal flip physics — same sport as the bottle. Alien (below) is the
+-    // only edition that changes the game rules.
+-    {
+-      id: 'gods', name: 'Gods', emoji: '⚡', unlock: 25,
+-      names: [
+-        'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
+-        'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
+-        'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
+-      ],
+-    },
+-    // ── The 50-win capstone. The ONLY non-flip edition. ──────────────────────
+-    // Bank shot instead of a 360° flip, AND a twelve-species cast (see
+-    // ALIEN_CAST) — each player colour summons a different looking alien.
+-    {
+-      id: 'alien', name: 'Alien', emoji: '👽', unlock: 50,
+-      physics: {
+-        gravity: 1.35,
+-        frictionAir: 0.004,     // keeps its energy so it really does ricochet
+-        friction: 0.02,
+-        restitution: 0.92,      // the object itself is the bouncy part
+-        spinScale: 0.7,
+-        launchScale: 1.55,      // hard enough that a big flick reaches the ceiling
+-        horizDivisor: 150,      // wider aim range than a normal flick
+-        horizMax: 15,
+-        wallBounce: 0.98,       // walls + ceiling + wedge are near-perfect
+-        ceiling: true,
+-        floorResolve: true,     // first floor contact IS the landing
+-        landOnTarget: true,
+-        targetHalfWidth: 44,    // drawn pad (readable)
+-        requireFlip: false,     // aim, not rotation
+-        deflector: true,
+-        deflectorCount: 3,
+-        saucerCount: 6,
+-        keepWalls: true,        // bank shot needs walls even on mobile
+-        minHorizRatio: 0.22,
+-        strictTarget: true,     // bottle CENTER must hit the scored radius
+-        allowSlideIn: true,     // can still slide into the (smaller) hit zone
+-        hitScale: 0.55,         // only the inner ~55% of the pad radius scores
+-      },
+-      names: [
+-        // Index-aligned to FLAVORS / ALIEN_CAST: Grey, Greenie, Mantid, Cyclops,
+-        // Cephalopod, Nordic, Reptilian, Blob, Android, Conehead, Trioptic, Fluff.
+-        'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
+-        'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
+-        'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Fluff Buff',
+-      ],
+-    },
+-  ];
++    ],
++    // Punned, but each still recognizable as its landmark — this family used to
++    // be the only one with flat literal names.
++    buildings: [
++      'Eiffel Great', 'Ben There Done That', 'Torch Song', 'Taj Ma-Halo',
++      'Sails Pitch', 'Empire Strikes Back', 'Pharaoh Enough', 'Tower of Pizza',
++      'Column Me Maybe', 'Needle Say More', 'Basil Instinct', 'Pagoda Be Kidding',
++    ],
++    gods: [
++      'Bolt From Blue', 'Hammer Time', 'Feather Weight', 'Sun of a Gun',
++      'Bark Side', 'Trident Water', 'Horn to Be Wild', 'Cat Scratch Fever',
++      'Rain Check', 'Swift Delivery', 'Eye Spy', 'Owl Be Back',
++    ],
++    pets: [
++      'Purrlock Holmes', 'Good Boy Gary', 'Hare Today', 'Fin-tastic',
++      'Ham Solo', 'Chirp Norris', 'Shell Yeah', 'Piggie Smalls',
++      'Ferret Bueller', 'Corgi Board', 'Bow Tie Bill', 'Lots of Lox',
++    ],
++    garden: [
++      'Sunny Side', 'You Say Tomato', 'Fun-gi', 'Prickly Pal',
++      'What’s Up Doc', 'Berry Good', 'Broccoli Rob', 'Pumpkin Spice',
++      'Rosebud', 'A-maize-ing', 'Guac and Roll', 'Hot Stuff',
++    ],
++    robots: [
++      'Toast of the Town', 'Vacuum Packed', 'Boombox Hero', 'Tin Can Alley',
++      'Spin Cycle', 'Blend It Like Beckham', 'Channel Surfer', 'Calc This',
++      'Drone Alone', 'Snooze Button', 'Nuke It', 'Lamp Shade',
++    ],
++    ocean: [
++      'Whale Hello', 'Flipper Dipper', 'Shark Week', 'Inkredible',
++      'Crab Apple', 'Sea Horse Power', 'Finding Funny', 'Shell Shock',
++      'Lobster Roll', 'Star Fishin’', 'Jelly Belly', 'Narwhal of Fame',
++    ],
++    snacks: [
++      'Hole-y Donut', 'Taco ‘Bout It', 'Twist & Shout', 'Juice Loose',
++      'Slice of Life', 'Tough Cookie', 'Ice Ice Creamy', 'Pop Star',
++      'Frankly My Dear', 'Cupcake Boss', 'Chip Happens', 'Candy Crush…ed',
++    ],
++    cryptids: [
++      'Big Softie', 'Nessie Business', 'Mothman Monday', 'Chupa-cuppa',
++      'Jersey Fresh', 'Snowball Chance', 'Jacka-lope Hope', 'Thunder Buddy',
++      'Flatwoods Friendly', 'Kraken Me Up', 'Bunyip Yap', 'Nightcrawler Pete',
++    ],
++    alien: [
++      'Grey Matter', 'Little Greenie', 'Mantis Mike', 'Cyclops Carl',
++      'Squid Pro Quo', 'Nordic Norm', 'Scale Tale', 'Blob Squad',
++      'Bolt Action', 'Cone Alone', 'Third Eye Guy', 'Pink Probe',
++    ],
++  };
++
++  // All 12 flavor landmarks. Christ the Redeemer stays out — yellow is Space Needle.
++  const BUILDING_HEXES = FLAVOR_HEXES.map((h) => '#' + h);
++
++  function buildCharacters() {
++    const out = [];
++    const add = (c) => out.push(c);
++    const nameAt = (family, i) => (FAMILY_COLOR_NAMES[family] && FAMILY_COLOR_NAMES[family][i]) || family;
++
++    // Classic single-object flippers (one unlock each; all 12 colors recolor).
++    [
++      { id: 'bottle', emoji: '🍾', drawAs: 'bottle', tint: '#1f9bff' },
++      { id: 'parrot', emoji: '🦜', drawAs: 'parrot', tint: '#e3263c' },
++      { id: 'plunger', emoji: '🪠', drawAs: 'plunger', tint: '#8ed11a' },
++      { id: 'trex', emoji: '🦖', drawAs: 'trex', tint: '#ff7a00' },
++      { id: 'vending', emoji: '🥤', drawAs: 'vending', tint: '#8a3ffc' },
++      { id: 'pineapple', emoji: '🍍', drawAs: 'pineapple', tint: '#5fcfe6' },
++      { id: 'gorilla', emoji: '🦍', drawAs: 'gorilla', tint: '#3fae1a' },
++    ].forEach((c) => {
++      const idx = FLAVOR_HEXES.indexOf(c.tint.slice(1));
++      add({ ...c, name: nameAt(c.drawAs, idx >= 0 ? idx : 0) });
++    });
++
++    FLAVOR_HEXES.forEach((h, i) => {
++      const hex = '#' + h;
++      const label = (PERSONS[hex] && PERSONS[hex].label) || ('person-' + i);
++      add({
++        id: 'people-' + String(label).replace(/\s+/g, '-'),
++        name: nameAt('people', i),
++        emoji: '🧑',
++        drawAs: 'people',
++        tint: hex,
++      });
++    });
++
++    BUILDING_HEXES.forEach((hex, i) => {
++      // Skip the old Redeemer art — yellow uses Space Needle instead.
++      let label = (BUILDING_CAST[hex] && BUILDING_CAST[hex].label) || hex.slice(1);
++      if (label === 'redeemer') label = 'needle';
++      add({
++        id: 'building-' + label,
++        name: nameAt('buildings', i),
++        emoji: '🏙️',
++        drawAs: 'buildings',
++        tint: hex,
++      });
++    });
++
++    FLAVOR_HEXES.forEach((h, i) => {
++      const hex = '#' + h;
++      const label = (GOD_CAST[hex] && GOD_CAST[hex].label) || ('god-' + i);
++      add({
++        id: 'gods-' + String(label).replace(/\s+/g, '-'),
++        name: nameAt('gods', i),
++        emoji: '⚡',
++        drawAs: 'gods',
++        tint: hex,
++      });
++    });
++
++    // Mid-ladder cartoon casts (SVG). Aliens stay last.
++    [
++      { family: 'pets', emoji: '🐾', cast: CC.pets && CC.pets.CAST },
++      { family: 'garden', emoji: '🌻', cast: CC.garden && CC.garden.CAST },
++      { family: 'robots', emoji: '🤖', cast: CC.robots && CC.robots.CAST },
++      { family: 'ocean', emoji: '🌊', cast: CC.ocean && CC.ocean.CAST },
++      { family: 'snacks', emoji: '🍩', cast: CC.snacks && CC.snacks.CAST },
++      { family: 'cryptids', emoji: '🦶', cast: CC.cryptids && CC.cryptids.CAST },
++    ].forEach(({ family, emoji, cast }) => {
++      FLAVOR_HEXES.forEach((h, i) => {
++        const hex = '#' + h;
++        const label = (cast && cast[hex] && cast[hex].label) || h;
++        add({
++          id: family + '-' + String(label).replace(/\s+/g, '-'),
++          name: nameAt(family, i),
++          emoji,
++          drawAs: family,
++          tint: hex,
++        });
++      });
++    });
++
++    // Capstone bank-shot cast — ALWAYS last so Alien is the final unlock tier.
++    FLAVOR_HEXES.forEach((h, i) => {
++      add({
++        id: 'alien-' + h,
++        name: nameAt('alien', i),
++        emoji: '👽',
++        drawAs: 'alien',
++        tint: '#' + h,
++        physics: ALIEN_PHYSICS,
++      });
++    });
++
++    // Assign default swatch color (= tint) + every-3-wins unlock index.
++    // Player color always drives drawing: cast editions swap to that hex's
++    // variant art, classics/bottle recolor in place.
++    out.forEach((c, i) => {
++      c.color = c.tint;
++      c.unlock = i === 0 ? null : i * 3;
++    });
++    return out;
++  }
++
++  const CHARACTERS = buildCharacters();
++  const CHAR_BY_ID = Object.create(null);
++  for (const c of CHARACTERS) CHAR_BY_ID[c.id] = c;
++
++  // Legacy edition ids → character ids (migration for older saves).
++  const EDITION_TO_CHARS = {
++    bottle: ['bottle'], parrot: ['parrot'], plunger: ['plunger'], trex: ['trex'],
++    vending: ['vending'], pineapple: ['pineapple'], gorilla: ['gorilla'],
++    people: CHARACTERS.filter((c) => c.drawAs === 'people').map((c) => c.id),
++    buildings: CHARACTERS.filter((c) => c.drawAs === 'buildings').map((c) => c.id),
++    gods: CHARACTERS.filter((c) => c.drawAs === 'gods').map((c) => c.id),
++    pets: CHARACTERS.filter((c) => c.drawAs === 'pets').map((c) => c.id),
++    garden: CHARACTERS.filter((c) => c.drawAs === 'garden').map((c) => c.id),
++    robots: CHARACTERS.filter((c) => c.drawAs === 'robots').map((c) => c.id),
++    ocean: CHARACTERS.filter((c) => c.drawAs === 'ocean').map((c) => c.id),
++    snacks: CHARACTERS.filter((c) => c.drawAs === 'snacks').map((c) => c.id),
++    cryptids: CHARACTERS.filter((c) => c.drawAs === 'cryptids').map((c) => c.id),
++    alien: CHARACTERS.filter((c) => c.drawAs === 'alien').map((c) => c.id),
++  };
++
++  function character(id) {
++    return CHAR_BY_ID[id] || null;
++  }
++  function resolveDraw(id) {
++    const c = character(id);
++    if (c) return c.drawAs;
++    return id; // legacy edition id
++  }
++
+   const drawFns = {
+     parrot: drawParrot, plunger: drawPlunger, trex: drawTrex,
+     vending: drawVend, people: drawPeople, alien: drawAlien,
+     pineapple: drawPineapple, gorilla: drawGorilla, buildings: drawBuildings,
+-    gods: drawGods,
++    gods: drawGods, pets: drawPets, garden: drawGarden, robots: drawRobots,
++    ocean: drawOcean, snacks: drawSnacks, cryptids: drawCryptids,
+   };   // 'bottle' is drawn by renderer.js
+ 
+   // ── Per-deployment branding ────────────────────────────────────────────────
+   // A branded port sets window.FLIP_BRAND before the scripts load. Setting
+-  // `baseSkin` makes a different edition the free one by SWAPPING its unlock
+-  // slot with the bottle's — so Parrot Flip starts on the parrot and earns the
+-  // bottle at 1 win, while everything else about the ladder is untouched.
++  // `baseSkin` makes a different character the free one by SWAPPING its unlock
++  // slot with the bottle's.
+   const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
+   const BASE_SKIN = BRAND.baseSkin || 'bottle';
+   if (BASE_SKIN !== 'bottle') {
+-    const a = META.find((m) => m.id === BASE_SKIN);
+-    const b = META.find((m) => m.id === 'bottle');
++    const a = character(BASE_SKIN);
++    const b = character('bottle');
+     if (a && b) { const t = a.unlock; a.unlock = b.unlock; b.unlock = t; }
+   }
+ 
+   return {
+     baseSkin: () => BASE_SKIN,
+-    list: () => META.slice(),
+-    metaFor: (id) => META.find((m) => m.id === id) || null,
+-    unlockRule: (id) => (META.find((m) => m.id === id) || {}).unlock ?? null,
+-    namesFor: (id) => (META.find((m) => m.id === id) || {}).names || null,
+-    // null for a plain reskin; a profile object for an edition that changes the
+-    // rules (see physics.js setProfile).
+-    physicsFor: (id) => (META.find((m) => m.id === id) || {}).physics || null,
+-    hasDraw: (id) => !!drawFns[id],
+-    draw: (ctx, id, opts) => { const f = drawFns[id]; if (f) f(ctx, opts || {}); },
++    list: () => CHARACTERS.slice(),
++    character,
++    metaFor: (id) => character(id),
++    unlockRule: (id) => {
++      const c = character(id);
++      return c ? c.unlock : null;
++    },
++    namesFor: (drawAs) => (FAMILY_COLOR_NAMES[drawAs] || []).slice(),
++    // Default player name for a skin family + color (always unique per flavor).
++    nameFor: (id, color) => {
++      const c = character(id);
++      const family = (c && c.drawAs) || id;
++      const list = FAMILY_COLOR_NAMES[family];
++      const hex = colorToHexKey(color || (c && c.tint) || '#1f9bff');
++      const idx = FLAVOR_HEXES.indexOf(hex);
++      if (list && idx >= 0 && list[idx]) return list[idx];
++      if (c && c.name) return c.name;
++      return 'Player';
++    },
++    physicsFor: (id) => {
++      const c = character(id);
++      if (c) return c.physics || null;
++      return null;
++    },
++    editionChars: (edition) => (EDITION_TO_CHARS[edition] || []).slice(),
++    hasDraw: (id) => {
++      const drawAs = resolveDraw(id);
++      return drawAs !== 'bottle' && !!drawFns[drawAs];
++    },
++    draw: (ctx, id, opts) => {
++      const c = character(id);
++      const drawAs = c ? c.drawAs : id;
++      const f = drawFns[drawAs];
++      if (!f) return;
++      // Prefer the player's chosen color so the color picker always changes art.
++      const color = (opts && opts.color) || (c && c.tint) || '#1f9bff';
++      f(ctx, Object.assign({}, opts || {}, { color }));
++    },
++    drawAs: resolveDraw,
++    tintFor: (id) => {
++      const c = character(id);
++      return (c && c.tint) || null;
++    },
++    // Same-edition character for a given color (cast variants), if any.
++    siblingForColor: (id, color) => {
++      const c = character(id);
++      if (!c) return null;
++      const want = String(color || '').toLowerCase();
++      return CHARACTERS.find((x) => x.drawAs === c.drawAs && String(x.tint || '').toLowerCase() === want) || null;
++    },
++    // Resolve which character id to use for a skin family + color. Casts swap
++    // to the matching variant; singles stay put and just recolor.
++    resolveForColor: (id, color) => {
++      const c = character(id);
++      if (!c) return id;
++      const want = String(color || '').toLowerCase();
++      const match = CHARACTERS.find((x) => x.drawAs === c.drawAs && String(x.tint || '').toLowerCase() === want);
++      return (match && match.id) || id;
++    },
++    familyKey: (id) => {
++      const c = character(id);
++      return (c && c.drawAs) || id;
++    },
++    familyLabel: (id) => {
++      const c = character(id);
++      if (!c) return 'Character';
++      const labels = {
++        bottle: 'Bottle', parrot: 'Parrot', plunger: 'Plunger', trex: 'T-Rex',
++        vending: 'Vending', pineapple: 'Pineapple', gorilla: 'Gorilla',
++        people: 'People', buildings: 'Buildings', gods: 'Gods',
++        pets: 'Pets', garden: 'Garden', robots: 'Robots', ocean: 'Ocean',
++        snacks: 'Snacks', cryptids: 'Cryptids', alien: 'Aliens',
++      };
++      return labels[c.drawAs] || c.name;
++    },
++    isCastFamily: (id) => {
++      const c = character(id);
++      if (!c) return false;
++      let n = 0;
++      for (const x of CHARACTERS) if (x.drawAs === c.drawAs && ++n > 1) return true;
++      return false;
++    },
++    drawColor: (id, playerColor) => {
++      const c = character(id);
++      if (!c) return playerColor || '#1f9bff';
++      return playerColor || c.tint || '#1f9bff';
++    },
+     onSpriteLoad,
+     preload: (colors) => {
+-      for (const c of colors || []) {
++      const tints = (colors && colors.length)
++        ? colors
++        : FLAVOR_HEXES.map((h) => '#' + h);
++      for (const c of tints) {
+         getParrotSprite(c);
+         getSingleSprite('plunger', c, plungerPalette(c), plungerBodySVG);
+         getSingleSprite('trex', c, trexPalette(c), trexBodySVG);
+@@ -1790,6 +2076,10 @@ ${crown}
+         getSingleSprite('gorilla', c, gorPalette(c), gorBodySVG);
+         getSingleSprite('gods', c, godPalette(c), godBodySVG);
+         getSingleSprite('buildings', c, buildingPalette(c), buildingBodySVG);
++        ['pets', 'garden', 'robots', 'ocean', 'snacks', 'cryptids'].forEach((ed) => {
++          const pack = CC[ed];
++          if (pack) getSingleSprite(ed, c, pack.palette(c), pack.bodySVG);
++        });
+       }
+     },
+   };
+diff --git a/parrot-flip/roster.html b/parrot-flip/roster.html
+new file mode 100644
+index 0000000..2cb5666
+--- /dev/null
++++ b/parrot-flip/roster.html
+@@ -0,0 +1,185 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++  <meta charset="UTF-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1.0">
++  <title>Parrot Flip — Full Character Roster</title>
++  <style>
++    :root { color-scheme: dark; }
++    * { box-sizing: border-box; }
++    body {
++      margin: 0;
++      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
++      background: #0b1a2b;
++      color: #e8eef5;
++      padding: 20px 16px 48px;
++    }
++    h1 { margin: 0 0 6px; font-size: 1.5rem; }
++    .sub { color: #9bb0c5; margin: 0 0 18px; font-size: 0.95rem; }
++    .sub a { color: #7cc4ff; }
++    .group { margin: 28px 0 12px; }
++    .group h2 {
++      margin: 0 0 10px;
++      font-size: 1.05rem;
++      letter-spacing: 0.04em;
++      text-transform: uppercase;
++      color: #ffd166;
++      border-bottom: 1px solid rgba(255,209,102,0.25);
++      padding-bottom: 6px;
++    }
++    .grid {
++      display: grid;
++      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
++      gap: 12px;
++    }
++    .card {
++      background: rgba(255,255,255,0.04);
++      border: 1px solid rgba(255,255,255,0.1);
++      border-radius: 14px;
++      padding: 10px 8px 12px;
++      text-align: center;
++    }
++    .card canvas {
++      width: 96px;
++      height: 116px;
++      display: block;
++      margin: 0 auto 8px;
++      background: rgba(0,0,0,0.25);
++      border-radius: 10px;
++    }
++    .name { font-weight: 700; font-size: 0.78rem; line-height: 1.25; }
++    .meta { font-size: 0.68rem; color: #9bb0c5; margin-top: 3px; }
++    .swatch {
++      display: inline-block;
++      width: 10px; height: 10px;
++      border-radius: 50%;
++      border: 1px solid rgba(255,255,255,0.4);
++      vertical-align: -1px;
++      margin-right: 4px;
++    }
++  </style>
++</head>
++<body>
++  <h1>🍾 Full Character Roster</h1>
++  <p class="sub">Every unlockable character (flat cartoony SVG), in unlock order. Bottle free → every 3 wins → Aliens last.
++    Includes Pets, Garden, Robots, Ocean, Snacks &amp; Cryptids.
++    <a href="./">← Back to game</a>
++  </p>
++  <div id="root">Loading…</div>
++
++  <script src="js/vendor/matter.min.js"></script>
++  <script src="js/polyfills.js?v=80"></script>
++  <script src="js/renderer.js?v=80"></script>
++  <script src="js/cartoon-casts.js?v=80"></script>
++  <script src="js/skins.js?v=80"></script>
++  <script>
++    const GROUP_LABELS = {
++      bottle: 'Starter',
++      parrot: 'Classics',
++      plunger: 'Classics',
++      trex: 'Classics',
++      vending: 'Classics',
++      pineapple: 'Classics',
++      gorilla: 'Classics',
++      people: 'People',
++      buildings: 'Tall Buildings',
++      gods: 'Gods',
++      pets: 'Pets',
++      garden: 'Garden',
++      robots: 'Robots',
++      ocean: 'Ocean',
++      snacks: 'Snacks',
++      cryptids: 'Cryptids',
++      alien: 'Aliens (bank shot — last)',
++    };
++
++    function groupKey(c) {
++      if (['parrot','plunger','trex','vending','pineapple','gorilla'].includes(c.drawAs)) return 'Classics';
++      if (c.drawAs === 'bottle') return 'Starter';
++      return GROUP_LABELS[c.drawAs] || c.drawAs;
++    }
++
++    const list = Skins.list();
++    const root = document.getElementById('root');
++    root.textContent = '';
++
++    const groups = [];
++    const seen = new Map();
++    for (const c of list) {
++      const g = groupKey(c);
++      if (!seen.has(g)) { seen.set(g, []); groups.push(g); }
++      seen.get(g).push(c);
++    }
++
++    const summary = document.createElement('p');
++    summary.className = 'sub';
++    summary.textContent = `${list.length} characters · last unlock @ ${list[list.length - 1].unlock} wins`;
++    root.appendChild(summary);
++
++    for (const g of groups) {
++      const section = document.createElement('section');
++      section.className = 'group';
++      section.innerHTML = `<h2>${g} · ${seen.get(g).length}</h2>`;
++      const grid = document.createElement('div');
++      grid.className = 'grid';
++      for (const c of seen.get(g)) {
++        const card = document.createElement('div');
++        card.className = 'card';
++        card.dataset.id = c.id;
++        const cv = document.createElement('canvas');
++        cv.width = 96;
++        cv.height = 116;
++        const name = document.createElement('div');
++        name.className = 'name';
++        name.textContent = `${c.emoji || ''} ${c.name}`.trim();
++        const meta = document.createElement('div');
++        meta.className = 'meta';
++        const unlock = c.unlock == null ? 'free' : `${c.unlock} wins`;
++        meta.innerHTML = `<span class="swatch" style="background:${c.color || c.tint}"></span>${unlock}`;
++        card.appendChild(cv);
++        card.appendChild(name);
++        card.appendChild(meta);
++        grid.appendChild(card);
++        requestAnimationFrame(() => {
++          try {
++            const tint = c.tint || c.color || '#1f9bff';
++            Renderer.drawPreview(cv, c.drawAs === 'bottle' ? 'bottle' : c.id, tint);
++          } catch (e) {
++            const ctx = cv.getContext('2d');
++            ctx.fillStyle = '#ff5252';
++            ctx.font = '12px monospace';
++            ctx.fillText('err', 8, 20);
++          }
++        });
++      }
++      section.appendChild(grid);
++      root.appendChild(section);
++    }
++
++    // Second pass after PNG sprites decode
++    if (Skins.onSpriteLoad) {
++      Skins.onSpriteLoad(() => {
++        document.querySelectorAll('.card').forEach((card, i) => {
++          const c = list[i];
++          // rebuild map by walking DOM order instead
++        });
++        // simpler: redraw all cards from list order
++        const canvases = [...document.querySelectorAll('.card canvas')];
++        list.forEach((c, i) => {
++          const cv = canvases[i];
++          if (!cv) return;
++          const tint = c.tint || c.color || '#1f9bff';
++          try {
++            Renderer.drawPreview(cv, c.drawAs === 'bottle' ? 'bottle' : c.id, tint);
++          } catch (_) {}
++        });
++      });
++    }
++    // Warm PNG caches
++    if (Skins.preload) {
++      const tints = [...new Set(list.map((c) => c.tint || c.color).filter(Boolean))];
++      Skins.preload(tints);
++    }
++  </script>
++</body>
++</html>
+diff --git a/parrot-flip/service-worker.js b/parrot-flip/service-worker.js
+index 8e59310..7b9c84c 100644
+--- a/parrot-flip/service-worker.js
++++ b/parrot-flip/service-worker.js
+@@ -2,11 +2,12 @@
+ // Bump CACHE_NAME on every release so stale caches are purged and users get
+ // the fresh build. All paths are RELATIVE so they resolve under /flipgame/
+ // on GitHub Pages (the SW lives at repo root → scope is /flipgame/).
+-const CACHE_NAME = 'parrotflip-v63';
++const CACHE_NAME = 'parrotflip-v80';
+ 
+ const PRECACHE_URLS = [
+   './',
+   './index.html',
++  './roster.html',
+   './css/style.css',
+   './js/polyfills.js',
+   './js/game.js',
+@@ -17,13 +18,14 @@ const PRECACHE_URLS = [
+   './js/settings.js',
+   './js/records.js',
+   './js/achievements.js',
++  './js/cartoon-casts.js',
+   './js/skins.js',
+   './js/main.js',
+   './js/vendor/matter.min.js',
+   './manifest.json',
+   './icons/icon-192.png',
+   './icons/icon-512.png',
+-  './icons/icon-512-maskable.png'
++  './icons/icon-512-maskable.png',
+ ];
+ 
+ self.addEventListener('install', (event) => {
+-- 
+2.43.0
+

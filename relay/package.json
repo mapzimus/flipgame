@@ -1,0 +1,12 @@
+{
+  "name": "flipgame-relay",
+  "private": true,
+  "type": "module",
+  "description": "Optional WebSocket room relay for Bottle Game online multiplayer",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

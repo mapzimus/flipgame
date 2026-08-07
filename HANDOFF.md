@@ -232,7 +232,7 @@ Pages auto-builds from `master` (root). Push and it's live in ~1 minute at
 **The one ritual you must not forget:**
 > When you change ANY game file, **bump `CACHE_NAME` in `service-worker.js`**
 > (`flipgame-v3` → `flipgame-v4`). Otherwise installed copies serve the old cached
-> build forever. (Currently at **v3**.)
+> build forever. (Currently at **v69**.)
 
 **Gotchas baked into the project (don't undo these):**
 - **All asset paths are RELATIVE.** The site lives at the `/flipgame/` subpath;
@@ -276,7 +276,7 @@ the *same* bottle tumble live on their own screen; one tiny message per flip
 hybrid — **replay is for visuals, the flicking player's device is authoritative for
 the MAKE/MISS result.**
 
-**Prep already needed (cheap, do alongside other work):**
+**Prep / status:**
 1. Seed the RNG — **DONE ✓** `physics.js` reseeds a mulberry32 stream per flick; the
    seed is recorded in `getLastFlickInfo().seed`, and `applyFlick(vx, vy, seed)`
    replays a flick's randomness exactly.
@@ -284,13 +284,15 @@ the MAKE/MISS result.**
    of display refresh (`FIXED_DT` in `physics.js`); same flick + seed = identical
    outcome at any frame rate (verified headless at 60/120/144fps render loops).
 3. Matter.js is already pinned/vendored (0.19). ✓
+4. Rooms + lockstep client — **DONE ✓** on the feature branch (`js/net.js`, Online
+   button on setup). Default transport: MQTT over WSS to the public EMQX broker;
+   optional self-hosted relay `relay/server.mjs` (`?relay=ws://host:8787`);
+   same-browser testing via `?net=local` (BroadcastChannel). Whether this lands
+   on `main` depends on the root-game product merge decision.
 
-**Transport:** realtime over `wss://` — **Supabase Realtime** (already connected) or
-PartyKit. **Avoid WebRTC/P2P** (school networks block it). GitHub Pages can host the
-client; the realtime backend is a separate managed service.
-
-**Design that fits the classroom:** smartboard = shared board, phones/Chromebooks =
-controllers (Jackbox-style), students join a room code and flick on their own device.
+**Design that fits the classroom:** create a room code on the smartboard or a phone;
+students join and take turns flicking on their own device. Pass-and-play handoff is
+skipped online — only the current peer can flick.
 
 ---
 
@@ -309,5 +311,59 @@ controllers (Jackbox-style), students join a room code and flick on their own de
 
 ---
 
+# PART 11 — SESSION UPDATE (current state: v15)
+
+Everything below was added after the original guide above; on conflicts, THIS wins.
+
+## Gameplay mechanics now in effect
+- **Stake (pointCount) starts at 0.** A make raises it +1; a miss costs the current stake then resets to 0. With no buildup, a miss costs nothing. High stake swing is **intentional** (players knocked out one by one) — do NOT clamp it.
+- **Big scary stake display** (`renderer.js drawStake`): a large canvas number that grows/reddens/shakes as the stake climbs. Replaced the small top-bar text.
+- **ON FIRE:** +1 life per flip, bounded only by the **20-life cap** (no per-run cap) — EXCEPT in lobbies with **>4 players**, where a run caps at **+5 lives** then passes on gracefully (no penalty). Constants `ONFIRE_CAP_PLAYERS=4`, `ONFIRE_CAP_LIVES=5` in `game.js`.
+- **SUDDEN DEATH** after `SD_THRESHOLD=70` flips (`game.js`): ON FIRE stops minting lives + an escalating miss penalty (`SD_STEP=20` flips/level). Guarantees games end (fixed a never-ending high-skill stalemate; hard CPU games 750→~120 turns).
+- **"Make it or break it" intense finale** when a miss would eliminate the current player (`game.missWouldEliminate()`): slow-mo flight (airborne dt×0.4 in the loop), red vignette + banner, tension sound + haptic.
+- **Per-turn flip countdown:** 10s (4s ON FIRE), human turns only; timeout = forfeited miss. Bar in the HUD.
+- **CPU players:** toggle Human/CPU per row; difficulty easy/med/hard. Two CPUs auto-play — great for watching/bug-hunting.
+- **Player names default to the chosen flavor** (12-flavor list in `main.js FLAVORS`, names twisted off Gatorade), follow the flavor unless customized.
+- **Multi-game scoreboard** on the game-over screen (persists across Play Again via `matchWins` by index; resets on a new match from setup).
+- **Audio + haptics:** synthesized WebAudio SFX (`audio.js`) + `navigator.vibrate` patterns (distinct for ON FIRE). No-op on desktop/most panels.
+
+## New files since the original guide
+`js/audio.js` (SFX + haptics). Everything else is the same file set.
+
+## Dev/verify workflow used this session (IMPORTANT)
+- Run the dev server (`python -m http.server 5174` / launch.json "flipgame"), open in the **Claude preview**, and verify with `preview_eval`. Game logic + physics are tested **headlessly** by driving `game.resolveFlip`/`advanceTurn` + `Physics.applyFlick`/`step`/`checkLanding` directly (set `game.callbacks = {}` to isolate from the UI). This is how all balance/landing numbers were measured.
+- **Feel-dependent things (slow-mo, audio, haptics, the live countdown drain) only run in a real focused tab** — the preview throttles `requestAnimationFrame`/timers, so they can't be exercised headlessly. Playtest those on a real device.
+- **Stale-cache gotcha:** the dev server sends no cache headers, so the browser serves stale JS on reload. Scripts/CSS carry a `?v=N` query (currently **v69**) — **bump it on every change** (and the matching `CACHE_NAME` in `service-worker.js`) or the browser/SW serves the old build. This is the #1 "my change didn't show up" cause.
+- **Deploy:** push to `master` → GitHub Pages + the offline APK (GitHub Actions) rebuild automatically.
+
+## Tuning knobs quick map (all in `js/game.js` unless noted)
+`SD_THRESHOLD`/`SD_STEP` (sudden death), `ONFIRE_CAP_PLAYERS`/`ONFIRE_CAP_LIVES` (big-lobby fire cap), `pointCount` semantics (start 0). Flick feel in `js/physics.js`: `POWER_SPEED=4000`, `SPIN_BASE=0.14`, `SPIN_RANGE=0.10`, randomness `jSpin ±0.24`/`jLaunch ±0.12`, landing `checkLanding` (angVel<0.010, linSpeed<7, 22-frame angle-stable window, ±0.61 rad, 600-frame watchdog), 360 threshold `5.6`. AI in `js/main.js aiFlick` (sweet spot ~2100 px/s, sigma easy 650/med 400/hard 220). Turn clock `TURN_SECONDS=10`/`FIRE_SECONDS=4`.
+
+## Phase 2 (not started): online multiplayer — Approach B
+Deterministic lockstep replay: broadcast `{seed, vx, vy}` per flip; every device replays the seeded sim. CRITICAL: the flicking player's device is **authoritative for the verdict** (replay is visual only) to avoid cross-device float divergence. Prep needed: seed the RNG (replace `Math.random` in `physics.js` jitter + landing kick with a seeded PRNG) and switch the loop to a fixed-timestep accumulator. Transport: Supabase Realtime (connected) or PartyKit over wss://; NOT WebRTC (school networks block it).
+
+
+## Art style (v75)
+Flat **cartoony SVG** casts only in-game. AI PNG casts under `icons/skins/` are
+retired. Mid-ladder packs (pets, garden, robots, ocean, snacks, cryptids) live
+in `js/cartoon-casts.js` as SVG silhouettes — same toy-box look as People/Aliens.
+
+## Progress gating (v66)
+- **Unlocks + achievements only count when ≥1 human is in the lobby** (`main.js` `progressCounts()` / `humansPlayed`). AI-only games show a toast and skip `Records.recordWin`, skin unlocks, `Records.recordFlip` lifetime counters, and `Achievements.check`.
+- Practice counts (solo human). Secret: tap title **Bottle → Game → Bottle → Game → Bottle → Game** to unlock everything (or wipe if already unlocked).
+
+## Character unlocks (v72)
+
+**Roster gallery:** open `/roster.html` for every character with a live render.
+
+Setup: **character chips + independent color**. Cadence: bottle free, then
+**every 3 wins**; **Alien species are last**. Live roster: classics → people →
+buildings → gods → pets → garden → robots → ocean → snacks → cryptids → aliens.
+Color recolors / swaps cast variants. Secret unlock: Bottle/Game alternating.
+
+Legacy edition unlocks in localStorage expand into their character ids on boot.
+
+---
+
 *Maintained with Claude Code. To pick up on another machine: clone the repo, read this
-file, run Part 3, and you're current.*
+file (incl. Part 11), run Part 3, and you're current.*
