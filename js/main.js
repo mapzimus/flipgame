@@ -82,8 +82,9 @@
   let reflowTimer = null;
   // Editions may bring their own physics (see Skins.physicsFor / skins.js META).
   // Applied per turn, so one player can be flipping a bottle while the next
-  // takes a bank shot with the alien. Must run AFTER Physics.resetBottle, which
-  // rebuilds the body.
+  // takes a bank shot with the alien. Must run BEFORE Physics.resetBottle —
+  // setProfile may resize the world (alien expand), and the bottle has to
+  // spawn at the new center.
   function applyTurnPhysics() {
     if (!Physics.setProfile) return;
     const skin = (game && game.currentPlayer && game.currentPlayer()?.skin) || BASE_SKIN;
@@ -99,8 +100,8 @@
       // (a stray resize must not reset a bottle in flight and void it as a MISS).
       if (!evaluating &&
           (game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE)) {
-        Physics.resetBottle();
         applyTurnPhysics();
+        Physics.resetBottle();
         prepareTurnArena();
       }
     }, 150);
@@ -1177,8 +1178,8 @@
     stopTurnTimer();
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
-    Physics.resetBottle();
     applyTurnPhysics();
+    Physics.resetBottle();
     prepareTurnArena();
     flipHintEl.classList.remove('hidden');
 
@@ -1246,8 +1247,8 @@
     stopTurnTimer();
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
-    Physics.resetBottle();
     applyTurnPhysics();
+    Physics.resetBottle();
     prepareTurnArena();
     flipHintEl.classList.remove('hidden');
 

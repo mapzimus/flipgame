@@ -11,9 +11,13 @@ const Physics = (() => {
   let capThrowArmed = false; // seed-rolled over-spin throw aiming for a cap land
   let lastLandingInfo = null;
   let lastFlickInfo = null;
-  let canvasW;
+  let canvasW;            // PHYSICS world width (may exceed the screen on alien)
   let groundY;
-  let arenaH;   // full canvas height — obstacles are placed relative to it
+  let arenaH;             // view height — used for some camera / furniture math
+  let viewW = 0;          // screen logical width (CSS px)
+  let viewH = 0;          // screen logical height
+  let viewBottomInset = 0;
+  let ceilingY = 0;       // top of playable air (0 = flush with screen top)
   let sideWallsEnabled = true;
   let openArena = false;  // mobile open sides (no wall caroms)
 
@@ -127,6 +131,15 @@ const Physics = (() => {
     // Scored radius as a fraction of the drawn pad. 1 = whole pad counts;
     // 0.5 = only the inner half-radius scores (drawn pad stays readable).
     hitScale: 1,
+    // True arena expand (bank-shot profiles): world size = view size × expand.
+    // Camera then fits wall-to-wall. 1 = no expand. Prefer this over arenaZoom.
+    arenaExpand: 1,
+    mobileArenaExpand: 1,
+    arenaExpandY: 1,
+    mobileArenaExpandY: 1,
+    // Optional extra camera pullback AFTER expand-fit (usually leave at 1).
+    arenaZoom: null,
+    mobileArenaZoom: null,
   };
   let profile = { ...DEFAULT_PROFILE };
   let targetX = null;      // pad center, only set when profile.landOnTarget
@@ -159,21 +172,25 @@ const Physics = (() => {
   let maxGroundedTilt = 0;  // display-only: worst |tilt| seen while grounded this flip
   let flightFrames = 0;     // frames since the bottle left the floor (absolute soft-lock guard)
 
+  function screenW() { return viewW || canvasW || 0; }
+
   function wantsOpenArena() {
     if (profile.keepWalls || profile.wallBounce > 0) return false;
     if (typeof window === 'undefined') return false;
     const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const w = screenW();
     // Phones / small tablets: no side walls so wall-caroms can't make mobile easier.
-    return canvasW < 900 || (coarse && canvasW < 1100);
+    return w < 900 || (coarse && w < 1100);
   }
 
   // Compact screens get the lighter bounce-mode furniture (1 wedge). Desktop
-  // keeps the full set. Same breakpoint spirit as the open-arena check, but
-  // bounce modes still want walls, so we don't reuse wantsOpenArena().
+  // keeps the full set. Uses the SCREEN width — never the expanded physics
+  // world width — so alien's bigger court doesn't flip us into "desktop" mode.
   function isCompactScreen() {
-    if (typeof window === 'undefined') return canvasW < 900;
+    const w = screenW();
+    if (typeof window === 'undefined') return w < 900;
     const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-    return canvasW < 900 || (coarse && canvasW < 1100);
+    return w < 900 || (coarse && w < 1100);
   }
 
   function syncSideWalls() {
@@ -184,10 +201,49 @@ const Physics = (() => {
     if (rightWall) rightWall.collisionFilter.mask = mask;
   }
 
+  // Bank-shot profiles can grow the PHYSICS world past the screen. Camera then
+  // fits wall-to-wall so the phone stays full-bleed while caroms have room.
+  function arenaExpandX() {
+    if (!(profile.floorResolve || profile.keepWalls)) return 1;
+    const compact = isCompactScreen();
+    const x = compact
+      ? (profile.mobileArenaExpand != null ? profile.mobileArenaExpand : profile.arenaExpand)
+      : profile.arenaExpand;
+    return Math.max(1, Number(x) || 1);
+  }
+  function arenaExpandY() {
+    if (!(profile.floorResolve || profile.keepWalls)) return 1;
+    const compact = isCompactScreen();
+    const y = compact
+      ? (profile.mobileArenaExpandY != null ? profile.mobileArenaExpandY : profile.arenaExpandY)
+      : profile.arenaExpandY;
+    return Math.max(1, Number(y) || 1);
+  }
+
+  function layoutArena() {
+    if (!viewW || !viewH) return;
+    canvasW = Math.round(viewW * arenaExpandX());
+    groundY = viewH - tableInset(viewH) - viewBottomInset;
+    // Extra air = raise the ceiling (more negative). Floor stays HUD-relative
+    // so the table still meets the player cards.
+    ceilingY = -Math.round(Math.max(0, arenaExpandY() - 1) * groundY);
+    arenaH = viewH;
+    if (!engine) return;
+    const midY = (groundY + ceilingY) / 2;
+    Body.setPosition(ground,      { x: canvasW / 2,                 y: groundY + 25 });
+    Body.setPosition(leftWall,    { x: WALL_INSET - 20,             y: midY });
+    Body.setPosition(rightWall,   { x: canvasW - WALL_INSET + 20,   y: midY });
+    Body.setPosition(ceilingBody, { x: canvasW / 2,                 y: ceilingY - 20 });
+    syncSideWalls();
+  }
+
   // Apply before the turn's flick (main.js calls this per turn). Safe to call
   // with null/undefined to go back to normal physics.
+  // IMPORTANT: call BEFORE resetBottle when the skin changes — layoutArena may
+  // resize the world, and the bottle must spawn at the new center.
   function setProfile(next) {
     profile = { ...DEFAULT_PROFILE, ...(next || {}) };
+    layoutArena();
     if (engine) engine.gravity.y = profile.gravity;
     if (ceilingBody) ceilingBody.collisionFilter.mask = profile.ceiling ? 0xFFFFFFFF : 0;
     // Walls and ceiling are normally dead (no carom, no spin transfer — see
@@ -736,16 +792,20 @@ const Physics = (() => {
   function tableInset(h) { return Math.max(64, Math.round(h * 0.13)); }
 
   function init(w, h, bottomInset = 0) {
+    viewW = w;
+    viewH = h;
+    viewBottomInset = bottomInset;
     canvasW = w;
     arenaH  = h;
     groundY = h - tableInset(h) - bottomInset;
+    ceilingY = 0;
     acc = 0;
 
     engine = Engine.create({ gravity: { y: profile.gravity, scale: 0.001 } });
     world  = engine.world;
 
-    // Extra-wide ground so open-arena mobile shots still have a floor off-screen.
-    ground = Bodies.rectangle(w / 2, groundY + 25, Math.max(w * 6, 4000), 50, {
+    // Extra-wide ground so open-arena / expanded-court shots still have a floor.
+    ground = Bodies.rectangle(w / 2, groundY + 25, Math.max(w * 8, 6000), 50, {
       isStatic: true,
       label: 'ground',
       friction: 0.9,
@@ -753,34 +813,31 @@ const Physics = (() => {
     });
 
     const wallOpts = { isStatic: true, label: 'wall', friction: 0, restitution: 0 };
-    leftWall  = Bodies.rectangle(WALL_INSET - 20, h / 2, 40, h * 4, wallOpts);
-    rightWall = Bodies.rectangle(w - WALL_INSET + 20, h / 2, 40, h * 4, wallOpts);
+    leftWall  = Bodies.rectangle(WALL_INSET - 20, h / 2, 40, h * 5, wallOpts);
+    rightWall = Bodies.rectangle(w - WALL_INSET + 20, h / 2, 40, h * 5, wallOpts);
 
-    ceilingBody = Bodies.rectangle(w / 2, -20, Math.max(w * 6, 4000), 40, {
+    ceilingBody = Bodies.rectangle(w / 2, -20, Math.max(w * 8, 6000), 40, {
       isStatic: true, label: 'ceiling', friction: 0, restitution: 0.85,
       collisionFilter: { mask: profile.ceiling ? 0xFFFFFFFF : 0 },
     });
 
     World.add(world, [ground, leftWall, rightWall, ceilingBody]);
+    layoutArena(); // honor any pre-set bank-shot expand profile
     syncSideWalls();
     resetBottle();
   }
 
   function reflow(w, h, bottomInset = 0) {
     if (!engine) return;
-    canvasW = w;
-    arenaH  = h;
-    groundY = h - tableInset(h) - bottomInset;
-    Body.setPosition(ground,    { x: w / 2,                 y: groundY + 25 });
-    Body.setPosition(leftWall,  { x: WALL_INSET - 20,       y: h / 2 });
-    Body.setPosition(rightWall, { x: w - WALL_INSET + 20,   y: h / 2 });
-    Body.setPosition(ceilingBody, { x: w / 2, y: -20 });
-    syncSideWalls();
+    viewW = w;
+    viewH = h;
+    viewBottomInset = bottomInset;
+    layoutArena();
     buildObstacles(h);
     if (profile.landOnTarget) {
       targetHW = currentTargetHalfWidth();
       const margin = (sideWallsEnabled ? WALL_INSET : 8) + targetHW + 16;
-      if (targetX != null) targetX = Math.max(margin, Math.min(w - margin, targetX));
+      if (targetX != null) targetX = Math.max(margin, Math.min(canvasW - margin, targetX));
     }
   }
 
@@ -948,35 +1005,45 @@ const Physics = (() => {
     }
   }
 
-  // Profile-driven base zoom (Alien desktop pulls back a bit; phones fill frame).
-  function profileArenaZoom() {
+  // Optional extra camera pullback AFTER the expand-fit (usually 1 / unset).
+  function profileZoomMul() {
     const compact = isCompactScreen();
     const z = compact
       ? (profile.mobileArenaZoom != null ? profile.mobileArenaZoom : profile.arenaZoom)
       : profile.arenaZoom;
-    if (z == null || !(z > 0)) return null;
+    if (z == null || !(z > 0)) return 1;
     return Math.max(0.35, Math.min(1, z));
   }
 
+  // Wall-to-wall fit for an expanded physics world (+ optional zoom mul).
+  function courtFitZoom() {
+    const vw = screenW() || canvasW;
+    if (!vw || !canvasW) return profileZoomMul();
+    const fit = Math.min(1, vw / canvasW);
+    return Math.max(0.35, Math.min(1, fit * profileZoomMul()));
+  }
+
   // Camera helper: when the bottle leaves the frame (mobile open arena), the
-  // renderer zooms out so the shot stays visible. Returns world bounds that
-  // should remain on-screen. Some profiles (Alien) force a pulled-back zoom
-  // even with walls so phones feel like a bigger arena.
+  // renderer zooms out so the shot stays visible. Expanded bank-shot courts
+  // (alien) size the PHYSICS world past the screen and fit wall-to-wall so the
+  // phone stays full-bleed while caroms have real room to travel.
   function getViewHint() {
-    const forced = profileArenaZoom();
     const cx = canvasW / 2;
     const cy = groundY / 2;
+    const vw = screenW() || canvasW;
+    const vh = viewH || arenaH || groundY;
+    const expanded = canvasW > vw + 1 || ceilingY < -1;
     // Plinko drop: frame the whole board (plus the object) — this is what
     // makes the camera "zoom out" as the floor opens up.
     if (plinko && bottle) {
       const minX = Math.min(bottle.bounds.min.x - 40, plinko.left - 70);
       const maxX = Math.max(bottle.bounds.max.x + 40, plinko.right + 70);
-      const minY = Math.min(bottle.bounds.min.y - 60, groundY - 280);
+      const minY = Math.min(bottle.bounds.min.y - 60, groundY - 280, ceilingY);
       const maxY = Math.max(bottle.bounds.max.y, plinko.bottom + 90);
       const spanX = maxX - minX, spanY = maxY - minY;
-      // The extra ×0.88 pulls back past the tight fit for real spectacle.
+      // Fit to the SCREEN (not the possibly-expanded physics world).
       const zoom = Math.max(0.2,
-        Math.min(1, canvasW / spanX, arenaH / Math.max(spanY, 1)) * 0.88);
+        Math.min(1, vw / spanX, vh / Math.max(spanY, 1)) * 0.88);
       return {
         openArena,
         sideWalls: false,   // arena walls are dead + the board has its own rails
@@ -987,41 +1054,41 @@ const Physics = (() => {
         worldH: plinko.bottom + 90,
       };
     }
-    // Forced-zoom courts (alien): bias the camera a hair upward so the ceiling
-    // bank has room and the table sits nearer the HUD instead of dead-center.
-    const forcedCamY = forced != null ? groundY * 0.46 : cy;
+    // Expanded / walled courts: fit the physics world wall-to-wall and bias
+    // the camera through the playable air column (ceiling → table).
+    const courtZoom = courtFitZoom();
+    const courtCamY = expanded ? (groundY + ceilingY) * 0.52 : cy;
     if (!bottle) {
       return {
         openArena, sideWalls: sideWallsEnabled,
-        zoom: forced != null ? forced : 1,
-        camX: cx, camY: forcedCamY,
-        courtFrame: forced != null,
+        zoom: openArena ? 1 : courtZoom,
+        camX: cx, camY: courtCamY,
+        worldW: canvasW,
+        worldH: groundY + 30,
+        courtFrame: expanded,
       };
     }
     if (!openArena) {
       return {
         openArena: false,
         sideWalls: sideWallsEnabled,
-        zoom: forced != null ? forced : 1,
+        zoom: courtZoom,
         camX: cx,
-        camY: forcedCamY,
+        camY: courtCamY,
         worldW: canvasW,
         worldH: groundY + 30,
-        courtFrame: forced != null,
+        courtFrame: expanded,
       };
     }
     const pad = 48;
     const minX = Math.min(0, bottle.bounds.min.x - pad);
     const maxX = Math.max(canvasW, bottle.bounds.max.x + pad);
-    const minY = Math.min(0, bottle.bounds.min.y - pad);
+    const minY = Math.min(ceilingY, bottle.bounds.min.y - pad);
     const maxY = Math.max(groundY + 30, bottle.bounds.max.y + 20);
     const spanX = maxX - minX;
     const spanY = maxY - minY;
-    const zoom = Math.min(1, canvasW / spanX, (groundY + 30) / Math.max(spanY, 1));
-    // Only zoom out (never in past 1). Floor lowered so long open-arena shots
-    // (and forced Alien zoom) can pull further back on phones.
-    let z = Math.max(0.40, Math.min(1, zoom));
-    if (forced != null) z = Math.min(z, forced);
+    // Open-arena follow-cam fits to the SCREEN.
+    let z = Math.max(0.40, Math.min(1, vw / spanX, (groundY + 30 - ceilingY) / Math.max(spanY, 1)));
     return {
       openArena,
       sideWalls: sideWallsEnabled,

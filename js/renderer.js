@@ -480,10 +480,12 @@ const Renderer = (() => {
   }
 
   // ── Side walls ───────────────────────────────────────────────────────────────
-  function drawWalls(groundY, sideWalls) {
+  // `worldW` is the physics arena width (may exceed the screen on alien).
+  function drawWalls(groundY, sideWalls, worldW) {
     if (sideWalls === false) return; // mobile open arena — no painted walls
     const WALL = 14; // matches physics WALL_INSET
-    for (const x0 of [0, W - WALL]) {
+    const ww = worldW > 0 ? worldW : W;
+    for (const x0 of [0, ww - WALL]) {
       const g = ctx.createLinearGradient(x0, 0, x0 + WALL, 0);
       const flip = x0 === 0;
       g.addColorStop(0, flip ? 'rgba(28,40,58,0.95)' : 'rgba(58,78,105,0.75)');
@@ -494,26 +496,26 @@ const Renderer = (() => {
     // inner edge highlights
     ctx.fillStyle = 'rgba(150,185,215,0.30)';
     ctx.fillRect(WALL - 2, 0, 2, groundY);
-    ctx.fillRect(W - WALL, 0, 2, groundY);
+    ctx.fillRect(ww - WALL, 0, 2, groundY);
   }
 
-  // When a walled court is camera-zoomed out (alien bank shot), sky would show
-  // in the side gutters and make the playfield look like a postage stamp. Paint
-  // those gutters as an outer hull and extend the table so the phone still
-  // reads full-bleed. Runs in SCREEN space after the world camera restore.
+  // Safety net for expanded courts: if the fit-zoom leaves a sub-pixel gutter
+  // (or an older profile still letterboxes), paint outer hull + table so the
+  // phone never shows empty sky beside the walls. Runs in SCREEN space.
   function drawCourtGutters(view, groundY) {
     if (!view || !view.courtFrame || view.sideWalls === false || view.openArena) return;
     if (fxPlinko) return;
-    if (camZoom >= 0.97) return;
+    if (camZoom >= 0.985) return;
 
+    const ww = view.worldW > 0 ? view.worldW : W;
     const leftEdge = W / 2 + camZoom * (0 - camX);
-    const rightEdge = W / 2 + camZoom * (W - camX);
+    const rightEdge = W / 2 + camZoom * (ww - camX);
     const tableY = H / 2 + camZoom * (groundY - camY);
     const roofY = H / 2 + camZoom * (0 - camY);
     const courtTop = Math.max(0, Math.min(H, roofY));
     const courtBot = Math.max(0, Math.min(H, tableY));
 
-    if (leftEdge > 1) {
+    if (leftEdge > 1.5) {
       const g = ctx.createLinearGradient(0, 0, leftEdge, 0);
       g.addColorStop(0, '#070c14');
       g.addColorStop(0.65, '#0e1724');
@@ -523,7 +525,7 @@ const Renderer = (() => {
       ctx.fillStyle = 'rgba(150,185,215,0.22)';
       ctx.fillRect(leftEdge - 2, courtTop, 2, Math.max(0, courtBot - courtTop));
     }
-    if (rightEdge < W - 1) {
+    if (rightEdge < W - 1.5) {
       const g = ctx.createLinearGradient(W, 0, rightEdge, 0);
       g.addColorStop(0, '#070c14');
       g.addColorStop(0.65, '#0e1724');
@@ -845,7 +847,7 @@ const Renderer = (() => {
     ctx.save();
     applyCamera(view);
     drawBackground(groundY, isOnFire, { tableOnly: true });
-    drawWalls(groundY, view ? view.sideWalls : true);
+    drawWalls(groundY, view ? view.sideWalls : true, view && view.worldW);
     drawTargetPad(target, groundY);
     drawObstacles(obstacles);
     if (fxPlinko) drawPlinko(fxPlinko);

@@ -1750,11 +1750,16 @@ ${crown}
     strictTarget: false,   // AABB overlap with pad = make (whole alien counts)
     allowSlideIn: true,    // can still slide onto the pad after touchdown
     hitScale: 0.90,        // nearly the full drawn pad scores
-    // Pulled-back court so bank shots read (pad + furniture + ceiling room).
-    // Phones use ~0.80 — zoom 1 felt cramped; 0.58 letterboxed a postage stamp.
-    // Renderer fills the side gutters so the phone still looks full-bleed.
-    arenaZoom: 0.82,
-    mobileArenaZoom: 0.80,
+    // TRUE bigger arena (not camera-shrink): physics world is wider/taller than
+    // the screen, camera fits wall-to-wall so the phone stays full-bleed while
+    // bank shots actually have more travel. Old arenaZoom letterboxed a
+    // postage stamp or cramped the court — expand replaces that.
+    arenaExpand: 1.18,         // desktop: mild real widen
+    mobileArenaExpand: 1.42,   // phone: proper bank-shot court
+    arenaExpandY: 1.0,
+    mobileArenaExpandY: 1.14,  // a bit more air for ceiling banks on phones
+    arenaZoom: 1,
+    mobileArenaZoom: 1,
   };
 
   // One silly default name per flavor color × object. Index-aligned to
