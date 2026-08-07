@@ -235,6 +235,9 @@ const Physics = (() => {
 
   function startPlinko() {
     clearPlinko();
+    // Bank-shot furniture (alien wedges/saucers) would steal the drop — clear
+    // them for this throw. Next turn's setProfile/buildObstacles rebuilds.
+    clearObstacles();
     // Board width is independent of the screen — at least 640 so five slots
     // stay ball-sized; the camera pulls back to show all of it.
     const bw = Math.max(640, Math.min(canvasW - 36, 980));
@@ -286,11 +289,14 @@ const Physics = (() => {
     }));
     World.add(world, plinkoBodies);
 
-    // The floor "disappears", and the arena walls go dead too — the board's
-    // own rails take over (the board may extend past the screen edges).
+    // The floor "disappears", and the arena walls/ceiling go dead too — the
+    // board's own rails take over (the board may extend past the screen edges).
+    // Alien mode keeps a live ceiling for bank shots; kill it for the drop so
+    // the ball isn't trapped bouncing under the roof.
     ground.collisionFilter.mask = 0;
     if (leftWall)  leftWall.collisionFilter.mask = 0;
     if (rightWall) rightWall.collisionFilter.mask = 0;
+    if (ceilingBody) ceilingBody.collisionFilter.mask = 0;
 
     plinko = { left, right, top, bottom, slotH, pegs, dividers, slots,
                drift: rand() < 0.5 ? -1 : 1 };
@@ -318,6 +324,7 @@ const Physics = (() => {
     plinko = null;
     plinkoSettle = 0;
     if (ground) ground.collisionFilter.mask = 0xFFFFFFFF;
+    if (ceilingBody) ceilingBody.collisionFilter.mask = profile.ceiling ? 0xFFFFFFFF : 0;
     syncSideWalls();
   }
 
@@ -827,10 +834,12 @@ const Physics = (() => {
     if (engine) engine.gravity.y = profile.gravity * (moon ? 0.42 : 1);
 
     // Easter egg: ~1/1000 flips the floor vanishes and this throw drops into
-    // a plinko board (see startPlinko). Not in bank-shot mode. The secret
-    // trigger (name "plinko" / typing "plinko") forces the next one.
-    const plinkoRoll = !profile.floorResolve &&
-      (plinkoForced || (plinkoEnabled && (s % 997) === 123));
+    // a plinko board (see startPlinko). Works in bank-shot/alien mode too —
+    // checkLanding prioritizes the plinko slot verdict over floorResolve, and
+    // startPlinko clears alien furniture so pegs own the drop. Secret trigger
+    // (name "plinko" / typing "plinko") forces the next one. Still offline-only
+    // (main.js disables it online — prizes rewrite lives).
+    const plinkoRoll = plinkoForced || (plinkoEnabled && (s % 997) === 123);
     plinkoForced = false;
     if (plinkoRoll) startPlinko();
 
@@ -934,7 +943,7 @@ const Physics = (() => {
     }
   }
 
-  // Profile-driven base zoom (Alien pulls way back so the pad is harder).
+  // Profile-driven base zoom (Alien desktop pulls back a bit; phones fill frame).
   function profileArenaZoom() {
     const compact = isCompactScreen();
     const z = compact
