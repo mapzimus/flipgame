@@ -39,9 +39,12 @@ const Physics = (() => {
   // v78: normal throws — generous upright cone + softer settle / landing kick.
   const SETTLE_FRAMES   = 14;    // frames of stillness required to read the pose
   const SETTLE_RANGE    = 0.055; // rad — max angle spread across that window
-  const MAKE_ANGLE      = 1.00;  // ≤±~57° upright = MAKE (was feeling stingy)
+  // v87: 1.00 rad (±57°!) let a bottle propped against a wall at a heavy lean
+  // score as a MAKE (the "honey bear counted a miss" bug). ±36° reads upright.
+  const MAKE_ANGLE      = 0.63;  // ≤±~36° upright = MAKE
   const PERFECT_ANGLE   = 0.22;  // perfect-landing flair
   const FALLEN_ANGLE    = 1.40;  // ≥~80° tilt = toppled past recovery → certain MISS
+  const LEAN_MISS_FRAMES = 45;   // settled between MAKE and FALLEN this long → MISS
   // Cap / upside-down MAKE: settle within this of ±π. Normally the heavy base
   // tips these over; the rare "cap sticky" assist (see stepOnce) makes ~1/100
   // flips actually stick on the neck/cap — those are worth 2 in game.js.
@@ -129,6 +132,7 @@ const Physics = (() => {
     return Math.max(8, targetHW * scale);
   }
   let launched = false;    // a flick has been taken this turn
+  let leanFrames = 0;      // consecutive settled frames in the lean dead zone
   let wasAirborne = false; // ...and the body actually left the floor
   let floorTouched = false; // bounce mode: first touchdown happened (slide window open)
   let slideFrames = 0;      // frames spent in the post-touchdown slide window
@@ -504,9 +508,17 @@ const Physics = (() => {
           return recordLanding('MAKE', tilt, 'cap');
         }
         if (tilt >= FALLEN_ANGLE) return recordLanding('MISS', tilt, 'fallen');
+        // Fully at rest but leaning hard (propped on a wall / teetered pose).
+        // A tipped bottle can still slowly right itself, so give it a moment —
+        // but a sustained settled lean is a MISS, not a stall until timeout.
+        leanFrames++;
+        if (leanFrames > LEAN_MISS_FRAMES) return recordLanding('MISS', tilt, 'leaning');
+      } else {
+        leanFrames = 0;
       }
     } else {
       angleWin = [];
+      leanFrames = 0;
     }
 
     return null;
@@ -531,10 +543,14 @@ const Physics = (() => {
     return b;
   }
 
+  // The table surface sits this far above the canvas bottom. v87: raised from
+  // a fixed 30px so the table reads as a real surface, scaling with screen.
+  function tableInset(h) { return Math.max(64, Math.round(h * 0.13)); }
+
   function init(w, h, bottomInset = 0) {
     canvasW = w;
     arenaH  = h;
-    groundY = h - 30 - bottomInset;
+    groundY = h - tableInset(h) - bottomInset;
     acc = 0;
 
     engine = Engine.create({ gravity: { y: profile.gravity, scale: 0.001 } });
@@ -566,7 +582,7 @@ const Physics = (() => {
     if (!engine) return;
     canvasW = w;
     arenaH  = h;
-    groundY = h - 30 - bottomInset;
+    groundY = h - tableInset(h) - bottomInset;
     Body.setPosition(ground,    { x: w / 2,                 y: groundY + 25 });
     Body.setPosition(leftWall,  { x: WALL_INSET - 20,       y: h / 2 });
     Body.setPosition(rightWall, { x: w - WALL_INSET + 20,   y: h / 2 });
@@ -592,6 +608,7 @@ const Physics = (() => {
     lastLandingInfo = null;
     lastFlickInfo  = null;
     launched       = false;
+    leanFrames     = 0;
     wasAirborne    = false;
     floorTouched   = false;
     slideFrames    = 0;

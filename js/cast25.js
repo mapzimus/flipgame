@@ -88,10 +88,21 @@
     `<path d="M ${x} ${y - s} L ${x + s * 0.28} ${y - s * 0.28} L ${x + s} ${y} L ${x + s * 0.28} ${y + s * 0.28} L ${x} ${y + s} L ${x - s * 0.28} ${y + s * 0.28} L ${x - s} ${y} L ${x - s * 0.28} ${y - s * 0.28} Z" fill="${col}" opacity="${op == null ? 0.9 : op}"/>`;
   const GLASS = 'rgba(216,238,250,0.22)';
   const GLASS_EDGE = '#94b2c6';
+  // Interior box helper for paintLiquid — svg-space rect → local center/extents.
+  const IB = (x0, y0, x1, y1) => ({
+    cy: Y((y0 + y1) / 2),
+    hh: ((y1 - y0) / 2) * SCALE,
+    hw: ((x1 - x0) / 2) * SCALE,
+  });
 
   // ── Dynamic liquid (canvas, world-level, drawn under the sprite) ───────────
+  // The fill plane is anchored to the vessel's interior in WORLD space: `box`
+  // is the interior's local center + half-extents ({cy, hh, hw}); the plane
+  // sits `fill` of the way up the interior's current world-projected height.
+  // That keeps the apparent volume constant at any rotation (the old fixed
+  // local offset made inverted vessels look brim-full or empty).
   // Open vessels pour when past ~70° from upright — fill drops + drip stream.
-  function paintLiquid(ctx, opts, clipFn, surfaceY, mouthY) {
+  function paintLiquid(ctx, opts, clipFn, box, mouthY) {
     const liq = opts.liquid;
     if (!liq) return;
     const angle = opts.angle || 0;
@@ -105,7 +116,10 @@
       fill = Math.max(0.02, fill * (1 - (abs - 1.2) * 0.9));
       pouring = fill < 0.18 || abs > 1.8;
     }
-    const sy = surfaceY + (0.45 - fill) * 90;
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const yc = box.cy * cosA;                                        // interior center, world y
+    const projH = box.hh * Math.abs(cosA) + box.hw * Math.abs(sinA); // world half-height
+    const sy = yc + projH * (1 - 2 * fill);
     ctx.save();
     clipFn();
     ctx.clip();
@@ -116,12 +130,13 @@
     ctx.fillStyle = fillCol;
     ctx.globalAlpha = liq.lava ? 0.85 : 0.92;
     ctx.beginPath();
-    ctx.moveTo(-120, yL); ctx.lineTo(120, yR); ctx.lineTo(120, 260); ctx.lineTo(-120, 260);
+    ctx.moveTo(-120, yL); ctx.lineTo(120, yR); ctx.lineTo(120, 280); ctx.lineTo(-120, 280);
     ctx.closePath(); ctx.fill();
     if (liq.lava) {
-      ctx.fillStyle = shade(color, -0.25);
-      for (const [bx, by, br] of [[-6, sy + 28, 12], [10, sy + 52, 15], [-12, sy + 68, 9]]) {
-        ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = shade(color, -0.28);
+      const bh = Math.max(20, projH);
+      for (const [bx, ft, br] of [[-7, 0.28, 15], [11, 0.58, 19], [-13, 0.86, 12]]) {
+        ctx.beginPath(); ctx.arc(bx, sy + bh * 2 * ft * 0.8, br, 0, Math.PI * 2); ctx.fill();
       }
     }
     ctx.strokeStyle = 'rgba(255,255,255,0.45)';
@@ -182,7 +197,7 @@ ${gloss('M 138 152 L 138 184', 3.5, 0.5)}`;
       ctx.bezierCurveTo(X(184), Y(228), X(162), Y(216), X(162), Y(192));
       ctx.lineTo(X(162), Y(146));
       ctx.closePath();
-    }, -78);
+    }, IB(114, 146, 186, 364));
     blit(ctx, 'ketchup', c, ketchupSVG);
   }
 
@@ -219,7 +234,7 @@ ${gloss('M 141 176 L 141 198', 3.5, 0.5)}`;
       ctx.lineTo(X(160), Y(204));
       ctx.lineTo(X(160), Y(174));
       ctx.closePath();
-    }, -58);
+    }, IB(110, 174, 190, 366));
     blit(ctx, 'maple', c, mapleSVG);
   }
 
@@ -241,8 +256,9 @@ ${gloss('M 141 176 L 141 198', 3.5, 0.5)}`;
 ${eye(134, 197, 6)}
 ${eye(166, 197, 6)}
 <path d="M 150 238 C 116 238 100 268 100 312 C 100 352 118 372 150 372 C 182 372 200 352 200 312 C 200 268 184 238 150 238 Z" fill="rgba(255,255,255,0.15)" stroke="${p.line}" stroke-width="2.5"/>
-<path d="M 108 268 C 98 280 98 296 108 304 M 192 268 C 202 280 202 296 192 304" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="3"/>
-<path d="M 124 372 C 126 362 138 362 140 372 M 160 372 C 162 362 174 362 176 372" fill="none" stroke="${p.line}" stroke-width="2" opacity="0.5"/>
+<path d="M 106 262 C 94 274 92 294 102 306 C 108 312 116 310 116 302 C 110 292 110 276 116 266 Z" fill="rgba(255,255,255,0.16)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 194 262 C 206 274 208 294 198 306 C 192 312 184 310 184 302 C 190 292 190 276 184 266 Z" fill="rgba(255,255,255,0.16)" stroke="${p.line}" stroke-width="2"/>
+<path d="M 122 372 C 124 360 138 360 140 372 M 160 372 C 162 360 176 360 178 372" fill="none" stroke="${p.line}" stroke-width="2.5" opacity="0.65"/>
 ${gloss('M 116 280 C 112 306 114 336 122 354', 5, 0.28)}`;
   }
   function drawHoneybear(ctx, opts) {
@@ -255,7 +271,7 @@ ${gloss('M 116 280 C 112 306 114 336 122 354', 5, 0.28)}`;
       ctx.bezierCurveTo(X(179), Y(367), X(195), Y(349), X(195), Y(312));
       ctx.bezierCurveTo(X(195), Y(270), X(180), Y(243), X(150), Y(243));
       ctx.closePath();
-    }, -22);
+    }, IB(105, 243, 195, 367));
     blit(ctx, 'honeybear', c, honeybearSVG);
   }
 
@@ -278,7 +294,7 @@ ${gloss('M 138 156 C 140 148 144 142 148 140', 3, 0.6)}`;
     paintLiquid(ctx, Object.assign({}, opts, { color: '#f7f2e2', liquid: { mode: 'closed', fill: 0.5 } }), () => {
       ctx.beginPath();
       ctx.roundRect(X(118), Y(210), (186 - 118) * SCALE + 2.96, (366 - 210) * SCALE, 10);
-    }, -42);
+    }, IB(118, 210, 186, 366));
     blit(ctx, 'babybottle', c, babybottleSVG);
   }
 
@@ -339,7 +355,7 @@ ${gloss('M 122 236 C 118 276 120 330 126 352', 5, 0.32)}`;
       ctx.quadraticCurveTo(X(116), Y(364), X(116), Y(344));
       ctx.lineTo(X(116), Y(246));
       ctx.closePath();
-    }, -36);
+    }, IB(116, 212, 184, 364));
     blit(ctx, 'soap', c, soapSVG);
   }
 
@@ -512,7 +528,7 @@ ${gloss('M 122 262 C 116 296 110 330 108 350', 4.5, 0.4)}`;
       ctx.lineTo(X(158), Y(218));
       ctx.lineTo(X(158), Y(150));
       ctx.closePath();
-    }, -14, -140);
+    }, IB(106, 150, 194, 361), -140);
     blit(ctx, 'flask', c, flaskSVG);
   }
 
@@ -561,10 +577,11 @@ ${gloss('M 116 360 L 184 360', 3, 0.25)}`;
     const p = P(c);
     return `<defs><linearGradient id="g1" x1="120" y1="250" x2="182" y2="260" gradientUnits="userSpaceOnUse">
 <stop offset="0" stop-color="${p.hi}"/><stop offset="0.5" stop-color="${p.c}"/><stop offset="1" stop-color="${p.lo}"/></linearGradient></defs>
-<rect x="146" y="150" width="8" height="42" fill="#3a3f46" stroke="#22262b" stroke-width="1.5"/>
-<circle cx="150" cy="142" r="11" fill="#ffd23f" stroke="#c8901a" stroke-width="2"/>
-<path d="M 143 134 C 147 130 153 130 157 134" fill="none" stroke="#3a3f46" stroke-width="2"/>
-<circle cx="150" cy="128" r="4" fill="#3a3f46"/>
+<rect x="146" y="156" width="8" height="36" fill="#3a3f46" stroke="#22262b" stroke-width="1.5"/>
+<circle cx="150" cy="142" r="14" fill="#ffd23f" stroke="#c8901a" stroke-width="2.5"/>
+<circle cx="146" cy="138" r="4" fill="#fff3c0" opacity="0.9"/>
+<path d="M 140 132 C 145 126 155 126 160 132 M 136 142 L 164 142" fill="none" stroke="#3a3f46" stroke-width="2"/>
+<circle cx="150" cy="124" r="4.5" fill="#3a3f46"/>
 <path d="M 122 344 C 118 300 126 250 134 214 C 138 196 142 186 150 186 C 158 186 162 196 166 214 C 174 250 182 300 178 344 Z" fill="url(#g1)" stroke="${p.line}" stroke-width="2.5"/>
 <path d="M 128 246 L 172 246 L 175 280 L 125 280 Z" fill="#f4f7fa" stroke="#d3dbe2" stroke-width="1.5"/>
 ${eye(140, 260, 6)}
@@ -598,7 +615,7 @@ ${spark(178, 166, 5, '#ffffff', 0.8)}`;
       ctx.bezierCurveTo(X(118), Y(252), X(182), Y(252), X(186), Y(210));
       ctx.lineTo(X(189), Y(154));
       ctx.closePath();
-    }, -94, -128);
+    }, IB(111, 154, 189, 252), -128);
     blit(ctx, 'wineglass', c, wineglassSVG);
   }
 
@@ -651,8 +668,9 @@ ${gloss('M 128 200 C 118 234 116 274 122 304', 4, 0.2)}`;
 <path d="M 116 210 Q 150 190 184 210 L 184 216 L 116 216 Z" fill="#c9ced6" stroke="#8b939e" stroke-width="2"/>
 <rect x="114" y="212" width="72" height="158" rx="10" fill="url(#g1)" stroke="#8b939e" stroke-width="2.5"/>
 <rect x="114" y="244" width="72" height="94" fill="url(#g2)" stroke="${p.deep}" stroke-width="1.5"/>
-<path d="M 128 308 Q 128 292 140 288 Q 134 276 148 274 Q 146 260 158 264 Q 168 258 168 270 Q 180 274 172 286 Q 180 294 168 300 Q 170 308 158 308 Z" fill="#ffffff" stroke="#e3e6ea" stroke-width="1.5"/>
-<path d="M 128 308 L 172 308 L 166 320 L 134 320 Z" fill="#ffffff" opacity="0.92"/>
+<path d="M 130 306 L 170 306 L 164 318 L 136 318 Z" fill="#ffffff" stroke="#e3e6ea" stroke-width="1.2"/>
+<path d="M 128 306 C 126 296 132 292 138 294 C 134 284 142 278 149 282 C 147 272 156 268 161 274 C 168 270 174 278 169 285 C 177 288 175 298 168 300 C 172 304 168 308 162 306 Z" fill="#ffffff" stroke="#e3e6ea" stroke-width="1.5"/>
+<path d="M 150 270 C 148 264 152 258 156 262" fill="none" stroke="#ffffff" stroke-width="3"/>
 <rect x="118" y="356" width="64" height="14" rx="6" fill="#aab2bc" stroke="#7c848e" stroke-width="2"/>
 ${gloss('M 126 224 C 122 268 122 322 128 352', 6, 0.5)}`;
   }
@@ -689,7 +707,7 @@ ${gloss('M 118 286 C 112 308 116 334 128 350', 4.5, 0.45)}`;
       ctx.bezierCurveTo(X(198), Y(290), X(184), Y(258), X(158), Y(250));
       ctx.lineTo(X(158), Y(200));
       ctx.closePath();
-    }, -14);
+    }, IB(109, 200, 191, 361));
     blit(ctx, 'potion', c, potionSVG);
   }
 
@@ -721,7 +739,7 @@ ${gloss('M 134 216 C 132 258 132 322 137 354', 4, 0.35)}`;
       ctx.lineTo(X(132), Y(216));
       ctx.bezierCurveTo(X(132), Y(204), X(134), Y(194), X(143), Y(190));
       ctx.closePath();
-    }, -60);
+    }, IB(132, 190, 168, 364));
     blit(ctx, 'tabasco', c, tabascoSVG);
   }
 
@@ -753,7 +771,7 @@ ${gloss('M 143 134 L 143 162', 3.5, 0.5)}`;
       ctx.bezierCurveTo(X(178), Y(200), X(168), Y(186), X(158), Y(170));
       ctx.lineTo(X(158), Y(136));
       ctx.closePath();
-    }, -50);
+    }, IB(120, 136, 180, 362));
     blit(ctx, 'coke', c, cokeSVG);
   }
 
@@ -798,7 +816,7 @@ ${gloss('M 142 172 C 138 220 134 280 132 318', 4, 0.45)}`;
       ctx.lineTo(X(172), Y(326));
       ctx.lineTo(X(128), Y(326));
       ctx.closePath();
-    }, -46);
+    }, IB(128, 162, 172, 326));
     blit(ctx, 'lavalamp', c, lavalampSVG);
   }
 
@@ -814,7 +832,8 @@ ${gloss('M 142 172 C 138 220 134 280 132 318', 4, 0.45)}`;
 <path d="M 117 224 L 183 224 L 183 240 Q 150 246 117 240 Z" fill="${web2}" stroke="#c9c2b2" stroke-width="1.2"/>
 <path d="M 136 152 L 136 246 L 150 246 L 150 152 Z" fill="${web2}" opacity="0.55"/>
 <path d="M 158 152 L 158 246 L 172 246 L 172 152 Z" fill="${c}" opacity="0.5"/>
-<path d="M 112 196 C 92 206 88 244 100 268 M 188 196 C 208 206 212 244 200 268" fill="none" stroke="#3a3f46" stroke-width="8"/>
+<path d="M 110 198 C 88 208 84 246 98 270 M 190 198 C 212 208 216 246 202 270" fill="none" stroke="#8a939d" stroke-width="9"/>
+<path d="M 110 198 C 88 208 84 246 98 270 M 190 198 C 212 208 216 246 202 270" fill="none" stroke="#c6ccd3" stroke-width="4"/>
 <path d="M 112 252 L 101 294 M 188 252 L 199 294" fill="none" stroke="${aluLine}" stroke-width="11"/>
 <path d="M 112 252 L 101 294 M 188 252 L 199 294" fill="none" stroke="${alu}" stroke-width="7"/>
 <path d="M 108 256 L 190 256 L 198 290 L 102 290 Z" fill="${c}" stroke="${shade(c, -0.35)}" stroke-width="1.5"/>
@@ -908,7 +927,7 @@ ${gloss('M 108 190 C 102 214 104 246 114 266', 5, 0.3)}`;
     { id: 'shell', name: 'Artillery Shell', emoji: '💥', drawAs: 'shell', unlock: 44, tint: '#c8203a', liquid: null },
     { id: 'pawn', name: 'Chess Pawn', emoji: '♟️', drawAs: 'pawn', unlock: 48, tint: '#4f63e0', liquid: null },
     { id: 'buoy', name: 'Buoy', emoji: '🟠', drawAs: 'buoy', unlock: 52, tint: '#ff7a00', liquid: null },
-    { id: 'wineglass', name: 'Wine Glass', emoji: '🍷', drawAs: 'wineglass', unlock: 56, tint: '#c8203a', liquid: { mode: 'open', fill: 0.35 } },
+    { id: 'wineglass', name: 'Juice Glass', emoji: '🧃', drawAs: 'wineglass', unlock: 56, tint: '#c8203a', liquid: { mode: 'open', fill: 0.35 } },
     { id: 'toucan', name: 'Toucan', emoji: '🦜', drawAs: 'toucan', unlock: 60, tint: '#e3263c', liquid: null },
     { id: 'trex', name: 'T-Rex', emoji: '🦖', drawAs: 'trex', unlock: 64, tint: '#ff7a00', liquid: null },
     { id: 'whippedcream', name: 'Whipped Cream', emoji: '🍦', drawAs: 'whippedcream', unlock: 68, tint: '#ff5b86', liquid: { mode: 'closed', fill: 0.35 } },

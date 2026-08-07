@@ -87,6 +87,7 @@ const game = {
     this.turnCounter = 0;
     this.perfectLanding = false;
     this.capLand = false;
+    this.goldenFlip = false;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
     // ambiguous when two players share a name). Ignored in practice.
@@ -153,8 +154,10 @@ const game = {
     this.endedFireBonus = 0;
     this.perfectLanding = result === 'MAKE' && !!meta.perfect;
     this.capLand        = result === 'MAKE' && !!meta.onCap;
-    // Cap / upside-down makes are worth 2 (stake steps, or ON FIRE lives).
-    const worth = this.capLand ? 2 : 1;
+    this.goldenFlip     = result === 'MAKE' && !!meta.golden;
+    // Cap / upside-down makes — and the rare golden flip — are worth 2
+    // (stake steps, or ON FIRE lives).
+    const worth = (this.capLand || this.goldenFlip) ? 2 : 1;
 
     // ── Practice: just track stats, no lives/turns/sudden-death counter ─────
     if (this.practice) {

@@ -323,11 +323,20 @@ html, body {
   background: rgba(0,0,0,0.22);
   border-radius: 8px;
 }
-/* Locked: the real art, ghosted. Teases what's coming without giving it away. */
+/* Locked: fully hidden — a big "?" tile so each unlock is a real reveal. */
 .fam-tile[data-locked="1"] { cursor: not-allowed; }
-.fam-tile[data-locked="1"] .fam-art {
-  filter: grayscale(1) brightness(0.5) contrast(0.6);
-  opacity: 0.45;
+.fam-mystery {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 200 / 280;   /* same box as the .fam-art canvas */
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.35);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 .fam-name {
   font-size: 0.62rem;

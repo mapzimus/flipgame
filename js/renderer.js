@@ -5,10 +5,12 @@ const Renderer = (() => {
   const particles = [];
   let reduceMotion = false;   // when on, suppress non-essential motion (particles, shake, pulses)
   // Visual size of every flippable edition (bottle + skins). Physics body stays
-  // the same — this is paint-only. Bumped ~20% (1.15 → 1.38) so objects read
-  // bigger on phones after open-arena zoom made shots feel tiny.
-  const BOTTLE_DRAW_SCALE = 1.38;
+  // the same — this is paint-only (projectBottleCenter compensates so the base
+  // still sits on the table). v87: 1.38 → 1.62 so everything reads bigger.
+  const BOTTLE_DRAW_SCALE = 1.62;
   const FLIGHT_LIFT = 0.18;
+  // Easter-egg cosmetics for the current frame (set in frame() from state).
+  let fxGolden = false, fxGhost = false, fxParty = false;
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;
 
@@ -140,6 +142,18 @@ const Renderer = (() => {
 
     ctx.fillStyle = '#5d4037';
     ctx.fillRect(x0, groundY - 3, tw, 4);
+
+    // Party mode (secret player name): the table edge becomes a slow-cycling
+    // rainbow strip. Pure cosmetics — nothing about the flip changes.
+    if (fxParty) {
+      const g = ctx.createLinearGradient(0, 0, W, 0);
+      const base = (clock * 40) % 360;
+      for (let i = 0; i <= 6; i++) {
+        g.addColorStop(i / 6, `hsl(${(base + i * 60) % 360}, 90%, 60%)`);
+      }
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, groundY - 5, tw, 6);
+    }
   }
 
   // ── Bottle ─────────────────────────────────────────────────────────────────
@@ -163,10 +177,27 @@ const Renderer = (() => {
       if (!reduceMotion) spawnFire(x, y - 100 * BOTTLE_DRAW_SCALE);
     }
 
+    // Golden flip: warm aura + drifting sparkles (art already bakes in gold via
+    // the overridden liquidColor).
+    if (fxGolden) {
+      const aura = ctx.createRadialGradient(x, y, 8, x, y, 90 * BOTTLE_DRAW_SCALE);
+      aura.addColorStop(0, 'rgba(255,215,90,0.28)');
+      aura.addColorStop(1, 'rgba(255,215,90,0)');
+      ctx.fillStyle = aura;
+      ctx.beginPath();
+      ctx.arc(x, y, 90 * BOTTLE_DRAW_SCALE, 0, Math.PI * 2);
+      ctx.fill();
+      if (!reduceMotion && Math.random() < 0.35) {
+        spawnSplash(x + (Math.random() - 0.5) * 90, y - Math.random() * 110, 1, 'rgba(255,220,110,0.9)');
+      }
+    }
+
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
     ctx.scale(BOTTLE_DRAW_SCALE, BOTTLE_DRAW_SCALE);
+    // Ghost name egg: the object flips see-through. Cosmetic only.
+    if (fxGhost) ctx.globalAlpha = 0.55;
 
     // Skin dispatch: a non-bottle edition paints the object in the same local
     // frame (origin = CG, ground plane ≈ +39) and we're done. See js/skins.js.
@@ -611,6 +642,9 @@ const Renderer = (() => {
     const { bottle, liquid, drag, groundY, result, resultAlpha, specialLabel, showGlow, isOnFire,
             liquidColor, intense, suddenDeath, awaitingFlick, stake, skin,
             target, obstacles, view } = state;
+    fxGolden = !!state.golden;
+    fxGhost  = !!state.ghostly;
+    fxParty  = !!state.party;
     clock += dt;
     updateParticles(dt);
 
@@ -653,6 +687,7 @@ const Renderer = (() => {
   // and the object is drawn flat-on rather than in flight perspective.
   function drawPreview(target, skin, liquidColor) {
     const prevCanvas = canvas, prevCtx = ctx, prevW = W, prevH = H;
+    fxGolden = fxGhost = false;   // never leak in-game egg cosmetics into previews
     canvas = target;
     ctx = target.getContext('2d');
     W = target.width;
@@ -668,7 +703,8 @@ const Renderer = (() => {
     // The old 216x284 @ -81 box was ~27% too narrow, ~31% too short AND sat 59
     // units too low, so nearly every family was clipped — most at the top, and
     // trex/vending/ocean/pets/parrot at the sides too.
-    const CONTENT_W = 300, CONTENT_H = 420, CONTENT_MID_Y = -140;
+    // Scales with BOTTLE_DRAW_SCALE (box was measured at 1.38; ratio-adjusted).
+    const CONTENT_W = 352, CONTENT_H = 493, CONTENT_MID_Y = -164;
     const scale = Math.min(W / CONTENT_W, H / CONTENT_H) * 0.95;
     ctx.translate(W / 2, H / 2 - CONTENT_MID_Y * scale);
     ctx.scale(scale, scale);

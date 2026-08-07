@@ -236,12 +236,12 @@
         if (e.owned === 1) e.rep = c;
       }
     }
-    // Collected families first (most complete first), then the rest alphabetically
-    // — with random draws there's no ladder order left to preserve.
+    // Ladder order: unlocks are earned in a fixed sequence, so the picker lists
+    // them in that order (free bottle first, alien last) — never alphabetically.
+    const ladder = (e) =>
+      e.members.reduce((m, c) => Math.min(m, c.unlock == null ? -1 : c.unlock), Infinity);
     return [...byFam.values()].map((e) => ({ ...e, unlocked: e.owned > 0 }))
-      .sort((a, b) => (b.owned > 0) - (a.owned > 0) ||
-                      b.owned / b.total - a.owned / a.total ||
-                      familyLabel(a.rep.id).localeCompare(familyLabel(b.rep.id)));
+      .sort((a, b) => ladder(a) - ladder(b));
   }
 
   // Is this exact color playable for the row's family? Cast families need that
@@ -279,14 +279,17 @@
       const count = e.cast ? `${e.owned}/${e.total}` : '';
       if (!e.unlocked) {
         const need = (e.rep && e.rep.unlock != null) ? e.rep.unlock : '?';
+        // Locked characters stay HIDDEN — a big "?" instead of ghosted art, so
+        // each unlock is a genuine reveal. The win threshold still shows so
+        // players know what they're working toward.
         // aria-disabled, NOT disabled: a disabled button drops out of the tab
         // order and tells a screen-reader user nothing about why. This stays
         // focusable and the click handler explains itself with a toast.
-        return `<button type="button" class="fam-tile" data-locked="1" aria-disabled="true"` +
-          ` data-label="${escapeHtml(label)}" data-need="${need}"` +
-          ` aria-label="${escapeHtml(label)} — unlocks at ${need} wins">` +
-          art(artId) +
-          `<span class="fam-name">${escapeHtml(label)}</span>` +
+        return `<button type="button" class="fam-tile fam-hidden" data-locked="1" aria-disabled="true"` +
+          ` data-need="${need}"` +
+          ` aria-label="Hidden character — unlocks at ${need} wins">` +
+          `<span class="fam-mystery" aria-hidden="true">?</span>` +
+          `<span class="fam-name">???</span>` +
           `<span class="fam-need">🔒 ${need} wins</span>` +
           `</button>`;
       }
@@ -547,7 +550,7 @@
     const tile = e.target.closest('.fam-tile');
     if (!tile || !pickerRow) return;
     if (tile.dataset.locked === '1') {
-      showToast(`🔒 ${tile.dataset.label} unlocks at ${tile.dataset.need} total wins.`);
+      showToast(`🔒 Hidden character — reach ${tile.dataset.need} total wins to reveal it!`);
       return;
     }
     applyRowChar(pickerRow, tile.dataset.char, null);   // null = keep their color
@@ -795,6 +798,16 @@
   let lastFlickPower = null;   // 0..1 strength of the current flip's flick (achievements)
   let greatSaveActive = false; // the RESULT being shown is a rare Great Save
   let capLandActive = false;   // the RESULT being shown is a rare on-cap / upside-down make
+  // Easter egg: ~1/150 flicks is a GOLDEN FLIP — the object bakes in gold and a
+  // make is worth 2 (same bonus as a cap land). Derived from the flick seed so
+  // online peers replaying the same seed see the same golden throw.
+  let goldenFlipActive = false;  // this flick rolled golden
+  let goldenShowActive = false;  // the RESULT being shown is a golden make
+  const GOLDEN_COLOR = '#f2c14e';
+  // Easter egg: secret player names. "party"/"disco" light up the table;
+  // "ghost"/"boo" flip a see-through object. Pure cosmetics.
+  const isPartyName = (n) => /^(party|disco)$/i.test(String(n || '').trim());
+  const isGhostName = (n) => /^(ghost|boo)$/i.test(String(n || '').trim());
   let onlineMode = false;      // playing via Net rooms
   let netAuthority = false;    // this client owns the current flick's verdict
   let pendingNetResult = null; // authoritative result waiting to apply
@@ -849,6 +862,7 @@
     return {
       perfect: !!(landingInfo && landingInfo.perfect),
       onCap:   !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
+      golden:  goldenFlipActive,
     };
   }
 
@@ -1039,12 +1053,16 @@
       resultAlpha,
       specialLabel: game.state === GAME_STATES.RESULT
         ? (capLandActive ? '🙃 CAP LAND! ×2'
+          : goldenShowActive ? '🌟 GOLDEN FLIP! ×2'
           : greatSaveActive ? '🧤 THE GREAT SAVE!'
           : null)
         : null,
       showGlow,
       isOnFire:    !!(game.onFirePlayer),
-      liquidColor: game.currentPlayer()?.color,
+      liquidColor: goldenFlipActive ? GOLDEN_COLOR : game.currentPlayer()?.color,
+      golden:      goldenFlipActive,
+      ghostly:     isGhostName(game.currentPlayer()?.name),
+      party:       game.players.some((pl) => isPartyName(pl.name)),
       skin:        game.currentPlayer()?.skin,
       intense:     intenseTurn,
       suddenDeath: game.sdLevelForNextFlip ? game.sdLevelForNextFlip() > 0 : game.inSuddenDeath(),
@@ -1084,6 +1102,8 @@
     timedOut    = false;
     greatSaveActive = false;
     capLandActive   = false;
+    goldenFlipActive = false;
+    goldenShowActive = false;
     lastFlickPower  = null;
     stopTurnTimer();
     clearTimeout(aiTimer);
@@ -1207,12 +1227,13 @@
                          landing.maxTilt > GREAT_SAVE_TILT);
     capLandActive = !!(game.lastResult === 'MAKE' && (game.capLand ||
                       (landing && (landing.onCap || landing.reason === 'cap'))));
+    goldenShowActive = !!(game.lastResult === 'MAKE' && game.goldenFlip);
     // Cap land wins the special label over Great Save (mutually exclusive anyway).
     const counts = progressCounts();
     const rec = counts
       ? Records.recordFlip(game, { greatSave: greatSaveActive, capLand: capLandActive })
       : null;
-    if (capLandActive) Sound.play('capland');
+    if (capLandActive || goldenShowActive) Sound.play('capland');
     else if (greatSaveActive) Sound.play('greatsave');
 
     const p = game.currentPlayer();
@@ -1261,6 +1282,9 @@
         if (capLandActive) {
           streakBannerEl.textContent = '🙃 Cap land! Worth 2!';
           streakBannerEl.className = 'streak-banner on-fire';
+        } else if (goldenShowActive) {
+          streakBannerEl.textContent = '🌟 Golden flip! Worth 2!';
+          streakBannerEl.className = 'streak-banner on-fire';
         } else {
           streakBannerEl.textContent = game.practiceStreak > 1
             ? `${game.practiceStreak} in a row!`
@@ -1284,6 +1308,13 @@
           ? `+${game.onFireGain} life!`
           : `Miss now costs ${game.pointCount}!`;
         streakBannerEl.textContent = `🙃 CAP LAND! Worth 2 — ${stakeBit}`;
+        streakBannerEl.className   = 'streak-banner on-fire';
+      } else if (goldenShowActive) {
+        // Rare golden flip — banked double, same celebration tier as cap land.
+        const stakeBit = game.onFireGain > 0
+          ? `+${game.onFireGain} life!`
+          : `Miss now costs ${game.pointCount}!`;
+        streakBannerEl.textContent = `🌟 GOLDEN FLIP! Worth 2 — ${stakeBit}`;
         streakBannerEl.className   = 'streak-banner on-fire';
       } else if (greatSaveActive) {
         // The freak comeback — celebrate over everything else this flip.
@@ -1519,6 +1550,10 @@
     Sound.play('flick');
     lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);
     Physics.applyFlick(vx, vy, seed);
+    // Golden flip lottery — read the seed physics actually used (it generates
+    // one when we pass undefined) so local and replayed flicks agree.
+    const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
+    goldenFlipActive = !!(fi && fi.seed % 150 === 77);
     game.setState(GAME_STATES.EVALUATING);
   }
 

@@ -1830,9 +1830,9 @@ ${crown}
       'Navy Marker', 'Lemon Buoy', 'Cherry Buoy', 'Pink Buoy',
     ],
     wineglass: [
-      'Blue Wine', 'Red Wine', 'Lime Spritz', 'Orange Wine',
-      'Grape Crush', 'Ice Wine', 'Green Grapes', 'Berry Wine',
-      'Navy Pour', 'Lemon Wine', 'Cherry Wine', 'Pink Rosé',
+      'Blue Juice', 'Fruit Punch', 'Limeade', 'OJ Glass',
+      'Grape Gulp', 'Iced Tea', 'Green Juice', 'Berry Blend',
+      'Navy Nectar', 'Lemonade', 'Cherry Slush', 'Pink Smoothie',
     ],
     toucan: [
       'Blue Beak', 'Red Toucan', 'Lime Bill', 'Orange Bill',
@@ -1842,7 +1842,7 @@ ${crown}
     trex: [
       'Blue Rex', 'Red Rex', 'Limeasaurus', 'Tea Rex',
       'Grape Scott', 'Ice Age', 'Dino-mite', 'Pinkasaurus',
-      'Claw Order', 'Gold Rex', 'Cherry Chomp', 'Rosé Rex',
+      'Claw Order', 'Gold Rex', 'Cherry Chomp', 'Pink Rex',
     ],
     whippedcream: [
       'Blue Whip', 'Red Whip', 'Lime Cream', 'Orange Whip',
