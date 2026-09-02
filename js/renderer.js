@@ -16,6 +16,8 @@ const Renderer = (() => {
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;
   let shakeAmp = 0;   // brief impact / verdict screen shake (screen space)
+  let seasonalAmbience = { spooky: false, snowy: false, hearts: false, newyr: false };
+  let nextSeasonCheck = 0;
 
   function setReduceMotion(v) { reduceMotion = !!v; }
 
@@ -99,14 +101,17 @@ const Renderer = (() => {
   }
 
   function updateParticles(dt) {
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
+    // Compact in place so expiring bursts do not trigger repeated array shifts.
+    let write = 0;
+    for (let read = 0; read < particles.length; read++) {
+      const p = particles[read];
       p.x   += p.vx * dt;
       p.y   += p.vy * dt;
       p.vy  += 300 * dt;
       p.life -= dt;
-      if (p.life <= 0) particles.splice(i, 1);
+      if (p.life > 0) particles[write++] = p;
     }
+    particles.length = write;
   }
 
   function drawParticles() {
@@ -174,12 +179,20 @@ const Renderer = (() => {
   // Drawn in screen space right after the sky, before the camera transform.
   // Pure cosmetics; dates use the device clock.
   function drawAmbience() {
-    const now = new Date();
-    const mo = now.getMonth(), day = now.getDate();
-    const spooky = mo === 9 && day >= 24;            // late October
-    const snowy  = mo === 11;                        // December
-    const hearts = mo === 1 && day === 14;           // Valentine's
-    const newyr  = mo === 0 && day === 1;            // New Year's Day
+    // Date flags cannot change frame-to-frame; refresh them once a minute.
+    const timestamp = Date.now();
+    if (timestamp >= nextSeasonCheck) {
+      const now = new Date(timestamp);
+      const mo = now.getMonth(), day = now.getDate();
+      seasonalAmbience = {
+        spooky: mo === 9 && day >= 24,  // late October
+        snowy:  mo === 11,              // December
+        hearts: mo === 1 && day === 14, // Valentine's
+        newyr:  mo === 0 && day === 1,  // New Year's Day
+      };
+      nextSeasonCheck = timestamp + 60000;
+    }
+    const { spooky, snowy, hearts, newyr } = seasonalAmbience;
 
     if (fxMoon || spooky) {
       const mx = W - 86, my = 84;
@@ -801,7 +814,7 @@ const Renderer = (() => {
         const pulse = 0.28 + 0.2 * Math.sin(clock * 5);
         ctx.fillStyle = `rgba(255, 200, 40, ${pulse})`;
       } else {
-        ctx.fillStyle = s.kind === 'zap' ? 'rgba(140, 90, 255, 0.18)' : 'rgba(90, 220, 140, 0.15)';
+        ctx.fillStyle = s.kind === 'halve' ? 'rgba(140, 90, 255, 0.18)' : 'rgba(90, 220, 140, 0.15)';
       }
       ctx.fillRect(x + 3, p.bottom - p.slotH, slotW - 6, p.slotH);
       // Label
@@ -809,7 +822,7 @@ const Renderer = (() => {
       ctx.font = `900 ${isWin ? 26 : 20}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const label = isWin ? '👑 WIN' : (s.kind === 'zap' ? '⚡ −1 ALL' : '+2 ❤️');
+      const label = isWin ? '👑 WIN' : (s.kind === 'halve' ? '½ OTHERS' : '×2 LIVES');
       ctx.fillText(label, x + slotW / 2, p.bottom - p.slotH / 2 + 14);
     }
     // Dividers

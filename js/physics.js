@@ -101,6 +101,31 @@ const Physics = (() => {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
+  // Ultra-rare seeded events. These use an isolated integer hash instead of
+  // consuming the physics RNG, so adding an event never changes an ordinary
+  // throw's launch jitter or landing kick. Rarest checks run first and at most
+  // one event can own a flick. Plinko is checked separately and always wins.
+  const RARE_EVENT_ROLLS = [
+    { id: 'heart-rush',  odds: 900, salt: 0x9e3779b9 },
+    { id: 'magnet',      odds: 800, salt: 0x85ebca6b },
+    { id: 'double-flip', odds: 700, salt: 0xc2b2ae35 },
+    { id: 'wind-tunnel', odds: 600, salt: 0x27d4eb2f },
+    { id: 'trampoline',  odds: 500, salt: 0x165667b1 },
+  ];
+  function mixSeed(seed, salt) {
+    let x = ((seed >>> 0) ^ (salt >>> 0)) >>> 0;
+    x = Math.imul(x ^ (x >>> 16), 0x7feb352d);
+    x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
+    return (x ^ (x >>> 16)) >>> 0;
+  }
+  function rareEventForSeed(seed, plinkoRoll = false) {
+    if (plinkoRoll) return null;
+    for (const event of RARE_EVENT_ROLLS) {
+      if (mixSeed(seed, event.salt) % event.odds === 0) return event.id;
+    }
+    return null;
+  }
+
   // ── Per-edition physics profiles ───────────────────────────────────────────
   // Most editions are pure reskins and flip under the normal rules. An edition
   // can instead ship a profile (see META.physics in skins.js) that retunes
@@ -177,6 +202,9 @@ const Physics = (() => {
   let slideFrames = 0;      // frames spent in the post-touchdown slide window
   let maxGroundedTilt = 0;  // display-only: worst |tilt| seen while grounded this flip
   let flightFrames = 0;     // frames since the bottle left the floor (absolute soft-lock guard)
+  let rareEvent = null;     // seeded 1/500–1/900 physics/gameplay event for this flick
+  let rareImpulseUsed = false; // one-shot trampoline / double-flip boost guard
+  let rarePhase = 0;        // seeded wind phase; cosmetic randomness never touches physics RNG
 
   function screenW() { return viewW || canvasW || 0; }
 
@@ -280,11 +308,12 @@ const Physics = (() => {
   // ── PLINKO DROP (1/1000 easter egg) ────────────────────────────────────────
   // On the roll, the floor vanishes at the flick and the object falls through
   // into a plinko board below the table. Center slot = automatic game win;
-  // mid slots zap every opponent −1 life; outer slots = +2 lives. Seed-derived
+  // mid slots halve every opponent's lives; outer slots double the flipper's
+  // lives. Seed-derived
   // but main.js disables it for online games (it rewrites lives directly).
   // Always 5 slots. The board can be WIDER than the screen (the camera zooms
   // out to frame it), so slots stay big enough for the ball on any device.
-  const PLINKO_KINDS = ['lives', 'zap', 'win', 'zap', 'lives'];
+  const PLINKO_KINDS = ['double', 'halve', 'win', 'halve', 'double'];
   let plinkoEnabled = true;
   let plinkoForced = false;   // secret test trigger — consumed by the next flick
   let plinko = null;          // { left, right, top, bottom, pegs, dividers, slots }
@@ -308,7 +337,9 @@ const Physics = (() => {
     const top = groundY + 26;
     // The flipped object is BIG (~74×140), so peg gaps and slots must be wide
     // enough for it to tumble through — this is bottle plinko, not puck plinko.
-    const rows = 4, rowGap = 82, slotH = 130;
+    // v100: twice the peg field of the original board. Eight staggered rows
+    // create a long, suspenseful fall worthy of a one-in-a-thousand event.
+    const rows = 8, rowGap = 92, slotH = 150;
     const bottom = top + 42 + rows * rowGap + slotH;
     const pegs = [];
     const dividers = [];
@@ -657,7 +688,7 @@ const Physics = (() => {
     // Plinko drop: the only verdict is which slot it settles in.
     if (plinko && launched) {
       flightFrames++;
-      if (flightFrames > 1500) return plinkoVerdict();   // ~25s failsafe
+      if (flightFrames > 3000) return plinkoVerdict();   // ~50s failsafe for the long board
       const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
       const inPegZone = bottle.position.y < plinko.bottom - plinko.slotH - 20;
       if (inPegZone) {
@@ -899,6 +930,9 @@ const Physics = (() => {
     slideFrames    = 0;
     maxGroundedTilt = 0;
     flightFrames   = 0;
+    rareEvent      = null;
+    rareImpulseUsed = false;
+    rarePhase      = 0;
     groundImpactSent = false;
     liquid.reset();
     acc = 0;
@@ -926,29 +960,31 @@ const Physics = (() => {
       : Math.floor(Math.random() * 0xffffffff)) >>> 0;
     seedRng(s);
 
-    // Easter egg: ~1/200 throws happen on the moon — gravity drops to 42% for
-    // this one flight. Seed-derived so online peers replaying the same seed
-    // float identically. Bank-shot profiles (alien) keep normal gravity: their
-    // furniture and pad tuning assume it.
-    const moon = !profile.floorResolve && (s % 199) === 42;
-    if (engine) engine.gravity.y = profile.gravity * (moon ? 0.42 : 1);
-
     // Easter egg: ~1/1000 flips the floor vanishes and this throw drops into
     // a plinko board (see startPlinko). Works in bank-shot/alien mode too —
     // checkLanding prioritizes the plinko slot verdict over floorResolve, and
     // startPlinko clears alien furniture so pegs own the drop. Secret trigger
     // (name "plinko" / typing "plinko") forces the next one. Still offline-only
     // (main.js disables it online — prizes rewrite lives).
-    const plinkoRoll = plinkoForced || (plinkoEnabled && (s % 997) === 123);
+    const plinkoRoll = plinkoForced || (plinkoEnabled && (s % 1000) === 123);
     plinkoForced = false;
     if (plinkoRoll) startPlinko();
+
+    rareEvent = rareEventForSeed(s, plinkoRoll);
+    rareImpulseUsed = false;
+    rarePhase = (mixSeed(s, 0xa5a5a5a5) / 4294967296) * Math.PI * 2;
+
+    // Moon gravity remains its own more-common easter egg, but never stacks
+    // with Plinko or the ultra-rare ladder (each special throw should read cleanly).
+    const moon = !plinkoRoll && !rareEvent && !profile.floorResolve && (s % 199) === 42;
+    if (engine) engine.gravity.y = profile.gravity * (moon ? 0.42 : 1);
 
     // CAP THROW (~1/100, seed-rolled): normal spin tuning lands completed
     // flips upright, so an inverted touchdown never occurs naturally. These
     // throws over-rotate by ~an extra half turn so the object genuinely
     // arrives upside down, then the cap-sticky assist below can balance it
     // on the cap for the ×2. A cap throw that arrives badly just misses.
-    capThrowArmed = !profile.floorResolve && !plinkoRoll && (s % 101) === 55;
+    capThrowArmed = !profile.floorResolve && !plinkoRoll && !rareEvent && (s % 101) === 55;
 
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
@@ -978,6 +1014,7 @@ const Physics = (() => {
       seed: s,
       moon,
       plinko: plinkoRoll,
+      rareEvent,
       vx: Math.round(vx),
       vy: Math.round(vy),
     };
@@ -997,6 +1034,48 @@ const Physics = (() => {
     arenaTime += FIXED_DT;
 
     if (launched && !wasAirborne && bottle.bounds.max.y < groundY - 24) wasAirborne = true;
+
+    // 1/500 — TRAMPOLINE TABLE: the first touchdown springs the object into a
+    // second arc. It still has to complete a valid flip and settle normally.
+    if (rareEvent === 'trampoline' && launched && wasAirborne && !rareImpulseUsed &&
+        bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX && bottle.velocity.y > 0.5) {
+      rareImpulseUsed = true;
+      Body.setVelocity(bottle, {
+        x: bottle.velocity.x * 0.86,
+        y: -Math.max(11.5, Math.abs(bottle.velocity.y) * 0.82),
+      });
+      const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.035);
+      groundedFrames = 0;
+      angleWin = [];
+    }
+
+    // 1/600 — WIND TUNNEL: a deterministic side-to-side gust bends the arc.
+    // Force is mass-scaled so every edition experiences the same acceleration.
+    if (rareEvent === 'wind-tunnel' && launched && wasAirborne &&
+        bottle.bounds.max.y < groundY - GROUND_TOUCH_PX) {
+      const gust = Math.sin(arenaTime * 4.6 + rarePhase) * bottle.mass * 0.00016;
+      Body.applyForce(bottle, bottle.position, { x: gust, y: 0 });
+    }
+
+    // 1/700 — DOUBLE FLIP: on the first descent, a rocket-like impulse sends
+    // the object through a second aerial arc with extra spin.
+    if (rareEvent === 'double-flip' && launched && wasAirborne && !rareImpulseUsed &&
+        bottle.velocity.y > 1 && bottle.position.y < groundY - 180) {
+      rareImpulseUsed = true;
+      Body.setVelocity(bottle, { x: bottle.velocity.x * 0.92, y: -11.5 });
+      const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.072);
+    }
+
+    // 1/800 — MAGNET LANDING: once a completed flip approaches the table, a
+    // strong upright torque helps it stick. It is an assist, not an auto-score:
+    // the regular 360°, settle, and angle checks still decide the result.
+    if (rareEvent === 'magnet' && launched && hasFlipped &&
+        bottle.position.y > groundY - 210 && !plinko) {
+      const tilt = normalizeSignedAngle(bottle.angle);
+      Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.90 - tilt * 0.055);
+    }
 
     // One ground thud per flick (positional — Matter ground collisions are dead
     // / masked in bounce mode, so we can't rely on collisionStart for the floor).
@@ -1174,7 +1253,7 @@ const Physics = (() => {
     init, reflow, step, resetBottle, applyFlick, checkLanding, forceLanding,
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
-    seedTurn, setPlinkoEnabled, forcePlinko, getPlinko, setFeel,
+    seedTurn, setPlinkoEnabled, forcePlinko, getPlinko, setFeel, rareEventForSeed,
     getFeel: () => feelMode, setImpactCallback,
   };
 })();

@@ -919,6 +919,14 @@
   // plinko board (center = auto win). Physics rolls it from the flick seed;
   // disabled online because prizes rewrite lives directly.
   let plinkoFlipActive = false;
+  let rareEventActive = null;
+  const RARE_EVENT_LABELS = {
+    trampoline:  '🟢 TRAMPOLINE TABLE!',
+    'wind-tunnel': '🌪️ WIND TUNNEL!',
+    'double-flip': '🚀 DOUBLE FLIP!',
+    magnet:       '🧲 MAGNET LANDING!',
+    'heart-rush': '💗 HEART RUSH!',
+  };
   // Easter egg: secret player names — all pure cosmetics.
   //   party/disco   → rainbow table edge      ghost/boo     → see-through object
   //   tiny/smol     → pocket-sized object     giant/jumbo   → oversized object
@@ -999,6 +1007,7 @@
       onCap:   !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
       golden:  goldenFlipActive,
       plinko:  (landingInfo && landingInfo.plinko) || null,
+      rareEvent: rareEventActive,
     };
   }
 
@@ -1221,6 +1230,8 @@
       }
     }
 
+    const activePlayer = game.currentPlayer();
+    const activeName = activePlayer && activePlayer.name;
     Renderer.frame(dt, {
       bottle:      Physics.getBottle(),
       liquid:      Physics.getLiquid(),
@@ -1233,6 +1244,7 @@
           : capLandActive ? '🙃 CAP LAND! ×2'
           : goldenShowActive ? '🌟 GOLDEN FLIP! ×2'
           : greatSaveActive ? '🧤 THE GREAT SAVE!'
+          : rareEventActive ? RARE_EVENT_LABELS[rareEventActive]
           : null)
         : null,
       showGlow,
@@ -1240,19 +1252,20 @@
       // Ninja/rainbow work by re-baking the sprite in a different color (the
       // old ctx.filter approach silently no-ops on older iOS Safari).
       liquidColor: goldenFlipActive ? GOLDEN_COLOR
-        : isNinjaName(game.currentPlayer()?.name) ? '#2a2633'
-        : isRainbowName(game.currentPlayer()?.name) ? rainbowColor()
-        : game.currentPlayer()?.color,
+        : isNinjaName(activeName) ? '#2a2633'
+        : isRainbowName(activeName) ? rainbowColor()
+        : activePlayer && activePlayer.color,
       golden:      goldenFlipActive,
       moon:        moonFlipActive,
-      ghostly:     isGhostName(game.currentPlayer()?.name),
-      ninja:       isNinjaName(game.currentPlayer()?.name),
-      rainbow:     isRainbowName(game.currentPlayer()?.name),
-      sizeFx:      isTinyName(game.currentPlayer()?.name) ? 0.68
-                   : isGiantName(game.currentPlayer()?.name) ? 1.28 : 1,
+      ghostly:     isGhostName(activeName),
+      ninja:       isNinjaName(activeName),
+      rainbow:     isRainbowName(activeName),
+      sizeFx:      isTinyName(activeName) ? 0.68
+                   : isGiantName(activeName) ? 1.28 : 1,
       party:       konamiParty || game.players.some((pl) => isPartyName(pl.name)),
       plinkoBoard: Physics.getPlinko ? Physics.getPlinko() : null,
-      skin:        game.currentPlayer()?.skin,
+      rareEvent:   rareEventActive,
+      skin:        activePlayer && activePlayer.skin,
       intense:     intenseTurn,
       suddenDeath: game.sdLevelForNextFlip ? game.sdLevelForNextFlip() > 0 : game.inSuddenDeath(),
       awaitingFlick: game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE,
@@ -1322,19 +1335,24 @@
     passScreen.classList.remove('hidden');
   }
 
+  function resetFlipPresentation() {
+    greatSaveActive = false;
+    capLandActive = false;
+    goldenFlipActive = false;
+    goldenShowActive = false;
+    moonFlipActive = false;
+    plinkoFlipActive = false;
+    rareEventActive = null;
+    lastFlickPower = null;
+  }
+
   function onTurnStart() {
     evaluating  = false;
     showGlow    = false;
     resultAlpha = 0;
     intenseTurn = false;
     timedOut    = false;
-    greatSaveActive = false;
-    capLandActive   = false;
-    goldenFlipActive = false;
-    goldenShowActive = false;
-    moonFlipActive  = false;
-    plinkoFlipActive = false;
-    lastFlickPower  = null;
+    resetFlipPresentation();
     if (Physics.setPlinkoEnabled) Physics.setPlinkoEnabled(!onlineMode);
     stopTurnTimer();
     clearTimeout(aiTimer);
@@ -1405,9 +1423,7 @@
     evaluating  = false;
     showGlow    = false;
     timedOut    = false;
-    greatSaveActive = false;
-    capLandActive   = false;
-    lastFlickPower  = null;
+    resetFlipPresentation();
     stopTurnTimer();
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
@@ -1560,10 +1576,14 @@
         // 1/1000 plinko drop — the prize IS the outcome.
         streakBannerEl.textContent =
           game.plinkoPrize === 'win' ? `🎰👑 PLINKO JACKPOT — ${p.name} WINS THE GAME!`
-          : game.plinkoPrize === 'zap' ? '🎰⚡ Plinko: every opponent loses a life!'
-          : '🎰❤️ Plinko: +2 lives!';
+          : game.plinkoPrize === 'halve' ? `🎰⚡ Plinko: every opponent's lives are halved!`
+          : `🎰❤️ Plinko: ${p.name}'s lives are doubled!`;
         streakBannerEl.className = 'streak-banner on-fire';
         Sound.play(game.plinkoPrize === 'win' ? 'win' : 'life');
+      } else if (game.rareLifeGain > 0) {
+        streakBannerEl.textContent = `💗 HEART RUSH! +${game.rareLifeGain} lives!`;
+        streakBannerEl.className = 'streak-banner on-fire';
+        Sound.play('life');
       } else if (capLandActive) {
         // Rare upside-down / on-cap — celebrates over everything else this flip.
         const stakeBit = game.onFireGain > 0
@@ -1843,7 +1863,8 @@
     // Golden flip lottery — read the seed physics actually used (it generates
     // one when we pass undefined) so local and replayed flicks agree.
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
-    goldenFlipActive = !!(fi && fi.seed % 150 === 77);
+    rareEventActive = (fi && fi.rareEvent) || null;
+    goldenFlipActive = !!(fi && !fi.plinko && !rareEventActive && fi.seed % 150 === 77);
     moonFlipActive = !!(fi && fi.moon);
     plinkoFlipActive = !!(fi && fi.plinko);
     if (game.practice) updatePracticeMeter(fi, false);
@@ -1854,6 +1875,10 @@
     } else if (moonFlipActive) {
       streakBannerEl.textContent = '🌙 MOON GRAVITY!';
       streakBannerEl.className = 'streak-banner on-fire';
+    } else if (rareEventActive) {
+      streakBannerEl.textContent = RARE_EVENT_LABELS[rareEventActive] || '✦ RARE EVENT!';
+      streakBannerEl.className = 'streak-banner on-fire';
+      Sound.play('ignite');
     } else if (flickFeedbackOn() && fi && !currentIsBankShot()) {
       // Learning aid during airtime (onResult overwrites). Sweet spot ~2500 px/s.
       const d = fi.upSpeed - 2500;

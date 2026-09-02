@@ -57,6 +57,7 @@ const game = {
   maxLives: 20,
   perfectLanding: false,
   capLand: false,          // last make was a rare upside-down / on-cap land (worth 2)
+  rareLifeGain: 0,         // +3 Heart Rush reward on the last successful rare flip
 
   // defs: [{ name, color, isAI }]
   init(defs, direction, opts = {}) {
@@ -92,6 +93,7 @@ const game = {
     this.capLand = false;
     this.goldenFlip = false;
     this.plinkoPrize = null;
+    this.rareLifeGain = 0;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
     // ambiguous when two players share a name). Ignored in practice.
@@ -120,6 +122,28 @@ const game = {
     return this.players.filter(p => !p.eliminated);
   },
 
+  resetOutcomeFlags() {
+    this.lastPenalty    = 0;
+    this.onFireGain     = 0;
+    this.justIgnited    = false;
+    this.fireEnded      = false;
+    this.fireCapped     = false;
+    this.justEliminated = false;
+    this.endedFireBonus = 0;
+    this.rareLifeGain   = 0;
+  },
+
+  eliminatePlayer(player) {
+    player.eliminated = true;
+    player.isOnFire = false;
+    player.isHeatingUp = false;
+    player.streak = 0;
+    if (this.onFirePlayer === player) {
+      this.onFirePlayer = null;
+      this.onFireBonus = 0;
+    }
+  },
+
   // ── Sudden death ────────────────────────────────────────────────────────
   // resolveFlip increments turnCounter before reading SD, so UI helpers that
   // predict "this upcoming flip" must use turnCounter+1 to stay in sync.
@@ -145,19 +169,13 @@ const game = {
   // ── Plinko drop resolution (1/1000 easter egg) ─────────────────────────
   // Replaces the normal make/miss outcome. Never a penalty; stake, streaks
   // and ON FIRE state are untouched (the drop happens "outside" the game).
-  //   'win'   center slot  → every opponent is out; flipper wins the game
-  //   'zap'   mid slots    → every opponent loses 1 life
-  //   'lives' outer slots  → flipper gains 2 lives
+  //   'win'    center slot → every opponent is out; flipper wins the game
+  //   'halve'  mid slots   → every opponent's lives are halved (round down)
+  //   'double' outer slots → flipper's lives are doubled
   resolvePlinko(prize) {
     this.lastResult = 'MAKE';
     const player = this.currentPlayer();
-    this.lastPenalty    = 0;
-    this.onFireGain     = 0;
-    this.justIgnited    = false;
-    this.fireEnded      = false;
-    this.fireCapped     = false;
-    this.justEliminated = false;
-    this.endedFireBonus = 0;
+    this.resetOutcomeFlags();
     this.perfectLanding = false;
     this.capLand        = false;
     this.goldenFlip     = false;
@@ -176,32 +194,19 @@ const game = {
     if (prize === 'win') {
       for (const p of this.players) {
         if (p === player || p.eliminated) continue;
-        p.eliminated = true;
-        p.isOnFire = false;
-        p.isHeatingUp = false;
-        p.streak = 0;
+        this.eliminatePlayer(p);
       }
-      if (this.onFirePlayer && this.onFirePlayer !== player) {
-        this.onFirePlayer = null;
-        this.onFireBonus = 0;
-      }
-    } else if (prize === 'zap') {
+    } else if (prize === 'halve') {
       for (const p of this.players) {
         if (p === player || p.eliminated) continue;
-        p.lives = Math.max(0, p.lives - 1);
-        if (p.lives <= 0) {
-          p.eliminated = true;
-          p.isOnFire = false;
-          p.isHeatingUp = false;
-          p.streak = 0;
-          if (this.onFirePlayer === p) {
-            this.onFirePlayer = null;
-            this.onFireBonus = 0;
-          }
-        }
+        p.lives = Math.floor(p.lives / 2);
+        if (p.lives <= 0) this.eliminatePlayer(p);
       }
-    } else {
-      player.lives = Math.min(player.lives + 2, this.maxLives);
+    } else if (prize === 'double') {
+      player.lives *= 2;
+      // Plinko is allowed to break the normal life ceiling. Raise the match cap
+      // with it so a later ON FIRE make can never clamp the winner back down.
+      this.maxLives = Math.max(this.maxLives, player.lives);
     }
     this.setState(GAME_STATES.RESULT);
   },
@@ -212,14 +217,8 @@ const game = {
     const player = this.currentPlayer();
     const wasOnFire = player.isOnFire;   // capture BEFORE we mutate any flags
 
-    // reset per-flip display flags
-    this.lastPenalty    = 0;
-    this.onFireGain     = 0;
-    this.justIgnited    = false;
-    this.fireEnded      = false;
-    this.fireCapped     = false;
-    this.justEliminated = false;
-    this.endedFireBonus = 0;
+    // Reset per-flip display flags.
+    this.resetOutcomeFlags();
     this.perfectLanding = result === 'MAKE' && !!meta.perfect;
     this.capLand        = result === 'MAKE' && !!meta.onCap;
     this.goldenFlip     = result === 'MAKE' && !!meta.golden;
@@ -263,6 +262,11 @@ const game = {
         const hitLifeCap = player.lives >= this.maxLives;
         const hitLobbyCap = this.players.length > ONFIRE_CAP_PLAYERS &&
                             this.onFireBonus >= ONFIRE_CAP_LIVES;
+        if (meta.rareEvent === 'heart-rush') {
+          player.lives += 3;
+          this.rareLifeGain = 3;
+          this.maxLives = Math.max(this.maxLives, player.lives);
+        }
         if (hitLifeCap || hitLobbyCap) {
           player.isOnFire    = false;
           player.isHeatingUp = false;
@@ -295,6 +299,11 @@ const game = {
     if (result === 'MAKE') {
       player.streak++;
       this.pointCount += worth;   // upright +1; rare cap/upside-down +2
+      if (meta.rareEvent === 'heart-rush') {
+        player.lives += 3;
+        this.rareLifeGain = 3;
+        this.maxLives = Math.max(this.maxLives, player.lives);
+      }
       player.isHeatingUp = player.streak === 2;
       if (player.streak >= 3) {
         player.isOnFire    = true;
@@ -312,7 +321,7 @@ const game = {
       player.isOnFire    = false;
       this.pointCount    = 0;
       if (player.lives <= 0) {
-        player.eliminated = true;
+        this.eliminatePlayer(player);
         this.justEliminated = true;
       }
     }
@@ -328,14 +337,7 @@ const game = {
     const idx = this.players.findIndex(p => p.netId === netId && !p.eliminated);
     if (idx < 0) return false;
     const p = this.players[idx];
-    p.eliminated = true;
-    p.isOnFire = false;
-    p.isHeatingUp = false;
-    p.streak = 0;
-    if (this.onFirePlayer === p) {
-      this.onFirePlayer = null;
-      this.onFireBonus = 0;
-    }
+    this.eliminatePlayer(p);
     this.forfeitReason = reason || 'left';
     if (idx === this.currentPlayerIndex) this.justEliminated = true;
     return true;
