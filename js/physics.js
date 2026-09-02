@@ -63,9 +63,12 @@ const Physics = (() => {
   // resolves within MISS_CAP_FRAMES (the glitch / teeter-stall fallback) do we
   // force a MISS so a turn can never soft-lock in EVALUATING.
   //
-  // v78: normal throws — generous upright cone + softer settle / landing kick.
-  const SETTLE_FRAMES   = 14;    // frames of stillness required to read the pose
-  const SETTLE_RANGE    = 0.055; // rad — max angle spread across that window
+  // v99: require a longer, tighter stillness window. The looser v78 values could
+  // mistake the slow point of a rocking bottle for its final pose and call MISS
+  // before it finished righting itself.
+  const SETTLE_FRAMES   = 22;    // frames of stillness required to read the pose
+  const SETTLE_RANGE    = 0.030; // rad — max angle spread across that window
+  const MIN_GROUNDED_FRAMES = 30; // never judge during the first 0.5s after contact
   // v87: 1.00 rad (±57°!) let a bottle propped against a wall at a heavy lean
   // score as a MAKE (the "honey bear counted a miss" bug). ±36° reads upright.
   const MAKE_ANGLE      = 0.63;  // ≤±~36° upright = MAKE
@@ -78,10 +81,10 @@ const Physics = (() => {
   const CAP_WINDOW      = 0.48;  // ±~27° of fully inverted
   const CAP_ZONE        = 0.95;  // first-touch zone that can roll the sticky lottery
   const CAP_STICK_CHANCE = 0.09; // × share of landings in CAP_ZONE ≈ ~1/100 overall
-  const MISS_CAP_FRAMES = 300;   // ~5s grounded with no verdict → forced MISS (fallback)
-  const ABS_MISS_FRAMES = 600;   // ~10s after leaving the floor → forced MISS no matter what
-  const SETTLE_ANG_VEL  = 0.018; // "at rest" spin threshold
-  const SETTLE_LIN_SPD  = 10.0;  // "at rest" slide threshold
+  const MISS_CAP_FRAMES = 600;   // ~10s grounded with no verdict → final-pose fallback
+  const ABS_MISS_FRAMES = 900;   // ~15s after leaving the floor → forced MISS no matter what
+  const SETTLE_ANG_VEL  = 0.010; // "at rest" spin threshold
+  const SETTLE_LIN_SPD  = 7.0;   // "at rest" slide threshold
   const GROUND_TOUCH_PX = 6;     // AABB bottom within this of groundY = touching floor
 
   // ── Seeded PRNG (mulberry32) ───────────────────────────────────────────────
@@ -735,14 +738,25 @@ const Physics = (() => {
       if (t > maxGroundedTilt) maxGroundedTilt = t;
     }
 
-    if (groundedFrames > profile.missCapFrames) return recordLanding('MISS', null, 'timeout');
+    if (groundedFrames > profile.missCapFrames) {
+      // A visibly upright bottle must never become a MISS just because minute
+      // engine jitter kept it outside the strict settle window. At the fallback
+      // deadline, honor the final pose (while still requiring a completed flip).
+      if (profile.requireFlip && !hasFlipped) return recordLanding('MISS', null, 'underrotated');
+      const tilt = Math.abs(normalizeSignedAngle(bottle.angle));
+      const invErr = Math.abs(tilt - Math.PI);
+      if (tilt < MAKE_ANGLE) return recordLanding('MAKE', tilt, 'upright-timeout');
+      if (invErr < CAP_WINDOW) return recordLanding('MAKE', tilt, 'cap');
+      return recordLanding('MISS', tilt, 'timeout');
+    }
 
     if (angVel < SETTLE_ANG_VEL && linSpeed < SETTLE_LIN_SPD) {
       angleWin.push(bottle.angle);
       if (angleWin.length > SETTLE_FRAMES) angleWin.shift();
       let lo = Infinity, hi = -Infinity;
       for (const a of angleWin) { if (a < lo) lo = a; if (a > hi) hi = a; }
-      if (angleWin.length >= SETTLE_FRAMES && (hi - lo) < SETTLE_RANGE) {
+      if (groundedFrames >= MIN_GROUNDED_FRAMES &&
+          angleWin.length >= SETTLE_FRAMES && (hi - lo) < SETTLE_RANGE) {
         if (profile.requireFlip && !hasFlipped) return recordLanding('MISS', null, 'underrotated');
         const angle = normalizeSignedAngle(bottle.angle);
         const tilt = Math.abs(angle);

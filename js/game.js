@@ -11,8 +11,9 @@ const GAME_STATES = {
   GAME_OVER: 'GAME_OVER',
 };
 
-// Sudden death: after this many flips, ON FIRE stops minting free lives and every
-// miss costs an escalating extra penalty — guarantees even high-skill games end.
+// Sudden death: after this many flips, ordinary misses cost an escalating extra
+// penalty. ON FIRE remains a protected reward state: its makes still add lives
+// and its ending miss is still free.
 const SD_THRESHOLD = 70;
 const SD_STEP = 20;   // flips per escalation level (+1 extra life lost each level)
 
@@ -131,13 +132,13 @@ const game = {
   },
 
   // Would the current player be ELIMINATED if they miss this flip? Drives the
-  // "Make it or break it" intense finale. (No risk during a normal ON FIRE run,
-  // since a miss there costs nothing — unless sudden death has added a cost.)
+  // "Make it or break it" intense finale. There is never elimination risk during
+  // ON FIRE: a miss ends the bonus run without charging lives.
   missWouldEliminate() {
     const p = this.currentPlayer();
     if (!p || p.eliminated) return false;
     const sd = this.sdLevelForNextFlip();
-    const penalty = p.isOnFire ? sd : this.pointCount + sd;
+    const penalty = p.isOnFire ? 0 : this.pointCount + sd;
     return penalty > 0 && p.lives - penalty <= 0;
   },
 
@@ -247,22 +248,18 @@ const game = {
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
-        // +1 life per flip while ON FIRE — bounded by the match life cap. In SUDDEN
-        // DEATH, ON FIRE stops minting free lives (the deflation valve) but the
-        // run continues until a miss (or a real life/+5 cap below).
+        // +1 life per flip while ON FIRE — bounded by the match life cap. This
+        // reward remains active in sudden death; otherwise a big-lobby fire run
+        // can never reach its +5 cap and the eventual miss feels like the whole
+        // run was scored as a miss.
         // Cap lands are worth 2 lives (same rarity bonus as the stake).
-        if (!sd) {
-          const before = player.lives;
-          player.lives    = Math.min(player.lives + worth, this.maxLives);
-          this.onFireGain = player.lives - before;
-          if (this.onFireGain > 0) this.onFireBonus += Math.min(worth, this.onFireGain);
-        } else {
-          this.onFireGain = 0;
-        }
+        const before = player.lives;
+        player.lives    = Math.min(player.lives + worth, this.maxLives);
+        this.onFireGain = player.lives - before;
+        if (this.onFireGain > 0) this.onFireBonus += Math.min(worth, this.onFireGain);
         // End the run gracefully (keep gains, NO penalty, NOT a miss) when the
         // player hits the match life cap, or when a big lobby (>4) has handed
-        // out its +5 bonus lives. Do NOT treat "gain 0 because SD" as a cap —
-        // that wrongly ended every SD ON FIRE make in 5+ player games.
+        // out its +5 bonus lives.
         const hitLifeCap = player.lives >= this.maxLives;
         const hitLobbyCap = this.players.length > ONFIRE_CAP_PLAYERS &&
                             this.onFireBonus >= ONFIRE_CAP_LIVES;
@@ -276,14 +273,8 @@ const game = {
           this.fireCapped    = true;
         }
       } else {
-        // Miss ends ON FIRE — normally NO life loss (the reward); in sudden death
-        // it costs the escalating penalty so a hot player can't stall forever.
-        if (sd) {
-          const before = player.lives;
-          player.lives     = Math.max(0, player.lives - sd);
-          this.lastPenalty = before - player.lives;
-          if (player.lives <= 0) { player.eliminated = true; this.justEliminated = true; }
-        }
+        // Miss ends ON FIRE with NO life loss. Sudden death still penalizes
+        // ordinary misses, but it must not retroactively erase a bonus run.
         player.isOnFire    = false;
         player.isHeatingUp = false;
         player.streak      = 0;
