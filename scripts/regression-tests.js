@@ -149,6 +149,53 @@ function testHeartRushReward() {
   assert.equal(game.rareLifeGain, 0, 'Heart Rush only rewards a successful landing');
 }
 
+function testDoubleFlipCompoundReward() {
+  const game = loadGame();
+  game.init(players(4), 1, { startingLives: 5 });
+  game.callbacks = {};
+  game.players[0].lives = 5;
+  game.players[1].lives = 9;
+  game.players[2].lives = 2;
+  game.players[3].lives = 1;
+
+  game.resolveFlip('MAKE', { rareEvent: 'double-flip', onCap: true });
+  assert.equal(game.players[0].lives, 10, 'Double Flip must double the flipper');
+  assert.deepEqual(game.players.slice(1).map((p) => p.lives), [4, 1, 0]);
+  assert.equal(game.players[3].eliminated, true, 'halving one life must eliminate');
+  assert.equal(game.pointCount, 2, 'a Double Flip cap landing still earns cap stake value');
+  assert.equal(game.doubleFlipReward, true);
+
+  const miss = loadGame();
+  miss.init(players(3), 1, { startingLives: 5 });
+  miss.callbacks = {};
+  miss.resolveFlip('MISS', { rareEvent: 'double-flip' });
+  assert.deepEqual(miss.players.map((p) => p.lives), [5, 5, 5],
+    'a failed Double Flip must not apply the compound reward');
+
+  const fire = loadGame();
+  igniteInSuddenDeath(fire);
+  fire.resolveFlip('MAKE', { rareEvent: 'double-flip' });
+  assert.equal(fire.players[0].lives, 8,
+    'an ON FIRE Double Flip must add its fire life, then double the total');
+  assert.deepEqual(fire.players.slice(1).map((p) => p.lives), [1, 1, 1, 1, 1, 1, 1]);
+  assert.equal(fire.players[0].isOnFire, true, 'Double Flip must not end a valid fire run');
+}
+
+function testLifeDrainReward() {
+  const game = loadGame();
+  game.init(players(4), 1, { startingLives: 10 });
+  game.callbacks = {};
+  game.players[0].lives = 7;
+  game.players[1].lives = 18;
+  game.players[2].lives = 2;
+  game.players[3].lives = 1;
+  game.resolveFlip('MAKE', { rareEvent: 'life-drain' });
+  assert.equal(game.players[0].lives, 7, 'Life Drain must not change the flipper');
+  assert.deepEqual(game.players.slice(1).map((p) => p.lives), [1, 1, 1]);
+  assert.equal(game.lifeDrainTriggered, true);
+  assert.equal(game.lifeDrainActive, true, 'Life Drain tint must persist for the match');
+}
+
 function loadPhysics() {
   const window = { matchMedia: () => ({ matches: false }) };
   const context = vm.createContext({ console, window, Math });
@@ -229,7 +276,10 @@ function testLongPlinkoBoardResolves() {
 
 function testRareEventLadder() {
   const physics = loadPhysics();
-  const ids = ['trampoline', 'wind-tunnel', 'double-flip', 'magnet', 'heart-rush'];
+  const ids = [
+    'rainbow-trail', 'power-launch', 'moon-gravity', 'ice-slide', 'gravity-slam',
+    'trampoline', 'wind-tunnel', 'double-flip', 'magnet', 'heart-rush', 'life-drain',
+  ];
   const found = new Map();
   for (let seed = 1; seed < 100000 && found.size < ids.length; seed++) {
     const id = physics.rareEventForSeed(seed);
@@ -247,6 +297,12 @@ function testRareEventLadder() {
     physics.resetBottle();
     physics.applyFlick(0, -2500, seed);
     assert.equal(physics.getLastFlickInfo().rareEvent, id);
+    if (id === 'power-launch') {
+      assert.ok(Math.abs(physics.getBottle().velocity.y) > 24,
+        'Power Launch must produce a visibly stronger vertical launch');
+      assert.ok(Math.abs(physics.getBottle().angularVelocity) > 0.21,
+        'Power Launch must produce visibly stronger spin');
+    }
     const startX = physics.getBottle().position.x;
     let previousVy = physics.getBottle().velocity.y;
     let upwardReversals = 0;
@@ -286,6 +342,62 @@ function testRareEventLadder() {
       assert.ok(maxLateralSpeed > 5,
         `wind tunnel lateral speed only reached ${maxLateralSpeed.toFixed(1)}`);
     }
+    if (id === 'double-flip') {
+      assert.equal(verdict, 'MAKE', 'the tuned Double Flip sweet-spot throw should be landable');
+      assert.ok(physics.getLastLandingInfo().rotations >= 2,
+        `Double Flip only rotated ${physics.getLastLandingInfo().rotations.toFixed(2)} times`);
+    }
+    if (id === 'ice-slide') {
+      assert.ok(maxLateralSpeed > 18,
+        `Ice Slide lateral speed only reached ${maxLateralSpeed.toFixed(1)}`);
+      assert.ok(maxDrift > 400, `Ice Slide only travelled ${maxDrift.toFixed(1)}px`);
+    }
+    if (id === 'moon-gravity') assert.equal(physics.getLastFlickInfo().gravityScale, 0.42);
+    if (id === 'gravity-slam') assert.equal(physics.getLastFlickInfo().gravityScale, 1.9);
+  }
+}
+
+function testMrHoweTenfoldOdds() {
+  const physics = loadPhysics();
+  let normal = 0;
+  let boosted = 0;
+  for (let seed = 1; seed <= 100000; seed++) {
+    if (physics.rareEventForSeed(seed)) normal++;
+    if (physics.rareEventForSeed(seed, false, 10)) boosted++;
+  }
+  assert.ok(boosted > normal * 6,
+    `10× mode should be dramatically more frequent (normal=${normal}, boosted=${boosted})`);
+  assert.ok(boosted < normal * 12,
+    `10× mode unexpectedly exceeded its intended range (normal=${normal}, boosted=${boosted})`);
+
+  physics.init(1280, 800);
+  physics.resetBottle();
+  physics.applyFlick(0, -2500, 23, 1);
+  assert.equal(physics.getLastFlickInfo().plinko, false);
+  physics.resetBottle();
+  physics.applyFlick(0, -2500, 23, 10);
+  assert.equal(physics.getLastFlickInfo().plinko, true,
+    '10× mode must change Plinko from 1/1000 to 1/100');
+}
+
+function testLifeDrainMagnetMakes() {
+  const physics = loadPhysics();
+  physics.init(1280, 800);
+  physics.setPlinkoEnabled(false);
+  for (const power of [1800, 2500, 3300, 4000]) {
+    for (let seed = 1; seed <= 12; seed++) {
+      physics.resetBottle();
+      physics.forceSpecialEvent('life-drain');
+      physics.applyFlick(seed % 2 ? 900 : -900, -power, seed);
+      let verdict = null;
+      for (let frame = 0; frame < 1200 && !verdict; frame++) {
+        physics.step(1 / 60);
+        verdict = physics.checkLanding();
+      }
+      assert.equal(verdict, 'MAKE',
+        `Life Drain magnet missed for power ${power}, seed ${seed}: ${JSON.stringify(physics.getLastLandingInfo())}`);
+      assert.notEqual(physics.getLastLandingInfo().reason, 'timeout');
+    }
   }
 }
 
@@ -293,7 +405,11 @@ function testForcedSpecialEvents() {
   const physics = loadPhysics();
   physics.init(1280, 800);
   physics.setPlinkoEnabled(false);
-  const events = ['plinko', 'trampoline', 'wind-tunnel', 'double-flip', 'magnet', 'heart-rush'];
+  const events = [
+    'plinko', 'rainbow-trail', 'power-launch', 'moon-gravity', 'ice-slide',
+    'gravity-slam', 'trampoline', 'wind-tunnel', 'double-flip', 'magnet',
+    'heart-rush', 'life-drain',
+  ];
 
   for (const event of events) {
     physics.resetBottle();
@@ -315,8 +431,12 @@ testCoreRulesStayStable();
 testForfeitCleansOnFireState();
 testPlinkoRewards();
 testHeartRushReward();
+testDoubleFlipCompoundReward();
+testLifeDrainReward();
 testLandingVerdictsRequireRealSettle();
 testLongPlinkoBoardResolves();
 testRareEventLadder();
+testMrHoweTenfoldOdds();
+testLifeDrainMagnetMakes();
 testForcedSpecialEvents();
 console.log('Regression tests passed.');

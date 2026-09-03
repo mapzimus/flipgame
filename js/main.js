@@ -912,8 +912,7 @@
   let goldenFlipActive = false;  // this flick rolled golden
   let goldenShowActive = false;  // the RESULT being shown is a golden make
   const GOLDEN_COLOR = '#f2c14e';
-  // Easter egg: ~1/200 throws happen on the moon (physics rolls it from the
-  // flick seed) — floaty low-gravity flight, moon in the sky, normal scoring.
+  // Moon Gravity is part of the deterministic rare-event ladder in physics.js.
   let moonFlipActive = false;
   // Easter egg: ~1/1000 flips the floor vanishes and the throw drops into a
   // plinko board (center = auto win). Physics rolls it from the flick seed;
@@ -921,17 +920,19 @@
   let plinkoFlipActive = false;
   let rareEventActive = null;
   const RARE_EVENT_LABELS = {
+    'rainbow-trail': '🌈 RAINBOW TRAIL!',
+    'power-launch': '⚡ POWER LAUNCH!',
+    'moon-gravity': '🌙 MOON GRAVITY!',
+    'ice-slide': '🧊 ICE SLIDE!',
+    'gravity-slam': '💥 GRAVITY SLAM!',
     trampoline:  '🟢 TRAMPOLINE TABLE!',
     'wind-tunnel': '🌪️ WIND TUNNEL!',
     'double-flip': '🚀 DOUBLE FLIP!',
     magnet:       '🧲 MAGNET LANDING!',
     'heart-rush': '💗 HEART RUSH!',
+    'life-drain': '☣️ LIFE DRAIN!',
   };
-  const MR_HOWE_SPECIALS = [
-    'plinko', 'trampoline', 'wind-tunnel', 'double-flip', 'magnet', 'heart-rush',
-  ];
-  // Exact, case-sensitive classroom test name. Every one of this player's
-  // offline flips uniformly selects one of the six special events above.
+  // Exact, case-sensitive classroom name: every seeded event chance is 10×.
   const isMrHoweName = (name) => String(name || '') === 'Mr. Howe';
   // Easter egg: secret player names — all pure cosmetics.
   //   party/disco   → rainbow table edge      ghost/boo     → see-through object
@@ -946,7 +947,7 @@
   // Secret plinko triggers: name a player "plinko" (every flick drops), or
   // type the letters p-l-i-n-k-o on a keyboard (arms the next flick only).
   const isPlinkoName = (n) => /^plinko$/i.test(String(n || '').trim());
-  let plinkoArmed = false;
+  let specialEventArmed = null;
   // Rainbow egg: cycle the 12 flavor colors (~1.1s each) — each is a cached
   // sprite bake, so no per-frame cache churn.
   function rainbowColor() {
@@ -1101,6 +1102,7 @@
     game.on(GAME_STATES.GAME_OVER,  onGameOver);
 
     game.init(defs, dir, opts || {});
+    document.body.classList.remove('life-drain-active');
     game.feel = feel;
     gameStarted = true;
     gameStats = {
@@ -1247,6 +1249,8 @@
       resultAlpha,
       specialLabel: game.state === GAME_STATES.RESULT
         ? (game.plinkoPrize ? (game.plinkoPrize === 'win' ? '🎰 JACKPOT!' : '🎰 PLINKO!')
+          : (rareEventActive === 'double-flip' || rareEventActive === 'life-drain')
+            ? RARE_EVENT_LABELS[rareEventActive]
           : capLandActive ? '🙃 CAP LAND! ×2'
           : goldenShowActive ? '🌟 GOLDEN FLIP! ×2'
           : greatSaveActive ? '🧤 THE GREAT SAVE!'
@@ -1485,6 +1489,7 @@
     capLandActive = !!(game.lastResult === 'MAKE' && (game.capLand ||
                       (landing && (landing.onCap || landing.reason === 'cap'))));
     goldenShowActive = !!(game.lastResult === 'MAKE' && game.goldenFlip);
+    document.body.classList.toggle('life-drain-active', !!game.lifeDrainActive);
     // Cap land wins the special label over Great Save (mutually exclusive anyway).
     const counts = progressCounts();
     const rec = counts
@@ -1546,6 +1551,12 @@
             ? '🎰👑 PLINKO JACKPOT!' : '🎰 Plinko drop — nice!';
           streakBannerEl.className = 'streak-banner on-fire';
           Sound.play('win');
+        } else if (rareEventActive === 'double-flip') {
+          streakBannerEl.textContent = '🚀 Two full flips landed!';
+          streakBannerEl.className = 'streak-banner on-fire';
+        } else if (rareEventActive === 'life-drain') {
+          streakBannerEl.textContent = '☣️ Life Drain landing!';
+          streakBannerEl.className = 'streak-banner on-fire';
         } else if (capLandActive) {
           streakBannerEl.textContent = '🙃 Cap land! Worth 2!';
           streakBannerEl.className = 'streak-banner on-fire';
@@ -1586,6 +1597,14 @@
           : `🎰❤️ Plinko: ${p.name}'s lives are doubled!`;
         streakBannerEl.className = 'streak-banner on-fire';
         Sound.play(game.plinkoPrize === 'win' ? 'win' : 'life');
+      } else if (game.lifeDrainTriggered) {
+        streakBannerEl.textContent = `☣️ LIFE DRAIN! Every opponent now has 1 life!`;
+        streakBannerEl.className = 'streak-banner on-fire';
+        Sound.play('life');
+      } else if (game.doubleFlipReward) {
+        streakBannerEl.textContent = `🚀 DOUBLE FLIP! ${p.name}'s lives doubled — opponents halved!`;
+        streakBannerEl.className = 'streak-banner on-fire';
+        Sound.play('life');
       } else if (game.rareLifeGain > 0) {
         streakBannerEl.textContent = `💗 HEART RUSH! +${game.rareLifeGain} lives!`;
         streakBannerEl.className = 'streak-banner on-fire';
@@ -1859,25 +1878,28 @@
     Sound.unlock();
     Sound.play('flick');
     lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);
-    // Secret special-event test names (offline only: Plinko rewrites lives).
-    if (!onlineMode) {
-      if (isMrHoweName(game.currentPlayer()?.name) && Physics.forceSpecialEvent) {
-        const event = MR_HOWE_SPECIALS[Math.floor(Math.random() * MR_HOWE_SPECIALS.length)];
-        Physics.forceSpecialEvent(event);
-      } else if (Physics.forcePlinko &&
-                 (plinkoArmed || isPlinkoName(game.currentPlayer()?.name))) {
+    // Typed test commands are offline-only because several prizes rewrite lives.
+    if (!onlineMode && Physics.forceSpecialEvent) {
+      if (specialEventArmed) {
+        Physics.forceSpecialEvent(specialEventArmed);
+        specialEventArmed = null;
+      } else if (isPlinkoName(game.currentPlayer()?.name)) {
         Physics.forcePlinko();
-        plinkoArmed = false;
       }
     }
-    Physics.applyFlick(vx, vy, seed);
+    const eventMultiplier = isMrHoweName(game.currentPlayer()?.name) ? 10 : 1;
+    Physics.applyFlick(vx, vy, seed, eventMultiplier);
     // Golden flip lottery — read the seed physics actually used (it generates
     // one when we pass undefined) so local and replayed flicks agree.
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     rareEventActive = (fi && fi.rareEvent) || null;
-    goldenFlipActive = !!(fi && !fi.plinko && !rareEventActive && fi.seed % 150 === 77);
+    const goldenOdds = Math.max(1, Math.floor(150 / eventMultiplier));
+    goldenFlipActive = !!(fi && !fi.plinko && !rareEventActive &&
+      fi.seed % goldenOdds === 77 % goldenOdds);
     moonFlipActive = !!(fi && fi.moon);
     plinkoFlipActive = !!(fi && fi.plinko);
+    document.body.classList.toggle('life-drain-active',
+      !!game.lifeDrainActive || rareEventActive === 'life-drain');
     if (game.practice) updatePracticeMeter(fi, false);
     if (plinkoFlipActive) {
       streakBannerEl.textContent = '🎰 PLINKO DROP! The floor is gone!';
@@ -2090,6 +2112,7 @@
     stopTurnTimer();
     Input.disable();
     gameStarted = false;
+    document.body.classList.remove('life-drain-active');
     onlineMode = false;
     netAuthority = false;
     pendingNetResult = null;
@@ -2376,11 +2399,25 @@
                     'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
     let konamiIdx = 0;
     // Typed-word secrets (skip when focus is in a text input — player names).
-    const WORDS = { plinko: () => {
-      plinkoArmed = true;
-      showToast('🎰 Plinko armed — next flip drops!');
+    const armEvent = (id, label) => () => {
+      specialEventArmed = id;
+      showToast(`${label} armed — next flip!`);
       Sound.play('ignite');
-    } };
+    };
+    const WORDS = {
+      plinko: armEvent('plinko', '🎰 Plinko'),
+      rainbowtrail: armEvent('rainbow-trail', '🌈 Rainbow Trail'),
+      powerlaunch: armEvent('power-launch', '⚡ Power Launch'),
+      moongravity: armEvent('moon-gravity', '🌙 Moon Gravity'),
+      iceslide: armEvent('ice-slide', '🧊 Ice Slide'),
+      gravityslam: armEvent('gravity-slam', '💥 Gravity Slam'),
+      trampoline: armEvent('trampoline', '🟢 Trampoline'),
+      windtunnel: armEvent('wind-tunnel', '🌪️ Wind Tunnel'),
+      doubleflip: armEvent('double-flip', '🚀 Double Flip'),
+      magnet: armEvent('magnet', '🧲 Magnet'),
+      heartrush: armEvent('heart-rush', '💗 Heart Rush'),
+      lifedrain: armEvent('life-drain', '☣️ Life Drain'),
+    };
     let typed = '';
     window.addEventListener('keydown', (e) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -2396,7 +2433,7 @@
       const tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA') { typed = ''; return; }
       if (e.key.length !== 1) return;
-      typed = (typed + e.key.toLowerCase()).slice(-12);
+      typed = (typed + e.key.toLowerCase()).slice(-16);
       for (const [word, fire] of Object.entries(WORDS)) {
         if (typed.endsWith(word)) { typed = ''; fire(); }
       }

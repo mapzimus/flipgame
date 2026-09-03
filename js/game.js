@@ -58,6 +58,9 @@ const game = {
   perfectLanding: false,
   capLand: false,          // last make was a rare upside-down / on-cap land (worth 2)
   rareLifeGain: 0,         // +3 Heart Rush reward on the last successful rare flip
+  doubleFlipReward: false, // last make doubled flipper lives and halved opponents
+  lifeDrainTriggered: false, // last make set every opponent to one life
+  lifeDrainActive: false,  // persistent sickly-green match state after Life Drain
 
   // defs: [{ name, color, isAI }]
   init(defs, direction, opts = {}) {
@@ -94,6 +97,9 @@ const game = {
     this.goldenFlip = false;
     this.plinkoPrize = null;
     this.rareLifeGain = 0;
+    this.doubleFlipReward = false;
+    this.lifeDrainTriggered = false;
+    this.lifeDrainActive = false;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
     // ambiguous when two players share a name). Ignored in practice.
@@ -131,6 +137,28 @@ const game = {
     this.justEliminated = false;
     this.endedFireBonus = 0;
     this.rareLifeGain   = 0;
+    this.doubleFlipReward = false;
+    this.lifeDrainTriggered = false;
+  },
+
+  applyDoubleFlipReward(player) {
+    player.lives *= 2;
+    this.maxLives = Math.max(this.maxLives, player.lives);
+    for (const opponent of this.players) {
+      if (opponent === player || opponent.eliminated) continue;
+      opponent.lives = Math.floor(opponent.lives / 2);
+      if (opponent.lives <= 0) this.eliminatePlayer(opponent);
+    }
+    this.doubleFlipReward = true;
+  },
+
+  applyLifeDrain(player) {
+    for (const opponent of this.players) {
+      if (opponent === player || opponent.eliminated) continue;
+      opponent.lives = 1;
+    }
+    this.lifeDrainTriggered = true;
+    this.lifeDrainActive = true;
   },
 
   eliminatePlayer(player) {
@@ -267,6 +295,8 @@ const game = {
           this.rareLifeGain = 3;
           this.maxLives = Math.max(this.maxLives, player.lives);
         }
+        if (meta.rareEvent === 'double-flip') this.applyDoubleFlipReward(player);
+        if (meta.rareEvent === 'life-drain') this.applyLifeDrain(player);
         if (hitLifeCap || hitLobbyCap) {
           player.isOnFire    = false;
           player.isHeatingUp = false;
@@ -304,6 +334,8 @@ const game = {
         this.rareLifeGain = 3;
         this.maxLives = Math.max(this.maxLives, player.lives);
       }
+      if (meta.rareEvent === 'double-flip') this.applyDoubleFlipReward(player);
+      if (meta.rareEvent === 'life-drain') this.applyLifeDrain(player);
       player.isHeatingUp = player.streak === 2;
       if (player.streak >= 3) {
         player.isOnFire    = true;

@@ -11,8 +11,9 @@ const Renderer = (() => {
   const FLIGHT_LIFT = 0.18;
   // Easter-egg cosmetics for the current frame (set in frame() from state).
   let fxGolden = false, fxGhost = false, fxParty = false;
-  let fxMoon = false, fxNinja = false, fxRainbow = false, fxSize = 1;
+  let fxMoon = false, fxNinja = false, fxRainbow = false, fxTrail = false, fxSize = 1;
   let fxPlinko = null;   // plinko board geometry while a drop is live
+  let trailAccumulator = 0;
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;
   let shakeAmp = 0;   // brief impact / verdict screen shake (screen space)
@@ -100,6 +101,23 @@ const Renderer = (() => {
     }
   }
 
+  function spawnRainbowTrail(x, y) {
+    for (let i = 0; i < 3; i++) {
+      const hue = Math.round((clock * 300 + i * 115 + Math.random() * 35) % 360);
+      particles.push({
+        x: x + (Math.random() - 0.5) * 38,
+        y: y + (Math.random() - 0.5) * 28,
+        vx: (Math.random() - 0.5) * 45,
+        vy: 12 + Math.random() * 42,
+        life: 0.7 + Math.random() * 0.35,
+        maxLife: 1.05,
+        r: 6 + Math.random() * 6,
+        color: `hsl(${hue} 100% 64%)`,
+        trail: true,
+      });
+    }
+  }
+
   function updateParticles(dt) {
     // Compact in place so expiring bursts do not trigger repeated array shifts.
     let write = 0;
@@ -119,11 +137,34 @@ const Renderer = (() => {
       const a = Math.max(0, p.life / p.maxLife);
       ctx.globalAlpha = a * 0.9;
       ctx.fillStyle   = p.color;
+      if (p.trail) {
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 18;
+      }
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r * (0.4 + 0.6 * a), 0, Math.PI * 2);
       ctx.fill();
+      ctx.shadowBlur = 0;
     }
     ctx.globalAlpha = 1;
+  }
+
+  function drawRainbowAura(bottle, groundY) {
+    if (!fxTrail || !bottle) return;
+    const p = projectBottleCenter(bottle, groundY);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineWidth = 7;
+    for (let i = 0; i < 3; i++) {
+      const hue = ((reduceMotion ? 0 : clock * 280) + i * 120) % 360;
+      ctx.strokeStyle = `hsla(${hue} 100% 65% / 0.72)`;
+      ctx.shadowColor = `hsl(${hue} 100% 60%)`;
+      ctx.shadowBlur = 24;
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, 58 + i * 10, 88 + i * 12, bottle.angle, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   // ── Background & scene ─────────────────────────────────────────────────────
@@ -878,11 +919,23 @@ const Renderer = (() => {
     fxMoon    = !!state.moon;
     fxNinja   = !!state.ninja;
     fxRainbow = !!state.rainbow;
+    fxTrail   = state.rareEvent === 'rainbow-trail';
     fxPlinko  = state.plinkoBoard || null;
     // During a plinko drop the physics body is a ball — draw the character
     // curled up small so it visually fits the peg gaps it's bouncing through.
     fxSize    = (state.sizeFx || 1) * (fxPlinko ? 0.6 : 1);
     clock += dt;
+    if (fxTrail && !reduceMotion && bottle && bottle.bounds.max.y < groundY - 10) {
+      trailAccumulator += dt;
+      const trailStep = 0.018;
+      while (trailAccumulator >= trailStep) {
+        trailAccumulator -= trailStep;
+        const p = projectBottleCenter(bottle, groundY);
+        spawnRainbowTrail(p.x, p.y + 40);
+      }
+    } else {
+      trailAccumulator = 0;
+    }
     updateParticles(dt);
     if (shakeAmp > 0) shakeAmp = Math.max(0, shakeAmp - dt * 18);
 
@@ -915,6 +968,7 @@ const Renderer = (() => {
     drawFlickIndicator(drag, bottle, groundY);
     if (showGlow && !fxPlinko) drawLandingGlow(bottle, groundY);
     drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin);
+    drawRainbowAura(bottle, groundY);
     drawParticles();
     ctx.restore();
 
@@ -941,7 +995,7 @@ const Renderer = (() => {
   // and the object is drawn flat-on rather than in flight perspective.
   function drawPreview(target, skin, liquidColor) {
     const prevCanvas = canvas, prevCtx = ctx, prevW = W, prevH = H;
-    fxGolden = fxGhost = fxNinja = fxRainbow = false;   // never leak egg cosmetics into previews
+    fxGolden = fxGhost = fxNinja = fxRainbow = fxTrail = false; // never leak cosmetics into previews
     fxSize = 1;
     canvas = target;
     ctx = target.getContext('2d');

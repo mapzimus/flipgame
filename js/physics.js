@@ -7,6 +7,7 @@ const Physics = (() => {
   let groundedFrames = 0;
   let angleWin = [];   // sliding window of recent angles (settle detection)
   let totalRotation = 0, hasFlipped = false, launchAngle = 0, hasLanded = false;
+  let requiredRotation = 5.6; // ordinary tolerance; Double Flip requires two full turns
   let capSticky = false;   // rare: this landing is damping toward an inverted settle
   let capThrowArmed = false; // seed-rolled over-spin throw aiming for a cap land
   let lastLandingInfo = null;
@@ -106,11 +107,17 @@ const Physics = (() => {
   // throw's launch jitter or landing kick. Rarest checks run first and at most
   // one event can own a flick. Plinko is checked separately and always wins.
   const RARE_EVENT_ROLLS = [
+    { id: 'life-drain',  odds: 2000, salt: 0xa24baed5 },
     { id: 'heart-rush',  odds: 900, salt: 0x9e3779b9 },
     { id: 'magnet',      odds: 800, salt: 0x85ebca6b },
     { id: 'double-flip', odds: 700, salt: 0xc2b2ae35 },
     { id: 'wind-tunnel', odds: 600, salt: 0x27d4eb2f },
     { id: 'trampoline',  odds: 500, salt: 0x165667b1 },
+    { id: 'gravity-slam', odds: 400, salt: 0xd3a2646c },
+    { id: 'ice-slide',    odds: 300, salt: 0xfd7046c5 },
+    { id: 'moon-gravity', odds: 200, salt: 0xb55a4f09 },
+    { id: 'power-launch', odds: 100, salt: 0x94d049bb },
+    { id: 'rainbow-trail', odds: 50, salt: 0x369dea0f },
   ];
   function mixSeed(seed, salt) {
     let x = ((seed >>> 0) ^ (salt >>> 0)) >>> 0;
@@ -118,10 +125,14 @@ const Physics = (() => {
     x = Math.imul(x ^ (x >>> 15), 0x846ca68b);
     return (x ^ (x >>> 16)) >>> 0;
   }
-  function rareEventForSeed(seed, plinkoRoll = false) {
+  function adjustedOdds(odds, multiplier = 1) {
+    const boost = Number.isFinite(multiplier) ? Math.max(1, multiplier) : 1;
+    return Math.max(1, Math.floor(odds / boost));
+  }
+  function rareEventForSeed(seed, plinkoRoll = false, multiplier = 1) {
     if (plinkoRoll) return null;
     for (const event of RARE_EVENT_ROLLS) {
-      if (mixSeed(seed, event.salt) % event.odds === 0) return event.id;
+      if (mixSeed(seed, event.salt) % adjustedOdds(event.odds, multiplier) === 0) return event.id;
     }
     return null;
   }
@@ -202,8 +213,9 @@ const Physics = (() => {
   let slideFrames = 0;      // frames spent in the post-touchdown slide window
   let maxGroundedTilt = 0;  // display-only: worst |tilt| seen while grounded this flip
   let flightFrames = 0;     // frames since the bottle left the floor (absolute soft-lock guard)
-  let rareEvent = null;     // seeded 1/500–1/900 physics/gameplay event for this flick
-  let rareImpulseUsed = false; // one-shot trampoline / double-flip boost guard
+  let rareEvent = null;     // seeded physics/gameplay/cosmetic event for this flick
+  let rareImpulseUsed = false; // one-shot event impulse guard
+  let rareEffectFrames = 0; // short-lived Ice Slide surface timer
   let rarePhase = 0;        // seeded wind phase; cosmetic randomness never touches physics RNG
 
   function screenW() { return viewW || canvasW || 0; }
@@ -678,6 +690,8 @@ const Physics = (() => {
       perfect,
       reason,
       onCap: reason === 'cap',
+      rotations: totalRotation / (Math.PI * 2),
+      requiredRotations: requiredRotation / (Math.PI * 2),
       maxTilt: profile.floorResolve ? 0 : maxGroundedTilt,
       padOffset,
     };
@@ -923,6 +937,7 @@ const Physics = (() => {
     angleWin       = [];
     totalRotation  = 0;
     hasFlipped     = false;
+    requiredRotation = 5.6;
     launchAngle    = 0;
     hasLanded      = false;
     capSticky      = false;
@@ -938,6 +953,7 @@ const Physics = (() => {
     flightFrames   = 0;
     rareEvent      = null;
     rareImpulseUsed = false;
+    rareEffectFrames = 0;
     rarePhase      = 0;
     groundImpactSent = false;
     liquid.reset();
@@ -960,7 +976,7 @@ const Physics = (() => {
   // Pass an explicit `seed` to replay a flick's exact randomness (multiplayer);
   // otherwise a fresh seed is drawn and recorded in lastFlickInfo.
   // Does NOT re-roll the pad — that was seeded in seedTurn().
-  function applyFlick(vx, vy, seed) {
+  function applyFlick(vx, vy, seed, rareMultiplier = 1) {
     const s = (seed !== undefined && seed !== null
       ? seed
       : Math.floor(Math.random() * 0xffffffff)) >>> 0;
@@ -972,27 +988,32 @@ const Physics = (() => {
     // startPlinko clears alien furniture so pegs own the drop. Secret trigger
     // (name "plinko" / typing "plinko") forces the next one. Still offline-only
     // (main.js disables it online — prizes rewrite lives).
+    const eventMultiplier = Number.isFinite(rareMultiplier) ? Math.max(1, rareMultiplier) : 1;
     const forcedEvent = forcedSpecialEvent;
     forcedSpecialEvent = null;
+    const plinkoOdds = adjustedOdds(1000, eventMultiplier);
     const plinkoRoll = forcedEvent === 'plinko' ||
-      (!forcedEvent && plinkoEnabled && (s % 1000) === 123);
+      (!forcedEvent && plinkoEnabled && (s % plinkoOdds) === (123 % plinkoOdds));
     if (plinkoRoll) startPlinko();
 
-    rareEvent = plinkoRoll ? null : (forcedEvent || rareEventForSeed(s));
+    rareEvent = plinkoRoll ? null : (forcedEvent || rareEventForSeed(s, false, eventMultiplier));
     rareImpulseUsed = false;
+    rareEffectFrames = 0;
     rarePhase = (mixSeed(s, 0xa5a5a5a5) / 4294967296) * Math.PI * 2;
+    requiredRotation = rareEvent === 'double-flip' ? Math.PI * 4 : 5.6;
 
-    // Moon gravity remains its own more-common easter egg, but never stacks
-    // with Plinko or the ultra-rare ladder (each special throw should read cleanly).
-    const moon = !plinkoRoll && !rareEvent && !profile.floorResolve && (s % 199) === 42;
-    if (engine) engine.gravity.y = profile.gravity * (moon ? 0.42 : 1);
+    const moon = rareEvent === 'moon-gravity';
+    const gravityScale = moon ? 0.42 : (rareEvent === 'gravity-slam' ? 1.9 : 1);
+    if (engine) engine.gravity.y = profile.gravity * gravityScale;
 
     // CAP THROW (~1/100, seed-rolled): normal spin tuning lands completed
     // flips upright, so an inverted touchdown never occurs naturally. These
     // throws over-rotate by ~an extra half turn so the object genuinely
     // arrives upside down, then the cap-sticky assist below can balance it
     // on the cap for the ×2. A cap throw that arrives badly just misses.
-    capThrowArmed = !profile.floorResolve && !plinkoRoll && !rareEvent && (s % 101) === 55;
+    const capOdds = adjustedOdds(101, eventMultiplier);
+    capThrowArmed = !profile.floorResolve && !plinkoRoll && !rareEvent &&
+      (s % capOdds) === (55 % capOdds);
 
     const upSpeed = Math.max(0, -vy);
     const power   = Math.min(upSpeed / POWER_SPEED, 1.0);
@@ -1002,7 +1023,7 @@ const Physics = (() => {
     const jDrift  = (rand() - 0.5) * 1.1;        // mild sideways chaos
 
     // Slightly lower arcs than the "harder/higher/wilder" feel (was 16 + power*5).
-    const launchY = -(15.2 + power * 4.7) * jLaunch * profile.launchScale;
+    let launchY = -(15.2 + power * 4.7) * jLaunch * profile.launchScale;
     let launchX = Math.max(-profile.horizMax,
       Math.min(profile.horizMax, vx / profile.horizDivisor)) + jDrift;
 
@@ -1012,8 +1033,17 @@ const Physics = (() => {
     }
 
     const dir  = vx >= 0 ? 1 : -1;
-    const spin = dir * (spinBase + power * spinRange) * jSpin * profile.spinScale *
+    let spin = dir * (spinBase + power * spinRange) * jSpin * profile.spinScale *
       (capThrowArmed ? 1.52 : 1);
+
+    // 1/100 — POWER LAUNCH: a visibly taller, faster, harder-spinning throw.
+    if (rareEvent === 'power-launch') {
+      launchY *= 1.45;
+      spin *= 1.22;
+    }
+    // Life Drain's hidden magnet needs a completed rotation to catch. A small
+    // initial spin assist keeps ordinary classroom flicks inside that catch.
+    if (rareEvent === 'life-drain') spin *= 1.12;
 
     lastFlickInfo = {
       upSpeed: Math.round(upSpeed),
@@ -1021,8 +1051,11 @@ const Physics = (() => {
       spin: +spin.toFixed(3),
       seed: s,
       moon,
+      gravityScale,
       plinko: plinkoRoll,
       rareEvent,
+      rareMultiplier: eventMultiplier,
+      requiredTurns: rareEvent === 'double-flip' ? 2 : 1,
       vx: Math.round(vx),
       vy: Math.round(vy),
     };
@@ -1042,6 +1075,25 @@ const Physics = (() => {
     arenaTime += FIXED_DT;
 
     if (launched && !wasAirborne && bottle.bounds.max.y < groundY - 24) wasAirborne = true;
+
+    // 1/300 — ICE SLIDE: the first touchdown kicks into a long, slick lateral
+    // skid before normal table friction returns. Direction is seed-derived.
+    if (rareEvent === 'ice-slide' && launched && wasAirborne && !rareImpulseUsed &&
+        bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX && bottle.velocity.y > 0.5) {
+      rareImpulseUsed = true;
+      rareEffectFrames = 120;
+      const direction = Math.cos(rarePhase) < 0 ? -1 : 1;
+      Body.setVelocity(bottle, {
+        x: direction * Math.max(20, Math.abs(bottle.velocity.x) + 14),
+        y: -2.2,
+      });
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + direction * 0.11);
+    }
+    if (rareEvent === 'ice-slide' && rareEffectFrames > 0) {
+      rareEffectFrames--;
+      for (const part of [bottle, ...bottle.parts]) part.friction = 0.001;
+      if (rareEffectFrames === 0) applyBodyMaterial();
+    }
 
     // 1/500 — TRAMPOLINE TABLE: the first touchdown springs the object into a
     // second arc. It still has to complete a valid flip and settle normally.
@@ -1079,18 +1131,20 @@ const Physics = (() => {
     if (rareEvent === 'double-flip' && launched && wasAirborne && !rareImpulseUsed &&
         bottle.velocity.y > 1 && bottle.position.y < groundY - 180) {
       rareImpulseUsed = true;
-      Body.setVelocity(bottle, { x: bottle.velocity.x * 0.92, y: -11.5 });
+      Body.setVelocity(bottle, { x: bottle.velocity.x * 0.92, y: -14.5 });
       const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
-      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.072);
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.135);
     }
 
-    // 1/800 — MAGNET LANDING: once a completed flip approaches the table, a
-    // strong upright torque helps it stick. It is an assist, not an auto-score:
-    // the regular 360°, settle, and angle checks still decide the result.
-    if (rareEvent === 'magnet' && launched && hasFlipped &&
+    // 1/800 — MAGNET LANDING, plus Life Drain's hidden stronger magnet. Once
+    // the required rotation is complete, an upright torque guides the descent.
+    const magnetStrength = rareEvent === 'life-drain' ? 0.105
+      : (rareEvent === 'magnet' ? 0.055 : 0);
+    if (magnetStrength && launched && hasFlipped &&
         bottle.position.y > groundY - 210 && !plinko) {
       const tilt = normalizeSignedAngle(bottle.angle);
-      Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.90 - tilt * 0.055);
+      const damping = rareEvent === 'life-drain' ? 0.76 : 0.90;
+      Body.setAngularVelocity(bottle, bottle.angularVelocity * damping - tilt * magnetStrength);
     }
 
     // One ground thud per flick (positional — Matter ground collisions are dead
@@ -1102,10 +1156,8 @@ const Physics = (() => {
       onImpact('ground', speed, bottle.position.x, groundY);
     }
 
-    if (!hasFlipped) {
-      totalRotation = Math.abs(bottle.angle - launchAngle);
-      if (totalRotation >= 5.6) hasFlipped = true;
-    }
+    totalRotation = Math.max(totalRotation, Math.abs(bottle.angle - launchAngle));
+    if (!hasFlipped && totalRotation >= requiredRotation) hasFlipped = true;
 
     // Landing kick is for normal flips (liquid slosh punch). Bank-shot editions
     // accumulate "hasFlipped" from wall caroms and must not get a random shove.
@@ -1120,6 +1172,10 @@ const Physics = (() => {
       // Seed-rolled cap throws (over-spun to arrive inverted) stick whenever
       // they get anywhere close.
       if (capThrowArmed && invErr < 1.35) capSticky = true;
+      // Wind can genuinely sweep a completed throw onto its cap. Give that
+      // visible cap-first arrival the same settling help as an ordinary cap
+      // throw so it cannot tip over and be reported as a false MISS.
+      else if (rareEvent === 'wind-tunnel' && invErr < CAP_ZONE) capSticky = true;
       else if (invErr < CAP_ZONE && rand() < CAP_STICK_CHANCE) capSticky = true;
       const kickScale = (capSticky || invErr < CAP_WINDOW) ? 0.25 : 1;
       const kick = (liquid.vel * 0.028 + (rand() - 0.5) * 0.06) * kickScale;

@@ -10,8 +10,8 @@ android {
         applicationId 'com.mapzimus.flipgame'
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 105
+        versionName '1.0.5'
     }
 
     buildTypes {

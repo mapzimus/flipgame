@@ -29,6 +29,18 @@ html, body {
   user-select: none;
 }
 
+/* Life Drain permanently contaminates the current match. This screen-space
+   wash includes the HUD and overlays while remaining pointer-transparent. */
+body.life-drain-active::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  pointer-events: none;
+  background: rgba(60, 255, 75, 0.20);
+  box-shadow: inset 0 0 16vh rgba(20, 150, 30, 0.30);
+}
+
 /* ── Screens ─────────────────────────────────────────────── */
 .screen {
   position: fixed;
