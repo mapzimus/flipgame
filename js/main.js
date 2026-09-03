@@ -943,6 +943,7 @@
     iceslide: 'ice-slide',
     gravityslam: 'gravity-slam',
     trampoline: 'trampoline',
+    trampolinetab: 'trampoline', // 14-character roster truncation of the full label
     trampolinetable: 'trampoline',
     windtunnel: 'wind-tunnel',
     doubleflip: 'double-flip',
