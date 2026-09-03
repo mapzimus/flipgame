@@ -43,7 +43,10 @@ const Renderer = (() => {
   function resize(w, h) { W = w; H = h; }
 
   function projectPoint(x, y, groundY) {
-    const airborne = Math.max(0, groundY - y - 55);
+    // Normal flips get a slight visual lift for a more dramatic arc. During
+    // Plinko the camera follows the physics body directly, so suppress that
+    // projection or the painted object would sit above the camera's center.
+    const airborne = fxPlinko ? 0 : Math.max(0, groundY - y - 55);
     return { x, y: y - airborne * FLIGHT_LIFT };
   }
 
@@ -898,8 +901,9 @@ const Renderer = (() => {
     const targetZoom = view && view.zoom != null ? view.zoom : 1;
     const tx = view && view.camX != null ? view.camX : W / 2;
     const ty = view && view.camY != null ? view.camY : H / 2;
-    // Ease toward the needed framing so zoom-outs aren't jumpy.
-    const k = reduceMotion ? 1 : 0.14;
+    // Plinko needs a responsive follow-cam so a fast drop cannot outrun the
+    // frame. Other arena zooms retain the gentler cinematic ease.
+    const k = reduceMotion ? 1 : (view && view.tracking === 'plinko' ? 0.30 : 0.14);
     camZoom += (targetZoom - camZoom) * k;
     camX += (tx - camX) * k;
     camY += (ty - camY) * k;

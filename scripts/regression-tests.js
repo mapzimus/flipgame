@@ -24,8 +24,8 @@ function players(count) {
   }));
 }
 
-function igniteInSuddenDeath(game) {
-  game.init(players(8), 1, { startingLives: 3 });
+function igniteInSuddenDeath(game, startingLives = 20) {
+  game.init(players(8), 1, { startingLives });
   game.callbacks = {};
   game.turnCounter = 70;
   game.currentPlayer().streak = 2;
@@ -42,25 +42,43 @@ function testSuddenDeathFireMissIsFree() {
 
   game.resolveFlip('MAKE');
   game.resolveFlip('MAKE');
-  assert.equal(player.lives, 5, 'ON FIRE makes must add lives during sudden death');
+  assert.equal(player.lives, 22, 'ON FIRE makes must add lives during sudden death');
   assert.equal(game.onFireBonus, 2);
   assert.equal(game.missWouldEliminate(), false, 'ON FIRE miss must never predict elimination');
 
   game.resolveFlip('MISS');
-  assert.equal(player.lives, 5, 'ending an ON FIRE run must not remove lives');
+  assert.equal(player.lives, 22, 'ending an ON FIRE run must not remove lives');
   assert.equal(player.eliminated, false);
   assert.equal(game.lastPenalty, 0);
   assert.equal(game.fireEnded, true);
 }
 
-function testEightPlayerFireCapsAtFiveGains() {
+function testLifeCeilingScalesWithStartingLives() {
   const game = loadGame();
-  igniteInSuddenDeath(game);
+  for (const [startingLives, expectedCap] of [[3, 5], [5, 8], [10, 15], [20, 30], [100, 150]]) {
+    game.init(players(2), 1, { startingLives });
+    assert.equal(game.maxLives, expectedCap,
+      `${startingLives} starting lives must use the 1.5× whole-life ceiling`);
+  }
+}
+
+function testEightPlayerFireUsesMatchCeiling() {
+  const game = loadGame();
+  game.init(players(8), 1, { startingLives: 100 });
+  game.callbacks = {};
+  game.currentPlayer().streak = 2;
+  game.currentPlayer().isHeatingUp = true;
+  game.resolveFlip('MAKE');
   const player = game.currentPlayer();
 
   for (let i = 0; i < 5; i++) game.resolveFlip('MAKE');
-  assert.equal(player.lives, 8);
-  assert.equal(game.endedFireBonus, 5);
+  assert.equal(player.lives, 105);
+  assert.equal(player.isOnFire, true, 'an eight-player fire run must not stop at +5');
+  assert.equal(game.fireCapped, false);
+
+  for (let i = 0; i < 45; i++) game.resolveFlip('MAKE');
+  assert.equal(player.lives, 150);
+  assert.equal(game.endedFireBonus, 50);
   assert.equal(game.fireCapped, true);
   assert.equal(player.isOnFire, false);
   assert.equal(player.eliminated, false);
@@ -122,7 +140,7 @@ function testPlinkoRewards() {
 
   game.resolvePlinko('double');
   assert.equal(game.players[0].lives, 14, 'outer Plinko slot must double the flipper');
-  assert.ok(game.maxLives >= 14, 'doubling must not leave the life cap below the reward');
+  assert.equal(game.maxLives, 5, 'multipliers must not raise the additive reward ceiling');
 
   game.resolvePlinko('halve');
   assert.deepEqual(game.players.slice(1).map((p) => p.lives), [4, 1, 0]);
@@ -138,12 +156,16 @@ function testPlinkoRewards() {
 
 function testHeartRushReward() {
   const game = loadGame();
-  game.init(players(4), 1, { startingLives: 3 });
+  game.init(players(4), 1, { startingLives: 10 });
   game.callbacks = {};
   game.resolveFlip('MAKE', { rareEvent: 'heart-rush' });
-  assert.equal(game.currentPlayer().lives, 6);
+  assert.equal(game.currentPlayer().lives, 13);
   assert.equal(game.rareLifeGain, 3);
-  assert.ok(game.maxLives >= 6);
+
+  game.currentPlayer().lives = 14;
+  game.resolveFlip('MAKE', { rareEvent: 'heart-rush' });
+  assert.equal(game.currentPlayer().lives, 15, 'Heart Rush must stop at the 1.5× ceiling');
+  assert.equal(game.rareLifeGain, 1, 'the HUD must show the lives actually awarded');
 
   game.resolveFlip('MISS', { rareEvent: 'heart-rush' });
   assert.equal(game.rareLifeGain, 0, 'Heart Rush only rewards a successful landing');
@@ -160,6 +182,7 @@ function testDoubleFlipCompoundReward() {
 
   game.resolveFlip('MAKE', { rareEvent: 'double-flip', onCap: true });
   assert.equal(game.players[0].lives, 10, 'Double Flip must double the flipper');
+  assert.equal(game.maxLives, 8, 'Double Flip must not raise the additive reward ceiling');
   assert.deepEqual(game.players.slice(1).map((p) => p.lives), [4, 1, 0]);
   assert.equal(game.players[3].eliminated, true, 'halving one life must eliminate');
   assert.equal(game.pointCount, 2, 'a Double Flip cap landing still earns cap stake value');
@@ -173,12 +196,14 @@ function testDoubleFlipCompoundReward() {
     'a failed Double Flip must not apply the compound reward');
 
   const fire = loadGame();
-  igniteInSuddenDeath(fire);
+  igniteInSuddenDeath(fire, 3);
   fire.resolveFlip('MAKE', { rareEvent: 'double-flip' });
   assert.equal(fire.players[0].lives, 8,
     'an ON FIRE Double Flip must add its fire life, then double the total');
   assert.deepEqual(fire.players.slice(1).map((p) => p.lives), [1, 1, 1, 1, 1, 1, 1]);
-  assert.equal(fire.players[0].isOnFire, true, 'Double Flip must not end a valid fire run');
+  assert.equal(fire.maxLives, 5);
+  assert.equal(fire.players[0].isOnFire, false,
+    'an ON FIRE multiplier above the additive ceiling must pass the turn gracefully');
 }
 
 function testLifeDrainReward() {
@@ -259,6 +284,11 @@ function testLongPlinkoBoardResolves() {
     const board = physics.getPlinko();
     assert.ok(board.bottom - board.top > 900, 'Plinko board must provide a long drop');
     assert.equal(new Set(board.pegs.map((p) => p.y)).size, 8, 'Plinko board must have eight peg rows');
+    const launchView = physics.getViewHint();
+    assert.equal(launchView.tracking, 'plinko');
+    assert.ok(launchView.zoom >= 0.68, `Plinko follow-cam zoomed out to ${launchView.zoom}`);
+    assert.equal(launchView.camX, physics.getBottle().position.x);
+    assert.equal(launchView.camY, physics.getBottle().position.y + 20);
 
     let verdict = null;
     for (let frame = 0; frame < 3000 && !verdict; frame++) {
@@ -269,9 +299,55 @@ function testLongPlinkoBoardResolves() {
     const info = physics.getLastLandingInfo();
     assert.equal(info.reason, 'plinko');
     assert.ok(['double', 'halve', 'win'].includes(info.plinko));
+    const finishView = physics.getViewHint();
+    const visibleBottom = finishView.camY + 800 / (2 * finishView.zoom);
+    assert.ok(visibleBottom >= board.bottom,
+      `Plinko reward bins are below the tracked frame (${visibleBottom} < ${board.bottom})`);
     prizes.add(info.plinko);
   }
   assert.ok(prizes.size >= 2, 'seeded Plinko simulation should exercise multiple prize types');
+}
+
+function testInsanityEventDistribution() {
+  const physics = loadPhysics();
+  const counts = new Map();
+  let eventCount = 0;
+  const samples = 180000;
+  for (let seed = 1; seed <= samples; seed++) {
+    const event = physics.insanityEventForSeed(seed);
+    if (!event) continue;
+    eventCount++;
+    counts.set(event, (counts.get(event) || 0) + 1);
+  }
+  assert.ok(eventCount / samples > 0.325 && eventCount / samples < 0.342,
+    `Insanity event rate must stay near 1/3 (got ${eventCount}/${samples})`);
+  assert.equal(counts.has('life-drain'), false, 'Insanity must exclude Life Drain');
+
+  const ordinaryIds = [
+    'heart-rush', 'magnet', 'double-flip', 'wind-tunnel', 'trampoline',
+    'gravity-slam', 'ice-slide', 'moon-gravity', 'power-launch', 'rainbow-trail',
+  ];
+  const ordinaryCounts = ordinaryIds.map((id) => counts.get(id) || 0);
+  const ordinaryMean = ordinaryCounts.reduce((sum, value) => sum + value, 0) / ordinaryCounts.length;
+  for (let i = 0; i < ordinaryIds.length; i++) {
+    assert.ok(Math.abs(ordinaryCounts[i] - ordinaryMean) / ordinaryMean < 0.06,
+      `${ordinaryIds[i]} is not equally weighted in Insanity`);
+  }
+  const plinkoRatio = (counts.get('plinko') || 0) / ordinaryMean;
+  assert.ok(plinkoRatio > 1.17 && plinkoRatio < 1.33,
+    `Plinko should be only slightly more likely (ratio=${plinkoRatio.toFixed(3)})`);
+
+  physics.init(1280, 800);
+  physics.setPlinkoEnabled(true);
+  let eventSeed = null;
+  for (let seed = 1; seed < 1000 && eventSeed == null; seed++) {
+    if (physics.insanityEventForSeed(seed)) eventSeed = seed;
+  }
+  physics.applyFlick(0, -2500, eventSeed, 1, 'insanity');
+  const expected = physics.insanityEventForSeed(eventSeed);
+  const actual = physics.getLastFlickInfo();
+  assert.equal(actual.plinko ? 'plinko' : actual.rareEvent, expected,
+    'Insanity selection must drive the actual flick event');
 }
 
 function testRareEventLadder() {
@@ -425,7 +501,8 @@ function testForcedSpecialEvents() {
 }
 
 testSuddenDeathFireMissIsFree();
-testEightPlayerFireCapsAtFiveGains();
+testLifeCeilingScalesWithStartingLives();
+testEightPlayerFireUsesMatchCeiling();
 testOrdinarySuddenDeathPenaltyRemains();
 testCoreRulesStayStable();
 testForfeitCleansOnFireState();
@@ -435,6 +512,7 @@ testDoubleFlipCompoundReward();
 testLifeDrainReward();
 testLandingVerdictsRequireRealSettle();
 testLongPlinkoBoardResolves();
+testInsanityEventDistribution();
 testRareEventLadder();
 testMrHoweTenfoldOdds();
 testLifeDrainMagnetMakes();

@@ -232,7 +232,7 @@ Pages auto-builds from `master` (root). Push and it's live in ~1 minute at
 **The one ritual you must not forget:**
 > When you change ANY game file, **bump `CACHE_NAME` in `service-worker.js`**
 > (`flipgame-v3` → `flipgame-v4`). Otherwise installed copies serve the old cached
-> build forever. (Currently at **v108**.)
+> build forever. (Currently at **v109**.)
 
 **Gotchas baked into the project (don't undo these):**
 - **All asset paths are RELATIVE.** The site lives at the `/flipgame/` subpath;
@@ -305,19 +305,21 @@ skipped online — only the current peer can flick.
 
 ---
 
-# PART 11 — SESSION UPDATE (current state: v108)
+# PART 11 — SESSION UPDATE (current state: v109)
 
 Everything below was added after the original guide above; on conflicts, THIS wins.
 
 ## Gameplay mechanics now in effect
 - **Stake (pointCount) starts at 0.** A make raises it +1; a miss costs the current stake then resets to 0. With no buildup, a miss costs nothing. High stake swing is **intentional** (players knocked out one by one) — do NOT clamp it.
 - **Big scary stake display** (`renderer.js drawStake`): a large canvas number that grows/reddens/shakes as the stake climbs. Replaced the small top-bar text.
-- **ON FIRE:** +1 life per flip, bounded by the match life cap (at least 20 and always five above the selected starting-lives preset) — EXCEPT in lobbies with **>4 players**, where a run caps at **+5 lives** then passes on gracefully (no penalty). Constants `ONFIRE_CAP_PLAYERS=4`, `ONFIRE_CAP_LIVES=5` in `game.js`.
-- **SUDDEN DEATH** after `SD_THRESHOLD=70` flips (`game.js`): ordinary misses take an escalating extra penalty (`SD_STEP=20` flips/level). ON FIRE remains protected: makes add lives and the ending miss is free. In lobbies over four players the existing +5 fire-gain cap passes the turn before a run can stall the table.
+- **ON FIRE:** +1 life per flip, bounded by a fixed match ceiling of 150% of the selected starting-lives preset (odd totals round up). The old >4-player +5 run cap is removed; every lobby uses the same match ceiling. Reaching it passes the turn gracefully with no penalty.
+- **SUDDEN DEATH** after `SD_THRESHOLD=70` flips (`game.js`): ordinary misses take an escalating extra penalty (`SD_STEP=20` flips/level). ON FIRE remains protected: makes add lives up to the match ceiling and the ending miss is free.
 - **Seeded rare-event ladder** (`physics.js`, mutually exclusive per flick): Rainbow Trail 1/50 (bright aura + dense glowing wake), Power Launch 1/100, Moon Gravity 1/200, Ice Slide 1/300 (≥18 lateral speed and >400 px travel in regression), Gravity Slam 1/400, Trampoline Table 1/500, Wind Tunnel 1/600, Double Flip 1/700, Magnet Landing 1/800, Heart Rush 1/900, and Life Drain 1/2000. Double Flip now physically completes and requires two full rotations; a successful upright or cap landing doubles the flipper and halves every active opponent. Wind Tunnel cap-first arrivals get the normal cap-settle assist. Life Drain uses a hidden strong magnet, sets every active opponent to one life on its successful landing, and leaves a green tint for the rest of the match.
 - **PLINKO DROP** remains 1/1000 and the only automatic-win mechanic. Its extended eight-row board pays double the flipper's lives in the outer slots, halves every opponent's lives (round down) in the middle slots, and awards the instant win only in the center.
+- **Plinko follow-cam:** during the long drop the camera stays close and tracks the falling object near screen center, then carries the reward bins into view at the bottom. This prevents the 8-player HUD from hiding the action.
+- **Insanity Mode:** selectable on setup for local/pass-and-play and practice. Every flip has a deterministic 1-in-3 special-event chance. Life Drain is excluded; the ten remaining non-Plinko events are equally weighted and Plinko has 5 selection buckets versus 4 for each other event (25% higher individual weight). Normal mode keeps the original rarity ladder.
 - **Special-event testing:** exact case-sensitive player name `Mr. Howe` multiplies every rare roll by 10 (for example 1/50 → 1/5 and Plinko 1/1000 → 1/100); it no longer guarantees an event every flip. Offline player names matching an event force it on every flip, case-insensitively and with or without spaces (`Rainbow Trail`, `Power Launch`, `Moon Gravity`, `Ice Slide`, `Gravity Slam`, `Trampoline Table`, `Wind Tunnel`, `Double Flip`, `Magnet Landing`, `Heart Rush`, `Life Drain`, or `Plinko Drop`). Short forms `Trampoline`, `Magnet`, and `Plinko` also work. `Trampoline Table` exceeds the 14-character roster limit, so its stored `Trampoline Tab` form is explicitly recognized too. The same names typed without spaces during gameplay arm only the next flip.
-- **Visible version badge:** the lower-right corner always shows the running release (`v108`) on setup, gameplay, overlays, and game-over screens so stale installs are immediately obvious.
+- **Visible version badge:** the lower-right corner always shows the running release (`v109`) on setup, gameplay, overlays, and game-over screens so stale installs are immediately obvious.
 - **"Make it or break it" intense finale** when a miss would eliminate the current player (`game.missWouldEliminate()`): slow-mo flight (airborne dt×0.4 in the loop), red vignette + banner, tension sound + haptic.
 - **Per-turn flip countdown:** 10s (4s ON FIRE), human turns only; timeout = forfeited miss. Bar in the HUD.
 - **CPU players:** toggle Human/CPU per row; difficulty easy/med/hard. Two CPUs auto-play — great for watching/bug-hunting.
@@ -331,11 +333,11 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 ## Dev/verify workflow used this session (IMPORTANT)
 - Run the dev server (`python -m http.server 5174` / launch.json "flipgame"), open in the **Claude preview**, and verify with `preview_eval`. Game logic + physics are tested **headlessly** by driving `game.resolveFlip`/`advanceTurn` + `Physics.applyFlick`/`step`/`checkLanding` directly (set `game.callbacks = {}` to isolate from the UI). This is how all balance/landing numbers were measured.
 - **Feel-dependent things (slow-mo, audio, haptics, the live countdown drain) only run in a real focused tab** — the preview throttles `requestAnimationFrame`/timers, so they can't be exercised headlessly. Playtest those on a real device.
-- **Stale-cache gotcha:** scripts/CSS carry a `?v=N` query (currently **v108**) — **bump it on every change** with the matching `CACHE_NAME` in `service-worker.js` and visible `#version-badge` in `index.html`. Version misses are network-first and fall back to the bare precache only when offline; `controllerchange` reloads an open tab once after an updated worker claims it.
+- **Stale-cache gotcha:** scripts/CSS carry a `?v=N` query (currently **v109**) — **bump it on every change** with the matching `CACHE_NAME` in `service-worker.js` and visible `#version-badge` in `index.html`. Version misses are network-first and fall back to the bare precache only when offline; `controllerchange` reloads an open tab once after an updated worker claims it.
 - **Deploy:** push to `master` → GitHub Pages + the offline APK (GitHub Actions) rebuild automatically.
 
 ## Tuning knobs quick map (all in `js/game.js` unless noted)
-`SD_THRESHOLD`/`SD_STEP` (ordinary-turn sudden-death penalty), `ONFIRE_CAP_PLAYERS`/`ONFIRE_CAP_LIVES` (big-lobby fire cap), `pointCount` semantics (start 0). Flick feel in `js/physics.js`: `POWER_SPEED=4000`, settle detection requires angVel<0.010, linSpeed<7, a 22-frame/0.030-rad stable window, and at least 30 grounded frames; the fallback waits 600 grounded frames and honors an upright final pose. Turn clock `TURN_SECONDS=10`/`FIRE_SECONDS=4`.
+`SD_THRESHOLD`/`SD_STEP` (ordinary-turn sudden-death penalty), `MAX_LIFE_MULTIPLIER` (fixed additive-reward ceiling), `pointCount` semantics (start 0). Flick feel in `js/physics.js`: `POWER_SPEED=4000`, settle detection requires angVel<0.010, linSpeed<7, a 22-frame/0.030-rad stable window, and at least 30 grounded frames; the fallback waits 600 grounded frames and honors an upright final pose. Turn clock `TURN_SECONDS=10`/`FIRE_SECONDS=4`.
 
 ## Phase 2 (not started): online multiplayer — Approach B
 Deterministic lockstep replay: broadcast `{seed, vx, vy}` per flip; every device replays the seeded sim. CRITICAL: the flicking player's device is **authoritative for the verdict** (replay is visual only) to avoid cross-device float divergence. Prep needed: seed the RNG (replace `Math.random` in `physics.js` jitter + landing kick with a seeded PRNG) and switch the loop to a fixed-timestep accumulator. Transport: Supabase Realtime (connected) or PartyKit over wss://; NOT WebRTC (school networks block it).

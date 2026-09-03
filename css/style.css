@@ -134,6 +134,14 @@ body.life-drain-active::after {
   margin-bottom: 6px;
 }
 
+.mode-note {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 /* Player input rows */
 .player-input-row {
   display: flex;
@@ -859,6 +867,17 @@ body.life-drain-active::after {
 #streak-banner.heating-up  { color: var(--heat); }
 #streak-banner.on-fire     { color: var(--fire); text-shadow: 0 0 12px var(--fire); }
 #streak-banner.miss-penalty { color: var(--miss); }
+
+#mode-badge {
+  min-height: 1.1em;
+  text-align: center;
+  color: #ffcf5c;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 12px rgba(255, 120, 20, 0.75);
+}
+#mode-badge:empty { display: none; }
 
 /* Per-turn countdown bar */
 #turn-timer {

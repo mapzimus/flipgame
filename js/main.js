@@ -12,6 +12,7 @@
   const pointCountEl = document.getElementById('point-count');
   const turnBannerEl = document.getElementById('turn-banner');
   const streakBannerEl = document.getElementById('streak-banner');
+  const modeBadgeEl   = document.getElementById('mode-badge');
   const turnTimerEl  = document.getElementById('turn-timer');
   const turnTimerFillEl = document.getElementById('turn-timer-fill');
   const flipHintEl   = document.getElementById('flip-hint');
@@ -678,6 +679,10 @@
     const v = parseInt(document.querySelector('input[name="starting-lives"]:checked')?.value || '10', 10);
     return [3, 5, 10, 20, 100].includes(v) ? v : 10;
   }
+  function chosenGameMode() {
+    return document.querySelector('input[name="game-mode"]:checked')?.value === 'insanity'
+      ? 'insanity' : 'normal';
+  }
   function flickFeedbackOn() {
     const el = document.getElementById('flick-feedback-toggle');
     if (el) return !!el.checked;
@@ -704,6 +709,7 @@
         difficulty: chosenDifficulty(),
         feel:       chosenFeel(),
         startingLives: String(chosenStartingLives()),
+        gameMode:    chosenGameMode(),
         feedback:   flickFeedbackOn(),
       }));
     } catch (_) {}
@@ -730,6 +736,7 @@
       setRadio('difficulty', s.difficulty);
       setRadio('feel', s.feel);
       setRadio('starting-lives', s.startingLives);
+      setRadio('game-mode', s.gameMode || 'normal');
       const fb = document.getElementById('flick-feedback-toggle');
       if (fb) fb.checked = !!s.feedback;
       if (window.Settings) {
@@ -755,7 +762,7 @@
       saveSetup();
     });
   }
-  document.querySelectorAll('input[name="direction"], input[name="difficulty"], input[name="starting-lives"]')
+  document.querySelectorAll('input[name="direction"], input[name="difficulty"], input[name="starting-lives"], input[name="game-mode"]')
     .forEach((el) => el.addEventListener('change', saveSetup));
   if (window.Settings) setFeelRadio(Settings.feel);
 
@@ -797,6 +804,7 @@
       difficulty: chosenDifficulty(),
       feel: chosenFeel(),
       startingLives: chosenStartingLives(),
+      insanity: chosenGameMode() === 'insanity',
       newMatch: true,
     });
   });
@@ -824,6 +832,7 @@
       practice: true,
       feel: chosenFeel(),
       startingLives: chosenStartingLives(),
+      insanity: chosenGameMode() === 'insanity',
       newMatch: true,
     });
   });
@@ -865,7 +874,8 @@
         [{ name: game.players[0].name, color: game.players[0].color, isAI: false,
            skin: FORCE_SKIN || game.players[0].skin || BASE_SKIN }],
         1,
-        { practice: true, feel: game.feel || chosenFeel(), startingLives: game.startingLives }
+        { practice: true, feel: game.feel || chosenFeel(), startingLives: game.startingLives,
+          insanity: game.insanity }
       );
     } else {
       const defs = game.players.map(p => ({ name: p.name, color: p.color, isAI: p.isAI,
@@ -876,6 +886,7 @@
         feel: game.feel || chosenFeel(),
         startingLives: game.startingLives,
         startIndex: game.winnerIndex,
+        insanity: game.insanity,
       });
     }
   });
@@ -1123,6 +1134,7 @@
     game.on(GAME_STATES.GAME_OVER,  onGameOver);
 
     game.init(defs, dir, opts || {});
+    if (modeBadgeEl) modeBadgeEl.textContent = game.insanity ? '🤯 INSANITY MODE · 1 IN 3' : '';
     document.body.classList.remove('life-drain-active');
     game.feel = feel;
     gameStarted = true;
@@ -1649,7 +1661,7 @@
         streakBannerEl.textContent = '🧤 THE GREAT SAVE! It came back from the brink!';
         streakBannerEl.className   = 'streak-banner on-fire';
       } else if (game.fireCapped) {
-        // Big-lobby ON FIRE cap — banked the gains, pass it on
+        // Match life ceiling reached — bank the gains and pass it on.
         streakBannerEl.textContent = '🔥 Fire maxed — pass it on!';
         streakBannerEl.className   = 'streak-banner on-fire';
         Sound.play('life');
@@ -1910,7 +1922,8 @@
       }
     }
     const eventMultiplier = isMrHoweName(game.currentPlayer()?.name) ? 10 : 1;
-    Physics.applyFlick(vx, vy, seed, eventMultiplier);
+    Physics.applyFlick(vx, vy, seed, eventMultiplier,
+      !onlineMode && game.insanity ? 'insanity' : 'normal');
     // Golden flip lottery — read the seed physics actually used (it generates
     // one when we pass undefined) so local and replayed flicks agree.
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;

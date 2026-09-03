@@ -17,10 +17,11 @@ const GAME_STATES = {
 const SD_THRESHOLD = 70;
 const SD_STEP = 20;   // flips per escalation level (+1 extra life lost each level)
 
-// In lobbies with MORE than this many players, an ON FIRE run is capped at
-// ONFIRE_CAP_LIVES gained then passes on — so others aren't kept waiting.
-const ONFIRE_CAP_PLAYERS = 4;
-const ONFIRE_CAP_LIVES = 5;
+// Additive rewards (ON FIRE and Heart Rush) may raise a player to 150% of
+// the selected starting lives. Odd totals round up because lives are whole.
+// Explicit multiplier prizes (Double Flip / Plinko) can exceed this ceiling,
+// but do not permanently raise it for later additive rewards.
+const MAX_LIFE_MULTIPLIER = 1.5;
 const STARTING_LIFE_PRESETS = [3, 5, 10, 20, 100];
 
 const game = {
@@ -40,7 +41,7 @@ const game = {
   onFireGain: 0,         // lives gained on the last ON FIRE bonus make
   justIgnited: false,    // last make just triggered ON FIRE
   fireEnded: false,      // last miss ended an ON FIRE run (no penalty)
-  fireCapped: false,     // ON FIRE run hit the big-lobby +cap and passed on (no penalty)
+  fireCapped: false,     // ON FIRE run reached the match life ceiling and passed on
   justEliminated: false, // last miss eliminated the current player
   endedFireBonus: 0,     // peak ON FIRE bonus from the run that just ended (stats/achievements)
 
@@ -48,13 +49,14 @@ const game = {
   practice: false,       // solo free-flip practice (no lives/turns)
   difficulty: 'medium',  // AI skill: 'easy' | 'medium' | 'hard'
   feel: 'standard',      // physics spin-curve knob: forgiving | standard | pro
+  insanity: false,       // 1-in-3 weighted special-event mode (offline)
   practiceMakes: 0,
   practiceAttempts: 0,
   practiceStreak: 0,
   practiceBest: 0,
   turnCounter: 0,        // flips this game (drives sudden death)
   startingLives: 10,
-  maxLives: 20,
+  maxLives: 15,
   perfectLanding: false,
   capLand: false,          // last make was a rare upside-down / on-cap land (worth 2)
   rareLifeGain: 0,         // +3 Heart Rush reward on the last successful rare flip
@@ -67,11 +69,9 @@ const game = {
     this.practice   = !!opts.practice;
     this.difficulty = opts.difficulty || 'medium';
     this.feel = ['forgiving', 'standard', 'pro'].includes(opts.feel) ? opts.feel : 'standard';
+    this.insanity = !!opts.insanity;
     this.startingLives = STARTING_LIFE_PRESETS.includes(+opts.startingLives) ? +opts.startingLives : 10;
-    // Headroom above the start count so ON FIRE can actually mint lives.
-    // Classic 10-life games keep the old 20 cap; 100-life games were stuck at
-    // max==start so every fire make gained 0 and immediately "Fire maxed".
-    this.maxLives = Math.max(20, this.startingLives + ONFIRE_CAP_LIVES);
+    this.maxLives = Math.ceil(this.startingLives * MAX_LIFE_MULTIPLIER);
     this.players = defs.map(d => ({
       name: d.name,
       color: d.color || '#0b86ff',
@@ -141,9 +141,15 @@ const game = {
     this.lifeDrainTriggered = false;
   },
 
+  addLivesCapped(player, amount) {
+    const before = player.lives;
+    if (before >= this.maxLives) return 0;
+    player.lives = Math.min(before + amount, this.maxLives);
+    return player.lives - before;
+  },
+
   applyDoubleFlipReward(player) {
     player.lives *= 2;
-    this.maxLives = Math.max(this.maxLives, player.lives);
     for (const opponent of this.players) {
       if (opponent === player || opponent.eliminated) continue;
       opponent.lives = Math.floor(opponent.lives / 2);
@@ -232,9 +238,6 @@ const game = {
       }
     } else if (prize === 'double') {
       player.lives *= 2;
-      // Plinko is allowed to break the normal life ceiling. Raise the match cap
-      // with it so a later ON FIRE make can never clamp the winner back down.
-      this.maxLives = Math.max(this.maxLives, player.lives);
     }
     this.setState(GAME_STATES.RESULT);
   },
@@ -276,28 +279,19 @@ const game = {
     if (wasOnFire) {
       if (result === 'MAKE') {
         // +1 life per flip while ON FIRE — bounded by the match life cap. This
-        // reward remains active in sudden death; otherwise a big-lobby fire run
-        // can never reach its +5 cap and the eventual miss feels like the whole
-        // run was scored as a miss.
+        // reward remains active in sudden death. Multiplier prizes may already
+        // have put a player above the additive cap; never clamp those lives down.
         // Cap lands are worth 2 lives (same rarity bonus as the stake).
-        const before = player.lives;
-        player.lives    = Math.min(player.lives + worth, this.maxLives);
-        this.onFireGain = player.lives - before;
+        this.onFireGain = this.addLivesCapped(player, worth);
         if (this.onFireGain > 0) this.onFireBonus += Math.min(worth, this.onFireGain);
-        // End the run gracefully (keep gains, NO penalty, NOT a miss) when the
-        // player hits the match life cap, or when a big lobby (>4) has handed
-        // out its +5 bonus lives.
-        const hitLifeCap = player.lives >= this.maxLives;
-        const hitLobbyCap = this.players.length > ONFIRE_CAP_PLAYERS &&
-                            this.onFireBonus >= ONFIRE_CAP_LIVES;
         if (meta.rareEvent === 'heart-rush') {
-          player.lives += 3;
-          this.rareLifeGain = 3;
-          this.maxLives = Math.max(this.maxLives, player.lives);
+          this.rareLifeGain = this.addLivesCapped(player, 3);
         }
         if (meta.rareEvent === 'double-flip') this.applyDoubleFlipReward(player);
         if (meta.rareEvent === 'life-drain') this.applyLifeDrain(player);
-        if (hitLifeCap || hitLobbyCap) {
+        // Reaching the fixed match ceiling ends the run gracefully: gains stay,
+        // there is no miss penalty, and the turn passes regardless of lobby size.
+        if (player.lives >= this.maxLives) {
           player.isOnFire    = false;
           player.isHeatingUp = false;
           player.streak      = 0;
@@ -330,9 +324,7 @@ const game = {
       player.streak++;
       this.pointCount += worth;   // upright +1; rare cap/upside-down +2
       if (meta.rareEvent === 'heart-rush') {
-        player.lives += 3;
-        this.rareLifeGain = 3;
-        this.maxLives = Math.max(this.maxLives, player.lives);
+        this.rareLifeGain = this.addLivesCapped(player, 3);
       }
       if (meta.rareEvent === 'double-flip') this.applyDoubleFlipReward(player);
       if (meta.rareEvent === 'life-drain') this.applyLifeDrain(player);

@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Bottle Game">
 
-  <link rel="stylesheet" href="css/style.css?v=108">
+  <link rel="stylesheet" href="css/style.css?v=109">
 </head>
 <body>
 
@@ -66,6 +66,15 @@
           <label><input type="radio" name="starting-lives" value="20"> 20</label>
           <label><input type="radio" name="starting-lives" value="100"> 100</label>
         </div>
+      </div>
+
+      <div>
+        <div class="section-label">Game mode</div>
+        <div class="direction-options">
+          <label><input type="radio" name="game-mode" value="normal" checked> 🎯 Normal</label>
+          <label><input type="radio" name="game-mode" value="insanity"> 🤯 Insanity</label>
+        </div>
+        <div class="mode-note">Insanity: every flip has a 1-in-3 special-event chance. Life Drain is excluded.</div>
       </div>
 
       <button id="start-btn">Start Game</button>
@@ -158,6 +167,7 @@
       </div>
       <div id="turn-timer"><div id="turn-timer-fill"></div></div>
       <div id="streak-banner"></div>
+      <div id="mode-badge"></div>
     </div>
     <div id="flip-hint">Flick up to flip!</div>
     <div id="practice-meter" class="hidden" aria-hidden="true">
@@ -202,24 +212,24 @@
     </div>
   </div>
 
-  <div id="version-badge" aria-label="Bottle Game version 108">v108</div>
+  <div id="version-badge" aria-label="Bottle Game version 109">v109</div>
 
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=108"></script>
-  <script src="js/game.js?v=108"></script>
-  <script src="js/physics.js?v=108"></script>
-  <script src="js/input.js?v=108"></script>
-  <script src="js/renderer.js?v=108"></script>
-  <script src="js/audio.js?v=108"></script>
-  <script src="js/settings.js?v=108"></script>
-  <script src="js/records.js?v=108"></script>
-  <script src="js/achievements.js?v=108"></script>
-  <script src="js/cast25.js?v=108"></script>
-  <script src="js/skins.js?v=108"></script>
-  <script src="js/net.js?v=108"></script>
-  <script src="js/main.js?v=108"></script>
+  <script src="js/polyfills.js?v=109"></script>
+  <script src="js/game.js?v=109"></script>
+  <script src="js/physics.js?v=109"></script>
+  <script src="js/input.js?v=109"></script>
+  <script src="js/renderer.js?v=109"></script>
+  <script src="js/audio.js?v=109"></script>
+  <script src="js/settings.js?v=109"></script>
+  <script src="js/records.js?v=109"></script>
+  <script src="js/achievements.js?v=109"></script>
+  <script src="js/cast25.js?v=109"></script>
+  <script src="js/skins.js?v=109"></script>
+  <script src="js/net.js?v=109"></script>
+  <script src="js/main.js?v=109"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {

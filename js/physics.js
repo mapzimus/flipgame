@@ -137,6 +137,22 @@ const Physics = (() => {
     return null;
   }
 
+  // Insanity replaces the normal rarity ladder with a flat 1-in-3 event roll.
+  // The ten eligible non-Plinko events each own four selection buckets; Plinko
+  // owns five, making it a modest 25% more likely than any one of the others.
+  // Life Drain is intentionally absent and can only be reached by its test name.
+  const INSANITY_EVENTS = RARE_EVENT_ROLLS
+    .filter((event) => event.id !== 'life-drain')
+    .map((event) => event.id);
+  const INSANITY_EVENT_SALT = 0x6c8e9cf5;
+  const INSANITY_PICK_SALT = 0x3d20adea;
+  function insanityEventForSeed(seed) {
+    if (mixSeed(seed, INSANITY_EVENT_SALT) % 3 !== 0) return null;
+    const pick = mixSeed(seed, INSANITY_PICK_SALT) % (INSANITY_EVENTS.length * 4 + 5);
+    if (pick < 5) return 'plinko';
+    return INSANITY_EVENTS[Math.floor((pick - 5) / 4)];
+  }
+
   // ── Per-edition physics profiles ───────────────────────────────────────────
   // Most editions are pure reskins and flip under the normal rules. An edition
   // can instead ship a profile (see META.physics in skins.js) that retunes
@@ -348,7 +364,7 @@ const Physics = (() => {
     // them for this throw. Next turn's setProfile/buildObstacles rebuilds.
     clearObstacles();
     // Board width is independent of the screen — at least 640 so five slots
-    // stay ball-sized; the camera pulls back to show all of it.
+    // stay ball-sized; the camera follows the object through it.
     const bw = Math.max(640, Math.min(canvasW - 36, 980));
     const left = canvasW / 2 - bw / 2;
     const right = left + bw;
@@ -976,7 +992,7 @@ const Physics = (() => {
   // Pass an explicit `seed` to replay a flick's exact randomness (multiplayer);
   // otherwise a fresh seed is drawn and recorded in lastFlickInfo.
   // Does NOT re-roll the pad — that was seeded in seedTurn().
-  function applyFlick(vx, vy, seed, rareMultiplier = 1) {
+  function applyFlick(vx, vy, seed, rareMultiplier = 1, eventMode = 'normal') {
     const s = (seed !== undefined && seed !== null
       ? seed
       : Math.floor(Math.random() * 0xffffffff)) >>> 0;
@@ -991,12 +1007,19 @@ const Physics = (() => {
     const eventMultiplier = Number.isFinite(rareMultiplier) ? Math.max(1, rareMultiplier) : 1;
     const forcedEvent = forcedSpecialEvent;
     forcedSpecialEvent = null;
+    const insanityEvent = !forcedEvent && eventMode === 'insanity'
+      ? insanityEventForSeed(s)
+      : null;
     const plinkoOdds = adjustedOdds(1000, eventMultiplier);
     const plinkoRoll = forcedEvent === 'plinko' ||
-      (!forcedEvent && plinkoEnabled && (s % plinkoOdds) === (123 % plinkoOdds));
+      (!forcedEvent && plinkoEnabled && (eventMode === 'insanity'
+        ? insanityEvent === 'plinko'
+        : (s % plinkoOdds) === (123 % plinkoOdds)));
     if (plinkoRoll) startPlinko();
 
-    rareEvent = plinkoRoll ? null : (forcedEvent || rareEventForSeed(s, false, eventMultiplier));
+    rareEvent = plinkoRoll ? null : (forcedEvent || (eventMode === 'insanity'
+      ? (insanityEvent === 'plinko' ? null : insanityEvent)
+      : rareEventForSeed(s, false, eventMultiplier)));
     rareImpulseUsed = false;
     rareEffectFrames = 0;
     rarePhase = (mixSeed(s, 0xa5a5a5a5) / 4294967296) * Math.PI * 2;
@@ -1232,25 +1255,25 @@ const Physics = (() => {
     const vw = screenW() || canvasW;
     const vh = viewH || arenaH || groundY;
     const expanded = canvasW > vw + 1 || ceilingY < -1;
-    // Plinko drop: frame the whole board (plus the object) — this is what
-    // makes the camera "zoom out" as the floor opens up.
+    // Plinko drop: follow the falling object instead of shrinking the entire
+    // long board into one frame. This keeps the character readable and clear
+    // of a crowded 8-player HUD; when it reaches the bins, their labels travel
+    // into view with it.
     if (plinko && bottle) {
-      const minX = Math.min(bottle.bounds.min.x - 40, plinko.left - 70);
-      const maxX = Math.max(bottle.bounds.max.x + 40, plinko.right + 70);
-      const minY = Math.min(bottle.bounds.min.y - 60, groundY - 280, ceilingY);
-      const maxY = Math.max(bottle.bounds.max.y, plinko.bottom + 90);
-      const spanX = maxX - minX, spanY = maxY - minY;
-      // Fit to the SCREEN (not the possibly-expanded physics world).
-      const zoom = Math.max(0.2,
-        Math.min(1, vw / spanX, vh / Math.max(spanY, 1)) * 0.88);
+      const boardW = plinko.right - plinko.left;
+      // Wide classroom boards stay nearly full-size. Compact screens still
+      // retain enough nearby pegs to make the fall understandable.
+      const contextW = Math.min(1100, Math.max(720, boardW + 120));
+      const zoom = Math.max(0.68, Math.min(0.92, vw / contextW));
       return {
         openArena,
         sideWalls: false,   // arena walls are dead + the board has its own rails
         zoom,
-        camX: (minX + maxX) / 2,
-        camY: (minY + maxY) / 2,
+        camX: bottle.position.x,
+        camY: bottle.position.y + 20,
         worldW: canvasW,
         worldH: plinko.bottom + 90,
+        tracking: 'plinko',
       };
     }
     // Expanded / walled courts: fit the physics world wall-to-wall and bias
@@ -1326,7 +1349,7 @@ const Physics = (() => {
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
     seedTurn, setPlinkoEnabled, forcePlinko, forceSpecialEvent, getPlinko, setFeel,
-    rareEventForSeed,
+    rareEventForSeed, insanityEventForSeed,
     getFeel: () => feelMode, setImpactCallback,
   };
 })();
