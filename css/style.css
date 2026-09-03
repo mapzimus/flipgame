@@ -41,6 +41,24 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* Always-visible build marker for confirming which cached/deployed release is
+   running. Kept small and pointer-transparent so it never steals a flip. */
+#version-badge {
+  position: fixed;
+  right: calc(8px + env(safe-area-inset-right, 0px));
+  bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  z-index: 50;
+  padding: 3px 8px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 999px;
+  background: rgba(6,16,28,0.72);
+  color: rgba(232,244,253,0.78);
+  font: 700 clamp(12px, 1.5vh, 16px)/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 /* ── Setup screen ────────────────────────────────────────── */
 #setup-screen {
   background: linear-gradient(160deg, #0d1b2a 0%, #1b3a5c 100%);

@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Bottle Game">
 
-  <link rel="stylesheet" href="css/style.css?v=102">
+  <link rel="stylesheet" href="css/style.css?v=103">
 </head>
 <body>
 
@@ -202,22 +202,24 @@
     </div>
   </div>
 
+  <div id="version-badge" aria-label="Bottle Game version 103">v103</div>
+
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=102"></script>
-  <script src="js/game.js?v=102"></script>
-  <script src="js/physics.js?v=102"></script>
-  <script src="js/input.js?v=102"></script>
-  <script src="js/renderer.js?v=102"></script>
-  <script src="js/audio.js?v=102"></script>
-  <script src="js/settings.js?v=102"></script>
-  <script src="js/records.js?v=102"></script>
-  <script src="js/achievements.js?v=102"></script>
-  <script src="js/cast25.js?v=102"></script>
-  <script src="js/skins.js?v=102"></script>
-  <script src="js/net.js?v=102"></script>
-  <script src="js/main.js?v=102"></script>
+  <script src="js/polyfills.js?v=103"></script>
+  <script src="js/game.js?v=103"></script>
+  <script src="js/physics.js?v=103"></script>
+  <script src="js/input.js?v=103"></script>
+  <script src="js/renderer.js?v=103"></script>
+  <script src="js/audio.js?v=103"></script>
+  <script src="js/settings.js?v=103"></script>
+  <script src="js/records.js?v=103"></script>
+  <script src="js/achievements.js?v=103"></script>
+  <script src="js/cast25.js?v=103"></script>
+  <script src="js/skins.js?v=103"></script>
+  <script src="js/net.js?v=103"></script>
+  <script src="js/main.js?v=103"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {
