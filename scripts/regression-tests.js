@@ -152,6 +152,24 @@ function testPlinkoRewards() {
   jackpot.callbacks = {};
   jackpot.resolvePlinko('win');
   assert.deepEqual(jackpot.players.map((p) => p.eliminated), [false, true, true, true]);
+
+  const magnet = loadGame();
+  magnet.init(players(3), 1, { startingLives: 3 });
+  magnet.callbacks = {};
+  magnet.resolvePlinko('magnet');
+  assert.equal(magnet.players[0].alwaysMagnet, true,
+    'Always Magnet must remain attached to the player for the match');
+  magnet.advanceTurn();
+  magnet.advanceTurn();
+  assert.equal(magnet.players[0].alwaysMagnet, true, 'turn rotation must not clear Always Magnet');
+
+  const loss = loadGame();
+  loss.init(players(4), 1, { startingLives: 3 });
+  loss.callbacks = {};
+  loss.resolvePlinko('lose');
+  assert.equal(loss.lastResult, 'MISS');
+  assert.equal(loss.players[0].eliminated, true, 'automatic-loss slot must eliminate the flipper');
+  assert.equal(loss.justEliminated, true);
 }
 
 function testHeartRushReward() {
@@ -282,6 +300,9 @@ function testLongPlinkoBoardResolves() {
     physics.forcePlinko();
     physics.applyFlick(0, -2500, seed);
     const board = physics.getPlinko();
+    assert.deepEqual(Array.from(board.slots, (slot) => slot.kind),
+      ['double', 'halve', 'magnet', 'lose', 'win', 'lose', 'magnet', 'halve', 'double'],
+      'Plinko must expose the exact symmetric nine-slot reward layout');
     assert.ok(board.bottom - board.top > 900, 'Plinko board must provide a long drop');
     assert.equal(new Set(board.pegs.map((p) => p.y)).size, 8, 'Plinko board must have eight peg rows');
     const launchView = physics.getViewHint();
@@ -295,10 +316,11 @@ function testLongPlinkoBoardResolves() {
       physics.step(1 / 60);
       verdict = physics.checkLanding();
     }
-    assert.equal(verdict, 'MAKE', `Plinko seed ${seed} did not resolve`);
     const info = physics.getLastLandingInfo();
     assert.equal(info.reason, 'plinko');
-    assert.ok(['double', 'halve', 'win'].includes(info.plinko));
+    assert.ok(['double', 'halve', 'magnet', 'lose', 'win'].includes(info.plinko));
+    assert.equal(verdict, info.plinko === 'lose' ? 'MISS' : 'MAKE',
+      `Plinko seed ${seed} returned the wrong automatic verdict`);
     const finishView = physics.getViewHint();
     const visibleBottom = finishView.camY + 800 / (2 * finishView.zoom);
     assert.ok(visibleBottom >= board.bottom,
@@ -325,7 +347,7 @@ function testInsanityEventDistribution() {
 
   const ordinaryIds = [
     'heart-rush', 'magnet', 'double-flip', 'wind-tunnel', 'trampoline',
-    'gravity-slam', 'ice-slide', 'moon-gravity', 'power-launch', 'rainbow-trail',
+    'gravity-slam', 'ice-slide', 'alien-invasion', 'moon-gravity', 'power-launch', 'rainbow-trail',
   ];
   const ordinaryCounts = ordinaryIds.map((id) => counts.get(id) || 0);
   const ordinaryMean = ordinaryCounts.reduce((sum, value) => sum + value, 0) / ordinaryCounts.length;
@@ -354,7 +376,7 @@ function testRareEventLadder() {
   const physics = loadPhysics();
   const ids = [
     'rainbow-trail', 'power-launch', 'moon-gravity', 'ice-slide', 'gravity-slam',
-    'trampoline', 'wind-tunnel', 'double-flip', 'magnet', 'heart-rush', 'life-drain',
+    'alien-invasion', 'trampoline', 'wind-tunnel', 'double-flip', 'magnet', 'heart-rush', 'life-drain',
   ];
   const found = new Map();
   for (let seed = 1; seed < 100000 && found.size < ids.length; seed++) {
@@ -403,7 +425,8 @@ function testRareEventLadder() {
       verdict = physics.checkLanding();
     }
     assert.ok(verdict, `${id} did not reach a verdict`);
-    assert.notEqual(physics.getLastLandingInfo().reason, 'timeout', `${id} used the timeout fallback`);
+    assert.ok(!['timeout', 'alien-timeout'].includes(physics.getLastLandingInfo().reason),
+      `${id} used the timeout fallback`);
     if (id === 'trampoline' || id === 'double-flip') {
       assert.ok(upwardReversals >= 1, `${id} never produced its second aerial arc`);
     }
@@ -428,8 +451,12 @@ function testRareEventLadder() {
         `Ice Slide lateral speed only reached ${maxLateralSpeed.toFixed(1)}`);
       assert.ok(maxDrift > 400, `Ice Slide only travelled ${maxDrift.toFixed(1)}px`);
     }
-    if (id === 'moon-gravity') assert.equal(physics.getLastFlickInfo().gravityScale, 0.42);
-    if (id === 'gravity-slam') assert.equal(physics.getLastFlickInfo().gravityScale, 1.9);
+    if (id === 'moon-gravity') assert.equal(physics.getLastFlickInfo().gravityScale, 0.28);
+    if (id === 'gravity-slam') assert.equal(physics.getLastFlickInfo().gravityScale, 2.55);
+    if (id === 'alien-invasion') {
+      assert.equal(physics.getLastFlickInfo().gravityScale, 0.08);
+      assert.equal(physics.getTarget().style, 'portal');
+    }
   }
 }
 
@@ -477,13 +504,43 @@ function testLifeDrainMagnetMakes() {
   }
 }
 
+function testExtremeEventsStayPlayable() {
+  const events = [
+    'rainbow-trail', 'power-launch', 'moon-gravity', 'ice-slide',
+    'gravity-slam', 'alien-invasion', 'trampoline', 'wind-tunnel',
+    'double-flip', 'magnet', 'heart-rush',
+  ];
+  for (const event of events) {
+    const physics = loadPhysics();
+    physics.init(1280, 800);
+    physics.setPlinkoEnabled(false);
+    let makes = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      physics.resetBottle();
+      physics.forceSpecialEvent(event);
+      physics.applyFlick(seed % 2 ? 350 : -350, -2500, seed);
+      let verdict = null;
+      for (let frame = 0; frame < 1800 && !verdict; frame++) {
+        physics.step(1 / 60);
+        verdict = physics.checkLanding();
+      }
+      assert.ok(verdict, `${event} seed ${seed} never resolved`);
+      assert.ok(!String(physics.getLastLandingInfo().reason).includes('timeout'),
+        `${event} seed ${seed} depended on a timeout`);
+      if (verdict === 'MAKE') makes++;
+    }
+    assert.ok(makes >= 14,
+      `${event} became a disguised automatic miss (${makes}/20 standard throws made)`);
+  }
+}
+
 function testForcedSpecialEvents() {
   const physics = loadPhysics();
   physics.init(1280, 800);
   physics.setPlinkoEnabled(false);
   const events = [
     'plinko', 'rainbow-trail', 'power-launch', 'moon-gravity', 'ice-slide',
-    'gravity-slam', 'trampoline', 'wind-tunnel', 'double-flip', 'magnet',
+    'gravity-slam', 'alien-invasion', 'trampoline', 'wind-tunnel', 'double-flip', 'magnet',
     'heart-rush', 'life-drain',
   ];
 
@@ -498,6 +555,14 @@ function testForcedSpecialEvents() {
     assert.equal(info.rareEvent, event === 'plinko' ? null : event);
   }
   assert.equal(physics.forceSpecialEvent('not-an-event'), false);
+
+  physics.resetBottle();
+  physics.forceSpecialEvent('rainbow-trail');
+  physics.applyFlick(0, -2500, 44, 1, 'normal', true);
+  const persistent = physics.getLastFlickInfo();
+  assert.equal(persistent.rareEvent, 'rainbow-trail');
+  assert.equal(persistent.alwaysMagnet, true,
+    'permanent magnet must stack with a later special event');
 }
 
 testSuddenDeathFireMissIsFree();
@@ -516,5 +581,6 @@ testInsanityEventDistribution();
 testRareEventLadder();
 testMrHoweTenfoldOdds();
 testLifeDrainMagnetMakes();
+testExtremeEventsStayPlayable();
 testForcedSpecialEvents();
 console.log('Regression tests passed.');

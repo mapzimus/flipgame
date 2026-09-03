@@ -1727,8 +1727,8 @@ ${crown}
   // `drawAs` (the old edition drawer) using `tint` (cast key / color).
   // Unlock cadence: free bottle, then every 3 wins; Alien species are LAST.
   const ALIEN_PHYSICS = {
-    gravity: 1.28,
-    frictionAir: 0.0045,
+    gravity: 0.10,
+    frictionAir: 0.0025,
     friction: 0.02,
     restitution: 0.90,
     spinScale: 0.7,
@@ -1739,8 +1739,8 @@ ${crown}
     ceiling: true,
     floorResolve: true,
     landOnTarget: true,
-    // Bigger pad; any body overlap scores (not just center/feet).
-    targetHalfWidth: 72,
+    // Large floating tractor ring: bank once, then fly through it.
+    targetHalfWidth: 96,
     requireFlip: false,
     deflector: true,
     deflectorCount: 3,
@@ -1748,13 +1748,13 @@ ${crown}
     keepWalls: true,
     minHorizRatio: 0.12,
     strictTarget: false,   // AABB overlap with pad = make (whole alien counts)
-    allowSlideIn: true,    // can still slide onto the pad after touchdown
-    hitScale: 0.90,        // nearly the full drawn pad scores
-    // TRUE bigger arena (not camera-shrink): physics world is wider/taller than
-    // the screen, camera fits wall-to-wall so the phone stays full-bleed while
-    // bank shots actually have more travel. Old arenaZoom letterboxed a
-    // postage stamp or cramped the court — expand replaces that.
-    arenaExpand: 1.18,         // desktop: mild real widen
+    allowSlideIn: false,   // portal scoring resolves in mid-air instead
+    hitScale: 0.86,
+    alienPortal: true,
+    // Phones need a wider logical court for bank shots. Desktop/classroom
+    // screens already have that width physically, so never fit-shrink them —
+    // it made the entire Alien arena look reduced inside a large display.
+    arenaExpand: 1.0,          // desktop: true 1:1, full-size playing space
     mobileArenaExpand: 1.42,   // phone: proper bank-shot court
     arenaExpandY: 1.0,
     mobileArenaExpandY: 1.14,  // a bit more air for ceiling banks on phones

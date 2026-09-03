@@ -115,6 +115,7 @@ const Physics = (() => {
     { id: 'trampoline',  odds: 500, salt: 0x165667b1 },
     { id: 'gravity-slam', odds: 400, salt: 0xd3a2646c },
     { id: 'ice-slide',    odds: 300, salt: 0xfd7046c5 },
+    { id: 'alien-invasion', odds: 250, salt: 0x4cf5ad43 },
     { id: 'moon-gravity', odds: 200, salt: 0xb55a4f09 },
     { id: 'power-launch', odds: 100, salt: 0x94d049bb },
     { id: 'rainbow-trail', odds: 50, salt: 0x369dea0f },
@@ -138,7 +139,7 @@ const Physics = (() => {
   }
 
   // Insanity replaces the normal rarity ladder with a flat 1-in-3 event roll.
-  // The ten eligible non-Plinko events each own four selection buckets; Plinko
+  // The eleven eligible non-Plinko events each own four selection buckets; Plinko
   // owns five, making it a modest 25% more likely than any one of the others.
   // Life Drain is intentionally absent and can only be reached by its test name.
   const INSANITY_EVENTS = RARE_EVENT_ROLLS
@@ -189,6 +190,7 @@ const Physics = (() => {
     // Scored radius as a fraction of the drawn pad. 1 = whole pad counts;
     // 0.5 = only the inner half-radius scores (drawn pad stays readable).
     hitScale: 1,
+    alienPortal: false,   // bank once, then fly through a floating tractor ring
     // True arena expand (bank-shot profiles): world size = view size × expand.
     // Camera then fits wall-to-wall. 1 = no expand. Prefer this over arenaZoom.
     arenaExpand: 1,
@@ -201,6 +203,7 @@ const Physics = (() => {
   };
   let profile = { ...DEFAULT_PROFILE };
   let targetX = null;      // pad center, only set when profile.landOnTarget
+  let targetY = null;      // floating tractor-ring center in Alien mode
   let targetHW = 84;       // pad half-width actually in play (screen-scaled)
   let arenaTime = 0;
 
@@ -210,6 +213,9 @@ const Physics = (() => {
   // the scale-up is capped tighter so smartboards aren't a freebie.
   function currentTargetHalfWidth() {
     const base = profile.targetHalfWidth;
+    if (profile.alienPortal) {
+      return Math.round(Math.max(base, Math.min(112, canvasW * 0.065)));
+    }
     // Bank-shot pads stay nearly fixed — only a tiny grow on huge boards so
     // the make radius doesn't become a freebie on smartboards.
     if (base <= 60) {
@@ -230,6 +236,9 @@ const Physics = (() => {
   let maxGroundedTilt = 0;  // display-only: worst |tilt| seen while grounded this flip
   let flightFrames = 0;     // frames since the bottle left the floor (absolute soft-lock guard)
   let rareEvent = null;     // seeded physics/gameplay/cosmetic event for this flick
+  let temporaryAlien = false; // 1/250 Alien Invasion for a non-Alien object
+  let bankHits = 0;          // portal only activates after a real carom
+  let alwaysMagnetActive = false; // permanent Plinko prize owned by this flipper
   let rareImpulseUsed = false; // one-shot event impulse guard
   let rareEffectFrames = 0; // short-lived Ice Slide surface timer
   let rarePhase = 0;        // seeded wind phase; cosmetic randomness never touches physics RNG
@@ -335,13 +344,16 @@ const Physics = (() => {
 
   // ── PLINKO DROP (1/1000 easter egg) ────────────────────────────────────────
   // On the roll, the floor vanishes at the flick and the object falls through
-  // into a plinko board below the table. Center slot = automatic game win;
-  // mid slots halve every opponent's lives; outer slots double the flipper's
-  // lives. Seed-derived
+  // into a plinko board below the table. The nine slots are mirrored around
+  // one jackpot: double, halve, magnet, loss, WIN, loss, magnet, halve, double.
+  // Seed-derived
   // but main.js disables it for online games (it rewrites lives directly).
-  // Always 5 slots. The board can be WIDER than the screen (the camera zooms
-  // out to frame it), so slots stay big enough for the ball on any device.
-  const PLINKO_KINDS = ['double', 'halve', 'win', 'halve', 'double'];
+  // The board can be WIDER than the screen; the follow camera stays with the
+  // falling object so all nine bins remain large and legible on a phone.
+  const PLINKO_KINDS = [
+    'double', 'halve', 'magnet', 'lose', 'win',
+    'lose', 'magnet', 'halve', 'double',
+  ];
   let plinkoEnabled = true;
   let forcedSpecialEvent = null; // secret test trigger — consumed by the next flick
   let plinko = null;          // { left, right, top, bottom, pegs, dividers, slots }
@@ -356,6 +368,10 @@ const Physics = (() => {
     forcedSpecialEvent = id;
     return true;
   }
+
+  function alienShotActive() {
+    return !!profile.alienPortal || temporaryAlien;
+  }
   function forcePlinko() { return forceSpecialEvent('plinko'); }
 
   function startPlinko() {
@@ -363,9 +379,9 @@ const Physics = (() => {
     // Bank-shot furniture (alien wedges/saucers) would steal the drop — clear
     // them for this throw. Next turn's setProfile/buildObstacles rebuilds.
     clearObstacles();
-    // Board width is independent of the screen — at least 640 so five slots
+    // Board width is independent of the screen — at least 990 so nine slots
     // stay ball-sized; the camera follows the object through it.
-    const bw = Math.max(640, Math.min(canvasW - 36, 980));
+    const bw = Math.max(990, Math.min(canvasW - 36, 1440));
     const left = canvasW / 2 - bw / 2;
     const right = left + bw;
     const top = groundY + 26;
@@ -381,7 +397,7 @@ const Physics = (() => {
 
     // Offset peg grid — the object becomes a ball (r=34) for the drop, so
     // ~110px gaps give real plinko action without wedging.
-    const cols = Math.max(3, Math.min(10, Math.floor(bw / 112)));
+    const cols = Math.max(7, Math.min(13, Math.floor(bw / 100)));
     for (let r = 0; r < rows; r++) {
       const y = top + 42 + r * rowGap;
       const n = cols + (r % 2 ? 0 : 1);
@@ -460,18 +476,20 @@ const Physics = (() => {
     const n = plinko.slots.length;
     const i = Math.max(0, Math.min(n - 1,
       Math.floor((bottle.position.x - plinko.left) / (bw / n))));
+    const prize = plinko.slots[i].kind;
+    const result = prize === 'lose' ? 'MISS' : 'MAKE';
     lastLandingInfo = {
-      result: 'MAKE',
+      result,
       tilt: null,
       perfect: false,
       reason: 'plinko',
-      plinko: plinko.slots[i].kind,
+      plinko: prize,
       plinkoSlot: i,
       onCap: false,
       maxTilt: 0,
       padOffset: null,
     };
-    return 'MAKE';
+    return result;
   }
 
   function getPlinko() { return plinko; }
@@ -596,15 +614,25 @@ const Physics = (() => {
   // Randomize the pad's spot each turn so it isn't the same shot every time.
   // Call only after seedTurn()/seedRng so multiplayer peers place identically.
   function placeTarget(explicitX) {
-    if (!profile.landOnTarget || !canvasW) { targetX = null; return; }
+    if (!profile.landOnTarget || !canvasW) { targetX = null; targetY = null; return; }
     targetHW = currentTargetHalfWidth();
     const margin = (sideWallsEnabled ? WALL_INSET : 8) + targetHW + 16;
     if (explicitX != null && Number.isFinite(explicitX)) {
       targetX = Math.max(margin, Math.min(canvasW - margin, explicitX));
-      return;
+    } else {
+      const span = Math.max(0, canvasW - margin * 2);
+      targetX = margin + rand() * span;
     }
-    const span = Math.max(0, canvasW - margin * 2);
-    targetX = margin + rand() * span;
+    targetY = profile.alienPortal
+      ? Math.max(145, Math.min(groundY - 180, groundY * (0.36 + rand() * 0.24)))
+      : null;
+  }
+
+  function placeTemporaryAlienTarget() {
+    targetHW = Math.max(82, Math.min(112, canvasW * 0.085));
+    const margin = WALL_INSET + targetHW + 32;
+    targetX = margin + rand() * Math.max(0, canvasW - margin * 2);
+    targetY = Math.max(145, Math.min(groundY - 180, groundY * (0.36 + rand() * 0.24)));
   }
 
   function getTarget() {
@@ -612,8 +640,15 @@ const Physics = (() => {
       x: targetX,
       halfWidth: targetHW,
       hitHalfWidth: currentHitHalfWidth(),
-      style: 'pad',
+      y: targetY,
+      style: alienShotActive() ? 'portal' : 'pad',
+      armed: bankHits > 0,
     };
+  }
+
+  function throughAlienPortal() {
+    if (!alienShotActive() || bankHits < 1 || targetX == null || targetY == null || !bottle) return false;
+    return Math.hypot(bottle.position.x - targetX, bottle.position.y - targetY) <= currentHitHalfWidth();
   }
 
   function overTarget() {
@@ -686,7 +721,12 @@ const Physics = (() => {
 
   function recordLanding(result, tilt, reason) {
     let padOffset = null;
-    if (profile.landOnTarget && targetX != null && bottle) {
+    if (alienShotActive() && targetX != null && targetY != null && bottle) {
+      const hitHW = currentHitHalfWidth();
+      padOffset = hitHW > 0
+        ? Math.hypot(bottle.position.x - targetX, bottle.position.y - targetY) / hitHW
+        : null;
+    } else if (profile.landOnTarget && targetX != null && bottle) {
       const hitHW = currentHitHalfWidth();
       padOffset = hitHW > 0 ? Math.abs(bottle.position.x - targetX) / hitHW : null;
     }
@@ -694,7 +734,9 @@ const Physics = (() => {
     // every alien pad hit isn't celebrated as Perfect / Bullseye.
     let perfect = false;
     if (result === 'MAKE') {
-      if (profile.floorResolve) {
+      if (alienShotActive()) {
+        perfect = padOffset != null && padOffset <= 0.28;
+      } else if (profile.floorResolve) {
         perfect = padOffset != null && padOffset <= 0.22;
       } else {
         perfect = tilt != null && tilt <= PERFECT_ANGLE;
@@ -710,6 +752,7 @@ const Physics = (() => {
       requiredRotations: requiredRotation / (Math.PI * 2),
       maxTilt: profile.floorResolve ? 0 : maxGroundedTilt,
       padOffset,
+      bankHits,
     };
     return result;
   }
@@ -747,6 +790,20 @@ const Physics = (() => {
       if (speed < 1.2 && Math.abs(bottle.angularVelocity) < 0.05) plinkoSettle++;
       else plinkoSettle = 0;
       if (plinkoSettle > 40) return plinkoVerdict();
+      return null;
+    }
+
+    // Alien bank shot: score in mid-air by flying through the tractor ring
+    // after at least one real carom. The table or a 12-second orbit is a miss.
+    // This replaces the cramped/awkward "land on a tiny pad" judgment.
+    if (alienShotActive() && launched && wasAirborne) {
+      flightFrames++;
+      if (throughAlienPortal()) return recordLanding('MAKE', 0, 'tractor-ring');
+      // A banked object that brushes the table is still inside the tractor
+      // beam and can be pulled back into orbit. Only an unbanked floor hit is
+      // an immediate miss; otherwise the ring/timeout decides the shot.
+      if (touchingFloor() && bankHits < 1) return recordLanding('MISS', null, 'off-target');
+      if (flightFrames > 720) return recordLanding('MISS', null, 'alien-timeout');
       return null;
     }
 
@@ -912,7 +969,7 @@ const Physics = (() => {
     // Wall / ceiling / furniture hits → impact juice (SFX + sparks). Ground
     // thuds are positional in stepOnce so we get exactly one per landing.
     Events.on(engine, 'collisionStart', (ev) => {
-      if (!onImpact || !launched || !bottle) return;
+      if (!launched || !bottle) return;
       for (const { bodyA, bodyB } of ev.pairs) {
         const aIsBottle = bodyA === bottle || bodyA.parent === bottle;
         const bIsBottle = bodyB === bottle || bodyB.parent === bottle;
@@ -923,8 +980,9 @@ const Physics = (() => {
             label !== 'deflector' && label !== 'saucer') continue;
         const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
         if (speed < 1.8) continue;
+        if (alienShotActive()) bankHits++;
         const type = (label === 'deflector' || label === 'saucer') ? 'wall' : label;
-        onImpact(type, speed, bottle.position.x, bottle.position.y);
+        if (onImpact) onImpact(type, speed, bottle.position.x, bottle.position.y);
       }
     });
 
@@ -968,10 +1026,21 @@ const Physics = (() => {
     maxGroundedTilt = 0;
     flightFrames   = 0;
     rareEvent      = null;
+    temporaryAlien = false;
+    bankHits       = 0;
     rareImpulseUsed = false;
     rareEffectFrames = 0;
+    alwaysMagnetActive = false;
     rarePhase      = 0;
     groundImpactSent = false;
+    if (!profile.landOnTarget) { targetX = null; targetY = null; }
+    if (leftWall) leftWall.restitution = profile.wallBounce;
+    if (rightWall) rightWall.restitution = profile.wallBounce;
+    if (ceilingBody) {
+      ceilingBody.restitution = profile.wallBounce;
+      ceilingBody.collisionFilter.mask = profile.ceiling ? 0xFFFFFFFF : 0;
+    }
+    syncSideWalls();
     liquid.reset();
     acc = 0;
 
@@ -992,7 +1061,7 @@ const Physics = (() => {
   // Pass an explicit `seed` to replay a flick's exact randomness (multiplayer);
   // otherwise a fresh seed is drawn and recorded in lastFlickInfo.
   // Does NOT re-roll the pad — that was seeded in seedTurn().
-  function applyFlick(vx, vy, seed, rareMultiplier = 1, eventMode = 'normal') {
+  function applyFlick(vx, vy, seed, rareMultiplier = 1, eventMode = 'normal', alwaysMagnet = false) {
     const s = (seed !== undefined && seed !== null
       ? seed
       : Math.floor(Math.random() * 0xffffffff)) >>> 0;
@@ -1022,12 +1091,29 @@ const Physics = (() => {
       : rareEventForSeed(s, false, eventMultiplier)));
     rareImpulseUsed = false;
     rareEffectFrames = 0;
+    alwaysMagnetActive = !!alwaysMagnet;
+    temporaryAlien = rareEvent === 'alien-invasion';
+    bankHits = 0;
+    if (temporaryAlien) {
+      openArena = false;
+      sideWallsEnabled = true;
+      leftWall.collisionFilter.mask = 0xFFFFFFFF;
+      rightWall.collisionFilter.mask = 0xFFFFFFFF;
+      ceilingBody.collisionFilter.mask = 0xFFFFFFFF;
+      leftWall.restitution = rightWall.restitution = ceilingBody.restitution = 0.96;
+      for (const part of [bottle, ...bottle.parts]) {
+        part.frictionAir = 0.003;
+        part.restitution = 0.90;
+      }
+      placeTemporaryAlienTarget();
+    }
     rarePhase = (mixSeed(s, 0xa5a5a5a5) / 4294967296) * Math.PI * 2;
     requiredRotation = rareEvent === 'double-flip' ? Math.PI * 4 : 5.6;
 
     const moon = rareEvent === 'moon-gravity';
-    const gravityScale = moon ? 0.42 : (rareEvent === 'gravity-slam' ? 1.9 : 1);
-    if (engine) engine.gravity.y = profile.gravity * gravityScale;
+    const gravityScale = temporaryAlien ? 0.08
+      : (moon ? 0.28 : (rareEvent === 'gravity-slam' ? 2.55 : 1));
+    if (engine) engine.gravity.y = temporaryAlien ? 0.10 : profile.gravity * gravityScale;
 
     // CAP THROW (~1/100, seed-rolled): normal spin tuning lands completed
     // flips upright, so an inverted touchdown never occurs naturally. These
@@ -1050,6 +1136,12 @@ const Physics = (() => {
     let launchX = Math.max(-profile.horizMax,
       Math.min(profile.horizMax, vx / profile.horizDivisor)) + jDrift;
 
+    if (temporaryAlien) {
+      const side = Math.abs(vx) > 120 ? (vx < 0 ? -1 : 1) : (Math.cos(rarePhase) < 0 ? -1 : 1);
+      launchX = side * (26 + power * 8);
+      launchY = -Math.max(7, Math.abs(launchY) * 0.52);
+    }
+
     if (profile.minHorizRatio > 0) {
       const minX = Math.abs(launchY) * profile.minHorizRatio;
       if (Math.abs(launchX) < minX) launchX = (launchX >= 0 ? 1 : -1) * minX;
@@ -1058,11 +1150,23 @@ const Physics = (() => {
     const dir  = vx >= 0 ? 1 : -1;
     let spin = dir * (spinBase + power * spinRange) * jSpin * profile.spinScale *
       (capThrowArmed ? 1.52 : 1);
+    if (temporaryAlien) spin *= 0.72;
+
+    // Extreme gravity changes need matching spin timing so the spectacle does
+    // not secretly predetermine a miss before the player can see it play out.
+    if (rareEvent === 'moon-gravity') spin *= 0.76;
+    if (rareEvent === 'gravity-slam') spin *= 1.72;
+    if (rareEvent === 'wind-tunnel') spin *= 1.42;
 
     // 1/100 — POWER LAUNCH: a visibly taller, faster, harder-spinning throw.
     if (rareEvent === 'power-launch') {
-      launchY *= 1.45;
-      spin *= 1.22;
+      launchY *= 1.72;
+      spin *= 1.34;
+    }
+    // Rainbow is now a physical corkscrew as well as a visible trail.
+    if (rareEvent === 'rainbow-trail') {
+      launchY *= 1.18;
+      spin *= 0.94;
     }
     // Life Drain's hidden magnet needs a completed rotation to catch. A small
     // initial spin assist keeps ordinary classroom flicks inside that catch.
@@ -1077,6 +1181,7 @@ const Physics = (() => {
       gravityScale,
       plinko: plinkoRoll,
       rareEvent,
+      alwaysMagnet: alwaysMagnetActive,
       rareMultiplier: eventMultiplier,
       requiredTurns: rareEvent === 'double-flip' ? 2 : 1,
       vx: Math.round(vx),
@@ -1099,23 +1204,45 @@ const Physics = (() => {
 
     if (launched && !wasAirborne && bottle.bounds.max.y < groundY - 24) wasAirborne = true;
 
+    // Once a bank arms the Alien tractor ring, its beam bends the zero-G path
+    // toward the target. The bank remains the player-controlled challenge;
+    // the pull makes the finish readable and avoids endless random orbiting.
+    if (alienShotActive() && launched && wasAirborne && bankHits > 0 &&
+        targetX != null && targetY != null) {
+      const dx = targetX - bottle.position.x;
+      const dy = targetY - bottle.position.y;
+      const dist = Math.max(1, Math.hypot(dx, dy));
+      const pull = temporaryAlien ? 0.42 : 0.62;
+      Body.setVelocity(bottle, {
+        x: bottle.velocity.x + dx / dist * pull,
+        y: bottle.velocity.y + dy / dist * pull,
+      });
+    }
+
     // 1/300 — ICE SLIDE: the first touchdown kicks into a long, slick lateral
     // skid before normal table friction returns. Direction is seed-derived.
     if (rareEvent === 'ice-slide' && launched && wasAirborne && !rareImpulseUsed &&
         bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX && bottle.velocity.y > 0.5) {
       rareImpulseUsed = true;
-      rareEffectFrames = 120;
+      rareEffectFrames = 140;
       const direction = Math.cos(rarePhase) < 0 ? -1 : 1;
       Body.setVelocity(bottle, {
-        x: direction * Math.max(20, Math.abs(bottle.velocity.x) + 14),
-        y: -2.2,
+        x: direction * Math.max(27, Math.abs(bottle.velocity.x) + 20),
+        y: -4.2,
       });
-      Body.setAngularVelocity(bottle, bottle.angularVelocity + direction * 0.11);
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + direction * 0.08);
     }
     if (rareEvent === 'ice-slide' && rareEffectFrames > 0) {
       rareEffectFrames--;
       for (const part of [bottle, ...bottle.parts]) part.friction = 0.001;
-      if (rareEffectFrames === 0) applyBodyMaterial();
+      if (rareEffectFrames === 0) {
+        applyBodyMaterial();
+        // Let the huge skid end decisively, then give the already-flipped
+        // object a fair chance to stand instead of grading the slide a miss.
+        Body.setVelocity(bottle, { x: bottle.velocity.x * 0.10, y: Math.min(0, bottle.velocity.y) });
+        groundedFrames = 0;
+        angleWin = [];
+      }
     }
 
     // 1/500 — TRAMPOLINE TABLE: the first touchdown springs the object into a
@@ -1127,10 +1254,10 @@ const Physics = (() => {
         x: bottle.velocity.x * 0.78,
         // A real second launch, not a table bounce: at least as powerful as a
         // strong original flick and even hotter after a hard impact.
-        y: -Math.max(24, Math.abs(bottle.velocity.y) * 1.45),
+        y: -Math.max(32, Math.abs(bottle.velocity.y) * 1.75),
       });
       const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
-      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.10);
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.15);
       groundedFrames = 0;
       angleWin = [];
     }
@@ -1142,10 +1269,13 @@ const Physics = (() => {
         bottle.bounds.max.y < groundY - GROUND_TOUCH_PX) {
       const direction = Math.cos(rarePhase) < 0 ? -1 : 1;
       const pulse = 0.75 + Math.sin(arenaTime * 5.2 + rarePhase) * 0.25;
-      const gust = direction * pulse * bottle.mass * 0.00085;
+      const gust = direction * pulse * bottle.mass * 0.00155;
+      const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
       Body.applyForce(bottle, {
         x: bottle.position.x,
-        y: bottle.position.y - 40,
+        // Put the gust on the side that reinforces the player's rotation.
+        // The old fixed-above-center force cancelled half of all flips.
+        y: bottle.position.y - 40 * spinDir * direction,
       }, { x: gust, y: 0 });
     }
 
@@ -1154,19 +1284,52 @@ const Physics = (() => {
     if (rareEvent === 'double-flip' && launched && wasAirborne && !rareImpulseUsed &&
         bottle.velocity.y > 1 && bottle.position.y < groundY - 180) {
       rareImpulseUsed = true;
-      Body.setVelocity(bottle, { x: bottle.velocity.x * 0.92, y: -14.5 });
+      Body.setVelocity(bottle, { x: bottle.velocity.x * 0.92, y: -18.0 });
       const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
-      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.135);
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.150);
+    }
+
+    // 1/900 — HEART RUSH: one giant heartbeat kicks the completed throw back
+    // into the air. The game reward still requires the eventual landing.
+    if (rareEvent === 'heart-rush' && launched && wasAirborne && !rareImpulseUsed &&
+        hasFlipped && bottle.velocity.y > 1 && bottle.position.y < groundY - 130) {
+      rareImpulseUsed = true;
+      const direction = Math.cos(rarePhase) < 0 ? -1 : 1;
+      Body.setVelocity(bottle, { x: bottle.velocity.x + direction * 4.5, y: -11.5 });
+      Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.72);
+    }
+
+    // 1/50 — RAINBOW COMET: a real corkscrew path, not merely a color change.
+    if (rareEvent === 'rainbow-trail' && launched && wasAirborne &&
+        bottle.bounds.max.y < groundY - GROUND_TOUCH_PX) {
+      const wave = Math.sin(arenaTime * 9 + rarePhase);
+      Body.applyForce(bottle, { x: bottle.position.x, y: bottle.position.y - 34 }, {
+        x: wave * bottle.mass * 0.00062,
+        y: -Math.abs(wave) * bottle.mass * 0.00010,
+      });
     }
 
     // 1/800 — MAGNET LANDING, plus Life Drain's hidden stronger magnet. Once
     // the required rotation is complete, an upright torque guides the descent.
-    const magnetStrength = rareEvent === 'life-drain' ? 0.105
-      : (rareEvent === 'magnet' ? 0.055 : 0);
+    const landingAssist = {
+      'rainbow-trail': 0.060,
+      'power-launch': 0.040,
+      'moon-gravity': 0.070,
+      'gravity-slam': 0.075,
+      trampoline: 0.040,
+      'wind-tunnel': 0.050,
+      'double-flip': 0.050,
+      'heart-rush': 0.055,
+    }[rareEvent] || 0;
+    const magnetStrength = rareEvent === 'life-drain' ? 0.125
+      : (rareEvent === 'magnet' ? 0.085
+      : (rareEvent === 'ice-slide' && rareImpulseUsed ? 0.078
+      : (alwaysMagnetActive ? 0.085 : landingAssist)));
     if (magnetStrength && launched && hasFlipped &&
         bottle.position.y > groundY - 210 && !plinko) {
       const tilt = normalizeSignedAngle(bottle.angle);
-      const damping = rareEvent === 'life-drain' ? 0.76 : 0.90;
+      const damping = rareEvent === 'life-drain' ? 0.70
+        : (rareEvent === 'ice-slide' ? 0.82 : 0.86);
       Body.setAngularVelocity(bottle, bottle.angularVelocity * damping - tilt * magnetStrength);
     }
 
@@ -1340,6 +1503,8 @@ const Physics = (() => {
       reason: (info && info.reason) || 'net-authority',
       onCap: !!(info && (info.onCap || info.reason === 'cap')),
       maxTilt: (info && info.maxTilt) || 0,
+      padOffset: info && info.padOffset != null ? info.padOffset : null,
+      bankHits: info && info.bankHits != null ? info.bankHits : 0,
     };
     return result;
   }

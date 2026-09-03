@@ -152,6 +152,27 @@
     if (!c) return false;
     return c.id === BASE_SKIN || c.unlock == null || Records.isSkinUnlocked(c.id);
   }
+  function syncInsaneModeUnlock() {
+    const radio = document.getElementById('insane-mode-radio');
+    const option = document.getElementById('insane-mode-option');
+    const lock = document.getElementById('insane-mode-lock');
+    const note = document.getElementById('insane-mode-note');
+    if (!radio) return;
+    const unlocked = isCharUnlocked('alien');
+    radio.disabled = !unlocked;
+    if (option) {
+      option.classList.toggle('mode-locked', !unlocked);
+      option.title = unlocked ? 'Every flip has a 1-in-3 special-event chance' : 'Unlock Alien first';
+    }
+    if (lock) lock.hidden = unlocked;
+    if (note) note.textContent = unlocked
+      ? 'Every flip has a 1-in-3 special-event chance. Life Drain is excluded.'
+      : 'Unlock Alien to unlock Insane Mode.';
+    if (!unlocked && radio.checked) {
+      const normal = document.querySelector('input[name="game-mode"][value="normal"]');
+      if (normal) normal.checked = true;
+    }
+  }
   function availableCharacters() {
     return characterList().filter((c) => isCharUnlocked(c.id));
   }
@@ -680,7 +701,8 @@
     return [3, 5, 10, 20, 100].includes(v) ? v : 10;
   }
   function chosenGameMode() {
-    return document.querySelector('input[name="game-mode"]:checked')?.value === 'insanity'
+    return isCharUnlocked('alien') &&
+      document.querySelector('input[name="game-mode"]:checked')?.value === 'insanity'
       ? 'insanity' : 'normal';
   }
   function flickFeedbackOn() {
@@ -935,6 +957,7 @@
     'power-launch': '⚡ POWER LAUNCH!',
     'moon-gravity': '🌙 MOON GRAVITY!',
     'ice-slide': '🧊 ICE SLIDE!',
+    'alien-invasion': '👽 ALIEN INVASION!',
     'gravity-slam': '💥 GRAVITY SLAM!',
     trampoline:  '🟢 TRAMPOLINE TABLE!',
     'wind-tunnel': '🌪️ WIND TUNNEL!',
@@ -952,6 +975,8 @@
     powerlaunch: 'power-launch',
     moongravity: 'moon-gravity',
     iceslide: 'ice-slide',
+    alien: 'alien-invasion',
+    alieninvasion: 'alien-invasion',
     gravityslam: 'gravity-slam',
     trampoline: 'trampoline',
     trampolinetab: 'trampoline', // 14-character roster truncation of the full label
@@ -1134,7 +1159,7 @@
     game.on(GAME_STATES.GAME_OVER,  onGameOver);
 
     game.init(defs, dir, opts || {});
-    if (modeBadgeEl) modeBadgeEl.textContent = game.insanity ? '🤯 INSANITY MODE · 1 IN 3' : '';
+    if (modeBadgeEl) modeBadgeEl.textContent = game.insanity ? '🤯 INSANE MODE' : '';
     document.body.classList.remove('life-drain-active');
     game.feel = feel;
     gameStarted = true;
@@ -1226,6 +1251,7 @@
                 onCap: !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
                 maxTilt: landingInfo && landingInfo.maxTilt,
                 padOffset: landingInfo && landingInfo.padOffset,
+                bankHits: landingInfo && landingInfo.bankHits,
               },
               playerId: Net.selfId,
             });
@@ -1281,7 +1307,9 @@
       result:      game.state === GAME_STATES.RESULT ? game.lastResult : null,
       resultAlpha,
       specialLabel: game.state === GAME_STATES.RESULT
-        ? (game.plinkoPrize ? (game.plinkoPrize === 'win' ? '🎰 JACKPOT!' : '🎰 PLINKO!')
+        ? (game.plinkoPrize ? (game.plinkoPrize === 'win' ? '🎰 AUTO WIN!'
+          : game.plinkoPrize === 'lose' ? '🎰 AUTO LOSS!'
+          : game.plinkoPrize === 'magnet' ? '🎰 ALWAYS MAGNET!' : '🎰 PLINKO!')
           : (rareEventActive === 'double-flip' || rareEventActive === 'life-drain')
             ? RARE_EVENT_LABELS[rareEventActive]
           : capLandActive ? '🙃 CAP LAND! ×2'
@@ -1308,6 +1336,7 @@
       party:       konamiParty || game.players.some((pl) => isPartyName(pl.name)),
       plinkoBoard: Physics.getPlinko ? Physics.getPlinko() : null,
       rareEvent:   rareEventActive,
+      alwaysMagnet: !!(activePlayer && activePlayer.alwaysMagnet),
       skin:        activePlayer && activePlayer.skin,
       intense:     intenseTurn,
       suddenDeath: game.sdLevelForNextFlip ? game.sdLevelForNextFlip() > 0 : game.inSuddenDeath(),
@@ -1330,7 +1359,7 @@
   function updateFlipHint() {
     if (!flipHintEl) return;
     flipHintEl.textContent = currentIsBankShot()
-      ? 'Flick sideways — bank off the walls onto the pad!'
+      ? 'Flick sideways — bank once, then fly through the tractor ring!'
       : 'Flick up to flip!';
   }
 
@@ -1342,13 +1371,13 @@
     try { seen = localStorage.getItem(ALIEN_HINT_KEY) === '1'; } catch (_) {}
     if (seen) return;
     try { localStorage.setItem(ALIEN_HINT_KEY, '1'); } catch (_) {}
-    showToast('👽 Bank shot! Flick sideways — walls & ceiling bounce, green pad scores.');
+    showToast('👽 Zero-G bank shot! Hit a wall or obstacle, then fly through the tractor ring.');
   }
 
   function nearMissLabel(landing) {
     if (!landing || landing.result === 'MAKE') return null;
-    // Alien bank shot: just outside the pad / slide window.
-    if (landing.padOffset != null && landing.padOffset < 1.35) return 'Almost on the pad!';
+    // Alien bank shot: just outside the floating ring.
+    if (landing.padOffset != null && landing.padOffset < 1.35) return 'Almost through the tractor ring!';
     // Normal flip: tipped just past the make cone (not a flat under-rotate).
     if (landing.reason === 'underrotated') return null;
     if (landing.tilt != null && landing.tilt < 0.95 &&
@@ -1569,6 +1598,7 @@
         capLand:       capLandActive,
         landingReason: landing ? landing.reason : null,
         padOffset: landing && landing.padOffset != null ? landing.padOffset : null,
+        bankHits: landing && landing.bankHits != null ? landing.bankHits : 0,
         totalFlipsLifetime: rec.totalFlips,
         totalMakesLifetime: rec.totalMakes,
         playerCount:   game.players.length,
@@ -1578,10 +1608,17 @@
     }
 
     if (game.practice) {
-      if (game.lastResult === 'MAKE') {
+      if (game.plinkoPrize === 'lose') {
+        streakBannerEl.textContent = '🎰☠ Plinko automatic loss!';
+        streakBannerEl.className = 'streak-banner miss-penalty';
+        Sound.play('miss');
+      } else if (game.lastResult === 'MAKE') {
         if (game.plinkoPrize) {
           streakBannerEl.textContent = game.plinkoPrize === 'win'
-            ? '🎰👑 PLINKO JACKPOT!' : '🎰 Plinko drop — nice!';
+            ? '🎰👑 PLINKO AUTO WIN!'
+            : game.plinkoPrize === 'magnet' ? '🎰🧲 ALWAYS MAGNET unlocked for this practice!'
+            : game.plinkoPrize === 'halve' ? '🎰⚡ Plinko halves the opponents!'
+            : '🎰❤️ Plinko doubles your lives!';
           streakBannerEl.className = 'streak-banner on-fire';
           Sound.play('win');
         } else if (rareEventActive === 'double-flip') {
@@ -1621,12 +1658,17 @@
       return;
     }
 
-    if (game.lastResult === 'MAKE') {
+    if (game.plinkoPrize === 'lose') {
+      streakBannerEl.textContent = `🎰☠ PLINKO AUTOMATIC LOSS — ${p.name} is eliminated!`;
+      streakBannerEl.className = 'streak-banner miss-penalty';
+      Sound.play('miss');
+    } else if (game.lastResult === 'MAKE') {
       if (game.plinkoPrize) {
         // 1/1000 plinko drop — the prize IS the outcome.
         streakBannerEl.textContent =
-          game.plinkoPrize === 'win' ? `🎰👑 PLINKO JACKPOT — ${p.name} WINS THE GAME!`
+          game.plinkoPrize === 'win' ? `🎰👑 PLINKO AUTO WIN — ${p.name} WINS THE GAME!`
           : game.plinkoPrize === 'halve' ? `🎰⚡ Plinko: every opponent's lives are halved!`
+          : game.plinkoPrize === 'magnet' ? `🎰🧲 ALWAYS MAGNET — ${p.name} is magnetized for the rest of the game!`
           : `🎰❤️ Plinko: ${p.name}'s lives are doubled!`;
         streakBannerEl.className = 'streak-banner on-fire';
         Sound.play(game.plinkoPrize === 'win' ? 'win' : 'life');
@@ -1923,7 +1965,8 @@
     }
     const eventMultiplier = isMrHoweName(game.currentPlayer()?.name) ? 10 : 1;
     Physics.applyFlick(vx, vy, seed, eventMultiplier,
-      !onlineMode && game.insanity ? 'insanity' : 'normal');
+      !onlineMode && game.insanity ? 'insanity' : 'normal',
+      !!game.currentPlayer()?.alwaysMagnet);
     // Golden flip lottery — read the seed physics actually used (it generates
     // one when we pass undefined) so local and replayed flicks agree.
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
@@ -2108,7 +2151,7 @@
       if (game.maxLives >= 100) cls += ' marathon-lives';
 
       return `<div class="${cls}">
-        <span class="p-name">${escapeHtml(p.name)}</span>
+        <span class="p-name">${escapeHtml(p.name)}${p.alwaysMagnet ? ' 🧲' : ''}</span>
         <span class="p-lives-num">${p.lives}</span>
         <span class="p-lives-label">lives</span>
       </div>`;
@@ -2160,6 +2203,7 @@
     dismissMystery();
     if (onlineScreen) onlineScreen.classList.add('hidden');
     renderRecordsPanel();
+    syncInsaneModeUnlock();
     setupScreen.classList.remove('hidden');
   }
   if (menuBtn) menuBtn.addEventListener('click', () => {
@@ -2362,6 +2406,7 @@
   Renderer.setReduceMotion(reduceMotionActive());
   syncMuteBtn();
   if (Records.syncUnlocksFromWins) Records.syncUnlocksFromWins();
+  syncInsaneModeUnlock();
   renderRecordsPanel();
 
   // ── Secret: tap the two title words alternating, 3× each ───────────────────
@@ -2387,6 +2432,7 @@
         showToast(`🔓 Secret! Unlocked everything (+${fresh.length}).`);
         Sound.play('win');
         renderFrom(readRows());
+        syncInsaneModeUnlock();
         return;
       }
       Records.resetSkinProgress();
@@ -2405,6 +2451,7 @@
       });
       showToast('🔒 Secret! Progress wiped — earn it all back.');
       renderFrom(defs);
+      syncInsaneModeUnlock();
     }
     function onSecretTap(which) {
       const now = Date.now();

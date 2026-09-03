@@ -72,16 +72,16 @@ const Achievements = (() => {
       test: (c) => !!c.capLand },
 
     { id: 'mothership', emoji: '👽', name: 'Mothership',
-      desc: 'Land the alien bank shot dead on the pad.',
-      test: (c) => c.landingReason === 'on-target' },
+      desc: 'Bank an alien shot and fly through the tractor ring.',
+      test: (c) => c.landingReason === 'tractor-ring' },
 
     { id: 'smooth_operator', emoji: '🛝', name: 'Smooth Operator',
-      desc: 'Miss the pad — then slide the alien onto it anyway.',
-      test: (c) => c.landingReason === 'slid-on' },
+      desc: 'Reach the tractor ring after at least 3 ricochets.',
+      test: (c) => c.landingReason === 'tractor-ring' && (c.bankHits || 0) >= 3 },
 
     { id: 'deadeye', emoji: '🎯', name: 'Deadeye',
-      desc: 'Bank the alien into the dead center of the pad.',
-      test: (c) => c.landingReason === 'on-target' && c.padOffset != null && c.padOffset <= 0.22 },
+      desc: 'Bank through the dead center of the tractor ring.',
+      test: (c) => c.landingReason === 'tractor-ring' && c.padOffset != null && c.padOffset <= 0.22 },
 
     { id: 'last_one_standing', emoji: '🏆', name: 'Last One Standing',
       desc: 'Win a game with at least one human player.',
@@ -136,8 +136,8 @@ const Achievements = (() => {
       test: (c) => !!c.won && !!c.wonWithoutMiss && !!c.sawSuddenDeath },
 
     { id: 'close_encounter', emoji: '🛸', name: 'Close Encounter', mystery: true,
-      desc: 'Slide an alien onto the pad after missing it first.',
-      test: (c) => c.landingReason === 'slid-on' && c.padOffset != null && c.padOffset <= 0.4 },
+      desc: 'Survive 6 ricochets before escaping through the tractor ring.',
+      test: (c) => c.landingReason === 'tractor-ring' && (c.bankHits || 0) >= 6 },
   ];
 
   let unlocked = load();

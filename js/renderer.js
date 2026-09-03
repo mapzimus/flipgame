@@ -12,8 +12,10 @@ const Renderer = (() => {
   // Easter-egg cosmetics for the current frame (set in frame() from state).
   let fxGolden = false, fxGhost = false, fxParty = false;
   let fxMoon = false, fxNinja = false, fxRainbow = false, fxTrail = false, fxSize = 1;
+  let fxRareEvent = null;
   let fxPlinko = null;   // plinko board geometry while a drop is live
   let trailAccumulator = 0;
+  const rainbowTrailPoints = [];
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;
   let shakeAmp = 0;   // brief impact / verdict screen shake (screen space)
@@ -166,6 +168,167 @@ const Renderer = (() => {
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, 58 + i * 10, 88 + i * 12, bottle.angle, 0, Math.PI * 2);
       ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // A true persistent path behind the object. The earlier implementation was
+  // a loose particle cloud, which read as sparkles rather than a tail.
+  function rememberRainbowPoint(bottle, groundY) {
+    if (!fxTrail || !bottle) {
+      rainbowTrailPoints.length = 0;
+      return;
+    }
+    const p = projectBottleCenter(bottle, groundY);
+    const prev = rainbowTrailPoints[rainbowTrailPoints.length - 1];
+    if (!prev || Math.hypot(p.x - prev.x, p.y - prev.y) >= 5) {
+      rainbowTrailPoints.push({ x: p.x, y: p.y });
+      if (rainbowTrailPoints.length > 72) rainbowTrailPoints.shift();
+    }
+  }
+
+  function drawRainbowTail() {
+    const pts = rainbowTrailPoints;
+    if (pts.length < 2) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const bands = ['#ff3d57', '#ffb300', '#fff04a', '#44ef83', '#35bfff', '#a86cff'];
+    for (let b = 0; b < bands.length; b++) {
+      ctx.strokeStyle = bands[b];
+      ctx.shadowColor = bands[b];
+      ctx.shadowBlur = reduceMotion ? 5 : 15;
+      ctx.lineWidth = 6;
+      for (let i = 1; i < pts.length; i++) {
+        const fade = i / pts.length;
+        ctx.globalAlpha = 0.10 + fade * 0.72;
+        ctx.beginPath();
+        ctx.moveTo(pts[i - 1].x, pts[i - 1].y + (b - 2.5) * 5);
+        ctx.lineTo(pts[i].x, pts[i].y + (b - 2.5) * 5);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Each rare event owns a strong arena treatment. These are paint-only and
+  // deliberately use the same event id as physics, keeping the spectacle in
+  // lockstep with the actual special throw.
+  function drawRareEventOverlay(event) {
+    if (!event) return;
+    const colors = {
+      'rainbow-trail': ['rgba(255,40,120,0.14)', 'rgba(40,210,255,0.13)'],
+      'power-launch': ['rgba(255,70,0,0.22)', 'rgba(255,190,30,0.04)'],
+      'moon-gravity': ['rgba(75,70,180,0.24)', 'rgba(120,210,255,0.04)'],
+      'ice-slide': ['rgba(80,225,255,0.23)', 'rgba(180,245,255,0.04)'],
+      'alien-invasion': ['rgba(80,255,125,0.24)', 'rgba(70,40,170,0.06)'],
+      'gravity-slam': ['rgba(230,20,35,0.23)', 'rgba(20,0,0,0.08)'],
+      trampoline: ['rgba(70,255,120,0.18)', 'rgba(255,235,40,0.04)'],
+      'wind-tunnel': ['rgba(80,220,255,0.18)', 'rgba(255,255,255,0.03)'],
+      'double-flip': ['rgba(185,70,255,0.22)', 'rgba(70,30,200,0.04)'],
+      magnet: ['rgba(40,210,255,0.21)', 'rgba(255,45,80,0.04)'],
+      'heart-rush': ['rgba(255,40,105,0.22)', 'rgba(255,160,190,0.04)'],
+      'life-drain': ['rgba(60,255,75,0.23)', 'rgba(0,70,15,0.08)'],
+    };
+    const pair = colors[event] || ['rgba(255,255,255,0.10)', 'rgba(255,255,255,0)'];
+    ctx.save();
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.10,
+      W / 2, H / 2, Math.max(W, H) * 0.72);
+    g.addColorStop(0, pair[1]);
+    g.addColorStop(1, pair[0]);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    const phase = reduceMotion ? 0 : clock;
+    if (event === 'wind-tunnel') {
+      ctx.strokeStyle = 'rgba(190,245,255,0.60)';
+      ctx.lineWidth = 4;
+      for (let i = 0; i < 13; i++) {
+        const y = (i + 0.5) * H / 13;
+        const x = ((phase * 520 + i * 137) % (W + 260)) - 130;
+        ctx.beginPath(); ctx.moveTo(x - 110, y); ctx.lineTo(x + 110, y - 18); ctx.stroke();
+      }
+    } else if (event === 'gravity-slam') {
+      ctx.strokeStyle = 'rgba(255,80,65,0.56)';
+      ctx.lineWidth = 5;
+      for (let i = 0; i < 12; i++) {
+        const x = (i + 0.5) * W / 12;
+        const y = ((phase * 700 + i * 83) % (H + 180)) - 90;
+        ctx.beginPath(); ctx.moveTo(x, y - 80); ctx.lineTo(x, y + 80); ctx.stroke();
+      }
+    } else if (event === 'moon-gravity' || event === 'alien-invasion') {
+      ctx.fillStyle = 'rgba(220,240,255,0.72)';
+      for (let i = 0; i < 28; i++) {
+        const x = (i * 193) % Math.max(W, 1);
+        const y = (i * 97) % Math.max(H, 1);
+        const r = 1 + (i % 3);
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (event === 'rainbow-trail') {
+      ctx.lineWidth = 12;
+      ctx.strokeStyle = `hsl(${(phase * 150) % 360} 100% 62% / 0.75)`;
+      ctx.strokeRect(6, 6, W - 12, H - 12);
+    }
+    ctx.restore();
+  }
+
+  function drawRareEventWorld(event, bottle, groundY) {
+    if (!event || !bottle || fxPlinko) return;
+    const p = projectBottleCenter(bottle, groundY);
+    const pulse = reduceMotion ? 0.7 : 0.55 + 0.45 * Math.sin(clock * 8);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (event === 'ice-slide') {
+      const g = ctx.createLinearGradient(p.x - 520, groundY, p.x + 520, groundY);
+      g.addColorStop(0, 'rgba(80,220,255,0)');
+      g.addColorStop(0.5, 'rgba(170,245,255,0.72)');
+      g.addColorStop(1, 'rgba(80,220,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(p.x - 520, groundY - 15, 1040, 30);
+      ctx.strokeStyle = 'rgba(225,255,255,0.9)'; ctx.lineWidth = 3;
+      for (let i = -5; i <= 5; i++) {
+        ctx.beginPath(); ctx.moveTo(p.x + i * 82, groundY - 13);
+        ctx.lineTo(p.x + i * 82 + 48, groundY + 10); ctx.stroke();
+      }
+    } else if (event === 'trampoline') {
+      ctx.strokeStyle = `rgba(80,255,130,${0.65 + pulse * 0.3})`;
+      ctx.lineWidth = 9; ctx.shadowColor = '#55ff88'; ctx.shadowBlur = 24;
+      ctx.beginPath(); ctx.ellipse(p.x, groundY + 2, 145 + pulse * 25, 28, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      for (let i = 0; i <= 12; i++) {
+        const x = p.x - 110 + i * 18.3;
+        const y = groundY + 10 + (i % 2 ? 24 : 0);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    } else if (event === 'magnet' || event === 'life-drain') {
+      const c = event === 'life-drain' ? '#62ff57' : '#4de8ff';
+      ctx.strokeStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 26;
+      for (let i = 1; i <= 4; i++) {
+        ctx.globalAlpha = 0.82 / i;
+        ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, 55 + i * 32 + pulse * 8, 75 + i * 42, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else if (event === 'heart-rush') {
+      ctx.fillStyle = `rgba(255,65,125,${0.55 + pulse * 0.35})`;
+      ctx.font = `900 ${54 + pulse * 22}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      for (const [dx, dy] of [[-95,-25],[100,-70],[-55,90],[75,70]]) ctx.fillText('♥', p.x + dx, p.y + dy);
+    } else if (event === 'power-launch' || event === 'double-flip') {
+      const c = event === 'power-launch' ? '#ff8a20' : '#cf67ff';
+      ctx.strokeStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 25; ctx.lineWidth = 9;
+      const tail = Math.min(260, 90 + Math.abs(bottle.velocity.y || 0) * 7);
+      for (let i = -2; i <= 2; i++) {
+        ctx.globalAlpha = 0.72 - Math.abs(i) * 0.11;
+        ctx.beginPath(); ctx.moveTo(p.x + i * 18, p.y + 55); ctx.lineTo(p.x + i * 28, p.y + tail); ctx.stroke();
+      }
+      if (event === 'double-flip') {
+        ctx.globalAlpha = 0.65;
+        ctx.font = '900 88px system-ui, sans-serif'; ctx.textAlign = 'center';
+        ctx.fillStyle = c; ctx.fillText('×2', p.x, p.y - 115);
+      }
     }
     ctx.restore();
   }
@@ -714,6 +877,42 @@ const Renderer = (() => {
     const { x, halfWidth: hw } = target;
     const hitHW = target.hitHalfWidth != null ? target.hitHalfWidth : hw;
     const pulse = 0.5 + 0.5 * Math.sin(clock * (aiming ? 5.5 : 3));
+    if (target.style === 'portal') {
+      const y = target.y == null ? groundY * 0.52 : target.y;
+      const armed = !!target.armed;
+      const c = armed ? '#69f0ae' : '#8b7cff';
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const beam = ctx.createLinearGradient(x, y - hw * 1.4, x, y + hw * 1.4);
+      beam.addColorStop(0, 'rgba(80,255,150,0)');
+      beam.addColorStop(0.5, armed ? 'rgba(80,255,150,0.18)' : 'rgba(140,120,255,0.12)');
+      beam.addColorStop(1, 'rgba(80,255,150,0)');
+      ctx.fillStyle = beam;
+      ctx.fillRect(x - hw * 0.72, y - hw * 1.45, hw * 1.44, hw * 2.9);
+      ctx.translate(x, y);
+      ctx.rotate(reduceMotion ? 0 : clock * 0.25);
+      ctx.strokeStyle = c;
+      ctx.shadowColor = c;
+      ctx.shadowBlur = 28 + pulse * 18;
+      ctx.lineWidth = 10;
+      ctx.beginPath(); ctx.arc(0, 0, hitHW, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, hw + 12 + pulse * 8, 0, Math.PI * 2); ctx.stroke();
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4;
+        ctx.fillStyle = i % 2 ? '#d9fff0' : c;
+        ctx.beginPath(); ctx.arc(Math.cos(a) * (hw + 12), Math.sin(a) * (hw + 12), 4 + pulse * 2, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = `900 ${Math.max(15, hw * 0.18)}px system-ui, sans-serif`;
+      ctx.fillStyle = armed ? '#baffd4' : '#d6cfff';
+      ctx.shadowColor = c; ctx.shadowBlur = 12;
+      ctx.fillText(armed ? 'TRACTOR RING ARMED' : 'BANK TO ARM', x, y + hw + 36);
+      ctx.restore();
+      return;
+    }
     // Aim telegraph: brighter / wider while the player is dragging a bank shot.
     const aim = aiming ? 1 : 0;
     const glowR = hw * (1.15 + aim * 0.28);
@@ -854,20 +1053,33 @@ const Renderer = (() => {
       const s = p.slots[i];
       const x = p.left + slotW * i;
       const isWin = s.kind === 'win';
+      const isLoss = s.kind === 'lose';
       if (isWin) {
         const pulse = 0.28 + 0.2 * Math.sin(clock * 5);
         ctx.fillStyle = `rgba(255, 200, 40, ${pulse})`;
+      } else if (isLoss) {
+        ctx.fillStyle = 'rgba(255, 45, 65, 0.30)';
+      } else if (s.kind === 'magnet') {
+        ctx.fillStyle = 'rgba(50, 215, 255, 0.23)';
       } else {
         ctx.fillStyle = s.kind === 'halve' ? 'rgba(140, 90, 255, 0.18)' : 'rgba(90, 220, 140, 0.15)';
       }
       ctx.fillRect(x + 3, p.bottom - p.slotH, slotW - 6, p.slotH);
-      // Label
-      ctx.fillStyle = isWin ? '#ffd23f' : '#e8f2fa';
-      ctx.font = `900 ${isWin ? 26 : 20}px system-ui, sans-serif`;
+      // Two compact lines remain readable across nine bins.
+      const labels = {
+        win: ['👑 AUTO', 'WIN'],
+        lose: ['☠ AUTO', 'LOSS'],
+        magnet: ['🧲 ALWAYS', 'MAGNET'],
+        halve: ['½', 'OTHERS'],
+        double: ['×2', 'LIVES'],
+      };
+      const lines = labels[s.kind] || [String(s.kind), ''];
+      ctx.fillStyle = isWin ? '#ffd23f' : (isLoss ? '#ff6b78' : '#e8f2fa');
+      ctx.font = `900 ${Math.max(12, Math.min(isWin ? 23 : 18, slotW * 0.15))}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const label = isWin ? '👑 WIN' : (s.kind === 'halve' ? '½ OTHERS' : '×2 LIVES');
-      ctx.fillText(label, x + slotW / 2, p.bottom - p.slotH / 2 + 14);
+      ctx.fillText(lines[0], x + slotW / 2, p.bottom - p.slotH / 2 + 2);
+      ctx.fillText(lines[1], x + slotW / 2, p.bottom - p.slotH / 2 + 28);
     }
     // Dividers
     ctx.fillStyle = '#9fb6c8';
@@ -924,6 +1136,7 @@ const Renderer = (() => {
     fxNinja   = !!state.ninja;
     fxRainbow = !!state.rainbow;
     fxTrail   = state.rareEvent === 'rainbow-trail';
+    fxRareEvent = state.rareEvent || (state.alwaysMagnet ? 'magnet' : null);
     fxPlinko  = state.plinkoBoard || null;
     // During a plinko drop the physics body is a ball — draw the character
     // curled up small so it visually fits the peg gaps it's bouncing through.
@@ -940,6 +1153,7 @@ const Renderer = (() => {
     } else {
       trailAccumulator = 0;
     }
+    rememberRainbowPoint(bottle, groundY);
     updateParticles(dt);
     if (shakeAmp > 0) shakeAmp = Math.max(0, shakeAmp - dt * 18);
 
@@ -953,6 +1167,7 @@ const Renderer = (() => {
     ctx.clearRect(0, 0, W, H);
     drawBackground(groundY, isOnFire, { skyOnly: true });
     drawAmbience();
+    drawRareEventOverlay(fxRareEvent);
 
     // Brief impact/verdict shake — screen space, before the world camera.
     if (shakeAmp > 0.05) {
@@ -971,6 +1186,8 @@ const Renderer = (() => {
     if (fxPlinko) drawPlinko(fxPlinko);
     drawFlickIndicator(drag, bottle, groundY);
     if (showGlow && !fxPlinko) drawLandingGlow(bottle, groundY);
+    drawRareEventWorld(fxRareEvent, bottle, groundY);
+    drawRainbowTail();
     drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin);
     drawRainbowAura(bottle, groundY);
     drawParticles();
@@ -1000,6 +1217,7 @@ const Renderer = (() => {
   function drawPreview(target, skin, liquidColor) {
     const prevCanvas = canvas, prevCtx = ctx, prevW = W, prevH = H;
     fxGolden = fxGhost = fxNinja = fxRainbow = fxTrail = false; // never leak cosmetics into previews
+    fxRareEvent = null;
     fxSize = 1;
     canvas = target;
     ctx = target.getContext('2d');

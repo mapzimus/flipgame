@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Bottle Game">
 
-  <link rel="stylesheet" href="css/style.css?v=109">
+  <link rel="stylesheet" href="css/style.css?v=110">
 </head>
 <body>
 
@@ -72,9 +72,9 @@
         <div class="section-label">Game mode</div>
         <div class="direction-options">
           <label><input type="radio" name="game-mode" value="normal" checked> 🎯 Normal</label>
-          <label><input type="radio" name="game-mode" value="insanity"> 🤯 Insanity</label>
+          <label id="insane-mode-option"><input id="insane-mode-radio" type="radio" name="game-mode" value="insanity"> 🤯 Insane <span id="insane-mode-lock">🔒 Alien required</span></label>
         </div>
-        <div class="mode-note">Insanity: every flip has a 1-in-3 special-event chance. Life Drain is excluded.</div>
+        <div id="insane-mode-note" class="mode-note">Unlock Alien to unlock Insane Mode.</div>
       </div>
 
       <button id="start-btn">Start Game</button>
@@ -212,24 +212,24 @@
     </div>
   </div>
 
-  <div id="version-badge" aria-label="Bottle Game version 109">v109</div>
+  <div id="version-badge" aria-label="Bottle Game version 110">v110</div>
 
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=109"></script>
-  <script src="js/game.js?v=109"></script>
-  <script src="js/physics.js?v=109"></script>
-  <script src="js/input.js?v=109"></script>
-  <script src="js/renderer.js?v=109"></script>
-  <script src="js/audio.js?v=109"></script>
-  <script src="js/settings.js?v=109"></script>
-  <script src="js/records.js?v=109"></script>
-  <script src="js/achievements.js?v=109"></script>
-  <script src="js/cast25.js?v=109"></script>
-  <script src="js/skins.js?v=109"></script>
-  <script src="js/net.js?v=109"></script>
-  <script src="js/main.js?v=109"></script>
+  <script src="js/polyfills.js?v=110"></script>
+  <script src="js/game.js?v=110"></script>
+  <script src="js/physics.js?v=110"></script>
+  <script src="js/input.js?v=110"></script>
+  <script src="js/renderer.js?v=110"></script>
+  <script src="js/audio.js?v=110"></script>
+  <script src="js/settings.js?v=110"></script>
+  <script src="js/records.js?v=110"></script>
+  <script src="js/achievements.js?v=110"></script>
+  <script src="js/cast25.js?v=110"></script>
+  <script src="js/skins.js?v=110"></script>
+  <script src="js/net.js?v=110"></script>
+  <script src="js/main.js?v=110"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {

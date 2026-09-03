@@ -142,6 +142,20 @@ body.life-drain-active::after {
   text-align: center;
 }
 
+#insane-mode-option.mode-locked {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+#insane-mode-option.mode-locked:has(input:checked) {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.1);
+}
+#insane-mode-lock {
+  font-size: 0.66rem;
+  color: #ffd166;
+  white-space: nowrap;
+}
+
 /* Player input rows */
 .player-input-row {
   display: flex;

@@ -82,6 +82,7 @@ const game = {
       streak: 0,
       isHeatingUp: false,
       isOnFire: false,
+      alwaysMagnet: false,
       eliminated: false,
     }));
     this.direction = direction;
@@ -201,13 +202,16 @@ const game = {
   },
 
   // ── Plinko drop resolution (1/1000 easter egg) ─────────────────────────
-  // Replaces the normal make/miss outcome. Never a penalty; stake, streaks
-  // and ON FIRE state are untouched (the drop happens "outside" the game).
-  //   'win'    center slot → every opponent is out; flipper wins the game
-  //   'halve'  mid slots   → every opponent's lives are halved (round down)
-  //   'double' outer slots → flipper's lives are doubled
+  // Replaces the normal make/miss outcome. Stake and ON FIRE state are
+  // untouched (the drop happens "outside" the ordinary flip economy).
+  //   'win'     center slot → every opponent is out; flipper wins the game
+  //   'lose'    center-adjacent slots → flipper is eliminated
+  //   'magnet'  inner slots → permanent magnet assistance for this match
+  //   'halve'   mid slots → every opponent's lives are halved (round down)
+  //   'double'  outer slots → flipper's lives are doubled
   resolvePlinko(prize) {
-    this.lastResult = 'MAKE';
+    const automaticLoss = prize === 'lose';
+    this.lastResult = automaticLoss ? 'MISS' : 'MAKE';
     const player = this.currentPlayer();
     this.resetOutcomeFlags();
     this.perfectLanding = false;
@@ -217,9 +221,14 @@ const game = {
 
     if (this.practice) {
       this.practiceAttempts++;
-      this.practiceMakes++;
-      this.practiceStreak++;
-      this.practiceBest = Math.max(this.practiceBest, this.practiceStreak);
+      if (automaticLoss) {
+        this.practiceStreak = 0;
+      } else {
+        this.practiceMakes++;
+        this.practiceStreak++;
+        this.practiceBest = Math.max(this.practiceBest, this.practiceStreak);
+        if (prize === 'magnet') player.alwaysMagnet = true;
+      }
       this.setState(GAME_STATES.RESULT);
       return;
     }
@@ -238,6 +247,11 @@ const game = {
       }
     } else if (prize === 'double') {
       player.lives *= 2;
+    } else if (prize === 'magnet') {
+      player.alwaysMagnet = true;
+    } else if (automaticLoss) {
+      this.eliminatePlayer(player);
+      this.justEliminated = true;
     }
     this.setState(GAME_STATES.RESULT);
   },
