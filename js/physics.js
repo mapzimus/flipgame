@@ -315,14 +315,20 @@ const Physics = (() => {
   // out to frame it), so slots stay big enough for the ball on any device.
   const PLINKO_KINDS = ['double', 'halve', 'win', 'halve', 'double'];
   let plinkoEnabled = true;
-  let plinkoForced = false;   // secret test trigger — consumed by the next flick
+  let forcedSpecialEvent = null; // secret test trigger — consumed by the next flick
   let plinko = null;          // { left, right, top, bottom, pegs, dividers, slots }
   let plinkoBodies = [];
   let plinkoSettle = 0;
   let plinkoNudges = 0;       // "machine shakes" applied to a wedged object
 
   function setPlinkoEnabled(v) { plinkoEnabled = !!v; }
-  function forcePlinko() { plinkoForced = true; }
+  function forceSpecialEvent(id) {
+    const valid = id === 'plinko' || RARE_EVENT_ROLLS.some((event) => event.id === id);
+    if (!valid) return false;
+    forcedSpecialEvent = id;
+    return true;
+  }
+  function forcePlinko() { return forceSpecialEvent('plinko'); }
 
   function startPlinko() {
     clearPlinko();
@@ -966,11 +972,13 @@ const Physics = (() => {
     // startPlinko clears alien furniture so pegs own the drop. Secret trigger
     // (name "plinko" / typing "plinko") forces the next one. Still offline-only
     // (main.js disables it online — prizes rewrite lives).
-    const plinkoRoll = plinkoForced || (plinkoEnabled && (s % 1000) === 123);
-    plinkoForced = false;
+    const forcedEvent = forcedSpecialEvent;
+    forcedSpecialEvent = null;
+    const plinkoRoll = forcedEvent === 'plinko' ||
+      (!forcedEvent && plinkoEnabled && (s % 1000) === 123);
     if (plinkoRoll) startPlinko();
 
-    rareEvent = rareEventForSeed(s, plinkoRoll);
+    rareEvent = plinkoRoll ? null : (forcedEvent || rareEventForSeed(s));
     rareImpulseUsed = false;
     rarePhase = (mixSeed(s, 0xa5a5a5a5) / 4294967296) * Math.PI * 2;
 
@@ -1253,7 +1261,8 @@ const Physics = (() => {
     init, reflow, step, resetBottle, applyFlick, checkLanding, forceLanding,
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
-    seedTurn, setPlinkoEnabled, forcePlinko, getPlinko, setFeel, rareEventForSeed,
+    seedTurn, setPlinkoEnabled, forcePlinko, forceSpecialEvent, getPlinko, setFeel,
+    rareEventForSeed,
     getFeel: () => feelMode, setImpactCallback,
   };
 })();

@@ -271,6 +271,25 @@ function testRareEventLadder() {
   }
 }
 
+function testForcedSpecialEvents() {
+  const physics = loadPhysics();
+  physics.init(1280, 800);
+  physics.setPlinkoEnabled(false);
+  const events = ['plinko', 'trampoline', 'wind-tunnel', 'double-flip', 'magnet', 'heart-rush'];
+
+  for (const event of events) {
+    physics.resetBottle();
+    assert.equal(physics.forceSpecialEvent(event), true);
+    // Seed 123 naturally rolls Plinko. A specifically forced rare event must
+    // still win, making the Mr. Howe picker reliable for all six outcomes.
+    physics.applyFlick(0, -2500, 123);
+    const info = physics.getLastFlickInfo();
+    assert.equal(info.plinko, event === 'plinko', `${event} selected the wrong Plinko state`);
+    assert.equal(info.rareEvent, event === 'plinko' ? null : event);
+  }
+  assert.equal(physics.forceSpecialEvent('not-an-event'), false);
+}
+
 testSuddenDeathFireMissIsFree();
 testEightPlayerFireCapsAtFiveGains();
 testOrdinarySuddenDeathPenaltyRemains();
@@ -281,4 +300,5 @@ testHeartRushReward();
 testLandingVerdictsRequireRealSettle();
 testLongPlinkoBoardResolves();
 testRareEventLadder();
+testForcedSpecialEvents();
 console.log('Regression tests passed.');

@@ -927,6 +927,12 @@
     magnet:       '🧲 MAGNET LANDING!',
     'heart-rush': '💗 HEART RUSH!',
   };
+  const MR_HOWE_SPECIALS = [
+    'plinko', 'trampoline', 'wind-tunnel', 'double-flip', 'magnet', 'heart-rush',
+  ];
+  // Exact, case-sensitive classroom test name. Every one of this player's
+  // offline flips uniformly selects one of the six special events above.
+  const isMrHoweName = (name) => String(name || '') === 'Mr. Howe';
   // Easter egg: secret player names — all pure cosmetics.
   //   party/disco   → rainbow table edge      ghost/boo     → see-through object
   //   tiny/smol     → pocket-sized object     giant/jumbo   → oversized object
@@ -1853,11 +1859,16 @@
     Sound.unlock();
     Sound.play('flick');
     lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);
-    // Secret plinko test triggers (never online — prizes rewrite lives).
-    if (!onlineMode && Physics.forcePlinko &&
-        (plinkoArmed || isPlinkoName(game.currentPlayer()?.name))) {
-      Physics.forcePlinko();
-      plinkoArmed = false;
+    // Secret special-event test names (offline only: Plinko rewrites lives).
+    if (!onlineMode) {
+      if (isMrHoweName(game.currentPlayer()?.name) && Physics.forceSpecialEvent) {
+        const event = MR_HOWE_SPECIALS[Math.floor(Math.random() * MR_HOWE_SPECIALS.length)];
+        Physics.forceSpecialEvent(event);
+      } else if (Physics.forcePlinko &&
+                 (plinkoArmed || isPlinkoName(game.currentPlayer()?.name))) {
+        Physics.forcePlinko();
+        plinkoArmed = false;
+      }
     }
     Physics.applyFlick(vx, vy, seed);
     // Golden flip lottery — read the seed physics actually used (it generates
