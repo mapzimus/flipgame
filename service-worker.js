@@ -2,7 +2,7 @@
 // Bump CACHE_NAME on every release so stale caches are purged and users get
 // the fresh build. All paths are RELATIVE so they resolve under /flipgame/
 // on GitHub Pages (the SW lives at repo root → scope is /flipgame/).
-const CACHE_NAME = 'flipgame-v101';
+const CACHE_NAME = 'flipgame-v102';
 
 const PRECACHE_URLS = [
   './',
@@ -73,17 +73,17 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.open(CACHE_NAME).then((cache) =>
-      cache.match(req).then((cached) => {
-        // HTML uses ?v=N cache-busting; precache stores bare paths — ignore the
-        // query when looking up so offline still hits the precache.
-        const lookup = cached || cache.match(req, { ignoreSearch: true });
-        return Promise.resolve(lookup).then((hit) => {
-          const fromNetwork = fetch(req).then((res) => {
-            if (res && res.status === 200) cache.put(req, res.clone());
-            return res;
-          }).catch(() => hit);
-          return hit || fromNetwork;
-        });
+      cache.match(req).then((exact) => {
+        // A new ?v=N URL must not be satisfied by a stale bare-path precache.
+        // Fetch it first; use ignoreSearch only if the device is offline.
+        const offlineFallback = exact || cache.match(req, { ignoreSearch: true });
+        const fromNetwork = fetch(req).then((res) => {
+          if (res && res.status === 200) cache.put(req, res.clone());
+          return res;
+        }).catch(() => offlineFallback);
+        // Exact-version hits stay stale-while-revalidate. A version miss waits
+        // for the network, preventing the previous release from running once.
+        return exact || fromNetwork;
       })
     )
   );

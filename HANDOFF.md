@@ -232,7 +232,7 @@ Pages auto-builds from `master` (root). Push and it's live in ~1 minute at
 **The one ritual you must not forget:**
 > When you change ANY game file, **bump `CACHE_NAME` in `service-worker.js`**
 > (`flipgame-v3` → `flipgame-v4`). Otherwise installed copies serve the old cached
-> build forever. (Currently at **v101**.)
+> build forever. (Currently at **v102**.)
 
 **Gotchas baked into the project (don't undo these):**
 - **All asset paths are RELATIVE.** The site lives at the `/flipgame/` subpath;
@@ -305,7 +305,7 @@ skipped online — only the current peer can flick.
 
 ---
 
-# PART 11 — SESSION UPDATE (current state: v101)
+# PART 11 — SESSION UPDATE (current state: v102)
 
 Everything below was added after the original guide above; on conflicts, THIS wins.
 
@@ -330,7 +330,7 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 ## Dev/verify workflow used this session (IMPORTANT)
 - Run the dev server (`python -m http.server 5174` / launch.json "flipgame"), open in the **Claude preview**, and verify with `preview_eval`. Game logic + physics are tested **headlessly** by driving `game.resolveFlip`/`advanceTurn` + `Physics.applyFlick`/`step`/`checkLanding` directly (set `game.callbacks = {}` to isolate from the UI). This is how all balance/landing numbers were measured.
 - **Feel-dependent things (slow-mo, audio, haptics, the live countdown drain) only run in a real focused tab** — the preview throttles `requestAnimationFrame`/timers, so they can't be exercised headlessly. Playtest those on a real device.
-- **Stale-cache gotcha:** the dev server sends no cache headers, so the browser serves stale JS on reload. Scripts/CSS carry a `?v=N` query (currently **v101**) — **bump it on every change** (and the matching `CACHE_NAME` in `service-worker.js`) or the browser/SW serves the old build. This is the #1 "my change didn't show up" cause.
+- **Stale-cache gotcha:** scripts/CSS carry a `?v=N` query (currently **v102**) — **bump it on every change** with the matching `CACHE_NAME` in `service-worker.js`. Version misses are network-first and fall back to the bare precache only when offline; `controllerchange` reloads an open tab once after an updated worker claims it.
 - **Deploy:** push to `master` → GitHub Pages + the offline APK (GitHub Actions) rebuild automatically.
 
 ## Tuning knobs quick map (all in `js/game.js` unless noted)

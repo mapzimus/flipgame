@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Bottle Game">
 
-  <link rel="stylesheet" href="css/style.css?v=101">
+  <link rel="stylesheet" href="css/style.css?v=102">
 </head>
 <body>
 
@@ -205,19 +205,19 @@
   <!-- ?v= forces the browser to refetch on each release (dev server sends no
        cache headers). Bump alongside the service-worker CACHE_NAME. -->
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=101"></script>
-  <script src="js/game.js?v=101"></script>
-  <script src="js/physics.js?v=101"></script>
-  <script src="js/input.js?v=101"></script>
-  <script src="js/renderer.js?v=101"></script>
-  <script src="js/audio.js?v=101"></script>
-  <script src="js/settings.js?v=101"></script>
-  <script src="js/records.js?v=101"></script>
-  <script src="js/achievements.js?v=101"></script>
-  <script src="js/cast25.js?v=101"></script>
-  <script src="js/skins.js?v=101"></script>
-  <script src="js/net.js?v=101"></script>
-  <script src="js/main.js?v=101"></script>
+  <script src="js/polyfills.js?v=102"></script>
+  <script src="js/game.js?v=102"></script>
+  <script src="js/physics.js?v=102"></script>
+  <script src="js/input.js?v=102"></script>
+  <script src="js/renderer.js?v=102"></script>
+  <script src="js/audio.js?v=102"></script>
+  <script src="js/settings.js?v=102"></script>
+  <script src="js/records.js?v=102"></script>
+  <script src="js/achievements.js?v=102"></script>
+  <script src="js/cast25.js?v=102"></script>
+  <script src="js/skins.js?v=102"></script>
+  <script src="js/net.js?v=102"></script>
+  <script src="js/main.js?v=102"></script>
   <script>
     window.onerror = (msg, src, line) => {
       const el = document.getElementById('err-overlay') || (() => {
@@ -236,8 +236,21 @@
         location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js')
-          .then(reg => console.log('SW registered, scope:', reg.scope))
+          .then((reg) => {
+            // Check immediately instead of waiting for the browser's periodic
+            // service-worker update. skipWaiting()+claim() then switches v102 in.
+            reg.update().catch(err => console.warn('SW update check failed:', err));
+            console.log('SW registered, scope:', reg.scope);
+          })
           .catch(err => console.error('SW registration failed:', err));
+      });
+      // Reload once when a newly deployed worker takes control, so the open tab
+      // cannot keep executing the previous release's already-loaded scripts.
+      let reloadingForWorker = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloadingForWorker) return;
+        reloadingForWorker = true;
+        location.reload();
       });
     }
   </script>
