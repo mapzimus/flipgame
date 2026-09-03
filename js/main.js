@@ -934,6 +934,25 @@
   };
   // Exact, case-sensitive classroom name: every seeded event chance is 10×.
   const isMrHoweName = (name) => String(name || '') === 'Mr. Howe';
+  // Offline test names force their matching event on every flip. Normalize
+  // spaces/hyphens so both "Double Flip" and "doubleflip" work in the roster.
+  const TEST_EVENT_NAMES = {
+    rainbowtrail: 'rainbow-trail',
+    powerlaunch: 'power-launch',
+    moongravity: 'moon-gravity',
+    iceslide: 'ice-slide',
+    gravityslam: 'gravity-slam',
+    trampoline: 'trampoline',
+    windtunnel: 'wind-tunnel',
+    doubleflip: 'double-flip',
+    magnet: 'magnet',
+    heartrush: 'heart-rush',
+    lifedrain: 'life-drain',
+    plinko: 'plinko',
+  };
+  const testEventForName = (name) => TEST_EVENT_NAMES[
+    String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  ] || null;
   // Easter egg: secret player names — all pure cosmetics.
   //   party/disco   → rainbow table edge      ghost/boo     → see-through object
   //   tiny/smol     → pocket-sized object     giant/jumbo   → oversized object
@@ -944,9 +963,7 @@
   const isGiantName = (n) => /^(giant|jumbo|biggie)$/i.test(String(n || '').trim());
   const isNinjaName = (n) => /^(ninja|shadow)$/i.test(String(n || '').trim());
   const isRainbowName = (n) => /^(rainbow|unicorn)$/i.test(String(n || '').trim());
-  // Secret plinko triggers: name a player "plinko" (every flick drops), or
-  // type the letters p-l-i-n-k-o on a keyboard (arms the next flick only).
-  const isPlinkoName = (n) => /^plinko$/i.test(String(n || '').trim());
+  // Typed event words arm the next flip only; roster test names repeat forever.
   let specialEventArmed = null;
   // Rainbow egg: cycle the 12 flavor colors (~1.1s each) — each is a cached
   // sprite bake, so no per-frame cache churn.
@@ -1883,8 +1900,9 @@
       if (specialEventArmed) {
         Physics.forceSpecialEvent(specialEventArmed);
         specialEventArmed = null;
-      } else if (isPlinkoName(game.currentPlayer()?.name)) {
-        Physics.forcePlinko();
+      } else {
+        const namedEvent = testEventForName(game.currentPlayer()?.name);
+        if (namedEvent) Physics.forceSpecialEvent(namedEvent);
       }
     }
     const eventMultiplier = isMrHoweName(game.currentPlayer()?.name) ? 10 : 1;
