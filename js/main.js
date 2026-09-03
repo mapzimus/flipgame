@@ -943,12 +943,15 @@
     iceslide: 'ice-slide',
     gravityslam: 'gravity-slam',
     trampoline: 'trampoline',
+    trampolinetable: 'trampoline',
     windtunnel: 'wind-tunnel',
     doubleflip: 'double-flip',
     magnet: 'magnet',
+    magnetlanding: 'magnet',
     heartrush: 'heart-rush',
     lifedrain: 'life-drain',
     plinko: 'plinko',
+    plinkodrop: 'plinko',
   };
   const testEventForName = (name) => TEST_EVENT_NAMES[
     String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
