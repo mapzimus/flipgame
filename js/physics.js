@@ -1049,21 +1049,29 @@ const Physics = (() => {
         bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX && bottle.velocity.y > 0.5) {
       rareImpulseUsed = true;
       Body.setVelocity(bottle, {
-        x: bottle.velocity.x * 0.86,
-        y: -Math.max(11.5, Math.abs(bottle.velocity.y) * 0.82),
+        x: bottle.velocity.x * 0.78,
+        // A real second launch, not a table bounce: at least as powerful as a
+        // strong original flick and even hotter after a hard impact.
+        y: -Math.max(24, Math.abs(bottle.velocity.y) * 1.45),
       });
       const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
-      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.035);
+      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.10);
       groundedFrames = 0;
       angleWin = [];
     }
 
-    // 1/600 — WIND TUNNEL: a deterministic side-to-side gust bends the arc.
-    // Force is mass-scaled so every edition experiences the same acceleration.
+    // 1/600 — WIND TUNNEL: a strong deterministic crosswind sweeps the object
+    // in one direction for the whole arc. Apply above center so the gust also
+    // produces a visible lean. Force is mass-scaled across every edition.
     if (rareEvent === 'wind-tunnel' && launched && wasAirborne &&
         bottle.bounds.max.y < groundY - GROUND_TOUCH_PX) {
-      const gust = Math.sin(arenaTime * 4.6 + rarePhase) * bottle.mass * 0.00016;
-      Body.applyForce(bottle, bottle.position, { x: gust, y: 0 });
+      const direction = Math.cos(rarePhase) < 0 ? -1 : 1;
+      const pulse = 0.75 + Math.sin(arenaTime * 5.2 + rarePhase) * 0.25;
+      const gust = direction * pulse * bottle.mass * 0.00085;
+      Body.applyForce(bottle, {
+        x: bottle.position.x,
+        y: bottle.position.y - 40,
+      }, { x: gust, y: 0 });
     }
 
     // 1/700 — DOUBLE FLIP: on the first descent, a rocket-like impulse sends

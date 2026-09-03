@@ -232,7 +232,7 @@ Pages auto-builds from `master` (root). Push and it's live in ~1 minute at
 **The one ritual you must not forget:**
 > When you change ANY game file, **bump `CACHE_NAME` in `service-worker.js`**
 > (`flipgame-v3` → `flipgame-v4`). Otherwise installed copies serve the old cached
-> build forever. (Currently at **v103**.)
+> build forever. (Currently at **v104**.)
 
 **Gotchas baked into the project (don't undo these):**
 - **All asset paths are RELATIVE.** The site lives at the `/flipgame/` subpath;
@@ -305,7 +305,7 @@ skipped online — only the current peer can flick.
 
 ---
 
-# PART 11 — SESSION UPDATE (current state: v103)
+# PART 11 — SESSION UPDATE (current state: v104)
 
 Everything below was added after the original guide above; on conflicts, THIS wins.
 
@@ -314,10 +314,10 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 - **Big scary stake display** (`renderer.js drawStake`): a large canvas number that grows/reddens/shakes as the stake climbs. Replaced the small top-bar text.
 - **ON FIRE:** +1 life per flip, bounded by the match life cap (at least 20 and always five above the selected starting-lives preset) — EXCEPT in lobbies with **>4 players**, where a run caps at **+5 lives** then passes on gracefully (no penalty). Constants `ONFIRE_CAP_PLAYERS=4`, `ONFIRE_CAP_LIVES=5` in `game.js`.
 - **SUDDEN DEATH** after `SD_THRESHOLD=70` flips (`game.js`): ordinary misses take an escalating extra penalty (`SD_STEP=20` flips/level). ON FIRE remains protected: makes add lives and the ending miss is free. In lobbies over four players the existing +5 fire-gain cap passes the turn before a run can stall the table.
-- **Ultra-rare event ladder** (`physics.js`, mutually exclusive per flick): Trampoline Table 1/500, Wind Tunnel 1/600, Double Flip 1/700, Magnet Landing 1/800, and Heart Rush 1/900. These alter physics or award +3 lives only after a successful landing; none is an automatic win.
+- **Ultra-rare event ladder** (`physics.js`, mutually exclusive per flick): Trampoline Table 1/500, Wind Tunnel 1/600, Double Flip 1/700, Magnet Landing 1/800, and Heart Rush 1/900. These alter physics or award +3 lives only after a successful landing; none is an automatic win. v104 makes Trampoline a full second launch (≥23 velocity units and >350 px rise in regression) and Wind Tunnel a strong one-direction crosswind (>150 px drift and >5 lateral velocity); Magnet tuning is unchanged.
 - **PLINKO DROP** is the lone 1/1000 event and the only automatic-win mechanic. Its extended eight-row board pays double the flipper's lives in the outer slots, halves every opponent's lives (round down) in the middle slots, and awards the instant win only in the center.
 - **Special-event test name:** name a player exactly `Mr. Howe` (case-sensitive) and every offline flip by that player uniformly selects one of the five ultra-rare events or Plinko. The existing `plinko` player-name and typed-word triggers still force Plinko.
-- **Visible version badge:** the lower-right corner always shows the running release (`v103`) on setup, gameplay, overlays, and game-over screens so stale installs are immediately obvious.
+- **Visible version badge:** the lower-right corner always shows the running release (`v104`) on setup, gameplay, overlays, and game-over screens so stale installs are immediately obvious.
 - **"Make it or break it" intense finale** when a miss would eliminate the current player (`game.missWouldEliminate()`): slow-mo flight (airborne dt×0.4 in the loop), red vignette + banner, tension sound + haptic.
 - **Per-turn flip countdown:** 10s (4s ON FIRE), human turns only; timeout = forfeited miss. Bar in the HUD.
 - **CPU players:** toggle Human/CPU per row; difficulty easy/med/hard. Two CPUs auto-play — great for watching/bug-hunting.
@@ -331,7 +331,7 @@ Everything below was added after the original guide above; on conflicts, THIS wi
 ## Dev/verify workflow used this session (IMPORTANT)
 - Run the dev server (`python -m http.server 5174` / launch.json "flipgame"), open in the **Claude preview**, and verify with `preview_eval`. Game logic + physics are tested **headlessly** by driving `game.resolveFlip`/`advanceTurn` + `Physics.applyFlick`/`step`/`checkLanding` directly (set `game.callbacks = {}` to isolate from the UI). This is how all balance/landing numbers were measured.
 - **Feel-dependent things (slow-mo, audio, haptics, the live countdown drain) only run in a real focused tab** — the preview throttles `requestAnimationFrame`/timers, so they can't be exercised headlessly. Playtest those on a real device.
-- **Stale-cache gotcha:** scripts/CSS carry a `?v=N` query (currently **v103**) — **bump it on every change** with the matching `CACHE_NAME` in `service-worker.js` and visible `#version-badge` in `index.html`. Version misses are network-first and fall back to the bare precache only when offline; `controllerchange` reloads an open tab once after an updated worker claims it.
+- **Stale-cache gotcha:** scripts/CSS carry a `?v=N` query (currently **v104**) — **bump it on every change** with the matching `CACHE_NAME` in `service-worker.js` and visible `#version-badge` in `index.html`. Version misses are network-first and fall back to the bare precache only when offline; `controllerchange` reloads an open tab once after an updated worker claims it.
 - **Deploy:** push to `master` → GitHub Pages + the offline APK (GitHub Actions) rebuild automatically.
 
 ## Tuning knobs quick map (all in `js/game.js` unless noted)

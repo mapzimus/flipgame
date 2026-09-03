@@ -250,14 +250,24 @@ function testRareEventLadder() {
     const startX = physics.getBottle().position.x;
     let previousVy = physics.getBottle().velocity.y;
     let upwardReversals = 0;
+    let strongestRebound = 0;
+    let reboundStartY = null;
+    let reboundPeakY = Infinity;
     let maxDrift = 0;
+    let maxLateralSpeed = 0;
     let verdict = null;
     for (let frame = 0; frame < 1600 && !verdict; frame++) {
       physics.step(1 / 60);
       const bottle = physics.getBottle();
-      if (previousVy > 0.5 && bottle.velocity.y < -1) upwardReversals++;
+      if (previousVy > 0.5 && bottle.velocity.y < -1) {
+        upwardReversals++;
+        strongestRebound = Math.max(strongestRebound, -bottle.velocity.y);
+        if (reboundStartY === null) reboundStartY = bottle.position.y;
+      }
       previousVy = bottle.velocity.y;
+      if (reboundStartY !== null) reboundPeakY = Math.min(reboundPeakY, bottle.position.y);
       maxDrift = Math.max(maxDrift, Math.abs(bottle.position.x - startX));
+      maxLateralSpeed = Math.max(maxLateralSpeed, Math.abs(bottle.velocity.x));
       verdict = physics.checkLanding();
     }
     assert.ok(verdict, `${id} did not reach a verdict`);
@@ -265,8 +275,16 @@ function testRareEventLadder() {
     if (id === 'trampoline' || id === 'double-flip') {
       assert.ok(upwardReversals >= 1, `${id} never produced its second aerial arc`);
     }
+    if (id === 'trampoline') {
+      assert.ok(strongestRebound >= 23,
+        `trampoline rebound was only ${strongestRebound.toFixed(1)} velocity units`);
+      assert.ok(reboundStartY - reboundPeakY > 350,
+        `trampoline second launch rose only ${(reboundStartY - reboundPeakY).toFixed(1)}px`);
+    }
     if (id === 'wind-tunnel') {
-      assert.ok(maxDrift > 20, `wind tunnel only moved ${maxDrift.toFixed(1)}px sideways`);
+      assert.ok(maxDrift > 150, `wind tunnel only moved ${maxDrift.toFixed(1)}px sideways`);
+      assert.ok(maxLateralSpeed > 5,
+        `wind tunnel lateral speed only reached ${maxLateralSpeed.toFixed(1)}`);
     }
   }
 }
