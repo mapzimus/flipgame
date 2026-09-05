@@ -453,3 +453,24 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owner notified: the active Settings specialist was paused and given
   the revised precedence before merge. Other active work is unaffected.
+
+## Revision 25 - runtime execution is part of atomic boot
+
+- Trigger: integrator browser probing demonstrated that a dynamically loaded
+  script can fire its element `load` event after throwing during execution.
+  The first loader candidate displayed recovery but continued the dependency
+  graph and eventually added boot-ready.
+- Old behavior: a synchronous runtime exception could leave both failure and
+  ready states present and execute later modules against a partial runtime.
+- New behavior: any global execution error observed before boot-ready is stored
+  as the boot failure. The active script rejects on load completion, no later
+  script is appended, boot-ready is never added, and the recovery shell remains
+  the only visible UI.
+- Migration action: propagate pre-ready execution errors through the ordered
+  loader promise rather than treating resource delivery as execution success.
+- Required tests: inject a synchronous error from a middle runtime script,
+  assert the boot promise fails, no later dependency loads, failure remains
+  isolated, and boot-ready is absent.
+- Integration commit: pending.
+- Affected owners notified: Release Engineering and Browser/Release QA. The
+  integrated Settings implementation itself is unchanged.

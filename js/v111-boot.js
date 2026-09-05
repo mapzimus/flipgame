@@ -42,6 +42,7 @@
     'js/main.js?v=111',
   ];
   var started = false;
+  var bootFailure = null;
 
   window.__FLIPGAME_BOOT_VERSION__ = 'v111';
   window.__FLIPGAME_BOOT_ASSETS__ = Object.freeze({
@@ -80,7 +81,9 @@
       var script = document.createElement('script');
       script.src = url;
       script.async = false;
-      script.onload = resolve;
+      script.onload = function () {
+        if (bootFailure) reject(bootFailure); else resolve();
+      };
       script.onerror = function () { reject(new Error('Could not load ' + url)); };
       document.body.appendChild(script);
     });
@@ -166,7 +169,10 @@
   }
 
   window.addEventListener('error', function (event) {
-    if (!document.body.classList.contains('flipgame-boot-ready')) showFailure(event.error || new Error(event.message));
+    if (!document.body.classList.contains('flipgame-boot-ready')) {
+      bootFailure = event.error || new Error(event.message || 'A v111 runtime script could not execute.');
+      showFailure(bootFailure);
+    }
   });
   window.__FLIPGAME_BOOT_PROMISE__ = start().then(function () { return true; }, function (error) {
     showFailure(error);

@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 24
+Contract revision: 25
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -27,6 +27,10 @@ affected specialist continues.
   Before boot completes, including every failure path, all application screens
   remain hidden and only that recovery surface is visible. Architecture and
   release gates validate ordered runtime dependencies from the boot graph.
+  A runtime script counts as loaded only when both its resource load and its
+  synchronous execution succeed. Any execution error before boot-ready aborts
+  the ordered graph, leaves all later scripts unloaded, and keeps the release
+  in the isolated recovery state.
 - Player-facing UI never reveals unlock thresholds, wins remaining, locked
   names, programmed event odds, or the Insane Mode occurrence rate.
 - Locked objects, cosmetics, achievements, Alien, Insane, and Physics Lab show

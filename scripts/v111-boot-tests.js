@@ -17,7 +17,7 @@ function eventTarget(initial = {}) {
       handlers.get(type).add(handler);
     },
     removeEventListener(type, handler) { handlers.get(type)?.delete(handler); },
-    dispatch(type) { for (const handler of handlers.get(type) || []) handler({ type }); },
+    dispatch(type, event = {}) { for (const handler of handlers.get(type) || []) handler({ type, ...event }); },
   });
 }
 
@@ -27,7 +27,7 @@ function classList() {
 }
 
 function harness({ protocol = 'https:', hostname = 'example.test', registerError = null,
-  controlledVersion = '110', updateError = null } = {}) {
+  controlledVersion = '110', updateError = null, executionErrorAt = null } = {}) {
   const scripts = [];
   const styles = [];
   const elements = new Map();
@@ -53,7 +53,16 @@ function harness({ protocol = 'https:', hostname = 'example.test', registerError
     classList: classList(),
     appendChild(element) {
       if (element.id) elements.set(element.id, element);
-      if (element.tagName === 'SCRIPT') { scripts.push(element.src); queueMicrotask(() => element.onload?.()); }
+      if (element.tagName === 'SCRIPT') {
+        scripts.push(element.src);
+        queueMicrotask(() => {
+          if (element.src === executionErrorAt) {
+            const error = new Error('injected runtime execution failure');
+            window.dispatch('error', { error, message: error.message, filename: element.src });
+          }
+          element.onload?.();
+        });
+      }
       return element;
     },
   };
@@ -125,6 +134,17 @@ async function main() {
   assert.equal(failed.document.body.classList.contains('flipgame-boot-failed'), true);
   const notice = failed.document.getElementById('flipgame-boot-status');
   assert.ok(notice && notice.children.some((child) => child.textContent === 'Retry update'));
+
+  const executionFailed = harness({
+    protocol: 'http:', hostname: 'localhost', executionErrorAt: 'js/settings.js?v=111',
+  });
+  assert.equal(await executionFailed.window.__FLIPGAME_BOOT_PROMISE__, false);
+  assert.ok(executionFailed.scripts.includes('js/settings.js?v=111'));
+  assert.ok(!executionFailed.scripts.includes('js/main.js?v=111'),
+    'loader continued after a runtime execution failure');
+  assert.equal(executionFailed.document.body.classList.contains('flipgame-boot-failed'), true);
+  assert.equal(executionFailed.document.body.classList.contains('flipgame-boot-ready'), false,
+    'partial runtime was incorrectly marked boot-ready');
 
   for (const local of [
     harness({ protocol: 'http:', hostname: 'localhost' }),
