@@ -292,13 +292,13 @@
   }
   function persistedPlayerName(value) {
     const name = String(value == null ? '' : value);
-    // Canonical Practice QA names are intentionally allowed to exceed the
-    // ordinary 14-grapheme roster limit. All other names use NamePolicy's
-    // grapheme-aware limit rather than slicing UTF-16 code units.
-    if (testEventForName(name)) return name;
     const policy = window.FlipgameV111NamePolicy;
-    return policy && typeof policy.truncate === 'function'
-      ? policy.truncate(name, policy.MAX_GRAPHEMES || 14) : name.slice(0, 14);
+    const checked = policy && typeof policy.validate === 'function'
+      ? policy.validate(name, { source: 'setup-persistence' }) : null;
+    // NamePolicy owns normalization, the profanity screen, the ordinary
+    // grapheme limit, and the exact long QA-name allowlist. Invalid text is
+    // replaced before the debounced setup write and is never echoed to storage.
+    return checked && checked.valid ? String(checked.value) : '';
   }
   function isFamilyUnlocked(id) {
     const k = familyKey(id);
@@ -2216,7 +2216,7 @@
       playerId: definition.id || player?.netId || `seat-${index + 1}`,
       displayName: player?.name || 'Player',
       playerIndex: index,
-      seat: index + 1,
+      seat: index,
       isAI: !!player?.isAI,
       teamId: playerTeamId(index, modeState),
       mode: currentMatchOptions.lab ? 'physics-lab' : game.practice ? 'practice' : game.format,
@@ -2801,7 +2801,7 @@
           playerId: definition.id || player.netId || `seat-${index + 1}`,
           displayName: player.name,
           playerIndex: index,
-          seat: index + 1,
+          seat: index,
           isAI: !!player.isAI,
           teamId: playerTeamId(index, modeState),
           objectId: definition.skin || player.skin || BASE_SKIN,
@@ -3384,9 +3384,13 @@
     const period = document.querySelector('input[name="stats-period"]:checked')?.value || 'all';
     const format = document.getElementById('stats-format')?.value || 'all';
     const includePractice = !!document.getElementById('stats-practice')?.checked;
+    const includeTestData = !!document.getElementById('stats-test-data')?.checked;
     const filters = {
       scope: document.getElementById('stats-scope')?.value || 'device',
-      includeTestData: !!document.getElementById('stats-test-data')?.checked,
+      includeTestData,
+      // Test-event identities are an internal opt-in coupled to the explicit
+      // Test Data control. They must never be discoverable from normal data.
+      includeTestEventNames: includeTestData,
     };
     if (period === '30-days') filters.from = Date.now() - 30 * 86400000;
     if (period === '20-matches') filters.last20Matches = true;
@@ -3401,6 +3405,7 @@
       if (value && value !== 'all') filters[key] = [value];
     };
     one('stats-player', 'playerIds');
+    one('stats-seat', 'seats');
     one('stats-object', 'objectIds');
     one('stats-variant', 'variantIds');
     one('stats-cosmetic', 'cosmeticIds');
@@ -3414,6 +3419,22 @@
     return filters;
   }
   function statsStore() { return v111Runtime && v111Runtime.stats && v111Runtime.stats.current(); }
+  let watchedStatsStore = null;
+  function showStatsStorageWarning(warning) {
+    const target = document.getElementById('stats-storage-warning');
+    if (!target || !warning) return;
+    target.textContent = String(warning.message || 'Detailed statistics could not be stored. Summary totals are still being kept on this device.');
+    target.classList.remove('hidden');
+  }
+  function watchStatsStorageWarnings() {
+    const store = statsStore();
+    if (!store || store === watchedStatsStore) return;
+    watchedStatsStore = store;
+    if (typeof store.onWarning === 'function') store.onWarning(showStatsStorageWarning);
+    if (typeof store.getWarning === 'function') showStatsStorageWarning(store.getWarning());
+  }
+  window.addEventListener('flipgame:stats-warning', (event) => showStatsStorageWarning(event.detail));
+  watchStatsStorageWarnings();
   function eventPublicName(id) {
     const metadata = window.FlipgameV111PhysicsEvents?.getMetadata(id);
     return metadata?.displayName || String(id || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -3422,6 +3443,10 @@
     const candidate = String(value || '').trim();
     const checked = v111Runtime?.namePolicy?.validate(candidate, { source: 'stats-display' });
     return checked && (checked.valid === false || checked.ok === false) ? 'Player' : (candidate || 'Player');
+  }
+  function statsSeatLabel(value) {
+    const seat = Number(value);
+    return Number.isInteger(seat) && seat >= 0 && seat <= 7 ? `P${seat + 1}` : 'Other';
   }
   function dimensionName(value) {
     return String(value == null || value === '' ? 'None' : value)
@@ -3447,14 +3472,21 @@
     const players = new Map();
     flips.forEach((flip) => {
       if (flip.playerId != null && !players.has(String(flip.playerId))) {
-        players.set(String(flip.playerId), `P${Number(flip.seat ?? flip.playerIndex ?? 0) || 1} · ${safeStatsName(flip.displayName)}`);
+        players.set(String(flip.playerId), `${statsSeatLabel(flip.seat ?? flip.playerIndex)} · ${safeStatsName(flip.displayName)}`);
       }
     });
     (raw.matches || []).forEach((match) => (match.participants || match.players || []).forEach((player, index) => {
       const id = String(player.playerId || player.id || '');
-      if (id && !players.has(id)) players.set(id, `P${Number(player.seat ?? player.playerIndex ?? index) + (player.seat == null ? 1 : 0)} · ${safeStatsName(player.displayName || player.name)}`);
+      if (id && !players.has(id)) players.set(id, `${statsSeatLabel(player.seat ?? player.playerIndex ?? index)} · ${safeStatsName(player.displayName || player.name)}`);
     }));
     setObservedOptions('stats-player', [...players].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)));
+    const seats = new Set(flips.map((flip) => flip.seat ?? flip.playerIndex).filter((value) => value != null));
+    (raw.matches || []).forEach((match) => (match.participants || match.players || []).forEach((player) => {
+      const seat = player.seat ?? player.playerIndex;
+      if (seat != null) seats.add(seat);
+    }));
+    setObservedOptions('stats-seat', [...seats].sort((a, b) => Number(a) - Number(b))
+      .map((value) => ({ value, label: statsSeatLabel(value) })));
     const observed = (id, field, label = dimensionName) => {
       const values = [...new Set(flips.map((row) => field.split('.').reduce((value, key) => value?.[key], row)).filter((value) => value != null && value !== ''))];
       setObservedOptions(id, values.sort((a, b) => String(a).localeCompare(String(b))).map((value) => ({ value, label: label(value) })));
@@ -3505,7 +3537,11 @@
     if (!output) return;
     if (!store) { output.innerHTML = '<p class="empty-state">No recorded flips</p>'; return; }
     const filters = await resolvedStatsFilters(store);
-    const allObserved = await store.query({ scope: 'all', includeTestData: true });
+    const allObserved = await store.query({
+      scope: 'all',
+      includeTestData: filters.includeTestData === true,
+      includeTestEventNames: filters.includeTestEventNames === true,
+    });
     populateObservedStatsFilters(allObserved);
     const [summary, datasets, raw] = await Promise.all([store.summary(filters), store.datasets(filters), store.query(filters)]);
     const scopeLabels = { session: 'Session', device: 'Device lifetime', import: 'Imported', all: 'All data' };
@@ -3520,17 +3556,18 @@
       const cumulativeChart = cumulativeRows.length ? `<section class="stats-chart-card"><h2>Cumulative make rate</h2><div class="spark-bars" role="img" aria-label="Cumulative observed make rate">${cumulativeRows.map((row) => `<i style="height:${Math.max(2, row.total ? row.count / row.total * 100 : 0)}%" aria-label="${escapeHtml(row.label)}: ${row.count}, ${row.count}/${row.total}, ${observedPercent(row.count, row.total)}"></i>`).join('')}</div><details><summary>View data table</summary><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Count</th><th>Fraction</th><th>Observed</th></tr></thead><tbody>${cumulativeRows.map((row) => `<tr><th>${escapeHtml(row.label)}</th>${probabilityCells(row.count, row.total)}</tr>`).join('')}</tbody></table></div></details></section>` : observedSection('Cumulative make rate', [], () => '', summary.flips);
       const strip = (datasets.sequenceStrip || []).slice(-160);
       const sequenceChart = `<section class="stats-chart-card"><h2>Make / miss strip</h2>${strip.length ? `<div class="sequence-strip" role="img" aria-label="Last ${strip.length} observed flip outcomes">${strip.map((row) => `<i class="${row.made ? 'made' : 'missed'}" title="${row.made ? 'Make' : 'Miss'}" aria-label="${row.made ? 'Make' : 'Miss'}"></i>`).join('')}</div><p>${summary.makes} makes · ${summary.makes}/${summary.flips} · ${observedPercent(summary.makes, summary.flips)}</p>` : '<p class="empty-state">No recorded flips</p>'}</section>`;
-      output.innerHTML = `<div class="metric-grid">${metric('Recorded flips', summary.flips)}${metric('Makes', summary.makes)}${metric('Make rate', summary.flips ? `${summary.makes} · ${summary.makes}/${summary.flips} · ${observedPercent(summary.makes, summary.flips)}` : 'No recorded flips')}${metric('Cap landings', summary.caps)}${metric('Matches', summary.matches)}${metric('Longest make streak', (datasets.streaks || []).reduce((best, row) => row.makes ? Math.max(best, Number(row.streak) || 0) : best, 0))}</div>${cumulativeChart}${sequenceChart}`;
+      const averageTime = (value) => Number(value) > 0 ? `${Math.round(Number(value))} ms` : 'No observations';
+      output.innerHTML = `<div class="metric-grid">${metric('Recorded flips', summary.sampleSize ?? summary.flips)}${metric('Makes', summary.makes)}${metric('Misses', summary.misses)}${metric('Make rate', summary.flips ? `${summary.makes} · ${summary.fraction || `${summary.makes}/${summary.flips}`} · ${observedPercent(summary.makes, summary.flips)}` : 'No recorded flips')}${metric('Upright landings', summary.upright)}${metric('Cap landings', summary.caps)}${metric('Perfect landings', summary.perfect)}${metric('Best make streak', summary.bestStreak)}${metric('ON FIRE runs', summary.onFireRuns)}${metric('Matches', summary.matches)}${metric('Cups', summary.cups)}${metric('Team wins', summary.teamWins)}${metric('Observed events', summary.events)}${metric('Average flight time', averageTime(summary.averageFlightMs))}${metric('Average settle time', averageTime(summary.averageSettleMs))}</div>${cumulativeChart}${sequenceChart}`;
     } else if (active === 'events') {
       const eventRows = datasets.observedEventFrequencySuccess || datasets.events || [];
       const rows = eventRows.map((row) => `<tr><th scope="row">${escapeHtml(eventPublicName(row.eventId))}</th>${probabilityCells(row.observed, summary.flips)}<td>${row.successes} · ${row.successes}/${row.observed} · ${observedPercent(row.successes, row.observed)}</td></tr>`).join('');
       output.innerHTML = rows ? `<div class="table-scroll" role="region" aria-label="Observed events table" tabindex="0"><table class="data-table"><thead><tr><th>Event</th><th>Observed</th><th>Fraction</th><th>Frequency</th><th>Success</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="empty-state">No discovered events in these recorded flips.</p>';
     } else if (active === 'players') {
       const byPlayer = new Map();
-      (raw.flips || []).forEach((flip) => { if (!byPlayer.has(flip.playerId)) byPlayer.set(flip.playerId, { id: flip.playerId, name: safeStatsName(flip.displayName), seat: Number(flip.seat ?? flip.playerIndex ?? 0) || 1 }); });
+      (raw.flips || []).forEach((flip) => { if (!byPlayer.has(flip.playerId)) byPlayer.set(flip.playerId, { id: flip.playerId, name: safeStatsName(flip.displayName), seatLabel: statsSeatLabel(flip.seat ?? flip.playerIndex) }); });
       const playerRows = await Promise.all([...byPlayer.values()].map(async (player) => ({ player, summary: await store.summary(Object.assign({}, filters, { playerIds: [player.id] })) })));
       playerRows.sort((a,b) => b.summary.flips - a.summary.flips);
-      const playersTable = playerRows.length ? `<div class="table-scroll" role="region" aria-label="Player statistics table" tabindex="0"><table class="data-table"><thead><tr><th aria-sort="descending">Player, sorted by flips descending</th><th>Flips</th><th>Makes</th><th>Fraction</th><th>Observed</th><th>Cap landings</th><th>Matches</th></tr></thead><tbody>${playerRows.map(({player,summary:s}) => `<tr><th scope="row">P${player.seat} · ${escapeHtml(player.name)}</th><td>${s.flips}</td><td>${s.makes}</td><td>${s.makes}/${s.flips}</td><td>${observedPercent(s.makes,s.flips)}</td><td>${s.caps}</td><td>${s.matches}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty-state">No recorded flips</p>';
+      const playersTable = playerRows.length ? `<div class="table-scroll" role="region" aria-label="Player statistics table" tabindex="0"><table class="data-table"><thead><tr><th aria-sort="descending">Player, sorted by flips descending</th><th>Flips</th><th>Makes</th><th>Fraction</th><th>Observed</th><th>Cap landings</th><th>Matches</th></tr></thead><tbody>${playerRows.map(({player,summary:s}) => `<tr><th scope="row">${player.seatLabel} · ${escapeHtml(player.name)}</th><td>${s.flips}</td><td>${s.makes}</td><td>${s.makes}/${s.flips}</td><td>${observedPercent(s.makes,s.flips)}</td><td>${s.caps}</td><td>${s.matches}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty-state">No recorded flips</p>';
       output.innerHTML = playersTable + observedSection('Object comparison', datasets.objects || [], (row) => dimensionName(row.objectId), summary.flips);
     } else {
       const heat = observedSection('Power × direction heatmap', datasets.powerDirectionHeatmap || [], (row) => `${row.powerBucket || row.cell || 'Unknown'} · ${Number(row.direction) < 0 ? 'left' : Number(row.direction) > 0 ? 'right' : 'center'}`, summary.flips);
@@ -3553,7 +3590,105 @@
     const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  statsBtn?.addEventListener('click', () => { enterRoute(statsScreen, statsBtn); renderStats(); });
+  const GAME_SAVE_KEYS = Object.freeze([
+    'flipgame.setup.v2', 'flipgame.settings.v1', 'flipgame.records.v2',
+    'flipgame.progression.v3', 'flipgame.achievements.v3',
+    'flipgame.party', 'flipgame.alienHintSeen',
+  ]);
+  function readGameSaveValue(key) {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return undefined;
+    try { return JSON.parse(raw); } catch (_) { return raw; }
+  }
+  function gameSavePayload() {
+    saveSetup();
+    const storage = {};
+    GAME_SAVE_KEYS.forEach((key) => {
+      const value = readGameSaveValue(key);
+      if (value !== undefined) storage[key] = value;
+    });
+    return { schema: 'FlipgameLocalSaveV1', version: 1, storage };
+  }
+  function normalizeGameSavePayload(payload) {
+    if (payload?.schema === 'FlipgameLocalSaveV1' && payload.storage && typeof payload.storage === 'object') return payload;
+    const storage = {};
+    if (payload?.setup) storage['flipgame.setup.v2'] = payload.setup;
+    if (payload?.settings) storage['flipgame.settings.v1'] = payload.settings;
+    if (payload?.records) storage['flipgame.records.v2'] = payload.records.records || payload.records;
+    if (payload?.progression || payload?.records?.progression) storage['flipgame.progression.v3'] = payload.progression || payload.records.progression;
+    if (payload?.achievements) storage['flipgame.achievements.v3'] = payload.achievements;
+    return { schema: 'FlipgameLocalSaveV1', version: 1, storage };
+  }
+  function uniqueSaveValues(...lists) {
+    return [...new Set(lists.flatMap((list) => Array.isArray(list) ? list.map(String) : []))];
+  }
+  function mergeProgressionSave(imported, importedAchievementIds = []) {
+    const current = window.FlipgameV111Progression?.exportState?.() || {};
+    const incoming = imported && typeof imported === 'object' ? imported : {};
+    const merged = {
+      qualifyingWins: Math.max(Number(current.qualifyingWins) || 0, Number(incoming.qualifyingWins) || 0),
+      ownedObjectIds: uniqueSaveValues(current.ownedObjectIds, incoming.ownedObjectIds),
+      ownedCosmeticIds: uniqueSaveValues(current.ownedCosmeticIds, incoming.ownedCosmeticIds),
+      achievementIds: uniqueSaveValues(current.achievementIds, incoming.achievementIds, importedAchievementIds),
+      claimedRewardIds: uniqueSaveValues(current.claimedRewardIds, incoming.claimedRewardIds),
+    };
+    return window.FlipgameV111Progression?.reconcile?.(merged) || merged;
+  }
+  function mergeAchievementSave(imported) {
+    const current = window.Achievements?.exportState?.() || {};
+    const incoming = imported && typeof imported === 'object' ? imported : {};
+    const earned = new Map();
+    [...(current.earned || []), ...(incoming.earned || [])].forEach((entry) => {
+      if (!entry?.id || earned.has(String(entry.id))) return;
+      earned.set(String(entry.id), { id: String(entry.id), earnedAt: entry.earnedAt || null });
+    });
+    return { ...current, ...incoming, schema: 'AchievementStateV3', version: 3, earned: [...earned.values()] };
+  }
+  function mergeRecordSave(imported) {
+    const current = window.Records?.snapshot?.() || {};
+    const incoming = imported && typeof imported === 'object' ? imported : {};
+    const numeric = ['bestStreak','highestStake','totalMakes','totalFlips','longestOnFire','greatSaves','capLands','qualifyingWins'];
+    const merged = { ...current, ...incoming, schema: 'RecordSummaryV2', version: 2 };
+    numeric.forEach((key) => { merged[key] = Math.max(Number(current[key]) || 0, Number(incoming[key]) || 0); });
+    const winners = new Map();
+    [...(current.winnerRecords || []), ...(incoming.winnerRecords || [])].forEach((row) => {
+      if (!row?.playerId) return;
+      const id = String(row.playerId);
+      const known = winners.get(id);
+      if (!known || Number(row.wins) > Number(known.wins)) winners.set(id, { ...row, playerId: id, wins: Math.max(0, Number(row.wins) || 0) });
+    });
+    merged.winnerRecords = [...winners.values()];
+    merged.pendingRevealIds = uniqueSaveValues(current.pendingRevealIds, incoming.pendingRevealIds);
+    delete merged.mostWins;
+    return merged;
+  }
+  function applyGameSavePayload(payload) {
+    const normalized = normalizeGameSavePayload(payload);
+    if (normalized.schema !== 'FlipgameLocalSaveV1' || !normalized.storage || typeof normalized.storage !== 'object') {
+      throw new TypeError('Unsupported game save');
+    }
+    const incoming = normalized.storage;
+    const achievements = mergeAchievementSave(incoming['flipgame.achievements.v3']);
+    const records = mergeRecordSave(incoming['flipgame.records.v2']);
+    const importedProgression = { ...(incoming['flipgame.progression.v3'] || {}) };
+    importedProgression.qualifyingWins = Math.max(Number(importedProgression.qualifyingWins) || 0,
+      Number(records.qualifyingWins) || 0, Number(incoming['flipgame.records.v1']?.totalWins) || 0);
+    const progression = mergeProgressionSave(importedProgression, achievements.earned.map((entry) => entry.id));
+    const values = { ...incoming,
+      'flipgame.records.v2': records,
+      'flipgame.progression.v3': progression,
+      'flipgame.achievements.v3': achievements,
+    };
+    let importedCount = 0;
+    GAME_SAVE_KEYS.forEach((key) => {
+      if (!Object.prototype.hasOwnProperty.call(values, key)) return;
+      localStorage.setItem(key, JSON.stringify(values[key]));
+      importedCount++;
+    });
+    if (!importedCount) throw new TypeError('Game save has no supported data');
+    return importedCount;
+  }
+  statsBtn?.addEventListener('click', () => { watchStatsStorageWarnings(); enterRoute(statsScreen, statsBtn); renderStats(); });
   document.getElementById('stats-back-btn')?.addEventListener('click', () => leaveRoute(statsScreen));
   document.querySelectorAll('[data-stats-tab]').forEach((tab) => tab.addEventListener('click', () => {
     document.querySelectorAll('[data-stats-tab]').forEach((item) => { const selected = item === tab; item.setAttribute('aria-selected', String(selected)); item.tabIndex = selected ? 0 : -1; }); renderStats();
@@ -3561,7 +3696,7 @@
   document.getElementById('stats-apply')?.addEventListener('click', renderStats);
   document.getElementById('stats-clear')?.addEventListener('click', () => {
     setRadio('stats-period', 'all');
-    ['stats-format','stats-player','stats-human','stats-object','stats-variant','stats-cosmetic','stats-arena','stats-event','stats-player-count','stats-viewport'].forEach((id) => { const input = document.getElementById(id); if (input) input.value = 'all'; });
+    ['stats-format','stats-player','stats-seat','stats-human','stats-object','stats-variant','stats-cosmetic','stats-arena','stats-event','stats-player-count','stats-viewport'].forEach((id) => { const input = document.getElementById(id); if (input) input.value = 'all'; });
     document.getElementById('stats-scope').value = 'device';
     document.getElementById('stats-from').value = '';
     document.getElementById('stats-practice').checked = false;
@@ -3576,6 +3711,29 @@
     const type = { flips: 'flip', matches: 'match', 'player-summary': 'player', 'event-summary': 'event' }[requested] || requested;
     const value = await store.exportCSV(type, { filters: await resolvedStatsFilters(store), includeNames: !!document.getElementById('stats-export-names').checked });
     if (value) downloadText(`flipgame-${requested}.csv`, value, 'text/csv');
+  });
+  document.getElementById('save-export')?.addEventListener('click', () => {
+    const backup = window.FlipgameV111SaveBackup;
+    if (!backup?.serialize) return announce('Game save backup is unavailable.', true);
+    const value = backup.serialize(gameSavePayload(), { releaseVersion: 'v111' });
+    downloadText('flipgame-v111.flipgame-save', value, 'application/octet-stream');
+  });
+  document.getElementById('save-import')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const target = document.getElementById('save-import-result');
+    try {
+      const backup = window.FlipgameV111SaveBackup;
+      if (!backup?.parse) throw new Error('Game save backup is unavailable');
+      const parsed = backup.parse(await file.text(), { adapters: [normalizeGameSavePayload] });
+      const count = applyGameSavePayload(parsed.payload);
+      target.textContent = `Game save imported · ${count} sections restored. Reloading…`;
+      target.focus();
+      setTimeout(() => location.reload(), 700);
+    } catch (_) {
+      target.textContent = 'Game save not imported. The file is invalid or damaged.';
+      target.focus();
+    } finally { event.target.value = ''; }
   });
   document.getElementById('stats-import')?.addEventListener('change', async (event) => { const file = event.target.files?.[0]; if (!file) return; const result = await statsStore()?.importJSON(await file.text()); const target = document.getElementById('stats-import-result'); target.textContent = result?.imported ? `1 file read · ${result.flips + result.matches + result.rollups} new records · ${result.duplicates} duplicates skipped · 0 invalid records rejected` : '1 file read · 0 new records · 0 duplicates skipped · 1 invalid record rejected'; target.focus(); renderStats(); });
   document.getElementById('stats-delete')?.addEventListener('click', async () => { if (prompt('Type DELETE to delete local statistics. Progression and achievements are unaffected.') !== 'DELETE') return; await statsStore()?.close(); try { indexedDB.deleteDatabase(window.FlipgameV111Stats?.DB_NAME); localStorage.removeItem(window.FlipgameV111Stats?.FALLBACK_KEY); } catch (_) {} location.reload(); });

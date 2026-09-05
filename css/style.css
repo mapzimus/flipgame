@@ -110,6 +110,7 @@ input[aria-invalid="true"] { border: 3px solid var(--miss); }
 
 /* Stats */
 .stats-main { max-inline-size: 1480px; inline-size: 100%; margin-inline: auto; }
+.storage-warning { margin-block: 10px; padding: 12px 14px; border: 1px solid #f2bf58; border-radius: 10px; background: rgba(107,70,12,.7); color: #fff3c7; }
 .stats-layout { display: grid; gap: 12px; margin-block-start: 10px; }
 .stats-rail, .stats-results { min-inline-size: 0; }
 .stats-rail details { border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
@@ -142,8 +143,11 @@ input[aria-invalid="true"] { border: 3px solid var(--miss); }
 .mode-timeline li { min-block-size: 48px; display: grid; grid-template-columns: auto minmax(100px,1fr) auto; align-items: center; gap: 10px; }
 .mode-timeline time { color: var(--muted); }
 .data-actions { display: grid; gap: 8px; }
-.file-action { position: relative; display: flex; align-items: center; justify-content: center; padding: .55rem .8rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); font-weight: 750; cursor: pointer; }
+.file-action { position: relative; display: flex; min-block-size: 48px; align-items: center; justify-content: center; padding: .55rem .8rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); font-weight: 750; cursor: pointer; }
 .file-action input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.data-actions h2 { margin: 12px 0 0; font-size: 1rem; }
+.data-actions p { margin: 0; color: var(--muted); }
+#save-import-result, #stats-import-result { min-block-size: 1.4em; }
 
 /* Physics Lab */
 .lab-main { display: grid; gap: 12px; max-inline-size: 1280px; inline-size: 100%; margin-inline: auto; align-content: start; }

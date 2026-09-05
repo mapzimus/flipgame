@@ -228,9 +228,11 @@ function testRecordsSchemaAndHtmlSafety() {
   assert.equal(Object.prototype.hasOwnProperty.call(state, 'mostWins'), false);
   assert.ok(Array.isArray(state.winnerRecords));
   assert.ok(!Object.keys(state).includes('<img src=x onerror=alert(1)>'));
+  assert.equal(state.winnerRecords[0].displayName, 'Player');
   const html = records.renderHtml();
-  assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.ok(html.includes('Player'));
   assert.ok(!html.includes('<img src=x'));
+  assert.ok(!html.includes('onerror'));
 
   assert.equal(records.recordWin('No Context'), null, 'unclassified wins fail closed');
   assert.equal(records.recordWin('Practice', humanWin({ practice: true })), null);

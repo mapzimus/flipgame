@@ -12,9 +12,16 @@ const css = read('css/style.css');
 const main = read('js/main.js');
 const renderer = read('js/renderer.js');
 const skins = read('js/skins.js');
+const NamePolicy = require(path.join(ROOT, 'js/v111-name-policy.js'));
 
 function idsIn(markup) {
   return [...markup.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
+}
+
+function compileMainHelper(name, windowValue = {}) {
+  const source = main.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`))?.[0];
+  assert.ok(source, `${name} helper is missing`);
+  return Function('window', `${source}; return ${name};`)(windowValue);
 }
 
 test('DOM smoke: every literal main.js mount exists and document IDs are unique', () => {
@@ -41,7 +48,7 @@ test('loader order installs architecture, safety, modes, mirror, network, and pl
   const sources = [...html.matchAll(/<script src="([^"]+)"/g)].map((match) => match[1].replace(/\?.*$/, ''));
   const position = (name) => sources.indexOf(`js/${name}`);
   for (const name of [
-    'v111-interfaces.js', 'v111-runtime.js', 'v111-name-policy.js', 'v111-stats.js',
+    'v111-interfaces.js', 'v111-runtime.js', 'v111-name-policy.js', 'v111-save-backup.js', 'v111-stats.js',
     'v111-platform.js', 'v111-object-manifest.js', 'v111-content-catalog.js',
     'v111-cosmetic-catalog.js', 'v111-progression.js', 'v111-modes.js',
     'v111-physics-events.js', 'v111-mirror-match.js', 'v111-network-protocol.js',
@@ -49,6 +56,8 @@ test('loader order installs architecture, safety, modes, mirror, network, and pl
   ]) assert.notEqual(position(name), -1, `${name} is not loaded`);
   assert.ok(position('v111-interfaces.js') < position('v111-runtime.js'));
   assert.ok(position('v111-runtime.js') < position('v111-name-policy.js'));
+  assert.ok(position('v111-name-policy.js') < position('v111-save-backup.js'));
+  assert.ok(position('v111-save-backup.js') < position('main.js'));
   assert.ok(position('v111-name-policy.js') < position('v111-stats.js'));
   assert.ok(position('v111-network-protocol.js') < position('net.js'));
   assert.ok(position('v111-mirror-match.js') < position('main.js'));
@@ -136,7 +145,7 @@ test('physics and rules bridge receives deterministic event and qualification co
 
 test('full stats surface offers scopes, filters, charts and export datasets', () => {
   for (const id of [
-    'stats-scope', 'stats-from', 'stats-format', 'stats-player', 'stats-human',
+    'stats-scope', 'stats-from', 'stats-format', 'stats-player', 'stats-seat', 'stats-human',
     'stats-object', 'stats-variant', 'stats-cosmetic', 'stats-arena',
     'stats-event', 'stats-player-count', 'stats-viewport',
     'stats-test-data', 'stats-csv-type', 'stats-results',
@@ -158,6 +167,36 @@ test('full stats surface offers scopes, filters, charts and export datasets', ()
   assert.match(main, /const flipRows = \(Array\.isArray\(raw\?\.flips\)[\s\S]*\.filter\(isCompetitive\)/);
   assert.match(main, /observedPercent/);
   assert.match(main, /eventPublicName/);
+  assert.match(main, /one\('stats-seat', 'seats'\)/);
+  assert.match(main, /includeTestEventNames: includeTestData/);
+  assert.match(main, /includeTestData: filters\.includeTestData === true,[\s\S]*includeTestEventNames: filters\.includeTestEventNames === true/);
+  for (const label of [
+    'Recorded flips', 'Makes', 'Misses', 'Make rate', 'Upright landings',
+    'Cap landings', 'Perfect landings', 'Best make streak', 'ON FIRE runs',
+    'Matches', 'Cups', 'Team wins', 'Observed events',
+    'Average flight time', 'Average settle time',
+  ]) assert.match(main, new RegExp(label, 'i'));
+  assert.match(html, /id="stats-storage-warning"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(main, /store\.onWarning\(showStatsStorageWarning\)/);
+  assert.match(main, /store\.getWarning\(\)/);
+  const seatLabel = compileMainHelper('statsSeatLabel');
+  assert.equal(seatLabel(0), 'P1');
+  assert.equal(seatLabel(1), 'P2');
+  assert.equal(seatLabel(7), 'P8');
+});
+
+test('checksummed game-save controls use the data-owner API and preserve owned progression', () => {
+  for (const id of ['save-export', 'save-import', 'save-import-result']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.match(html, /accept="\.flipgame-save,application\/octet-stream,application\/json"/);
+  assert.match(main, /FlipgameV111SaveBackup/);
+  assert.match(main, /backup\.serialize\(gameSavePayload\(\), \{ releaseVersion: 'v111' \}\)/);
+  assert.match(main, /backup\.parse\(await file\.text\(\), \{ adapters: \[normalizeGameSavePayload\] \}\)/);
+  assert.match(main, /FlipgameV111Progression\?\.reconcile/);
+  assert.match(main, /Math\.max\(Number\(current\.qualifyingWins\)/);
+  assert.match(main, /ownedObjectIds: uniqueSaveValues\(current\.ownedObjectIds, incoming\.ownedObjectIds\)/);
+  assert.match(main, /Game save not imported\. The file is invalid or damaged\./);
 });
 
 test('Cup arena draft and fair rematch options are rules-owned', () => {
@@ -181,6 +220,12 @@ test('Practice event names use the complete registry, remain long-name capable, 
   assert.doesNotMatch(main, /const TEST_EVENT_NAMES/);
   assert.doesNotMatch(main, /type="text"[^>]*maxlength="14"[^>]*value=/);
   assert.match(main, /persistedPlayerName/);
+  assert.match(main, /name:\s*persistedPlayerName\(r\.name\)/);
+  const persist = compileMainHelper('persistedPlayerName', { FlipgameV111NamePolicy: NamePolicy });
+  assert.equal(persist('Rainbow Corkscrew'), 'Rainbow Corkscrew');
+  assert.equal(persist('f.u.c.k'), '');
+  const stored = JSON.stringify({ rows: [{ name: persist('f.u.c.k') }] });
+  assert.doesNotMatch(stored, /f\.u\.c\.k/i);
 });
 
 test('undiscovered galleries expose one opaque lock rather than catalog count or threshold order', () => {
