@@ -26,15 +26,26 @@ function classList() {
   return { add: (...names) => names.forEach((name) => values.add(name)), contains: (name) => values.has(name) };
 }
 
-function harness({ protocol = 'https:', hostname = 'example.test', registerError = null } = {}) {
+function harness({ protocol = 'https:', hostname = 'example.test', registerError = null,
+  controlledVersion = '110', updateError = null } = {}) {
   const scripts = [];
   const styles = [];
   const elements = new Map();
   const oldWorker = eventTarget({ scriptURL: 'https://example.test/flipgame/service-worker.js?v=110', state: 'activated' });
   const newWorker = eventTarget({ scriptURL: 'https://example.test/flipgame/service-worker.js?v=111', state: 'installing' });
-  const serviceWorker = eventTarget({ controller: oldWorker });
-  const registration = { installing: newWorker, waiting: null, active: oldWorker, update: async () => {} };
+  const controller = controlledVersion === '111' ? newWorker : oldWorker;
+  if (controlledVersion === '111') newWorker.state = 'activated';
+  const serviceWorker = eventTarget({ controller });
+  let registerCalls = 0;
+  let updateCalls = 0;
+  const registration = {
+    installing: controlledVersion === '111' ? null : newWorker,
+    waiting: null,
+    active: controller,
+    update: async () => { updateCalls++; if (updateError) throw updateError; },
+  };
   serviceWorker.register = async () => {
+    registerCalls++;
     if (registerError) throw registerError;
     return registration;
   };
@@ -58,7 +69,7 @@ function harness({ protocol = 'https:', hostname = 'example.test', registerError
       return eventTarget({
         tagName: String(tag).toUpperCase(), id: '', textContent: '', children: [],
         classList: classList(), setAttribute() {},
-        appendChild(child) { this.children.push(child); return child; },
+        appendChild(child) { child.parentNode = this; this.children.push(child); return child; },
       });
     },
     getElementById(id) { return elements.get(id) || null; },
@@ -72,6 +83,8 @@ function harness({ protocol = 'https:', hostname = 'example.test', registerError
   vm.runInContext(source, context, { filename: 'v111-boot.js' });
   return {
     window, document, serviceWorker, registration, oldWorker, newWorker, scripts, styles,
+    registerCalls: () => registerCalls,
+    updateCalls: () => updateCalls,
     activateV111() {
       newWorker.state = 'activated';
       registration.installing = null;
@@ -96,6 +109,16 @@ async function main() {
   assert.deepEqual(upgrade.styles, ['css/style.css?v=111']);
   assert.equal(upgrade.document.body.classList.contains('flipgame-boot-ready'), true);
 
+  const installedOffline = harness({
+    controlledVersion: '111',
+    registerError: new Error('offline registration must not run'),
+    updateError: new Error('offline update must not run'),
+  });
+  assert.equal(await installedOffline.window.__FLIPGAME_BOOT_PROMISE__, true);
+  assert.equal(installedOffline.registerCalls(), 0, 'matching controller touched registration/network');
+  assert.equal(installedOffline.updateCalls(), 0, 'matching controller forced an offline update');
+  assert.ok(installedOffline.scripts.length > 20, 'installed offline release did not load runtime');
+
   const failed = harness({ registerError: new Error('offline update failure') });
   assert.equal(await failed.window.__FLIPGAME_BOOT_PROMISE__, false);
   assert.equal(failed.scripts.length, 0, 'failed worker update loaded a partial runtime');
@@ -111,6 +134,12 @@ async function main() {
     assert.ok(local.scripts.length > 20, 'local/APK direct boot did not load the runtime');
     assert.equal(local.document.body.classList.contains('flipgame-boot-ready'), true);
   }
+
+  const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(index, /id="flipgame-boot-status"[^>]*role="status"/,
+    'HTML has no dependency-free boot status when the boot script itself fails');
+  assert.match(index, /<a href="index\.html">Retry update<\/a>/,
+    'HTML recovery shell has no script-independent reload path');
 
   console.log('v111 atomic boot tests passed.');
 }

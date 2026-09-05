@@ -119,10 +119,13 @@
 
   async function ensureReleaseController() {
     if (!productionHttp() || !('serviceWorker' in navigator)) return;
+    // A matching controller owns a complete, atomically installed release.
+    // Accept it before touching the network so a cold installed PWA can boot
+    // entirely from that worker's cache while the device is offline.
+    if (controlledByThisRelease()) return;
     var registration = await navigator.serviceWorker.register(WORKER_URL, {
       scope: './', updateViaCache: 'none',
     });
-    await registration.update();
     await waitForReleaseController(registration);
     if (!controlledByThisRelease()) throw new Error('The v111 worker is not controlling this page.');
   }
@@ -133,6 +136,8 @@
     await ensureReleaseController();
     for (var style of STYLE_URLS) await loadStyle(style);
     for (var script of SCRIPT_URLS) await loadScript(script);
+    var status = document.getElementById('flipgame-boot-status');
+    if (status && status.parentNode) status.parentNode.removeChild(status);
     document.body.classList.add('flipgame-boot-ready');
   }
 

@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 21
+Contract revision: 22
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -20,6 +20,10 @@ affected specialist continues.
   can never satisfy a v111 runtime request through an ignore-search fallback;
   an interrupted upgrade shows a retryable update message instead of mixing
   release assets. Localhost and the bundled APK load directly.
+- A page already controlled by the matching v111 worker boots entirely from
+  that release's cache while offline and never forces a network update check.
+  The HTML itself contains a visible, dependency-free loading/retry surface so
+  failure to fetch the sole boot script cannot leave a blank page.
 - Player-facing UI never reveals unlock thresholds, wins remaining, locked
   names, programmed event odds, or the Insane Mode occurrence rate.
 - Locked objects, cosmetics, achievements, Alien, Insane, and Physics Lab show

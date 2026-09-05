@@ -385,3 +385,26 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owner notified: UI/Renderer. Browser/Release QA must restart its
   settings checks after integration; Stats corrective work is unaffected.
+
+## Revision 22 - offline-safe boot and dependency-free recovery shell
+
+- Trigger: Browser/Release QA rejected the first atomic boot candidate because
+  it forced `registration.update()` even under an already-matching controller,
+  and because failure to fetch the sole boot script left all body content
+  hidden with no code available to expose recovery UI.
+- Old behavior: a cold offline reload under the installed v111 worker could
+  reject the forced update and refuse to load the cached game. On first upgrade,
+  failure of `v111-boot.js` itself could leave a permanently blank screen.
+- New behavior: an exact v111 controller is accepted before any registration or
+  update request, so its cached release boots offline. The HTML ships an
+  initially visible status/retry surface requiring no external CSS or script;
+  successful boot removes it and boot failures replace it with the detailed
+  recovery message.
+- Migration action: short-circuit the controller gate, remove the redundant
+  forced update, and make the recovery shell part of versioned HTML.
+- Required tests: controlled-v111 cold offline boot with registration/update
+  network failure, first-upgrade boot-script fetch failure with visible working
+  reload link, ordinary old-controller activation, and no partial runtime.
+- Integration commit: pending.
+- Affected owners notified: Release Engineering and Browser/Release QA. UI
+  settings and Stats corrective work are unaffected.
