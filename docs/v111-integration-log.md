@@ -38,3 +38,30 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Tests: manifest/art ID parity and canonical-ID regex are mandatory.
 - Affected owners: Object Manifest, Art Platform, Art Production, Progression,
   Stats, and UI/Renderer.
+
+## Wave 1 integrated
+
+- Art platform/reference: integration commit `2d613ed`, corrected by `da2550e`.
+- Object/variant manifest: integration commit `2ebff10`, corrected by `174e548`.
+- Smartboard UX specification: integration commit `74bedb9`.
+- Gates: art-platform, 25/300 manifest, baseline regression, version, and
+  service-worker tests pass.
+
+## Wave 2 integrated
+
+- Art Pack A (objects 1-8): `f8fddb5`, 96 canonical variants.
+- Art Pack B (objects 9-16): `91400d0`, 96 canonical variants.
+- Art Pack C (objects 17-25): `f8b8456`, 108 canonical variants.
+- Gates: all 300 variants pass ID parity, lazy-build, mapping, nonblank paint,
+  reduced-motion, source-safety, and baseline regression checks.
+- Visual screenshot inspection remains assigned to independent browser QA.
+
+## Wave 3 integrated
+
+- Architecture seams: `5970204`.
+- Added versioned interfaces, runtime/outcome hub, mode adapters, stats/name
+  install points, lifecycle bridge, and verified lazy art catalog.
+- Shared edits were limited to loader ordering and passive `main.js` hooks.
+- Gates: all nine Node suites and localhost Start Game smoke pass.
+- Release action: coordinator must precache all v111 runtime/art scripts when
+  the final service-worker cache key is bumped.
