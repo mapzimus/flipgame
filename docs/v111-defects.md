@@ -41,3 +41,4 @@
 | V111-037 | P2 | Alien calibration | Make rate varies drastically by viewport and is far easier than Classic | Physics/Events | Fixed; QA pending | 300-shot phone-through-4K calibration spans 61.0-66.3% vs Classic 63.0% |
 | V111-038 | P2 | Mitosis reward | One landed body grants bonus instead of counting normally | UI/Rules | Fixed; QA pending | One/both landing reward tests pass |
 | V111-039 | P2 | Event forcing scope | Event display names force events in ordinary Classic | UI/Rules | Fixed; QA pending | Non-Practice forcing is rejected |
+| V111-040 | P2 | Stats rollup filters | Pruned flips disappear or are misclassified under categorical filters omitted from rollups | Stats/Data | Open | 500-flip one-raw fixture across every individual and combined filter required |

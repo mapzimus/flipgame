@@ -313,3 +313,26 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: `4136ded`.
 - Affected owners notified: Physics/Events and UI/Rules; UI acknowledged and
   confirmed no local Alien overrides.
+
+## Revision 19 - filter-preserving bounded Stats rollups
+
+- Trigger: independent re-verification showed 499 of 500 rolled-up seat-zero
+  flips disappeared from a seat filter even though the unfiltered total was
+  correct. Other omitted categorical filters had the same defect.
+- Old behavior: rollup keys retained only day, mode, object, event, and Test
+  Data; filtering by a missing field silently rejected or misclassified old
+  observations.
+- New behavior: rollup keys retain every bounded categorical filter dimension
+  named by revision 19 of the contract. High-entropy measurement/detail fields
+  remain excluded, and persistence writes only changed aggregate cells.
+- Migration action: legacy narrow rollups remain readable but may contribute
+  only when every requested filter can be evaluated without guessing; newly
+  pruned records use the full filter-preserving schema.
+- Required tests: a one-raw-record/500-flip fixture must return 500 for each
+  matching individual filter and representative combined filters; online/CPU
+  values must never coerce from missing data; nonmatching filters return zero;
+  rollup-cell writes remain bounded to changed cells.
+- Integration commit: pending.
+- Affected owner notified: State/Data/Safety. Independent State/Data and Browser
+  gates must restart after integration; completed Simulation evidence remains
+  provisional until the exact candidate is frozen.

@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 18
+Contract revision: 19
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -138,9 +138,13 @@ cap-toss:5500, life-drain:6000`.
   detail is rolled into permanent aggregates before pruning.
 - Stats instrumentation observes results and never advances RNG or affects
   physics, scoring, or turn order.
-- Retention rollups contain bounded categorical dimensions only (day, mode,
-  object, and event plus aggregate counters); per-flip IDs, seeds, timings, and
-  mutable game state never become rollup keys.
+- Retention rollups contain the bounded categorical dimensions required to
+  preserve every Stats Lab filter and aggregate counters. They include day,
+  scope/device/session, stable local player reference/seat/type/team, mode,
+  object/variant/cosmetic/arena/event, player count, viewport bucket, result,
+  online, and Test Data. Display names, per-flip/match IDs, seeds, precise
+  timestamps/timings, trajectories, lives, stake, and mutable game state never
+  become rollup keys.
 - Stats Lab shows observed counts, fractions, percentages, and distributions
   only. It does not show theoretical odds or undiscovered event names.
 - `.flipstats.json` imports deduplicate by UUID. CSV pseudonymizes players by
