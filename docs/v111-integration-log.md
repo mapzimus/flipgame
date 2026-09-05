@@ -295,3 +295,20 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owners notified: State/Data/Safety and UI/Rules; UI acknowledged
   revision 17 before integrating the new boundary.
+
+## Revision 18 - calibrated Alien viewport metrics
+
+- Trigger: independent simulation found Alien outcomes varied drastically from
+  phone to 4K and were much easier than ordinary Classic flips.
+- Old behavior: `alienMetricsForViewport` returned under-calibrated arena
+  values and the launch vector was not normalized for the full viewport span.
+- New behavior: the existing read-only metrics retain their fields, recalibrate
+  ring/attraction/timeout, and add `launchScale` constrained to `0.65..2.7`.
+  Tether and Ceiling receive internal event tuning only; registry and outcome
+  method signatures remain unchanged.
+- Migration action: none for UI; it must not derive or override these metrics.
+- Required tests: exact seed 3 phone/4K parity plus deterministic make-rate
+  matrices across every required viewport and ordinary-Classic comparison.
+- Integration commit: pending.
+- Affected owners notified: Physics/Events and UI/Rules; UI acknowledged and
+  confirmed no local Alien overrides.

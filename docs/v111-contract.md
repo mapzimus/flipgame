@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 17
+Contract revision: 18
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -164,6 +164,9 @@ cap-toss:5500, life-drain:6000`.
   optional event-policy argument. An events-disabled mode also suppresses a
   pending forced event.
 - `EventController.prepare/applyPhysics/onContact/resolve/cleanup`
+- `Physics.alienMetricsForViewport(width, height)` returns read-only calibrated
+  `ringRadius`, `attractionPerStep`, `timeoutFrames`, and `launchScale`
+  (`0.65..2.7`) values. UI never derives or overrides Alien metrics.
 - `LandingVerdict`
 - `ProgressionStateV3`
 - `StatsStore`, `FlipRecordV1`, and `MatchRecordV1`
