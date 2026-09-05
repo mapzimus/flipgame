@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -17,9 +19,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Keep the screen awake during play (classroom panel won't sleep mid-game).
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
         web = new WebView(this);
         WebSettings ws = web.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -27,11 +26,46 @@ public class MainActivity extends Activity {
         ws.setUseWideViewPort(true);
         ws.setLoadWithOverviewMode(true);
         ws.setMediaPlaybackRequiresUserGesture(false);
-        web.setWebViewClient(new WebViewClient());
+        ws.setAllowFileAccessFromFileURLs(false);
+        ws.setAllowUniversalAccessFromFileURLs(false);
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                return !url.startsWith("file:///android_asset/");
+            }
+        });
+        // The bundled page is trusted local content.  Its v111 platform module
+        // keeps the display awake only while a match is active.
+        web.addJavascriptInterface(new PlatformBridge(), "FlipgamePlatform");
 
         setContentView(web);
         web.loadUrl("file:///android_asset/index.html");
         hideSystemBars();
+    }
+
+    private final class PlatformBridge {
+        @JavascriptInterface
+        public void setMatchActive(boolean active) {
+            runOnUiThread(() -> {
+                if (active) {
+                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                } else {
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            });
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (web != null) {
+            web.removeJavascriptInterface("FlipgamePlatform");
+            web.destroy();
+            web = null;
+        }
+        super.onDestroy();
     }
 
     private void hideSystemBars() {

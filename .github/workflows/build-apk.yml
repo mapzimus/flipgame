@@ -43,6 +43,19 @@ jobs:
           mkdir -p android/app/src/main/res/drawable
           cp icons/icon-512.png android/app/src/main/res/drawable/ic_launcher.png
 
+      - name: Record source and release metadata
+        id: build_metadata
+        run: |
+          source_commit="$(git rev-parse HEAD)"
+          test "$source_commit" = "$GITHUB_SHA"
+          release_version="$(node -p "require('./js/v111-interfaces.js').RELEASE_VERSION")"
+          short_commit="$(git rev-parse --short=12 HEAD)"
+          SOURCE_COMMIT="$source_commit" RELEASE_VERSION="$release_version" node -e \
+            "require('fs').writeFileSync('android/app/src/main/assets/build-metadata.json', JSON.stringify({sourceCommit:process.env.SOURCE_COMMIT,releaseVersion:process.env.RELEASE_VERSION}, null, 2) + '\n')"
+          echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
+          echo "short_commit=$short_commit" >> "$GITHUB_OUTPUT"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+
       - name: Build debug APK
         working-directory: android
         run: gradle assembleDebug --no-daemon --stacktrace
@@ -50,11 +63,23 @@ jobs:
       - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk flipgame-offline.apk
 
+      - name: Verify bundled commit metadata
+        run: |
+          unzip -p flipgame-offline.apk assets/build-metadata.json > apk-build-metadata.json
+          cmp android/app/src/main/assets/build-metadata.json apk-build-metadata.json
+          SOURCE_COMMIT="${{ steps.build_metadata.outputs.source_commit }}" \
+            RELEASE_VERSION="${{ steps.build_metadata.outputs.release_version }}" \
+            node -e "const m=require('./apk-build-metadata.json'); if(m.sourceCommit!==process.env.SOURCE_COMMIT||m.releaseVersion!==process.env.RELEASE_VERSION) process.exit(1)"
+          sha256sum flipgame-offline.apk > flipgame-offline.apk.sha256
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: flipgame-offline-apk
-          path: flipgame-offline.apk
+          name: flipgame-offline-apk-${{ steps.build_metadata.outputs.short_commit }}
+          path: |
+            flipgame-offline.apk
+            flipgame-offline.apk.sha256
+            apk-build-metadata.json
 
       - name: Publish to "apk-latest" release
         if: github.ref == 'refs/heads/master'
@@ -67,4 +92,7 @@ jobs:
             so it needs no network. Sideload onto an Android device/panel:
             enable "Install unknown apps", then open this .apk.
             (Debug-signed — fine for sideloading; not for the Play Store.)
-          files: flipgame-offline.apk
+          files: |
+            flipgame-offline.apk
+            flipgame-offline.apk.sha256
+            apk-build-metadata.json
