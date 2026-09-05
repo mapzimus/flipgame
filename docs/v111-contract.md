@@ -197,6 +197,11 @@ cap-toss:5500, life-drain:6000`.
   online, and Test Data. Display names, per-flip/match IDs, seeds, precise
   timestamps/timings, trajectories, lives, stake, and mutable game state never
   become rollup keys.
+- Match rollups written by the local-storage fallback preserve the same
+  filterable match dimensions and participant aliases needed by Stats Lab,
+  including mode, online/Test Data, player/seat/type/team, object, variant,
+  cosmetic, arena, player count, and viewport. Reopening the fallback store
+  cannot change a result solely because a matching filter is applied.
 - Stats Lab shows observed counts, fractions, percentages, and distributions
   only. It does not show theoretical odds or undiscovered event names.
 - `.flipstats.json` imports deduplicate by UUID. Repeated snapshots from one

@@ -617,3 +617,25 @@ interface or behavior changes to the Program Integrator before proceeding.
   averages consume full-flight values.
 - Integration commit: pending.
 - Affected owners notified: UI/Stats instrumentation and State/Data QA.
+
+## Revision 32 - fallback match rollups preserve Stats Lab filters
+
+- Trigger: continuing State/Data QA recorded one filtered Cup match while
+  IndexedDB was unavailable. Before reopening, the matching mode/player/seat
+  query returned one; after reopening the same fallback store, unfiltered totals
+  remained one but the identical filter and an online filter returned zero.
+- Old behavior: fallback `aggregateMatches` retained only day, mode, and Test
+  Data, so reopening silently discarded every other match-filter dimension.
+- New behavior: fallback match aggregates preserve all bounded Stats Lab match
+  dimensions and participant aliases required to answer the same categorical
+  queries before and after reload.
+- Migration action: expand only match-rollup dimensions and matching semantics;
+  preserve non-blocking fallback writes, bounded storage, pseudonymization, and
+  existing aggregate totals.
+- Required tests: with IndexedDB unavailable, record a Cup match and query by
+  player, seat, mode, online, type/team, object, variant, cosmetic, arena,
+  player count, and viewport; reopen the same local store and obtain identical
+  totals for every individual and representative combined filter.
+- Integration commit: pending.
+- Affected owner notified: State/Data/Safety; revision must be acknowledged and
+  included in its active isolated correction before merge.
