@@ -23,6 +23,26 @@
   var MAX_RAW_FLIPS = 100000;
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   var SCOPE_VALUES = new Set(['all', 'device', 'session', 'import']);
+  var FLIP_RECORD_FIELDS = Object.freeze([
+    'schema','version','releaseVersion','uuid','timestamp','sessionId','deviceId','matchId','sequence','scope',
+    'mode','heat','round','turn','playerCount','online','practice','forced','testData','playerId','displayName',
+    'playerIndex','seat','isAI','teamId','result','made','pose','landingReason','perfect','cap','power','direction',
+    'rotations','contacts','bounces','banks','flightMs','firstContactMs','settleMs','stakeBefore','stakeAfter','stake',
+    'livesBefore','livesAfter','streakBefore','streakAfter','streak','onFireBefore','onFireAfter','suddenDeathBefore',
+    'suddenDeathAfter','eventId','eventSuccess','oddsProfile','eventSeed','trajectorySeed','appliedReward',
+    'appliedEffect','objectId','variantId','cosmeticId','arenaId','viewport','performance','cupHeat','teamScore',
+  ]);
+  var MATCH_RECORD_FIELDS = Object.freeze([
+    'schema','version','releaseVersion','uuid','timestamp','startedAt','durationMs','sessionId','deviceId','matchId',
+    'scope','mode','arenaId','viewport','online','practice','testData','playerCount','participants','players',
+    'winnerIndex','winnerIds','winnerId','winnerTeamId','winner','teams','heatSummaries','roundSummaries',
+    'totalFlips','eventCounts','startingSettings','completionReason','cup','team','stats','completed',
+  ]);
+  var FILTER_FIELDS = Object.freeze([
+    'from','to','dateFrom','dateTo','modes','seats','playerIds','playerType','isAI','objectIds','variantIds',
+    'cosmeticIds','arenaIds','eventIds','playerCounts','viewportBuckets','scope','scopes','sessionIds','deviceIds',
+    'teamIds','results','online','includeTestData',
+  ]);
   var instanceSequence = 0;
 
   function clone(value) {
@@ -51,8 +71,18 @@
     var candidate = text(value, fallback);
     return values.indexOf(candidate) >= 0 ? candidate : fallback;
   }
+  function firstValue() {
+    for (var i = 0; i < arguments.length; i++) {
+      if (arguments[i] !== undefined && arguments[i] !== null) return arguments[i];
+    }
+    return null;
+  }
+  function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+  function optionalBool(value) { return value == null ? null : !!value; }
   function timestamp(value, fallback) {
-    var n = finite(value, fallback == null ? Date.now() : fallback);
+    var parsed = value;
+    if (typeof value === 'string' && value.trim() && !Number.isFinite(Number(value))) parsed = Date.parse(value);
+    var n = finite(parsed, fallback == null ? Date.now() : fallback);
     return Math.max(0, Math.trunc(n));
   }
   function fnv(textValue, seed) {
@@ -89,18 +119,46 @@
   }
   function safePlayer(player, index) {
     var source = player && typeof player === 'object' ? player : {};
-    return {
+    return Object.assign({}, clone(source), {
       playerId: text(source.playerId != null ? source.playerId : source.id, 'seat-' + index),
       displayName: text(source.displayName != null ? source.displayName : source.name, ''),
-      playerIndex: integer(source.playerIndex != null ? source.playerIndex : source.index, index),
+      playerIndex: integer(firstValue(source.playerIndex, source.seat, source.index), index),
+      seat: integer(firstValue(source.seat, source.playerIndex, source.index), index),
       isAI: !!source.isAI,
       teamId: text(source.teamId, null),
       objectId: text(source.objectId != null ? source.objectId : source.skin, null),
       variantId: text(source.variantId, null),
-      lives: finite(source.lives, null),
-      streak: finite(source.streak, 0),
+      cosmeticId: text(source.cosmeticId, null),
+      startingLives: finite(source.startingLives, null),
+      lives: finite(firstValue(source.lives, source.endingLives), null),
+      endingLives: finite(firstValue(source.endingLives, source.lives), null),
+      flips: Math.max(0, integer(source.flips, 0)), makes: Math.max(0, integer(source.makes, 0)),
+      streak: finite(source.streak, 0), bestStreak: Math.max(0, finite(source.bestStreak, 0)),
+      winner: !!source.winner, isOnFire: optionalBool(source.isOnFire),
       eliminated: !!source.eliminated,
-    };
+    });
+  }
+  function normalizeViewport(value, fallback) {
+    var source = object(value);
+    var other = object(fallback);
+    var width = finite(firstValue(source.width, source.w, other.width, other.w), null);
+    var height = finite(firstValue(source.height, source.h, other.height, other.h), null);
+    var orientation = text(firstValue(source.orientation, other.orientation), null);
+    if (!orientation && width != null && height != null) orientation = width >= height ? 'landscape' : 'portrait';
+    var bucket = text(firstValue(source.bucket, source.viewportBucket, other.bucket, other.viewportBucket), null);
+    if (!bucket && width != null && height != null) bucket = Math.round(width) + 'x' + Math.round(height);
+    return freeze(Object.assign({}, clone(other), clone(source),
+      { width: width, height: height, bucket: bucket, orientation: orientation }));
+  }
+  function normalizePerformance(value, fallback) {
+    var source = object(value);
+    var other = object(fallback);
+    return freeze({
+      fpsBucket: text(firstValue(source.fpsBucket, source.frameRateBucket, other.fpsBucket, other.frameRateBucket), null),
+      frameTimeBucket: text(firstValue(source.frameTimeBucket, other.frameTimeBucket), null),
+      slowFrameRateBucket: text(firstValue(source.slowFrameRateBucket, source.droppedFrameBucket,
+        other.slowFrameRateBucket, other.droppedFrameBucket), null),
+    });
   }
   function sourceParts(input) {
     var source = input && typeof input === 'object' ? input : {};
@@ -115,45 +173,123 @@
     var source = parts.source;
     var payload = parts.payload;
     var game = parts.game;
-    var landing = payload.landing && typeof payload.landing === 'object' ? payload.landing : {};
-    var flick = payload.flick && typeof payload.flick === 'object' ? payload.flick : {};
-    var playerIndex = integer(payload.playerIndex, integer(game.currentPlayerIndex, 0));
+    var recordBase = payload.schema === 'FlipRecordV1' ? clone(payload) : clone(payload.record || {});
+    var landing = Object.assign({}, object(recordBase.landing), object(payload.landing));
+    var flick = Object.assign({}, object(recordBase.flick), object(payload.flick));
+    var before = Object.assign({}, object(recordBase.before), object(payload.before));
+    var after = Object.assign({}, object(recordBase.after), object(payload.after));
+    var modeState = Object.assign({}, object(recordBase.modeState), object(payload.modeState));
+    var playerIndex = integer(firstValue(payload.playerIndex, payload.seat, recordBase.playerIndex,
+      recordBase.seat), integer(game.currentPlayerIndex, 0));
     var player = safePlayer(payload.player || parts.players[playerIndex] ||
       (payload.schema === 'FlipRecordV1' ? payload : null), playerIndex);
-    var result = text(payload.result != null ? payload.result : landing.result,
+    var result = text(firstValue(payload.result, recordBase.result, landing.result),
       text(game.lastResult, 'MISS')).toUpperCase() === 'MAKE' ? 'MAKE' : 'MISS';
-    var direction = finite(payload.direction, finite(flick.direction, finite(game.direction, null)));
+    var direction = finite(firstValue(payload.direction, recordBase.direction, flick.direction, game.direction), null);
     if (direction == null && finite(flick.vx, null) != null) direction = Number(flick.vx) < 0 ? -1 : 1;
     if (direction != null) direction = direction < 0 ? -1 : 1;
-    var power = finite(payload.power, finite(flick.power, null));
+    var power = finite(firstValue(payload.power, recordBase.power, flick.power), null);
     if (power == null && finite(flick.vx, null) != null && finite(flick.vy, null) != null) {
       power = Math.sqrt(Number(flick.vx) * Number(flick.vx) + Number(flick.vy) * Number(flick.vy));
     }
-    var modeState = payload.modeState && typeof payload.modeState === 'object' ? payload.modeState : {};
-    var recordBase = payload.schema === 'FlipRecordV1' ? clone(payload) : clone(payload.record || {});
+    var eventId = text(firstValue(payload.eventId, recordBase.eventId, flick.eventId, flick.rareEvent), null);
+    var firstContactMs = finite(firstValue(payload.firstContactMs, recordBase.firstContactMs,
+      landing.firstContactMs, landing.timeToFirstContactMs), null);
+    var settleMs = finite(firstValue(payload.settleMs, recordBase.settleMs, landing.settleMs,
+      landing.settleDurationMs), null);
+    var flightMs = finite(firstValue(payload.flightMs, recordBase.flightMs, landing.flightMs,
+      landing.flightDurationMs, landing.totalFlightMs), null);
+    // Physics exposes time-to-first-contact plus post-contact settle time. Preserve an
+    // explicit duration when supplied; otherwise their sum is the full resolved flight.
+    if (flightMs == null && firstContactMs != null) flightMs = Math.max(0, firstContactMs + (settleMs || 0));
+    var oddsProfile = text(firstValue(payload.oddsProfile, recordBase.oddsProfile, flick.oddsProfile), null);
+    if (!oddsProfile && finite(flick.rareMultiplier, null) === 10) oddsProfile = 'mr-howe';
+    else if (!oddsProfile && game.insanity) oddsProfile = 'insane';
+    else if (!oddsProfile && firstValue(flick.seed, flick.eventSeed, flick.trajectorySeed) != null) oddsProfile = 'normal';
+    var stakeAfter = finite(firstValue(payload.stakeAfter, recordBase.stakeAfter, after.stake,
+      payload.stake, recordBase.stake, game.pointCount), null);
+    var streakAfter = finite(firstValue(payload.streakAfter, recordBase.streakAfter, after.streak,
+      payload.streak, recordBase.streak, player.streak), null);
+    var recordIdentity = Object.assign({}, source, {
+      uuid: firstValue(source.uuid, payload.uuid, recordBase.uuid), id: firstValue(source.id, payload.id, recordBase.id),
+    });
     var record = Object.assign({}, recordBase, {
       schema: 'FlipRecordV1', version: 1,
-      uuid: recordUuid('flip', source, opts),
-      timestamp: timestamp(source.timestamp != null ? source.timestamp : payload.timestamp, opts.now ? opts.now() : Date.now()),
-      sessionId: text(payload.sessionId, opts.sessionId), deviceId: text(payload.deviceId, opts.deviceId),
-      matchId: text(payload.matchId, opts.matchId), sequence: integer(source.sequence, integer(payload.sequence, null)),
-      scope: oneOf(payload.scope, ['device', 'session'], 'device'),
-      mode: text(payload.mode, text(game.format, text(modeState.format, 'classic'))), online: !!payload.online,
-      practice: !!(payload.practice || game.practice), forced: !!payload.forced,
-      testData: !!(payload.testData || payload.forced || payload.test || payload.simulated),
-      playerId: player.playerId, displayName: player.displayName, playerIndex: player.playerIndex,
-      isAI: player.isAI, teamId: text(payload.teamId, player.teamId),
-      result: result, made: result === 'MAKE', pose: text(landing.pose, landing.onCap ? 'cap' : null),
-      landingReason: text(payload.landingReason, text(landing.reason, null)),
-      perfect: !!(payload.perfect || landing.perfect), cap: !!(payload.cap || landing.onCap || landing.pose === 'cap'),
-      power: power, direction: direction, rotations: finite(payload.rotations, finite(landing.rotations, null)),
-      livesBefore: finite(payload.livesBefore, null), livesAfter: finite(payload.livesAfter, player.lives),
-      stake: finite(payload.stake, finite(game.pointCount, null)), streak: finite(payload.streak, player.streak),
-      eventId: text(payload.eventId, null),
-      eventSuccess: payload.eventSuccess == null ? (payload.eventId ? result === 'MAKE' : null) : !!payload.eventSuccess,
-      objectId: text(payload.objectId, player.objectId), variantId: text(payload.variantId, player.variantId),
-      cupHeat: integer(payload.cupHeat, integer(modeState.heatIndex, null)),
-      teamScore: finite(payload.teamScore, null),
+      releaseVersion: text(firstValue(payload.releaseVersion, recordBase.releaseVersion),
+        Interfaces && Interfaces.RELEASE_VERSION || 'v111'),
+      uuid: recordUuid('flip', recordIdentity, opts),
+      timestamp: timestamp(firstValue(source.timestamp, payload.timestamp, recordBase.timestamp), opts.now ? opts.now() : Date.now()),
+      sessionId: text(firstValue(payload.sessionId, recordBase.sessionId), opts.sessionId),
+      deviceId: text(firstValue(payload.deviceId, recordBase.deviceId), opts.deviceId),
+      matchId: text(firstValue(payload.matchId, recordBase.matchId), opts.matchId),
+      sequence: integer(firstValue(source.sequence, payload.sequence, recordBase.sequence), null),
+      scope: oneOf(firstValue(payload.scope, recordBase.scope), ['device', 'session'], 'device'),
+      mode: text(firstValue(payload.mode, recordBase.mode, game.format, modeState.format), 'classic'),
+      heat: integer(firstValue(payload.heat, recordBase.heat, payload.cupHeat, recordBase.cupHeat,
+        modeState.heat, modeState.heatIndex), null),
+      round: integer(firstValue(payload.round, recordBase.round, modeState.round, modeState.roundIndex), null),
+      turn: integer(firstValue(payload.turn, recordBase.turn, game.turnCounter, modeState.turn), null),
+      playerCount: Math.max(0, integer(firstValue(payload.playerCount, recordBase.playerCount,
+        parts.players.length || null), 0)),
+      online: !!firstValue(payload.online, recordBase.online, false),
+      practice: !!firstValue(payload.practice, recordBase.practice, game.practice, false),
+      forced: !!firstValue(payload.forced, recordBase.forced, false),
+      testData: !!(payload.testData || recordBase.testData || payload.forced ||
+        recordBase.forced || payload.test || payload.simulated),
+      playerId: text(firstValue(payload.playerId, recordBase.playerId), player.playerId),
+      displayName: text(firstValue(payload.displayName, recordBase.displayName), player.displayName),
+      playerIndex: integer(firstValue(payload.playerIndex, recordBase.playerIndex), player.playerIndex),
+      seat: integer(firstValue(payload.seat, recordBase.seat, payload.playerIndex, recordBase.playerIndex), player.seat),
+      isAI: !!firstValue(payload.isAI, recordBase.isAI, player.isAI),
+      teamId: text(firstValue(payload.teamId, recordBase.teamId), player.teamId),
+      result: result, made: result === 'MAKE', pose: text(firstValue(payload.pose, recordBase.pose,
+        landing.pose), landing.onCap ? 'cap' : null),
+      landingReason: text(firstValue(payload.landingReason, recordBase.landingReason, landing.reason), null),
+      perfect: !!firstValue(payload.perfect, recordBase.perfect, landing.perfect, false),
+      cap: !!firstValue(payload.cap, recordBase.cap, landing.onCap, landing.pose === 'cap'),
+      power: power, direction: direction,
+      rotations: finite(firstValue(payload.rotations, recordBase.rotations, landing.rotations), null),
+      contacts: Math.max(0, integer(firstValue(payload.contacts, recordBase.contacts, landing.contacts), 0)),
+      bounces: Math.max(0, integer(firstValue(payload.bounces, recordBase.bounces, landing.bounces), 0)),
+      banks: Math.max(0, integer(firstValue(payload.banks, recordBase.banks, landing.banks,
+        landing.bankHits), 0)),
+      flightMs: flightMs, firstContactMs: firstContactMs, settleMs: settleMs,
+      stakeBefore: finite(firstValue(payload.stakeBefore, recordBase.stakeBefore, before.stake), null),
+      stakeAfter: stakeAfter, stake: stakeAfter,
+      livesBefore: finite(firstValue(payload.livesBefore, recordBase.livesBefore, before.lives), null),
+      livesAfter: finite(firstValue(payload.livesAfter, recordBase.livesAfter, after.lives, player.lives), null),
+      streakBefore: finite(firstValue(payload.streakBefore, recordBase.streakBefore, before.streak), null),
+      streakAfter: streakAfter, streak: streakAfter,
+      onFireBefore: optionalBool(firstValue(payload.onFireBefore, recordBase.onFireBefore, before.onFire)),
+      onFireAfter: optionalBool(firstValue(payload.onFireAfter, recordBase.onFireAfter, after.onFire,
+        player.isOnFire, game.isOnFire)),
+      suddenDeathBefore: optionalBool(firstValue(payload.suddenDeathBefore, recordBase.suddenDeathBefore,
+        before.suddenDeath)),
+      suddenDeathAfter: optionalBool(firstValue(payload.suddenDeathAfter, recordBase.suddenDeathAfter,
+        after.suddenDeath, modeState.suddenDeath, game.suddenDeath)),
+      eventId: eventId,
+      eventSuccess: firstValue(payload.eventSuccess, recordBase.eventSuccess) == null
+        ? (eventId ? result === 'MAKE' : null) : !!firstValue(payload.eventSuccess, recordBase.eventSuccess),
+      oddsProfile: oddsProfile,
+      eventSeed: integer(firstValue(payload.eventSeed, recordBase.eventSeed, flick.eventSeed, flick.seed), null),
+      trajectorySeed: integer(firstValue(payload.trajectorySeed, recordBase.trajectorySeed,
+        flick.trajectorySeed, flick.seed), null),
+      appliedReward: clone(firstValue(payload.appliedReward, recordBase.appliedReward,
+        payload.eventReward, landing.appliedReward, landing.eventReward)),
+      appliedEffect: clone(firstValue(payload.appliedEffect, recordBase.appliedEffect,
+        payload.eventEffect, landing.appliedEffect, landing.eventEffect, landing.effect)),
+      objectId: text(firstValue(payload.objectId, recordBase.objectId), player.objectId),
+      variantId: text(firstValue(payload.variantId, recordBase.variantId), player.variantId),
+      cosmeticId: text(firstValue(payload.cosmeticId, recordBase.cosmeticId), player.cosmeticId),
+      arenaId: text(firstValue(payload.arenaId, recordBase.arenaId, modeState.arenaId,
+        game.arenaId, game.feel), null),
+      viewport: normalizeViewport(firstValue(payload.viewport, recordBase.viewport),
+        { width: payload.viewportWidth, height: payload.viewportHeight,
+          bucket: firstValue(payload.viewportBucket, recordBase.viewportBucket) }),
+      performance: normalizePerformance(firstValue(payload.performance, recordBase.performance), payload),
+      cupHeat: integer(firstValue(payload.cupHeat, recordBase.cupHeat, payload.heat,
+        recordBase.heat, modeState.heatIndex), null),
+      teamScore: finite(firstValue(payload.teamScore, recordBase.teamScore), null),
     });
     if (input && input._importId) record._importId = String(input._importId);
     return freeze(record);
@@ -164,27 +300,98 @@
     var source = parts.source;
     var payload = parts.payload;
     var game = parts.game;
-    var modeState = payload.modeState && typeof payload.modeState === 'object' ? payload.modeState : {};
-    var players = (Array.isArray(payload.players) ? payload.players : parts.players).map(safePlayer);
-    var winnerIndex = integer(payload.winnerIndex, integer(game.winnerIndex, null));
-    var winnerIds = Array.isArray(payload.winnerIds) ? payload.winnerIds.map(String) : [];
+    var nestedMatch = object(payload.match);
+    var recordBase = payload.schema === 'MatchRecordV1' ? clone(payload)
+      : clone(payload.record || nestedMatch.record || {});
+    var modeState = Object.assign({}, object(recordBase.modeState), object(payload.modeState));
+    var stats = firstValue(payload.stats, recordBase.stats, nestedMatch.stats);
+    var perPlayer = object(stats).perPlayer;
+    var playerInput = Array.isArray(payload.participants) ? payload.participants
+      : (Array.isArray(recordBase.participants) ? recordBase.participants
+      : (Array.isArray(payload.players) ? payload.players : parts.players));
+    var winnerIndex = integer(firstValue(payload.winnerIndex, recordBase.winnerIndex,
+      game.winnerIndex), null);
+    var players = playerInput.map(function (player, index) {
+      var detail = Array.isArray(perPlayer) && perPlayer[index] ? perPlayer[index] : {};
+      return safePlayer(Object.assign({}, player, detail, {
+        startingLives: firstValue(player.startingLives, game.startingLives),
+        winner: firstValue(player.winner, index === winnerIndex),
+      }), index);
+    });
+    var suppliedWinnerIds = firstValue(payload.winnerIds, recordBase.winnerIds,
+      object(payload.winner).playerIds, object(recordBase.winner).playerIds);
+    var winnerIds = Array.isArray(suppliedWinnerIds) ? suppliedWinnerIds.map(String) : [];
+    var suppliedWinnerId = text(firstValue(payload.winnerId, recordBase.winnerId,
+      object(payload.winner).playerId, object(recordBase.winner).playerId), null);
+    if (!winnerIds.length && suppliedWinnerId) winnerIds.push(suppliedWinnerId);
     if (!winnerIds.length && winnerIndex != null && players[winnerIndex]) winnerIds.push(players[winnerIndex].playerId);
-    var recordBase = payload.schema === 'MatchRecordV1' ? clone(payload) : clone(payload.record || {});
+    var endedAt = timestamp(firstValue(source.timestamp, payload.timestamp, recordBase.timestamp),
+      opts.now ? opts.now() : Date.now());
+    var startedAtValue = firstValue(payload.startedAt, recordBase.startedAt, nestedMatch.startedAt);
+    var startedAt = startedAtValue == null ? null : timestamp(startedAtValue);
+    var durationMs = finite(firstValue(payload.durationMs, recordBase.durationMs, nestedMatch.durationMs),
+      startedAt == null ? null : Math.max(0, endedAt - startedAt));
+    if (durationMs != null) durationMs = Math.max(0, durationMs);
+    var totalFlips = integer(firstValue(payload.totalFlips, recordBase.totalFlips, nestedMatch.totalFlips), null);
+    if (totalFlips == null) totalFlips = players.reduce(function (sum, player) { return sum + player.flips; }, 0);
+    var teams = firstValue(payload.teams, recordBase.teams, modeState.teams,
+      object(payload.team).teams, object(recordBase.team).teams);
+    if (!Array.isArray(teams)) teams = [];
+    var winnerTeamId = text(firstValue(payload.winnerTeamId, recordBase.winnerTeamId,
+      object(payload.winner).teamId, object(recordBase.winner).teamId, modeState.winnerTeamId), null);
+    var winner = freeze(Object.assign({}, clone(object(recordBase.winner)), clone(object(payload.winner)),
+      { playerIds: winnerIds.slice(), teamId: winnerTeamId }));
+    var recordIdentity = Object.assign({}, source, {
+      uuid: firstValue(source.uuid, payload.uuid, recordBase.uuid), id: firstValue(source.id, payload.id, recordBase.id),
+    });
+    var completed = firstValue(payload.completed, recordBase.completed, true) !== false;
+    var startingSettings = clone(firstValue(payload.startingSettings, recordBase.startingSettings,
+      nestedMatch.startingSettings, {
+        mode: firstValue(payload.mode, recordBase.mode, game.format, modeState.format, 'classic'),
+        startingLives: game.startingLives, maxLives: game.maxLives, feel: game.feel,
+        insanity: game.insanity, arenaId: firstValue(payload.arenaId, recordBase.arenaId, modeState.arenaId),
+      }));
     var record = Object.assign({}, recordBase, {
       schema: 'MatchRecordV1', version: 1,
-      uuid: recordUuid('match', source, opts),
-      timestamp: timestamp(source.timestamp != null ? source.timestamp : payload.timestamp, opts.now ? opts.now() : Date.now()),
-      startedAt: payload.startedAt == null ? null : timestamp(payload.startedAt),
-      sessionId: text(payload.sessionId, opts.sessionId), deviceId: text(payload.deviceId, opts.deviceId),
-      matchId: text(payload.matchId, null), scope: oneOf(payload.scope, ['device', 'session'], 'device'),
-      mode: text(payload.mode, text(game.format, text(modeState.format, 'classic'))), online: !!payload.online,
-      practice: !!(payload.practice || game.practice),
-      testData: !!(payload.testData || payload.forced || payload.test || payload.simulated),
-      winnerIndex: winnerIndex, winnerIds: winnerIds, players: players,
-      cup: clone(payload.cup || modeState.cup || (String(game.format) === 'cup' ? modeState : null)),
-      team: clone(payload.team || modeState.team || (String(game.format) === 'team-clash' ? modeState : null)),
-      stats: clone(payload.stats || (payload.match && payload.match.stats) || null),
-      completed: payload.completed !== false,
+      releaseVersion: text(firstValue(payload.releaseVersion, recordBase.releaseVersion),
+        Interfaces && Interfaces.RELEASE_VERSION || 'v111'),
+      uuid: recordUuid('match', recordIdentity, opts), timestamp: endedAt, startedAt: startedAt,
+      durationMs: durationMs,
+      sessionId: text(firstValue(payload.sessionId, recordBase.sessionId), opts.sessionId),
+      deviceId: text(firstValue(payload.deviceId, recordBase.deviceId), opts.deviceId),
+      matchId: text(firstValue(payload.matchId, recordBase.matchId), null),
+      scope: oneOf(firstValue(payload.scope, recordBase.scope), ['device', 'session'], 'device'),
+      mode: text(firstValue(payload.mode, recordBase.mode, game.format, modeState.format), 'classic'),
+      arenaId: text(firstValue(payload.arenaId, recordBase.arenaId, startingSettings.arenaId), null),
+      viewport: normalizeViewport(firstValue(payload.viewport, recordBase.viewport, startingSettings.viewport),
+        { bucket: firstValue(payload.viewportBucket, recordBase.viewportBucket) }),
+      online: !!firstValue(payload.online, recordBase.online, false),
+      practice: !!firstValue(payload.practice, recordBase.practice, game.practice, false),
+      testData: !!(payload.testData || recordBase.testData || payload.forced ||
+        recordBase.forced || payload.test || payload.simulated),
+      playerCount: Math.max(0, integer(firstValue(payload.playerCount, recordBase.playerCount,
+        players.length), players.length)),
+      participants: players, players: players,
+      winnerIndex: winnerIndex, winnerIds: winnerIds,
+      winnerId: text(firstValue(suppliedWinnerId, winnerIds[0]), null),
+      winnerTeamId: winnerTeamId,
+      winner: winner,
+      teams: clone(teams),
+      heatSummaries: clone(firstValue(payload.heatSummaries, recordBase.heatSummaries,
+        nestedMatch.heatSummaries, modeState.heatSummaries, modeState.heats, [])),
+      roundSummaries: clone(firstValue(payload.roundSummaries, recordBase.roundSummaries,
+        nestedMatch.roundSummaries, modeState.roundSummaries, modeState.rounds, [])),
+      totalFlips: Math.max(0, totalFlips),
+      eventCounts: clone(firstValue(payload.eventCounts, recordBase.eventCounts,
+        nestedMatch.eventCounts, {})),
+      startingSettings: startingSettings,
+      completionReason: text(firstValue(payload.completionReason, recordBase.completionReason,
+        nestedMatch.completionReason), completed ? 'completed' : 'abandoned'),
+      cup: clone(firstValue(payload.cup, recordBase.cup, modeState.cup,
+        String(firstValue(game.format, recordBase.mode)) === 'cup' ? modeState : null)),
+      team: clone(firstValue(payload.team, recordBase.team, modeState.team,
+        String(firstValue(game.format, recordBase.mode)) === 'team-clash' ? modeState : null)),
+      stats: clone(stats), completed: completed,
     });
     if (input && input._importId) record._importId = String(input._importId);
     return freeze(record);
@@ -207,15 +414,32 @@
   }
   function dimensionFor(record) {
     var dimensions = {
-      day: dayBucket(record.timestamp), sessionId: record.sessionId, deviceId: record.deviceId,
-      scope: record.scope, mode: record.mode, online: !!record.online, practice: !!record.practice,
+      day: dayBucket(record.timestamp), releaseVersion: record.releaseVersion,
+      sessionId: record.sessionId, deviceId: record.deviceId,
+      scope: record.scope, mode: record.mode, heat: record.heat, round: record.round, turn: record.turn,
+      playerCount: record.playerCount, online: !!record.online, practice: !!record.practice,
       testData: !!record.testData, playerId: record.playerId, displayName: record.displayName,
-      isAI: !!record.isAI, teamId: record.teamId, result: record.result, pose: record.pose,
+      playerIndex: record.playerIndex, seat: record.seat, isAI: !!record.isAI,
+      teamId: record.teamId, result: record.result, pose: record.pose,
       landingReason: record.landingReason, eventId: record.eventId, eventSuccess: record.eventSuccess,
-      objectId: record.objectId, variantId: record.variantId, powerBucket: powerBucket(record.power),
+      oddsProfile: record.oddsProfile, eventSeed: record.eventSeed, trajectorySeed: record.trajectorySeed,
+      objectId: record.objectId, variantId: record.variantId, cosmeticId: record.cosmeticId,
+      arenaId: record.arenaId, viewportBucket: record.viewport && record.viewport.bucket,
+      viewportOrientation: record.viewport && record.viewport.orientation,
+      powerBucket: powerBucket(record.power),
       direction: record.direction, rotationBucket: rotationBucket(record.rotations),
-      livesBefore: record.livesBefore, livesAfter: record.livesAfter, stake: record.stake,
-      streak: record.streak, cupHeat: record.cupHeat,
+      contacts: record.contacts, bounces: record.bounces, banks: record.banks,
+      flightMs: record.flightMs, firstContactMs: record.firstContactMs, settleMs: record.settleMs,
+      livesBefore: record.livesBefore, livesAfter: record.livesAfter,
+      stakeBefore: record.stakeBefore, stakeAfter: record.stakeAfter, stake: record.stakeAfter,
+      streakBefore: record.streakBefore, streakAfter: record.streakAfter, streak: record.streakAfter,
+      onFireBefore: record.onFireBefore, onFireAfter: record.onFireAfter,
+      suddenDeathBefore: record.suddenDeathBefore, suddenDeathAfter: record.suddenDeathAfter,
+      appliedReward: record.appliedReward, appliedEffect: record.appliedEffect,
+      fpsBucket: record.performance && record.performance.fpsBucket,
+      frameTimeBucket: record.performance && record.performance.frameTimeBucket,
+      slowFrameRateBucket: record.performance && record.performance.slowFrameRateBucket,
+      cupHeat: record.cupHeat,
     };
     if (record._importId) dimensions._importId = record._importId;
     return dimensions;
@@ -270,40 +494,68 @@
     if (value == null) return null;
     return (Array.isArray(value) ? value : [value]).map(String);
   }
+  function viewportFilter(value) {
+    if (value == null) return null;
+    return (Array.isArray(value) ? value : [value]).map(function (entry) {
+      return typeof entry === 'object' ? normalizeViewport(entry).bucket : String(entry);
+    });
+  }
   function normalizeFilters(filters) {
     var source = filters || {};
-    var scope = text(source.scope, 'all');
-    if (!SCOPE_VALUES.has(scope)) scope = 'all';
+    var scopes = listFilter(firstValue(source.scopes, source.scope, 'all')).filter(function (scope) {
+      return SCOPE_VALUES.has(scope);
+    });
+    if (!scopes.length || scopes.indexOf('all') >= 0) scopes = ['all'];
+    var playerType = oneOf(source.playerType, ['all', 'human', 'cpu'], 'all');
+    if (source.human === true) playerType = 'human';
+    if (source.cpu === true) playerType = 'cpu';
+    var aiFilter = source.isAI == null ? null : !!source.isAI;
+    if (playerType === 'human') aiFilter = false;
+    if (playerType === 'cpu') aiFilter = true;
     return freeze({
-      includeTestData: source.includeTestData === true, scope: scope,
-      from: source.from == null ? null : timestamp(source.from), to: source.to == null ? null : timestamp(source.to),
+      includeTestData: source.includeTestData === true, scope: scopes[0], scopes: scopes,
+      from: firstValue(source.from, source.dateFrom) == null ? null : timestamp(firstValue(source.from, source.dateFrom)),
+      to: firstValue(source.to, source.dateTo) == null ? null : timestamp(firstValue(source.to, source.dateTo)),
       sessionIds: listFilter(source.sessionIds != null ? source.sessionIds : source.sessionId),
       deviceIds: listFilter(source.deviceIds != null ? source.deviceIds : source.deviceId),
       playerIds: listFilter(source.playerIds != null ? source.playerIds : source.playerId),
+      seats: listFilter(firstValue(source.seats, source.seat, source.playerIndexes, source.playerIndex)),
       modes: listFilter(source.modes != null ? source.modes : source.mode),
       eventIds: listFilter(source.eventIds != null ? source.eventIds : source.eventId),
       objectIds: listFilter(source.objectIds != null ? source.objectIds : source.objectId),
+      variantIds: listFilter(firstValue(source.variantIds, source.variantId)),
+      cosmeticIds: listFilter(firstValue(source.cosmeticIds, source.cosmeticId)),
+      arenaIds: listFilter(firstValue(source.arenaIds, source.arenaId)),
+      playerCounts: listFilter(firstValue(source.playerCounts, source.playerCount)),
+      viewportBuckets: viewportFilter(firstValue(source.viewportBuckets, source.viewportBucket,
+        source.viewports, source.viewport)),
       teamIds: listFilter(source.teamIds != null ? source.teamIds : source.teamId),
       results: listFilter(source.results != null ? source.results : source.result),
       online: source.online == null ? null : !!source.online,
-      isAI: source.isAI == null ? null : !!source.isAI,
+      playerType: playerType, isAI: aiFilter,
       currentSessionId: text(source.currentSessionId, null), currentDeviceId: text(source.currentDeviceId, null),
     });
   }
   function contains(filter, value) { return !filter || filter.indexOf(String(value)) >= 0; }
   function inScope(record, filter) {
-    if (filter.scope === 'all') return true;
-    if (filter.scope === 'import') return !!record._importId;
-    if (filter.scope === 'session') return !record._importId && record.sessionId === filter.currentSessionId;
-    if (filter.scope === 'device') return !record._importId && (!filter.currentDeviceId || record.deviceId === filter.currentDeviceId);
-    return true;
+    if (filter.scopes.indexOf('all') >= 0) return true;
+    return filter.scopes.some(function (scope) {
+      if (scope === 'import') return !!record._importId;
+      if (scope === 'session') return !record._importId && record.sessionId === filter.currentSessionId;
+      if (scope === 'device') return !record._importId && (!filter.currentDeviceId || record.deviceId === filter.currentDeviceId);
+      return false;
+    });
   }
   function matchesDimensions(dim, cell, filter) {
     if (!filter.includeTestData && dim.testData) return false;
     if (!inScope(Object.assign({}, dim, { _importId: cell ? cell._importId : dim._importId }), filter)) return false;
     if (!contains(filter.sessionIds, dim.sessionId) || !contains(filter.deviceIds, dim.deviceId) ||
-        !contains(filter.playerIds, dim.playerId) || !contains(filter.modes, dim.mode) ||
+        !contains(filter.playerIds, dim.playerId) || !contains(filter.seats, firstValue(dim.seat, dim.playerIndex)) ||
+        !contains(filter.modes, dim.mode) ||
         !contains(filter.eventIds, dim.eventId) || !contains(filter.objectIds, dim.objectId) ||
+        !contains(filter.variantIds, dim.variantId) || !contains(filter.cosmeticIds, dim.cosmeticId) ||
+        !contains(filter.arenaIds, dim.arenaId) || !contains(filter.playerCounts, dim.playerCount) ||
+        !contains(filter.viewportBuckets, dim.viewportBucket || (dim.viewport && dim.viewport.bucket)) ||
         !contains(filter.teamIds, dim.teamId) || !contains(filter.results, dim.result)) return false;
     if (filter.online != null && !!dim.online !== filter.online) return false;
     if (filter.isAI != null && !!dim.isAI !== filter.isAI) return false;
@@ -321,13 +573,41 @@
         if (!players.some(function (player) { return contains(filter.playerIds, player.playerId); })) return false;
         effective = Object.assign({}, effective, { playerIds: null });
       }
+      if (filter.seats) {
+        if (!players.some(function (player) { return contains(filter.seats, firstValue(player.seat, player.playerIndex)); })) return false;
+        effective = Object.assign({}, effective, { seats: null });
+      }
       if (filter.objectIds) {
         if (!players.some(function (player) { return contains(filter.objectIds, player.objectId); })) return false;
         effective = Object.assign({}, effective, { objectIds: null });
       }
+      if (filter.variantIds) {
+        if (!players.some(function (player) { return contains(filter.variantIds, player.variantId); })) return false;
+        effective = Object.assign({}, effective, { variantIds: null });
+      }
+      if (filter.cosmeticIds) {
+        if (!players.some(function (player) { return contains(filter.cosmeticIds, player.cosmeticId); })) return false;
+        effective = Object.assign({}, effective, { cosmeticIds: null });
+      }
       if (filter.teamIds) {
         if (!players.some(function (player) { return contains(filter.teamIds, player.teamId); })) return false;
         effective = Object.assign({}, effective, { teamIds: null });
+      }
+      if (filter.isAI != null) {
+        if (!players.some(function (player) { return !!player.isAI === filter.isAI; })) return false;
+        effective = Object.assign({}, effective, { isAI: null });
+      }
+      if (filter.eventIds) {
+        var counts = object(record.eventCounts);
+        var countRows = Array.isArray(record.eventCounts) ? record.eventCounts : null;
+        if (!filter.eventIds.some(function (eventId) {
+          if (Number(counts[eventId]) > 0) return true;
+          return !!(countRows && countRows.some(function (row) {
+            return row && String(firstValue(row.eventId, row.id)) === eventId &&
+              Number(firstValue(row.count, row.observed, row.frequency, 0)) > 0;
+          }));
+        })) return false;
+        effective = Object.assign({}, effective, { eventIds: null });
       }
     }
     return matchesDimensions(Object.assign({ timestamp: record.timestamp }, record), null, effective);
@@ -361,11 +641,12 @@
     var contributions = flips.map(function (record) {
       return { timestamp: record.timestamp, dimensions: dimensionFor(record), flips: 1,
         makes: record.made ? 1 : 0, eventObserved: record.eventId ? 1 : 0,
-        eventSuccesses: record.eventId && record.eventSuccess ? 1 : 0 };
+        eventSuccesses: record.eventId && record.eventSuccess ? 1 : 0, rolledUp: false,
+        uuid: record.uuid, sequence: record.sequence };
     }).concat(rollups.map(function (cell) {
       return { timestamp: cell.timestampEnd, dimensions: cell.dimensions || {}, flips: cell.flips || 0,
         makes: cell.makes || 0, eventObserved: cell.eventObserved || 0,
-        eventSuccesses: cell.eventSuccesses || 0 };
+        eventSuccesses: cell.eventSuccesses || 0, rolledUp: true, uuid: cell.uuid, sequence: null };
     }));
     contributions.sort(function (a, b) { return a.timestamp - b.timestamp; });
     var cumulativeFlips = 0;
@@ -382,7 +663,10 @@
       return a.timestamp - b.timestamp || (a.sequence || 0) - (b.sequence || 0);
     }).map(function (record) {
       return freeze({ uuid: record.uuid, timestamp: record.timestamp, sequence: record.sequence,
-        result: record.result, made: record.made, eventId: record.eventId, playerId: record.playerId });
+        heat: record.heat, round: record.round, turn: record.turn,
+        playerId: record.playerId, seat: record.seat, playerCount: record.playerCount,
+        result: record.result, made: record.made, pose: record.pose,
+        eventId: record.eventId, objectId: record.objectId, variantId: record.variantId });
     });
     var heat = metricMap();
     var rotations = metricMap();
@@ -392,6 +676,9 @@
     var streaks = metricMap();
     var events = new Map();
     var objects = metricMap();
+    var livesTimeline = [];
+    var stakeTimeline = [];
+    var streakTimeline = [];
     contributions.forEach(function (entry) {
       var dim = entry.dimensions;
       metricAdd(heat, (dim.powerBucket || 'Unknown') + '|' + (dim.direction == null ? 'Unknown' : dim.direction), entry.flips, entry.makes,
@@ -402,6 +689,21 @@
       metricAdd(stakes, dim.stake, entry.flips, entry.makes);
       metricAdd(streaks, dim.streak, entry.flips, entry.makes);
       metricAdd(objects, dim.objectId, entry.flips, entry.makes);
+      if (dim.livesBefore != null || dim.livesAfter != null) livesTimeline.push(freeze({
+        uuid: entry.uuid, timestamp: entry.timestamp, before: dim.livesBefore, after: dim.livesAfter,
+        count: entry.flips, playerId: dim.playerId, seat: dim.seat, rolledUp: entry.rolledUp,
+      }));
+      if (dim.stakeBefore != null || dim.stakeAfter != null || dim.stake != null) stakeTimeline.push(freeze({
+        uuid: entry.uuid, timestamp: entry.timestamp, before: dim.stakeBefore,
+        after: firstValue(dim.stakeAfter, dim.stake), count: entry.flips,
+        playerId: dim.playerId, rolledUp: entry.rolledUp,
+      }));
+      if (dim.streakBefore != null || dim.streakAfter != null || dim.streak != null) streakTimeline.push(freeze({
+        uuid: entry.uuid, timestamp: entry.timestamp, before: dim.streakBefore,
+        after: firstValue(dim.streakAfter, dim.streak), onFireBefore: dim.onFireBefore,
+        onFireAfter: dim.onFireAfter, count: entry.flips, playerId: dim.playerId,
+        rolledUp: entry.rolledUp,
+      }));
       if (dim.eventId && entry.eventObserved > 0) {
         var eventRow = events.get(dim.eventId) || { eventId: dim.eventId, observed: 0, successes: 0 };
         eventRow.observed += entry.eventObserved;
@@ -422,22 +724,35 @@
     var team = [];
     matches.forEach(function (match) {
       if (match.mode === 'cup' || match.cup) cup.push(freeze({
-        uuid: match.uuid, timestamp: match.timestamp, winnerIds: (match.winnerIds || []).slice(),
+        uuid: match.uuid, startedAt: match.startedAt, timestamp: match.timestamp, durationMs: match.durationMs,
+        winnerIds: (match.winnerIds || []).slice(), heatSummaries: clone(match.heatSummaries || []),
+        roundSummaries: clone(match.roundSummaries || []), totalFlips: match.totalFlips,
         heats: match.cup && (match.cup.heats || match.cup.heatWins) || null,
         shootoutRounds: match.cup && match.cup.shootoutRounds || 0,
       }));
       if (match.mode === 'team-clash' || match.mode === 'team' || match.team) team.push(freeze({
-        uuid: match.uuid, timestamp: match.timestamp, winnerIds: (match.winnerIds || []).slice(),
+        uuid: match.uuid, startedAt: match.startedAt, timestamp: match.timestamp, durationMs: match.durationMs,
+        winnerIds: (match.winnerIds || []).slice(), winnerTeamId: match.winnerTeamId,
+        roundSummaries: clone(match.roundSummaries || []), teams: clone(match.teams || []),
+        totalFlips: match.totalFlips,
         scores: match.team && (match.team.scores || match.team.teamScores) || null,
       }));
     });
+    cup.sort(function (a, b) { return a.timestamp - b.timestamp; });
+    team.sort(function (a, b) { return a.timestamp - b.timestamp; });
+    var rotationRows = metricRows(rotations, 'rotations');
+    var landingRows = metricRows(reasons, 'reason');
+    var objectRows = metricRows(objects, 'objectId');
     var output = {
       cumulativeMakeRate: cumulative, sequenceStrip: sequence,
-      powerDirectionHeatmap: metricRows(heat, 'cell'), rotations: metricRows(rotations, 'rotations'),
-      landingReasons: metricRows(reasons, 'reason'),
-      livesStake: freeze({ lives: metricRows(lives, 'lives'), stake: metricRows(stakes, 'stake') }),
-      streaks: metricRows(streaks, 'streak'), observedEventFrequencySuccess: eventRows,
-      events: eventRows, objects: metricRows(objects, 'objectId'), cupTeam: freeze({ cup: cup, team: team }),
+      powerDirectionHeatmap: metricRows(heat, 'cell'), rotations: rotationRows,
+      landingReasons: landingRows, rotationLanding: freeze({ rotations: rotationRows, landingReasons: landingRows }),
+      livesStake: freeze({ lives: metricRows(lives, 'lives'), stake: metricRows(stakes, 'stake'),
+        livesTimeline: livesTimeline, stakeTimeline: stakeTimeline }),
+      streaks: metricRows(streaks, 'streak'), streakTimeline: streakTimeline,
+      observedEventFrequencySuccess: eventRows, events: eventRows,
+      objects: objectRows, objectComparison: objectRows,
+      cupTeam: freeze({ cup: cup, team: team, cupTimeline: cup, teamTimeline: team }),
     };
     return freeze(output);
   }
@@ -633,6 +948,24 @@
     Array.from(ids).sort().forEach(function (id, index) { aliases.set(id, 'Player ' + (index + 1)); });
     return aliases;
   }
+  function pseudonymizePlayers(value, aliases, keyHint) {
+    if (Array.isArray(value)) {
+      if (/^(playerIds|winnerIds|memberIds)$/.test(keyHint || '')) {
+        return value.map(function (id) { return aliases.get(String(id)) || 'Player'; });
+      }
+      return value.map(function (item) { return pseudonymizePlayers(item, aliases, keyHint); });
+    }
+    if (!value || typeof value !== 'object') {
+      if (/^(playerId|winnerId|targetPlayerId|sourcePlayerId)$/.test(keyHint || '')) {
+        return aliases.get(String(value)) || 'Player';
+      }
+      if (/^(displayName|playerName|name)$/.test(keyHint || '')) return 'Player';
+      return value;
+    }
+    var output = {};
+    Object.keys(value).forEach(function (key) { output[key] = pseudonymizePlayers(value[key], aliases, key); });
+    return output;
+  }
   function exportCSV(data, type, options) {
     var opts = options || {};
     var filter = normalizeFilters(Object.assign({}, opts, opts.filters || {}));
@@ -642,16 +975,29 @@
     var aliases = playerAliases(source);
     var showName = function (id, name) { return opts.includeNames === true ? text(name, '') : (aliases.get(String(id)) || 'Player'); };
     if (type === 'flip') {
-      var flipColumns = ['uuid','timestamp','sessionId','matchId','mode','playerId','player','isAI','result','pose',
-        'landingReason','power','direction','rotations','livesBefore','livesAfter','stake','streak','eventId','eventSuccess','objectId','variantId','testData'];
-      return csv(source.flips.map(function (row) { return Object.assign({}, row,
+      var flipColumns = ['schema','version','releaseVersion','uuid','timestamp','sessionId','deviceId','matchId','sequence',
+        'scope','mode','heat','round','turn','playerCount','playerId','player','playerIndex','seat','isAI','teamId',
+        'result','pose','landingReason','perfect','cap','power','direction','rotations','contacts','bounces','banks',
+        'flightMs','firstContactMs','settleMs','stakeBefore','stakeAfter','livesBefore','livesAfter','streakBefore',
+        'streakAfter','onFireBefore','onFireAfter','suddenDeathBefore','suddenDeathAfter','eventId','eventSuccess',
+        'oddsProfile','eventSeed','trajectorySeed','appliedReward','appliedEffect','objectId','variantId','cosmeticId',
+        'arenaId','viewport','performance','online','practice','forced','testData'];
+      return csv(source.flips.map(function (row) { return Object.assign({},
+        opts.includeNames === true ? row : pseudonymizePlayers(row, aliases),
         { playerId: opts.includeNames === true ? row.playerId : (aliases.get(String(row.playerId)) || 'Player'),
           player: showName(row.playerId, row.displayName) }); }), flipColumns);
     }
     if (type === 'match') {
-      var matchColumns = ['uuid','timestamp','sessionId','matchId','mode','online','completed','winnerIds','players','cup','team','testData'];
-      return csv(source.matches.map(function (row) { return Object.assign({}, row, {
-        players: (row.players || []).map(function (player) { return showName(player.playerId, player.displayName); }).join('|'),
+      var matchColumns = ['schema','version','releaseVersion','uuid','startedAt','timestamp','durationMs','sessionId','deviceId',
+        'matchId','scope','mode','arenaId','viewport','online','practice','playerCount','completed','completionReason',
+        'winnerId','winnerIds','winnerTeamId','participants','teams','heatSummaries','roundSummaries','totalFlips',
+        'eventCounts','startingSettings','cup','team','stats','testData'];
+      return csv(source.matches.map(function (row) { return Object.assign({},
+        opts.includeNames === true ? row : pseudonymizePlayers(row, aliases), {
+        participants: (row.participants || row.players || []).map(function (player) {
+          return showName(player.playerId, player.displayName);
+        }).join('|'),
+        winnerId: opts.includeNames === true ? row.winnerId : (aliases.get(String(row.winnerId)) || (row.winnerId == null ? '' : 'Player')),
         winnerIds: (row.winnerIds || []).map(function (id) { return opts.includeNames === true ? id : (aliases.get(String(id)) || 'Player'); }).join('|'),
       }); }), matchColumns);
     }
@@ -904,6 +1250,8 @@
   var api = {
     schema: 'FlipgameStatsModuleV1', version: 1, DB_NAME: DB_NAME, DB_VERSION: DB_VERSION,
     EXPORT_SCHEMA: EXPORT_SCHEMA, FALLBACK_KEY: FALLBACK_KEY, DEVICE_KEY: DEVICE_KEY,
+    FLIP_RECORD_FIELDS: FLIP_RECORD_FIELDS, MATCH_RECORD_FIELDS: MATCH_RECORD_FIELDS,
+    FILTER_FIELDS: FILTER_FIELDS,
     MAX_RAW_FLIPS: MAX_RAW_FLIPS,
     stableUuid: stableUuid, normalizeFlipRecord: normalizeFlipRecord, normalizeMatchRecord: normalizeMatchRecord,
     normalizeFilters: normalizeFilters, aggregateRecords: aggregateRecords, buildDatasets: buildDatasets,

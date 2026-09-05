@@ -29,8 +29,8 @@ replace `FlipgameV111Runtime.namePolicy` or `FlipgameV111Runtime.stats`.
 
 Validation applies NFKC, removes control and bidirectional formatting
 characters, collapses whitespace, accepts Unicode letters/marks/numbers and the
-safe punctuation space, period, underscore, hyphen, apostrophe, and curly apostrophe, and
-limits ordinary names to 14 grapheme clusters. Screening uses separate
+safe punctuation space, period, underscore, hyphen, apostrophe, and curly
+apostrophe, and limits ordinary names to 14 grapheme clusters. Screening uses separate
 whole-word and high-risk compact rules. Compact screening folds common
 lookalike scripts, accents, leetspeak, repeated letters, and separators.
 
@@ -58,6 +58,24 @@ dataset, and export functions, together with storage constructors:
 - `createMemoryBackend(seed, options)`
 - `createStore(options)` and `install(runtime, options)`
 
+The module publishes frozen `FLIP_RECORD_FIELDS`, `MATCH_RECORD_FIELDS`, and
+`FILTER_FIELDS` arrays so consumers can feature-detect the exact contract.
+
+`FlipRecordV1` carries release/version identity; date, session, device, match,
+heat, round, turn, player-count, seat, and player identity; human/CPU, online,
+practice, forced, and Test Data state; object, variant, cosmetic, arena, and
+viewport context; result, pose, reason, power, direction, rotations, contacts,
+bounces, banks, and flight/contact/settle durations; odds-profile, event, and
+trajectory seeds; explicit before/after stake, lives, streak, ON FIRE, and
+sudden-death state; applied reward/effect data; and coarse performance buckets.
+`stake` and `streak` remain compatibility aliases for their after values.
+
+`MatchRecordV1` carries release/version identity, start/end/duration, starting
+settings, participant summaries, player/team winner summaries, heat and round
+summaries, total flips, observed event counts, and completion reason. Both
+normalizers accept canonical records directly, `payload.record`, and for match
+outcomes `payload.match.record`. Unknown forward-compatible fields are retained.
+
 `createStore` returns a `StatsStore` with:
 
 - `recordFlip`, `recordMatch`, and `onOutcome`
@@ -81,14 +99,16 @@ fallback intentionally does not put raw player history into local storage.
 Existing `flipgame.records.v2`/`v1` totals migrate once into a legacy aggregate;
 the existing records remain untouched.
 
-Supported filters include time range, session/device/player, mode, event,
-object, team, result, online/AI, and `all`, `device`, `session`, or `import`
-scope. `testData`, forced, and simulated records are excluded unless
+Supported filters include date/time range; mode; seat/player; human/CPU;
+object, variant, cosmetic, arena, and observed event; player count and viewport;
+session/device/team/result/online; and one or more of `all`, `device`, `session`,
+or `import` scope. `testData`, forced, and simulated records are excluded unless
 `includeTestData: true` is explicit.
 
 Pure datasets cover cumulative make rate, raw sequence strip, power/direction
-heatmap, rotations, landing reasons, lives/stake, streaks, observed event
-frequency and success, objects, Cup, and Team. The event dataset is built only
+heatmap, rotation/landing distributions, lives/stake distributions and
+timelines, streak distribution/timeline, observed event frequency and success,
+object comparison, and Cup/Team timelines. The event dataset is built only
 from observed event IDs. It has no event catalog dependency, theoretical odds,
 denominators, or undiscovered names.
 

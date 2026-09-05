@@ -15,23 +15,38 @@ function uuid(n) {
 }
 function flip(n, extra = {}) {
   return Object.assign({
-    schema: 'FlipRecordV1', version: 1, uuid: uuid(n), timestamp: n * 1000,
+    schema: 'FlipRecordV1', version: 1, releaseVersion: 'v111', uuid: uuid(n), timestamp: n * 1000,
     sessionId: 'session-a', deviceId: 'device-a', scope: 'device', matchId: 'match-a',
-    sequence: n, mode: 'classic', online: false, practice: false, forced: false,
+    sequence: n, mode: 'classic', heat: 1, round: 1, turn: n, playerCount: 2,
+    online: false, practice: false, forced: false,
     testData: false, playerId: 'p1', displayName: 'Ada', playerIndex: 0, isAI: false,
-    teamId: null, result: n % 2 ? 'MAKE' : 'MISS', made: !!(n % 2), pose: n % 2 ? 'upright' : 'other',
+    seat: 0, teamId: null, result: n % 2 ? 'MAKE' : 'MISS', made: !!(n % 2), pose: n % 2 ? 'upright' : 'other',
     landingReason: n % 2 ? 'upright' : 'fallen', perfect: false, cap: false,
-    power: 2000 + n, direction: n % 2 ? 1 : -1, rotations: n, livesBefore: 3,
-    livesAfter: 2, stake: n, streak: n % 3, eventId: null, eventSuccess: null,
-    objectId: 'bottle', variantId: 'bottle.blue-steel', cupHeat: null, teamScore: null,
+    power: 2000 + n, direction: n % 2 ? 1 : -1, rotations: n, contacts: 1, bounces: 0, banks: 0,
+    flightMs: 600, firstContactMs: 500, settleMs: 100,
+    livesBefore: 3, livesAfter: 2, stakeBefore: n - 1, stakeAfter: n, stake: n,
+    streakBefore: Math.max(0, n % 3 - 1), streakAfter: n % 3, streak: n % 3,
+    onFireBefore: false, onFireAfter: false, suddenDeathBefore: false, suddenDeathAfter: false,
+    eventId: null, eventSuccess: null, oddsProfile: 'normal', eventSeed: n, trajectorySeed: n + 100,
+    appliedReward: null, appliedEffect: null,
+    objectId: 'bottle', variantId: 'bottle.blue-steel', cosmeticId: 'cosmetic-blue', arenaId: 'classic-table',
+    viewport: { width: 1280, height: 800, bucket: '1280x800', orientation: 'landscape' },
+    performance: { fpsBucket: '55-60', frameTimeBucket: '<20ms', slowFrameRateBucket: '<1%' },
+    cupHeat: null, teamScore: null,
   }, extra);
 }
 function match(n, extra = {}) {
   return Object.assign({
-    schema: 'MatchRecordV1', version: 1, uuid: uuid(1000 + n), timestamp: n * 10000,
+    schema: 'MatchRecordV1', version: 1, releaseVersion: 'v111', uuid: uuid(1000 + n), timestamp: n * 10000,
+    startedAt: n * 10000 - 5000, durationMs: 5000,
     sessionId: 'session-a', deviceId: 'device-a', scope: 'device', matchId: `m${n}`,
-    mode: 'classic', online: false, practice: false, testData: false,
+    mode: 'classic', arenaId: 'classic-table', viewport: { width: 1280, height: 800, bucket: '1280x800' },
+    online: false, practice: false, testData: false, playerCount: 1,
     winnerIndex: 0, winnerIds: ['p1'], players: [{ playerId: 'p1', displayName: 'Ada', playerIndex: 0, isAI: false }],
+    participants: [{ playerId: 'p1', displayName: 'Ada', playerIndex: 0, seat: 0, isAI: false, flips: 3, makes: 2 }],
+    winnerId: 'p1', winnerTeamId: null, winner: { playerIds: ['p1'], teamId: null }, teams: [],
+    heatSummaries: [], roundSummaries: [], totalFlips: 3, eventCounts: {},
+    startingSettings: { mode: 'classic', startingLives: 3 }, completionReason: 'completed',
     cup: null, team: null, stats: null, completed: true,
   }, extra);
 }
@@ -177,6 +192,131 @@ async function testNormalizationAndStableDedupe() {
   await store.close();
 }
 
+async function testCompleteRecordSchemasAndNestedPayloads() {
+  const nestedFlip = flip(41, {
+    heat: 2, round: 3, turn: 9, playerCount: 4, seat: 2,
+    cosmeticId: 'sparkles', arenaId: 'moon-table',
+    viewport: { width: 768, height: 1024, bucket: 'tablet-portrait', orientation: 'portrait', future: 'kept' },
+    oddsProfile: 'mr-howe', eventSeed: 123, trajectorySeed: 456,
+    contacts: 4, bounces: 2, banks: 1, flightMs: 1400, firstContactMs: 900, settleMs: 500,
+    stakeBefore: 2, stakeAfter: 4, livesBefore: 5, livesAfter: 6,
+    streakBefore: 2, streakAfter: 3, onFireBefore: false, onFireAfter: true,
+    suddenDeathBefore: false, suddenDeathAfter: true,
+    appliedReward: { type: 'life', amount: 1 }, appliedEffect: { target: 'self', kind: 'magnet' },
+    performance: { fpsBucket: '45-54', frameTimeBucket: '20-24ms', slowFrameRateBucket: '1-5%' },
+    futureField: { retained: true },
+  });
+  const normalized = Stats.normalizeFlipRecord({ sequence: 41, timestamp: 41000, payload: { record: nestedFlip } },
+    { deviceId: 'other-device', sessionId: 'other-session' });
+  for (const field of Stats.FLIP_RECORD_FIELDS) {
+    assert.ok(Object.prototype.hasOwnProperty.call(normalized, field), `FlipRecordV1 missing ${field}`);
+  }
+  assert.equal(normalized.releaseVersion, 'v111');
+  assert.deepEqual([normalized.heat, normalized.round, normalized.turn, normalized.playerCount, normalized.seat], [2, 3, 9, 4, 2]);
+  assert.deepEqual([normalized.contacts, normalized.bounces, normalized.banks], [4, 2, 1]);
+  assert.deepEqual([normalized.flightMs, normalized.firstContactMs, normalized.settleMs], [1400, 900, 500]);
+  assert.deepEqual([normalized.stakeBefore, normalized.stakeAfter, normalized.livesBefore, normalized.livesAfter], [2, 4, 5, 6]);
+  assert.deepEqual([normalized.streakBefore, normalized.streakAfter, normalized.onFireBefore, normalized.onFireAfter], [2, 3, false, true]);
+  assert.deepEqual([normalized.suddenDeathBefore, normalized.suddenDeathAfter], [false, true]);
+  assert.equal(normalized.viewport.future, 'kept');
+  assert.equal(normalized.futureField.retained, true);
+  assert.ok(Object.isFrozen(normalized) && Object.isFrozen(normalized.viewport) && Object.isFrozen(normalized.performance));
+
+  const runtimeDerived = Stats.normalizeFlipRecord({ timestamp: 42000, sequence: 42, payload: {
+    game: { format: 'classic', currentPlayerIndex: 0, players: [{ id: 'p1', name: 'Ada' }] },
+    flick: { seed: 8675309, rareMultiplier: 10 },
+    landing: { result: 'MAKE', firstContactMs: 825, settleMs: 175,
+      eventReward: { additiveLives: 1 }, eventEffect: { magnet: true } },
+  } }, { deviceId: 'device-a', sessionId: 'session-a' });
+  assert.deepEqual([runtimeDerived.eventSeed, runtimeDerived.trajectorySeed], [8675309, 8675309],
+    'the runtime seed populates both deterministic replay seeds');
+  assert.equal(runtimeDerived.oddsProfile, 'mr-howe');
+  assert.deepEqual([runtimeDerived.flightMs, runtimeDerived.firstContactMs, runtimeDerived.settleMs], [1000, 825, 175]);
+  assert.deepEqual(runtimeDerived.appliedReward, { additiveLives: 1 });
+  assert.deepEqual(runtimeDerived.appliedEffect, { magnet: true });
+  const insanityDerived = Stats.normalizeFlipRecord({ timestamp: 43000, sequence: 43, payload: {
+    game: { insanity: true }, flick: { seed: 12 }, landing: { result: 'MISS' },
+  } }, { deviceId: 'device-a', sessionId: 'session-a' });
+  assert.equal(insanityDerived.oddsProfile, 'insane');
+
+  const matchRecord = match(7, {
+    durationMs: 32100, playerCount: 2,
+    participants: [
+      { playerId: 'p1', displayName: 'Ada', seat: 0, isAI: false, objectId: 'bottle', variantId: 'bottle.blue-steel', cosmeticId: 'sparkles', flips: 5, makes: 3, future: 1 },
+      { playerId: 'p2', displayName: 'CPU', seat: 1, isAI: true, objectId: 'coffee-mug', variantId: 'coffee-mug.red', cosmeticId: null, flips: 5, makes: 2 },
+    ],
+    winner: { playerIds: ['p1'], teamId: 'red', future: 'kept' }, winnerId: 'p1', winnerTeamId: 'red',
+    teams: [{ teamId: 'red', score: 11 }, { teamId: 'blue', score: 8 }],
+    heatSummaries: [{ heat: 1, winnerId: 'p1' }], roundSummaries: [{ round: 1, scores: [3, 1] }],
+    totalFlips: 10, eventCounts: { 'heart-rush': 2 },
+    startingSettings: { mode: 'team-clash', startingLives: 10, arenaId: 'slick-table' },
+    completionReason: 'score-limit', futureMatchField: { retained: true },
+  });
+  const normalizedMatch = Stats.normalizeMatchRecord({ timestamp: 70000, payload: { match: { record: matchRecord } } },
+    { deviceId: 'other-device', sessionId: 'other-session' });
+  for (const field of Stats.MATCH_RECORD_FIELDS) {
+    assert.ok(Object.prototype.hasOwnProperty.call(normalizedMatch, field), `MatchRecordV1 missing ${field}`);
+  }
+  assert.equal(normalizedMatch.uuid, matchRecord.uuid, 'payload.match.record identity is honored');
+  assert.equal(normalizedMatch.durationMs, 32100);
+  assert.equal(normalizedMatch.participants[0].future, 1);
+  assert.equal(normalizedMatch.winner.future, 'kept');
+  assert.equal(normalizedMatch.winnerTeamId, 'red');
+  assert.equal(normalizedMatch.totalFlips, 10);
+  assert.deepEqual(normalizedMatch.eventCounts, { 'heart-rush': 2 });
+  assert.equal(normalizedMatch.startingSettings.arenaId, 'slick-table');
+  assert.equal(normalizedMatch.completionReason, 'score-limit');
+  assert.equal(normalizedMatch.futureMatchField.retained, true);
+  assert.ok(Object.isFrozen(normalizedMatch) && Object.isFrozen(normalizedMatch.participants));
+}
+
+async function testCompleteFiltersAndRollupDimensions() {
+  const human = Stats.normalizeFlipRecord(flip(51, {
+    timestamp: Date.UTC(2026, 0, 1), mode: 'classic', seat: 0, playerId: 'human', isAI: false,
+    objectId: 'bottle', variantId: 'bottle.blue-steel', cosmeticId: 'sparkles', arenaId: 'classic-table',
+    eventId: 'heart-rush', playerCount: 2, viewport: { width: 1280, height: 800, bucket: '1280x800' },
+  }), { deviceId: 'device-a', sessionId: 'session-a' });
+  const cpuInput = flip(52, {
+    timestamp: Date.UTC(2026, 0, 2), mode: 'cup', seat: 1, playerIndex: 1, playerId: 'cpu', isAI: true,
+    objectId: 'coffee-mug', variantId: 'coffee-mug.red', cosmeticId: 'crown', arenaId: 'moon-table',
+    eventId: 'plinko', playerCount: 4, viewport: { width: 768, height: 1024, bucket: 'tablet-portrait' },
+    sessionId: 'session-b', deviceId: 'device-b',
+  });
+  cpuInput._importId = 'import-1';
+  const cpu = Stats.normalizeFlipRecord(cpuInput, { deviceId: 'device-a', sessionId: 'session-a' });
+  const data = { flips: [human, cpu], matches: [], rollups: [] };
+  const one = [
+    { mode: 'classic' }, { seat: 0 }, { playerId: 'human' }, { playerType: 'human' }, { human: true },
+    { objectId: 'bottle' }, { variantId: 'bottle.blue-steel' }, { cosmeticId: 'sparkles' },
+    { arenaId: 'classic-table' }, { eventId: 'heart-rush' }, { playerCount: 2 },
+    { viewportBucket: '1280x800' }, { viewport: { width: 1280, height: 800 } },
+    { dateFrom: '2026-01-01T00:00:00.000Z', dateTo: '2026-01-01T23:59:59.999Z' },
+    { scope: 'device', currentDeviceId: 'device-a', currentSessionId: 'session-a' },
+    { scope: 'session', currentDeviceId: 'device-a', currentSessionId: 'session-a' },
+  ];
+  for (const filter of one) {
+    assert.equal(Stats.buildDatasets(data, filter).sequenceStrip.length, 1, `filter failed: ${JSON.stringify(filter)}`);
+  }
+  assert.equal(Stats.buildDatasets(data, { playerType: 'cpu' }).sequenceStrip[0].playerId, 'cpu');
+  assert.equal(Stats.buildDatasets(data, { scope: 'import', currentDeviceId: 'device-a', currentSessionId: 'session-a' }).sequenceStrip[0].playerId, 'cpu');
+  assert.equal(Stats.buildDatasets(data, { scopes: ['device', 'import'], currentDeviceId: 'device-a' }).sequenceStrip.length, 2);
+  const rollup = Stats.aggregateRecords([human], { prefix: 'retention' })[0];
+  for (const field of ['releaseVersion','heat','round','turn','playerCount','seat','cosmeticId','arenaId',
+    'viewportBucket','oddsProfile','eventSeed','trajectorySeed','contacts','bounces','banks','flightMs',
+    'firstContactMs','settleMs','stakeBefore','stakeAfter','livesBefore','livesAfter','streakBefore','streakAfter',
+    'onFireBefore','onFireAfter','suddenDeathBefore','suddenDeathAfter','appliedReward','appliedEffect','fpsBucket']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(rollup.dimensions, field), `rollup missing ${field}`);
+  }
+  assert.equal(Stats.aggregateSummary({ flips: [], matches: [], rollups: [rollup] }, { cosmeticId: 'sparkles' }).flips, 1);
+  assert.equal(Stats.aggregateSummary({ flips: [], matches: [], rollups: [rollup] }, { cosmeticId: 'missing' }).flips, 0);
+  const countedMatch = match(53, { mode: 'cup', cup: { heats: [1, 0] },
+    eventCounts: [{ eventId: 'plinko', count: 2 }] });
+  assert.equal(Stats.buildDatasets({ flips: [], matches: [countedMatch], rollups: [] }, { eventId: 'plinko' })
+    .cupTeam.cup.length, 1, 'array-form observed event counts participate in match filtering');
+  assert.equal(Stats.aggregateSummary({ flips: [], matches: [countedMatch], rollups: [] }, { eventId: 'plinko' })
+    .matches, 1);
+}
+
 async function testQueuedWritesRollupAndFiltering() {
   const backend = Stats.createMemoryBackend();
   const store = Stats.createStore({ backend, maxRawFlips: 3, deviceId: 'device-a', sessionId: 'session-a' });
@@ -205,8 +345,14 @@ async function testObservedOnlyDatasets() {
     flip(3, { mode: 'team-clash', teamId: 'red', objectId: 'coffee-mug', landingReason: 'timeout' }),
   ];
   const matches = [
-    match(1, { mode: 'cup', cup: { heats: [0, 1, 0], shootoutRounds: 0 } }),
-    match(2, { mode: 'team-clash', team: { scores: [11, 8] } }),
+    match(1, { mode: 'cup', cup: { heats: [0, 1, 0], shootoutRounds: 0 },
+      heatSummaries: [{ heat: 1, winnerId: 'p1' }] }),
+    match(2, { mode: 'team-clash', team: { scores: [11, 8] }, winnerTeamId: 'red',
+      participants: [{ playerId: 'p2', displayName: 'CPU', seat: 1, isAI: true,
+        objectId: 'coffee-mug', variantId: 'coffee-mug.red', cosmeticId: 'crown' }],
+      players: [{ playerId: 'p2', displayName: 'CPU', seat: 1, isAI: true,
+        objectId: 'coffee-mug', variantId: 'coffee-mug.red', cosmeticId: 'crown' }],
+      teams: [{ teamId: 'red', score: 11 }], roundSummaries: [{ round: 1, scores: [3, 1] }] }),
   ];
   const data = { flips: records, matches, rollups: [] };
   const charts = Stats.buildDatasets(data);
@@ -222,11 +368,20 @@ async function testObservedOnlyDatasets() {
   assert.ok(charts.rotations.length);
   assert.ok(charts.landingReasons.some((row) => row.reason === 'timeout'));
   assert.ok(charts.livesStake.lives.length && charts.livesStake.stake.length);
-  assert.ok(charts.streaks.length && charts.objects.length);
+  assert.equal(charts.livesStake.livesTimeline.length, 3);
+  assert.equal(charts.livesStake.stakeTimeline.length, 3);
+  assert.ok(charts.streaks.length && charts.streakTimeline.length === 3);
+  assert.ok(charts.objects.length && charts.objectComparison === charts.objects);
+  assert.deepEqual(charts.rotationLanding.rotations, charts.rotations);
   assert.equal(charts.cupTeam.cup.length, 1);
   assert.equal(charts.cupTeam.team.length, 1);
+  assert.equal(charts.cupTeam.cupTimeline, charts.cupTeam.cup);
+  assert.equal(charts.cupTeam.teamTimeline, charts.cupTeam.team);
+  assert.equal(charts.cupTeam.cupTimeline[0].heatSummaries.length, 1);
+  assert.equal(charts.cupTeam.teamTimeline[0].winnerTeamId, 'red');
   assert.equal(Stats.buildDatasets(data, { playerId: 'p1' }).cupTeam.cup.length, 1,
     'nested match players participate in filters');
+  assert.equal(Stats.buildDatasets(data, { playerType: 'cpu', variantId: 'coffee-mug.red' }).cupTeam.team.length, 1);
   assert.ok(!JSON.stringify(charts).includes('normalDenominator'));
 }
 
@@ -254,6 +409,11 @@ async function testImportExportRoundTripScopesAndCsv() {
   const named = await imported.exportCSV('flip', { includeNames: true, includeTestData: true });
   assert.ok(named.includes('Ada'));
   assert.ok(named.includes("'=HYPERLINK"), 'explicit names are still spreadsheet-injection safe');
+  assert.ok(named.includes('"releaseVersion"') && named.includes('"stakeBefore"') && named.includes('"performance"'));
+  const pseudoMatch = await imported.exportCSV('match', { includeTestData: true });
+  assert.ok(!pseudoMatch.includes('"Ada"') && !pseudoMatch.includes('"p1"'), 'match participant data is pseudonymized');
+  const namedMatch = await imported.exportCSV('match', { includeNames: true, includeTestData: true });
+  assert.ok(namedMatch.includes('Ada') && namedMatch.includes('"completionReason"'));
   for (const type of ['match', 'player', 'event']) {
     const output = await imported.exportCSV(type, { includeTestData: true });
     assert.ok(output.includes('\r\n') || output.startsWith('"'), `${type} CSV is produced`);
@@ -262,6 +422,19 @@ async function testImportExportRoundTripScopesAndCsv() {
   assert.throws(() => Stats.parseImportJSON(malicious), /Unsafe/);
   assert.equal({}.polluted, undefined);
   await original.close(); await imported.close();
+
+  const rolled = Stats.createStore({ backend: Stats.createMemoryBackend(), maxRawFlips: 1,
+    deviceId: 'roll-device', sessionId: 'roll-session' });
+  await rolled.recordFlip(flip(61, { cosmeticId: 'sparkles', arenaId: 'moon-table' }));
+  await rolled.recordFlip(flip(62, { cosmeticId: 'crown', arenaId: 'slick-table' }));
+  const rolledJSON = await rolled.exportJSON({ exportedAt: 999, includeTestData: true });
+  const rolledImport = Stats.createStore({ backend: Stats.createMemoryBackend(), maxRawFlips: 10,
+    deviceId: 'destination', sessionId: 'destination' });
+  await rolledImport.importJSON(rolledJSON);
+  assert.deepEqual(JSON.parse(await rolledImport.exportJSON({ exportedAt: 999, includeTestData: true })),
+    JSON.parse(rolledJSON), 'expanded rollup dimensions survive lossless JSON roundtrip');
+  assert.equal((await rolledImport.summary({ includeTestData: true })).flips, 2);
+  await rolled.close(); await rolledImport.close();
 }
 
 async function testLegacyMigrationAndTransactionFailureFallback() {
@@ -342,6 +515,8 @@ async function main() {
   await testNamePolicyEvasionAndFalsePositives();
   await testNamePolicyAllowlistAndRuntimeInstall();
   await testNormalizationAndStableDedupe();
+  await testCompleteRecordSchemasAndNestedPayloads();
+  await testCompleteFiltersAndRollupDimensions();
   await testQueuedWritesRollupAndFiltering();
   await testObservedOnlyDatasets();
   await testImportExportRoundTripScopesAndCsv();
