@@ -37,6 +37,23 @@ function runToVerdict(physics, maxFrames = 3600) {
   return null;
 }
 
+function runUntil(physics, predicate, maxFrames = 1800) {
+  for (let frame = 0; frame < maxFrames; frame++) {
+    physics.step(1 / 60);
+    physics.checkLanding();
+    if (predicate()) return frame + 1;
+  }
+  return null;
+}
+
+function forcedPhysics(id, seed = 1234, vx = 320, vy = -2500) {
+  const physics = loadPhysics();
+  physics.init(1280, 800);
+  physics.forceSpecialEvent(id);
+  physics.applyFlick(vx, vy, seed);
+  return physics;
+}
+
 function testCanonicalRegistryAndHooks() {
   assert.equal(Events.CONTRACT_REVISION, 3);
   assert.equal(Events.list().length, 30);
@@ -153,8 +170,11 @@ function testEveryEventHasPhysicalRuntime() {
     assert.equal(physics.getEventRenderState().eventId, definition.id);
     assert.equal(physics.getEventRenderState(true).visual.retainOutcome, true);
 
+    // Mid-flight transformations are deliberately not applied at launch.
+    for (let frame = 0; frame < 20; frame++) physics.step(1 / 60);
+
     if (definition.id === 'shrink-ray') {
-      assert.ok(physics.getBottle().bounds.max.x - physics.getBottle().bounds.min.x < 60);
+      assert.equal(physics.getEventRenderState().runtime.flags.shrunk, true);
     }
     if (definition.id === 'mitosis' || definition.id === 'mirror-match') {
       assert.equal(physics.getEventBodies().length, 1);
@@ -168,8 +188,9 @@ function testEveryEventHasPhysicalRuntime() {
     if (definition.id === 'gravity-slam') assert.equal(flick.gravityScale, 2.55);
     if (definition.id === 'double-flip') assert.equal(flick.requiredTurns, 2);
     if (definition.id === 'cap-toss') {
-      assert.equal(definition.metadata.landing.uprightValid, false);
+      assert.equal(definition.metadata.landing.uprightValid, true);
       assert.equal(definition.metadata.landing.capValid, true);
+      assert.equal(definition.metadata.landing.bothBodiesRequired, true);
     }
     if (definition.id === 'plinko') {
       const board = physics.getPlinko();
@@ -178,7 +199,6 @@ function testEveryEventHasPhysicalRuntime() {
       assert.equal(physics.getViewHint().trackingData.slots.length, 9);
     }
 
-    physics.step(1 / 60);
     const runtime = physics.getEventRenderState().runtime;
     assert.ok(runtime.elapsedMs > 0, `${definition.id} physics hook did not run`);
     physics.cleanupEvent('test');
@@ -282,7 +302,7 @@ function testRulesMetadata() {
   mitosis.applyFlick(0, -2500, 888);
   const mitosisOutcome = runToVerdict(mitosis);
   assert.ok(mitosisOutcome);
-  assert.ok([1, 2].includes(mitosisOutcome.info.eventReward.landedCount));
+  assert.ok([0, 1, 2].includes(mitosisOutcome.info.eventReward.landedCount));
 
   const plinko = loadPhysics();
   plinko.init(1280, 800);
@@ -378,6 +398,250 @@ function testNoTimeoutFuzzAndCleanup() {
   }
 }
 
+function testDeepPhysicalSemantics() {
+  const ordinary = loadPhysics();
+  ordinary.init(1280, 800);
+  ordinary.applyFlick(320, -2500, 6098, 1, 'disabled');
+  const ordinaryLaunch = {
+    y: ordinary.getBottle().velocity.y,
+    spin: Math.abs(ordinary.getBottle().angularVelocity),
+  };
+
+  const rainbow = forcedPhysics('rainbow-corkscrew', 6099);
+  assert.ok(runUntil(rainbow,
+    () => rainbow.getEventRenderState().runtime.corkscrewForce !== null, 240),
+  'Rainbow Corkscrew never applied its trajectory force');
+
+  const power = forcedPhysics('power-launch', 6098);
+  assert.ok(Math.abs(power.getBottle().velocity.y) > Math.abs(ordinaryLaunch.y) * 1.6,
+    'Power Launch did not substantially extend the flight');
+  assert.ok(Math.abs(power.getBottle().angularVelocity) > ordinaryLaunch.spin * 1.25,
+    'Power Launch did not increase spin');
+
+  // Half Full uses a moving center of mass in flight and switches to real
+  // base-contact stabilization only after touchdown.
+  const half = forcedPhysics('half-full', 6101);
+  runUntil(half, () => Math.abs(half.getEventRenderState().runtime.liquidShift || 0) > 0.05, 240);
+  assert.ok(Math.abs(half.getEventRenderState().runtime.liquidShift) > 0.05);
+  assert.ok(runUntil(half,
+    () => half.getEventRenderState().runtime.flags.baseStabilizing === true, 1200));
+
+  // Fizz thrust is recomputed from the rotating local axis and the cap becomes
+  // a separate collidable body.
+  const fizz = forcedPhysics('fizz-jet', 6102);
+  assert.ok(runUntil(fizz, () => fizz.getEventBodies().some((body) => body.label === 'fizz-cap'), 180));
+  const fizzA = fizz.getEventRenderState().runtime.thrustVector;
+  for (let i = 0; i < 12; i++) fizz.step(1 / 60);
+  const fizzB = fizz.getEventRenderState().runtime.thrustVector;
+  assert.ok(Math.hypot(fizzA.x - fizzB.x, fizzA.y - fizzB.y) > 1e-8,
+    'Fizz thrust did not steer with the rotating object axis');
+
+  const baseline = loadPhysics();
+  baseline.init(1280, 800);
+  const normalMass = baseline.getBottle().mass;
+  const golden = forcedPhysics('golden-flip', 6103);
+  assert.ok(golden.getBottle().mass > normalMass * 1.3, 'Golden mass did not increase');
+  golden.cleanupEvent('semantic-cleanup');
+  assert.ok(Math.abs(golden.getBottle().mass - normalMass) < 1e-9,
+    'Golden cleanup did not restore mass');
+
+  const bouncy = forcedPhysics('bouncy-bottle', 6104);
+  assert.ok(runToVerdict(bouncy));
+  const bounceRuntime = bouncy.getEventRenderState().runtime;
+  assert.ok(bounceRuntime.bounces <= 3, 'Bouncy exceeded its three-bounce contract');
+  assert.equal(bounceRuntime.maxBounces, 3);
+
+  const quake = forcedPhysics('earthquake', 6105);
+  for (let i = 0; i < 8; i++) quake.step(1 / 60);
+  assert.equal(quake.getEventBodies().filter((body) => body.label === 'quake-debris').length, 5);
+  assert.ok(Math.hypot(quake.getEventRenderState().runtime.tableOffset.x,
+    quake.getEventRenderState().runtime.tableOffset.y) > 0.1,
+  'Earthquake table remained static');
+  quake.cleanupEvent('semantic-cleanup');
+  assert.equal(quake.getEventBodies().length, 0, 'Earthquake debris leaked after cleanup');
+
+  const moon = forcedPhysics('moon-gravity', 6123);
+  assert.equal(moon.getLastFlickInfo().gravityScale, 0.28);
+  const alien = forcedPhysics('alien-invasion', 6124, 900);
+  assert.equal(alien.getTarget().style, 'portal');
+  assert.equal(alien.getTarget().armed, false);
+
+  const slam = forcedPhysics('gravity-slam', 6125);
+  assert.equal(slam.getLastFlickInfo().gravityScale, 2.55);
+  assert.ok(runUntil(slam,
+    () => (slam.getEventRenderState().runtime.compression || 0) > 0.1, 900),
+  'Gravity Slam never produced an impact-compression phase');
+
+  const ice = forcedPhysics('ice-slide', 6106);
+  assert.equal(ice.getEventBodies().filter((body) => body.label === 'ice-bumper').length, 2);
+  assert.ok(runUntil(ice,
+    () => (ice.getEventRenderState().runtime.frictionReturnProgress || 0) > 0, 1200),
+  'Ice friction never began returning');
+  assert.ok(runToVerdict(ice));
+
+  const trampoline = forcedPhysics('trampoline', 6107);
+  assert.ok(runUntil(trampoline,
+    () => trampoline.getEventRenderState().runtime.flags.relaunched === true, 1200),
+  'Trampoline never relaunched the object');
+  assert.equal(trampoline.getLandingLifecycle().firstContactMs, null,
+    'Trampoline first contact consumed the return-landing settle budget');
+  assert.ok(runToVerdict(trampoline));
+
+  const wind = forcedPhysics('wind-tunnel', 6126);
+  assert.ok(runUntil(wind,
+    () => wind.getEventRenderState().runtime.gustVector !== null, 240),
+  'Wind Tunnel never applied lateral force');
+
+  const shrink = forcedPhysics('shrink-ray', 6108);
+  const shrinkMassBefore = shrink.getBottle().mass;
+  const initialAngular = Math.abs(shrink.getBottle().angularVelocity);
+  assert.ok(runUntil(shrink, () => shrink.getEventRenderState().runtime.flags.shrunk === true, 240));
+  assert.ok(Math.abs(shrink.getEventRenderState().runtime.angularSpeedAfter) > initialAngular,
+    'Shrink Ray failed to conserve angular momentum/increase angular speed');
+  const shrinkMassAfter = shrink.getBottle().mass;
+  assert.ok(shrinkMassAfter < shrinkMassBefore * 0.5, 'Shrink Ray did not reduce the body');
+  shrink.cleanupEvent('semantic-cleanup');
+  assert.ok(shrink.getBottle().mass > shrinkMassAfter,
+    'Shrink cleanup did not restore scale');
+
+  const portal = forcedPhysics('portal-pair', 6109, 0);
+  assert.ok(runUntil(portal,
+    () => portal.getEventRenderState().runtime.flags.teleported === true, 600),
+  'Portal was not crossed');
+  const conservation = portal.getEventRenderState().runtime.conservation;
+  assert.ok(Math.abs(conservation.speedBefore - conservation.speedAfter) < 1e-9,
+    'Portal did not conserve speed');
+  assert.ok(Math.abs(conservation.spinBefore - conservation.spinAfter) < 1e-12,
+    'Portal did not conserve spin');
+  assert.ok(Math.abs(conservation.directionRotation) > 0.5,
+    'Portal did not rotate the exit direction');
+
+  const tether = forcedPhysics('tether-swing', 6110, 500);
+  assert.ok(runUntil(tether,
+    () => tether.getEventRenderState().runtime.flags.released === true, 1200),
+  'Tether did not release');
+  const tetherRuntime = tether.getEventRenderState().runtime;
+  assert.ok(Math.abs(tetherRuntime.releaseAngle) < 0.21,
+    `Tether released away from its low point: ${tetherRuntime.releaseAngle}`);
+  assert.ok(Math.abs(tetherRuntime.cableStretch) < tetherRuntime.cableLength * 0.08,
+    'Tether cable was not taut');
+
+  const mitosis = forcedPhysics('mitosis', 6111);
+  assert.ok(runUntil(mitosis,
+    () => mitosis.getEventRenderState().runtime.flags.split === true, 240));
+  const mitosisRuntime = mitosis.getEventRenderState().runtime;
+  assert.ok(mitosisRuntime.massConservationError < 1e-9, 'Mitosis did not conserve mass');
+  assert.ok(mitosisRuntime.angularMomentumError < 1e-6,
+    'Mitosis did not conserve angular momentum');
+  const mitosisOutcome = runToVerdict(mitosis);
+  assert.ok(mitosisOutcome);
+  assert.ok([0, 1, 2].includes(mitosisOutcome.info.eventReward.landedCount));
+  assert.equal(mitosisOutcome.info.meta.copies.length, 2);
+
+  const doubleFlip = forcedPhysics('double-flip', 6127);
+  assert.ok(runUntil(doubleFlip,
+    () => doubleFlip.getEventRenderState().runtime.flags.doubleFlipAssisted === true, 900),
+  'Double Flip never applied its second-arc assistance');
+  const doubleOutcome = runToVerdict(doubleFlip);
+  assert.ok(doubleOutcome);
+  assert.equal(doubleOutcome.info.requiredRotations, 2);
+  if (doubleOutcome.verdict === 'MAKE') assert.ok(doubleOutcome.info.rotations >= 2);
+
+  const ceiling = forcedPhysics('ceiling-flip', 6112);
+  assert.equal(ceiling.getEventRenderState().runtime.landingPlane, 'ceiling');
+  const ceilingOutcome = runToVerdict(ceiling);
+  assert.ok(ceilingOutcome, 'Ceiling Flip did not resolve on its inverted plane');
+  assert.ok(ceilingOutcome.info.contacts > 0, 'Ceiling Flip never contacted its landing plane');
+
+  const meteor = forcedPhysics('meteor-shower', 6113);
+  const meteorOutcome = runToVerdict(meteor);
+  assert.ok(meteorOutcome);
+  assert.notEqual(meteorOutcome.info.reason, 'meteor', 'Meteor contact became an automatic miss');
+
+  const magnet = forcedPhysics('magnet', 6114);
+  assert.ok(runUntil(magnet,
+    () => magnet.getEventRenderState().runtime.magnetVector !== null, 600),
+  'Magnet never bent the trajectory');
+
+  const hearts = forcedPhysics('heart-rush', 6115);
+  assert.ok(runUntil(hearts,
+    () => hearts.getEventRenderState().runtime.heartbeatCount === 3, 900),
+  'Heart Rush did not deliver three physical pulses');
+
+  const blackHole = forcedPhysics('black-hole', 6116);
+  assert.ok(runUntil(blackHole,
+    () => blackHole.getEventRenderState().runtime.attractionVector !== null, 240),
+  'Black Hole never applied attraction');
+
+  const boomerang = forcedPhysics('boomerang', 6117, 500);
+  assert.ok(runUntil(boomerang,
+    () => boomerang.getEventRenderState().runtime.returnArc !== null, 240));
+  const boomerangRuntime = boomerang.getEventRenderState().runtime;
+  assert.ok(boomerangRuntime.targetX < boomerangRuntime.originX,
+    'Boomerang target was not behind the launch origin');
+
+  const roulette = forcedPhysics('roulette-table', 6118);
+  const angleBefore = roulette.getEventRenderState().runtime.wheelAngle;
+  for (let i = 0; i < 30; i++) roulette.step(1 / 60);
+  assert.notEqual(roulette.getEventRenderState().runtime.wheelAngle, angleBefore,
+    'Roulette table did not physically spin');
+  const rouletteOutcome = runToVerdict(roulette);
+  assert.ok(rouletteOutcome.info.meta.roulette.slotIndex >= 0);
+  assert.equal(rouletteOutcome.info.eventReward.slotIndex,
+    rouletteOutcome.info.meta.roulette.slotIndex);
+
+  const plinko = forcedPhysics('plinko', 6128);
+  const board = plinko.getPlinko();
+  assert.equal(board.slots.length, 9);
+  assert.ok(board.bottom - board.top > 900);
+  assert.equal(plinko.getViewHint().tracking, 'plinko');
+
+  const mirror = forcedPhysics('mirror-match', 6129);
+  for (let i = 0; i < 5; i++) mirror.step(1 / 60);
+  const mirroredBody = mirror.getEventBodies().find((body) => body.label === 'mirror-bottle');
+  assert.ok(mirroredBody);
+  assert.ok(Math.abs(mirroredBody.x - (1280 - mirror.getBottle().position.x)) < 1e-6);
+  assert.ok(Math.abs(mirroredBody.angularVelocity + mirror.getBottle().angularVelocity) < 1e-9);
+
+  // A would-be MAKE never rewinds; the first would-be MISS is suppressed,
+  // visibly reversed to apex, replayed once, and only then resolved.
+  const noRewind = forcedPhysics('rewind', 6119);
+  for (let i = 0; i < 45; i++) noRewind.step(1 / 60);
+  assert.equal(noRewind.forceLanding('MAKE', { reason: 'qa-make' }), 'MAKE');
+  assert.equal(noRewind.getEventRenderState().runtime.flags.replayed, undefined);
+
+  const rewind = forcedPhysics('rewind', 6120);
+  for (let i = 0; i < 90; i++) rewind.step(1 / 60);
+  assert.equal(rewind.forceLanding('MISS', { reason: 'qa-first-failure' }), null,
+    'Rewind emitted its first failure');
+  assert.equal(rewind.getEventRenderState().runtime.phase, 'rewinding');
+  assert.ok(runUntil(rewind,
+    () => rewind.getEventRenderState().runtime.flags.replayed === true, 600),
+  'Rewind never reached the apex/replay');
+  assert.ok(rewind.getEventRenderState().runtime.correctionImpulse,
+    'Rewind replay omitted its corrective impulse');
+  const rewindOutcome = runToVerdict(rewind);
+  assert.ok(rewindOutcome);
+  assert.equal(rewindOutcome.info.meta.rewind.replayed, true);
+  assert.equal(rewindOutcome.info.meta.rewind.firstFailureReason, 'qa-first-failure');
+
+  const capToss = forcedPhysics('cap-toss', 6121);
+  assert.ok(runUntil(capToss,
+    () => capToss.getEventRenderState().runtime.flags.split === true, 240));
+  assert.equal(capToss.getEventBodies().filter((body) => body.label === 'cap-toss-cap').length, 1);
+  const capOutcome = runToVerdict(capToss);
+  assert.ok(capOutcome);
+  assert.equal(capOutcome.info.meta.capToss.bothRequired, true);
+  assert.equal(capOutcome.verdict,
+    capOutcome.info.meta.capToss.bodyLanded && capOutcome.info.meta.capToss.capLanded
+      ? 'MAKE' : 'MISS');
+
+  const drain = forcedPhysics('life-drain', 6122);
+  assert.ok(runUntil(drain,
+    () => drain.getEventRenderState().runtime.magnetVector !== null, 600),
+  'Life Drain hidden magnet never affected the bottle');
+}
+
 testCanonicalRegistryAndHooks();
 testForcedMapping();
 testNormalOddsAcrossMillionsOfSeeds();
@@ -390,4 +654,5 @@ testRulesMetadata();
 testDeterminismAndRngIsolation();
 testModeEventExclusions();
 testNoTimeoutFuzzAndCleanup();
+testDeepPhysicalSemantics();
 console.log('v111 physics/event tests passed.');

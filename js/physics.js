@@ -1,7 +1,7 @@
 // physics.js — Matter.js world, bottle body, liquid sim
 
 const Physics = (() => {
-  const { Engine, Bodies, Body, World, Events } = Matter;
+  const { Engine, Bodies, Body, World, Events, Constraint } = Matter;
 
   let engine, world, bottle, ground, leftWall, rightWall, ceilingBody;
   let groundedFrames = 0;
@@ -64,8 +64,11 @@ const Physics = (() => {
   let activeEventMetadata = null;
   let eventRuntime = null;
   let eventBodies = [];
+  let eventConstraints = [];
   let mirrorBottle = null;
   let mitosisBottle = null;
+  let fizzCap = null;
+  let capTossCap = null;
   let pendingReflow = null;
   let landingPhase = 'resolved';
   let firstContactMs = null;
@@ -863,7 +866,85 @@ const Physics = (() => {
     return angle;
   }
 
+  function activePhysicsKind() {
+    return activeEventMetadata && activeEventMetadata.physics
+      ? activeEventMetadata.physics.kind : null;
+  }
+
+  function ceilingLandingActive() {
+    return activePhysicsKind() === 'ceiling';
+  }
+
+  function touchingLandingPlane(body = bottle) {
+    if (!body) return false;
+    return ceilingLandingActive()
+      ? body.bounds.min.y <= ceilingY + GROUND_TOUCH_PX
+      : body.bounds.max.y >= groundY - GROUND_TOUCH_PX;
+  }
+
+  // Return tilt relative to the active gravity/landing plane. On a Ceiling Flip
+  // the visually inverted bottle is upright relative to the ceiling.
+  function landingTiltForBody(body = bottle) {
+    if (!body) return null;
+    const relativeAngle = ceilingLandingActive() ? body.angle - Math.PI : body.angle;
+    return Math.abs(normalizeSignedAngle(relativeAngle));
+  }
+
+  function poseForBody(body, capBody = false) {
+    const tilt = capBody
+      ? Math.abs(normalizeSignedAngle(body.angle))
+      : landingTiltForBody(body);
+    const inverseError = Math.abs(tilt - Math.PI);
+    if (capBody) {
+      return { made: tilt < 0.35 || inverseError < 0.35, onCap: true, tilt };
+    }
+    return {
+      made: tilt < MAKE_ANGLE || inverseError < CAP_WINDOW,
+      onCap: inverseError < CAP_WINDOW,
+      tilt,
+    };
+  }
+
+  function captureBodyState(body) {
+    return {
+      x: body.position.x, y: body.position.y, angle: body.angle,
+      vx: body.velocity.x, vy: body.velocity.y, av: body.angularVelocity,
+    };
+  }
+
+  function beginRewind(firstFailureReason, firstFailureTilt) {
+    const state = eventRuntime;
+    if (!state || state.kind !== 'rewind' || state.flags.replayed ||
+        state.flags.reversing || state.flags.finalizing) return false;
+    if (!state.snapshots.length) state.snapshots.push(captureBodyState(bottle));
+    let apexIndex = 0;
+    for (let i = 1; i < state.snapshots.length; i++) {
+      if (state.snapshots[i].y < state.snapshots[apexIndex].y) apexIndex = i;
+    }
+    state.firstFailureReason = firstFailureReason;
+    state.firstFailureTilt = firstFailureTilt;
+    state.apexIndex = apexIndex;
+    state.rewindIndex = state.snapshots.length - 1;
+    state.flags.reversing = true;
+    state.phase = 'rewinding';
+    state.rewindProgress = 0;
+    Body.setStatic(bottle, true);
+    Body.setVelocity(bottle, { x: 0, y: 0 });
+    Body.setAngularVelocity(bottle, 0);
+    landingPhase = 'airborne';
+    firstContactMs = null;
+    settlingStartedMs = null;
+    previousTouching = false;
+    groundedFrames = 0;
+    angleWin = [];
+    leanFrames = 0;
+    return true;
+  }
+
   function recordLanding(result, tilt, reason) {
+    // Rewind owns the first would-be failure. It is not emitted to rules/stats;
+    // the visible reverse/replay runs and only that final verdict is returned.
+    if (result === 'MISS' && beginRewind(reason, tilt)) return null;
     let padOffset = null;
     if (alienShotActive() && targetX != null && targetY != null && bottle) {
       const hitHW = currentHitHalfWidth();
@@ -888,10 +969,11 @@ const Physics = (() => {
     }
     let landedCount = result === 'MAKE' ? 1 : 0;
     if (activeEventDefinition && activeEventDefinition.id === 'mitosis' && mitosisBottle) {
-      const secondaryTilt = Math.abs(normalizeSignedAngle(mitosisBottle.angle));
-      const secondaryMade = mitosisBottle.bounds.max.y >= groundY - GROUND_TOUCH_PX &&
-        (secondaryTilt < MAKE_ANGLE || Math.abs(secondaryTilt - Math.PI) < CAP_WINDOW);
-      landedCount = (originalResult === 'MAKE' ? 1 : 0) + (secondaryMade ? 1 : 0);
+      const secondaryPose = poseForBody(mitosisBottle);
+      const secondaryMade = touchingFloorBody(mitosisBottle) && secondaryPose.made;
+      landedCount = eventRuntime && Number.isFinite(eventRuntime.landedCount)
+        ? eventRuntime.landedCount
+        : (originalResult === 'MAKE' ? 1 : 0) + (secondaryMade ? 1 : 0);
       if (landedCount > 0) result = 'MAKE';
     }
 
@@ -936,16 +1018,48 @@ const Physics = (() => {
       }
     }
     if (lastLandingInfo.eventId === 'mitosis') {
-      reward.landedCount = Math.max(1, Math.min(2, landedCount));
+      reward.landedCount = Math.max(0, Math.min(2, landedCount));
       if (result === 'MAKE') {
         reward.additiveLives = reward.landedCount === 2 ? 3 : 1;
         reward.capped = true;
       }
     }
     if (lastLandingInfo.eventId === 'roulette-table' && eventRuntime) {
+      const slot = rouletteSlotAtLanding(eventRuntime, bottle.position.x);
+      eventRuntime.rouletteSlot = slot;
+      eventRuntime.reward.multiplier = [1, 2, 3, 4, 4, 3, 2, 1][slot];
       reward.multiplier = eventRuntime.reward.multiplier;
-      reward.slotIndex = eventRuntime.rouletteSlot;
+      reward.slotIndex = slot;
       reward.bypassAdditiveCap = true;
+    }
+    const semanticMeta = {};
+    if (eventRuntime && eventRuntime.kind === 'rewind') {
+      semanticMeta.rewind = {
+        replayed: !!eventRuntime.flags.replayed,
+        firstFailureReason: eventRuntime.firstFailureReason || null,
+        replaySucceeded: result === 'MAKE',
+      };
+    }
+    if (eventRuntime && eventRuntime.kind === 'mitosis') {
+      semanticMeta.copies = (eventRuntime.copyOutcomes || []).map((copy) => ({ ...copy }));
+      semanticMeta.massConservationError = eventRuntime.massConservationError || 0;
+      semanticMeta.angularMomentumError = eventRuntime.angularMomentumError || 0;
+    }
+    if (eventRuntime && eventRuntime.kind === 'cap-toss') {
+      semanticMeta.capToss = {
+        bodyLanded: !!(eventRuntime.bodyOutcome && eventRuntime.bodyOutcome.made),
+        capLanded: !!(eventRuntime.capOutcome && eventRuntime.capOutcome.made),
+        bothRequired: true,
+      };
+    }
+    if (eventRuntime && eventRuntime.kind === 'roulette') {
+      semanticMeta.roulette = {
+        wheelAngle: eventRuntime.wheelAngle,
+        slotIndex: eventRuntime.rouletteSlot,
+      };
+    }
+    if (eventRuntime && eventRuntime.kind === 'meteors') {
+      semanticMeta.meteorHits = eventRuntime.meteorHits || 0;
     }
     eventResultMetadata = {
       eventId: lastLandingInfo.eventId || null,
@@ -955,6 +1069,7 @@ const Physics = (() => {
         contacts: contactCount,
         bounces: bounceCount,
         banks: bankHits,
+        ...semanticMeta,
       },
       eventReward: reward,
     };
@@ -974,9 +1089,116 @@ const Physics = (() => {
     return !!bottle && bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX;
   }
 
+  function touchingFloorBody(body) {
+    return !!body && body.bounds.max.y >= groundY - GROUND_TOUCH_PX;
+  }
+
+  function rouletteSlotAtLanding(state, x) {
+    const radius = Math.max(1, state.wheelRadius || canvasW * 0.38);
+    const normalizedX = Math.max(-1, Math.min(1, (x - state.wheelCenterX) / radius));
+    // Project screen position onto the near half of the rotating wheel. Its
+    // physical angular phase at the settling instant determines the sector.
+    const contactAngle = Math.asin(normalizedX);
+    const tau = Math.PI * 2;
+    const phase = ((contactAngle - state.wheelAngle) % tau + tau) % tau;
+    return Math.min(7, Math.floor(phase / (tau / 8)));
+  }
+
+  function updateTrackedLanding(body, tracker, options = {}) {
+    if (!body) {
+      tracker.resolved = true;
+      tracker.made = false;
+      tracker.reason = 'missing-body';
+      return;
+    }
+    const grounded = options.ceiling
+      ? body.bounds.min.y <= ceilingY + GROUND_TOUCH_PX
+      : touchingFloorBody(body);
+    tracker.rotation = Math.max(tracker.rotation || 0,
+      Math.abs(body.angle - (tracker.launchAngle || 0)));
+    if (!grounded) {
+      tracker.stableFrames = 0;
+      return;
+    }
+    if (tracker.contactMs == null) tracker.contactMs = simElapsedMs;
+    const speed = Math.hypot(body.velocity.x, body.velocity.y);
+    const stable = speed < SETTLE_LIN_SPD && Math.abs(body.angularVelocity) < SETTLE_ANG_VEL;
+    if (stable && tracker.lastStableFrame !== flightFrames) {
+      tracker.stableFrames = (tracker.stableFrames || 0) + 1;
+      tracker.lastStableFrame = flightFrames;
+    } else if (!stable) {
+      tracker.stableFrames = 0;
+    }
+    const limit = options.settleLimitMs || 4000;
+    const deadline = simElapsedMs - tracker.contactMs >= limit;
+    if (!tracker.resolved && ((tracker.stableFrames || 0) >= SETTLE_FRAMES || deadline)) {
+      const pose = poseForBody(body, !!options.capBody);
+      const rotationValid = !options.requireFlip || tracker.rotation >= requiredRotation;
+      tracker.resolved = true;
+      tracker.made = !!(pose.made && rotationValid);
+      tracker.onCap = pose.onCap;
+      tracker.tilt = pose.tilt;
+      tracker.reason = tracker.made ? (options.capBody ? 'cap-settled'
+        : (pose.onCap ? 'cap' : 'upright'))
+        : (rotationValid ? 'invalid-pose' : 'underrotated');
+    }
+  }
+
+  function checkSplitEventLanding() {
+    const state = eventRuntime;
+    if (!state || !state.splitTrackers || !state.flags.split) return null;
+    const settleLimit = activeEventMetadata.physics.settleLimitMs;
+    for (const tracker of state.splitTrackers) {
+      updateTrackedLanding(tracker.body, tracker, {
+        capBody: !!tracker.capBody,
+        requireFlip: !!tracker.requireFlip,
+        settleLimitMs: settleLimit,
+      });
+    }
+    if (state.elapsedMs > settleLimit + 8000) {
+      for (const tracker of state.splitTrackers) {
+        if (!tracker.resolved) {
+          tracker.resolved = true;
+          tracker.made = false;
+          tracker.reason = 'off-field';
+        }
+      }
+    }
+    if (!state.splitTrackers.every((tracker) => tracker.resolved)) return null;
+    if (state.kind === 'mitosis') {
+      state.copyOutcomes = state.splitTrackers.map((tracker, index) => ({
+        copy: index + 1, made: tracker.made, onCap: tracker.onCap,
+        tilt: tracker.tilt, reason: tracker.reason,
+      }));
+      state.landedCount = state.copyOutcomes.filter((copy) => copy.made).length;
+      state.flags.mitosisFinalizing = true;
+      const result = state.landedCount > 0 ? 'MAKE' : 'MISS';
+      const reason = state.landedCount === 2 ? 'mitosis-both'
+        : (state.landedCount === 1 ? 'mitosis-one' : 'mitosis-none');
+      const madeTracker = state.splitTrackers.find((tracker) => tracker.made);
+      return recordLanding(result, madeTracker ? madeTracker.tilt : null, reason);
+    }
+    state.bodyOutcome = state.splitTrackers[0];
+    state.capOutcome = state.splitTrackers[1];
+    state.flags.capTossFinalizing = true;
+    const both = state.bodyOutcome.made && state.capOutcome.made;
+    return recordLanding(both ? 'MAKE' : 'MISS', state.bodyOutcome.tilt,
+      both ? 'cap-toss-both' : 'cap-toss-incomplete');
+  }
+
   function checkLanding() {
     if (!bottle) return null;
     if (landingPhase === 'resolved' && lastLandingInfo) return lastLandingInfo.result;
+    if (eventRuntime && eventRuntime.kind === 'rewind' && eventRuntime.flags.reversing) {
+      return null;
+    }
+
+    // Mitosis and Cap Toss own both physical bodies through settlement. The
+    // ordinary bottle cannot resolve the shot while its counterpart is moving.
+    if (eventRuntime && (eventRuntime.kind === 'mitosis' || eventRuntime.kind === 'cap-toss') &&
+        eventRuntime.flags.split) {
+      return checkSplitEventLanding();
+    }
 
     // Plinko drop: the only verdict is which slot it settles in.
     if (plinko && launched) {
@@ -1090,7 +1312,7 @@ const Physics = (() => {
     const linSpeed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
     // Touch the table via AABB bottom — COM can sit well above the floor when
     // the bottle is inverted on its neck / resting on a tall corner.
-    const grounded = touchingFloor();
+    const grounded = touchingLandingPlane();
 
     if (launched && grounded && firstContactMs == null) {
       firstContactMs = simElapsedMs;
@@ -1118,7 +1340,7 @@ const Physics = (() => {
       : 4000;
     if (firstContactMs != null && simElapsedMs - firstContactMs >= settleLimit) {
       if (profile.requireFlip && !hasFlipped) return recordLanding('MISS', null, 'underrotated');
-      const limitTilt = Math.abs(normalizeSignedAngle(bottle.angle));
+      const limitTilt = landingTiltForBody();
       const limitInvErr = Math.abs(limitTilt - Math.PI);
       if (limitTilt < MAKE_ANGLE) return recordLanding('MAKE', limitTilt, 'upright-settle-limit');
       if (limitInvErr < CAP_WINDOW) return recordLanding('MAKE', limitTilt, 'cap');
@@ -1126,9 +1348,7 @@ const Physics = (() => {
     }
 
     {
-      let a = ((bottle.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-      if (a > Math.PI) a -= 2 * Math.PI;
-      const t = Math.abs(a);
+      const t = landingTiltForBody();
       if (t > maxGroundedTilt) maxGroundedTilt = t;
     }
 
@@ -1137,7 +1357,7 @@ const Physics = (() => {
       // engine jitter kept it outside the strict settle window. At the fallback
       // deadline, honor the final pose (while still requiring a completed flip).
       if (profile.requireFlip && !hasFlipped) return recordLanding('MISS', null, 'underrotated');
-      const tilt = Math.abs(normalizeSignedAngle(bottle.angle));
+      const tilt = landingTiltForBody();
       const invErr = Math.abs(tilt - Math.PI);
       if (tilt < MAKE_ANGLE) return recordLanding('MAKE', tilt, 'upright-timeout');
       if (invErr < CAP_WINDOW) return recordLanding('MAKE', tilt, 'cap');
@@ -1152,8 +1372,7 @@ const Physics = (() => {
       if (groundedFrames >= MIN_GROUNDED_FRAMES &&
           angleWin.length >= SETTLE_FRAMES && (hi - lo) < SETTLE_RANGE) {
         if (profile.requireFlip && !hasFlipped) return recordLanding('MISS', null, 'underrotated');
-        const angle = normalizeSignedAngle(bottle.angle);
-        const tilt = Math.abs(angle);
+        const tilt = landingTiltForBody();
         const invErr = Math.abs(tilt - Math.PI);
         if (tilt < MAKE_ANGLE) {
           return recordLanding('MAKE', tilt, 'upright');
@@ -1246,6 +1465,15 @@ const Physics = (() => {
         if (aIsBottle === bIsBottle) continue;
         const other = aIsBottle ? bodyB : bodyA;
         const label = other.label;
+        if (label === 'meteor' && eventRuntime && eventRuntime.kind === 'meteors') {
+          eventRuntime.meteorHits = (eventRuntime.meteorHits || 0) + 1;
+          eventRuntime.lastMeteorHit = {
+            x: bottle.position.x, y: bottle.position.y,
+            speed: Math.hypot(bottle.velocity.x, bottle.velocity.y),
+          };
+          // Meteor contact is a deflection, never a failure boundary.
+          continue;
+        }
         if (label !== 'wall' && label !== 'ceiling' &&
             label !== 'deflector' && label !== 'saucer') continue;
         const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
@@ -1361,9 +1589,13 @@ const Physics = (() => {
 
   function removeEventBodies() {
     if (world) for (const body of eventBodies) World.remove(world, body);
+    if (world) for (const constraint of eventConstraints) World.remove(world, constraint);
     eventBodies = [];
+    eventConstraints = [];
     mirrorBottle = null;
     mitosisBottle = null;
+    fizzCap = null;
+    capTossCap = null;
   }
 
   function cloneEventBottle(scale, label) {
@@ -1390,19 +1622,14 @@ const Physics = (() => {
       state.snapshots = [];
       state.contactBodies = [];
       state.reward = {};
-      if (kind === 'shrink') {
-        const scale = config.bodyScale || 0.62;
-        Body.scale(bottle, scale, scale);
-        state.bodyScale = scale;
-      } else if (kind === 'mitosis') {
-        mitosisBottle = cloneEventBottle(0.82, 'mitosis-bottle');
-        Body.setPosition(mitosisBottle, { x: bottle.position.x + 72, y: bottle.position.y - 10 });
-        state.secondary = mitosisBottle;
-      } else if (kind === 'mirror') {
+      state.originalMass = bottle.mass;
+      state.originalInertia = bottle.inertia;
+      if (kind === 'mirror') {
         mirrorBottle = cloneEventBottle(1, 'mirror-bottle');
         Body.setPosition(mirrorBottle, { x: canvasW - bottle.position.x, y: bottle.position.y });
         state.secondary = mirrorBottle;
       } else if (kind === 'meteors') {
+        state.meteorHits = 0;
         for (let i = 0; i < 3; i++) {
           const meteor = Bodies.circle(canvasW * (0.22 + i * 0.28), ceilingY - 80 - i * 65,
             15 + i * 3, { label: 'meteor', density: 0.003, restitution: 0.65, frictionAir: 0.006 });
@@ -1411,18 +1638,66 @@ const Physics = (() => {
           Body.setVelocity(meteor, { x: (i - 1) * 1.4, y: 5.5 + i });
         }
       } else if (kind === 'bouncy') {
+        state.bouncePeakSpeeds = [];
+        state.maxBounces = 3;
         for (const part of [bottle, ...bottle.parts]) part.restitution = config.restitution || 0.88;
+      } else if (kind === 'golden-balance') {
+        Body.setMass(bottle, state.originalMass * 1.35);
+        state.massScale = bottle.mass / state.originalMass;
+        for (const part of [bottle, ...bottle.parts]) part.restitution = 0.005;
       } else if (kind === 'ceiling') {
+        state.groundMask = ground.collisionFilter.mask;
+        state.ceilingMask = ceilingBody.collisionFilter.mask;
+        ground.collisionFilter.mask = 0;
         ceilingBody.collisionFilter.mask = 0xFFFFFFFF;
-        ceilingBody.restitution = 0.92;
+        ceilingBody.restitution = 0.01;
+        ceilingBody.friction = 0.9;
+        engine.gravity.y = -Math.abs(profile.gravity);
+        state.landingPlane = 'ceiling';
+      } else if (kind === 'earthquake') {
+        state.groundOrigin = { x: ground.position.x, y: ground.position.y };
+        state.tableOffset = { x: 0, y: 0 };
+        for (let i = 0; i < 5; i++) {
+          const debris = Bodies.rectangle(canvasW * (0.14 + i * 0.18), groundY - 20 - (i % 2) * 16,
+            12 + i * 2, 10 + (i % 3) * 3, {
+              label: 'quake-debris', density: 0.0015, restitution: 0.32, friction: 0.55,
+            });
+          World.add(world, debris);
+          eventBodies.push(debris);
+        }
+      } else if (kind === 'ice') {
+        state.iceFriction = 0.001;
+        const bumperOptions = {
+          isStatic: true, label: 'ice-bumper', friction: 0.02, restitution: 0.18,
+        };
+        const leftBumper = Bodies.rectangle(28, groundY - 48, 34, 96, bumperOptions);
+        const rightBumper = Bodies.rectangle(canvasW - 28, groundY - 48, 34, 96, bumperOptions);
+        World.add(world, [leftBumper, rightBumper]);
+        eventBodies.push(leftBumper, rightBumper);
       }
       if (kind === 'portals') {
+        const direction = Math.cos(rarePhase) < 0 ? -1 : 1;
         state.portals = [
-          { x: Math.max(90, canvasW * 0.18), y: groundY * 0.48 },
-          { x: Math.min(canvasW - 90, canvasW * 0.82), y: groundY * 0.30 },
+          { x: canvasW * 0.5, y: groundY * 0.50, radius: 72, angle: direction * 0.48 },
+          { x: canvasW * (direction > 0 ? 0.76 : 0.24), y: groundY * 0.30,
+            radius: 72, angle: -direction * 0.72 },
         ];
+        state.portalRotation = state.portals[1].angle - state.portals[0].angle;
       }
-      if (kind === 'tether') state.anchor = { x: canvasW / 2, y: ceilingY + 76 };
+      if (kind === 'tether') {
+        state.anchor = {
+          x: canvasW / 2,
+          y: ceilingY + Math.max(105, groundY * 0.16),
+        };
+        state.cableLength = Math.hypot(bottle.position.x - state.anchor.x,
+          bottle.position.y - state.anchor.y);
+        state.constraint = Constraint.create({
+          pointA: state.anchor, bodyB: bottle, length: state.cableLength,
+          stiffness: 0.98, damping: 0.055, label: 'tether-cable',
+        });
+        World.add(world, state.constraint);
+        eventConstraints.push(state.constraint);
+      }
       if (kind === 'black-hole') {
         state.singularity = {
           x: canvasW * (0.35 + randEvent() * 0.30),
@@ -1430,8 +1705,28 @@ const Physics = (() => {
         };
       }
       if (kind === 'roulette') {
-        state.rouletteSlot = Math.min(7, Math.floor(randEvent() * 8));
-        state.reward.multiplier = [1, 2, 3, 4, 4, 3, 2, 1][state.rouletteSlot];
+        state.wheelCenterX = canvasW / 2;
+        state.wheelRadius = Math.min(canvasW * 0.42, 470);
+        state.wheelAngle = randEvent() * Math.PI * 2;
+        state.wheelAngularVelocity = (Math.cos(rarePhase) < 0 ? -1 : 1) *
+          (0.82 + randEvent() * 0.24);
+        state.rouletteSlot = null;
+        const wheel = Bodies.circle(state.wheelCenterX,
+          groundY + state.wheelRadius * 0.94, state.wheelRadius, {
+            isStatic: true, isSensor: true, label: 'roulette-wheel',
+          });
+        Body.setAngle(wheel, state.wheelAngle);
+        state.wheelBody = wheel;
+        World.add(world, wheel);
+        eventBodies.push(wheel);
+      }
+      if (kind === 'boomerang') {
+        state.originX = bottle.position.x;
+        state.originY = bottle.position.y;
+      }
+      if (kind === 'rewind') {
+        state.rewindProgress = 0;
+        state.firstFailureReason = null;
       }
       return state;
     }
@@ -1439,44 +1734,214 @@ const Physics = (() => {
     if (phase === 'physics') {
       state.elapsedMs = simElapsedMs - state.startedMs;
       const airborne = bottle.bounds.max.y < groundY - GROUND_TOUCH_PX;
+
+      if (kind === 'rewind') {
+        if (state.flags.reversing) {
+          const index = Math.max(state.apexIndex, Math.floor(state.rewindIndex));
+          const snap = state.snapshots[index];
+          Body.setPosition(bottle, { x: snap.x, y: snap.y });
+          Body.setAngle(bottle, snap.angle);
+          Body.setVelocity(bottle, { x: 0, y: 0 });
+          Body.setAngularVelocity(bottle, 0);
+          const span = Math.max(1, state.snapshots.length - 1 - state.apexIndex);
+          state.rewindProgress = Math.max(0, Math.min(1,
+            (state.snapshots.length - 1 - index) / span));
+          state.rewindIndex -= 3;
+          if (state.rewindIndex <= state.apexIndex) {
+            const apex = state.snapshots[state.apexIndex];
+            Body.setStatic(bottle, false);
+            Body.setPosition(bottle, { x: apex.x, y: apex.y });
+            Body.setAngle(bottle, apex.angle);
+            const turns = Math.round((apex.angle - launchAngle) / (Math.PI * 2));
+            const uprightTarget = launchAngle + turns * Math.PI * 2;
+            const correction = normalizeSignedAngle(uprightTarget - apex.angle);
+            const correctionImpulse = {
+              x: apex.vx * 0.72,
+              y: Math.max(1.8, Math.abs(apex.vy) + 1.2),
+              angular: apex.av * 0.12 + correction / 48,
+            };
+            Body.setVelocity(bottle, { x: correctionImpulse.x, y: correctionImpulse.y });
+            Body.setAngularVelocity(bottle, correctionImpulse.angular);
+            state.correctionImpulse = correctionImpulse;
+            state.flags.reversing = false;
+            state.flags.replayed = true;
+            state.phase = 'replay';
+            landingPhase = 'airborne';
+            firstContactMs = null;
+            settlingStartedMs = null;
+            previousTouching = false;
+            groundedFrames = 0;
+            angleWin = [];
+            leanFrames = 0;
+            hasLanded = false;
+            capSticky = false;
+            flightFrames = 0;
+            groundImpactSent = false;
+          }
+        } else if (!state.flags.replayed && state.snapshots.length < 900) {
+          state.snapshots.push(captureBodyState(bottle));
+        }
+        return undefined;
+      }
+
       if (kind === 'liquid-shift' && airborne) {
         const wave = Math.sin(arenaTime * 7 + rarePhase);
-        Body.setAngularVelocity(bottle, bottle.angularVelocity + wave * 0.0012);
+        state.liquidVelocity = (state.liquidVelocity || 0) * 0.91 -
+          (state.liquidShift || 0) * 0.055 - bottle.angularVelocity * 0.22 + wave * 0.018;
+        state.liquidShift = Math.max(-1, Math.min(1,
+          (state.liquidShift || 0) + state.liquidVelocity));
+        const localX = { x: Math.cos(bottle.angle), y: Math.sin(bottle.angle) };
+        const shiftedPoint = {
+          x: bottle.position.x + localX.x * state.liquidShift * 34,
+          y: bottle.position.y + localX.y * state.liquidShift * 34,
+        };
+        Body.applyForce(bottle, shiftedPoint, { x: 0, y: bottle.mass * 0.00020 });
+      } else if (kind === 'liquid-shift' && touchingFloor()) {
+        const tilt = normalizeSignedAngle(bottle.angle);
+        Body.setAngularVelocity(bottle,
+          bottle.angularVelocity * 0.80 - tilt * 0.032);
       } else if (kind === 'fizz-jet' && airborne) {
-        const pulse = Math.max(0, Math.sin(arenaTime * 12 + rarePhase));
+        const axis = { x: Math.sin(bottle.angle), y: -Math.cos(bottle.angle) };
+        if (!state.flags.capEjected && state.elapsedMs > 90) {
+          state.flags.capEjected = true;
+          fizzCap = Bodies.rectangle(bottle.position.x + axis.x * 76,
+            bottle.position.y + axis.y * 76, 24, 10, {
+              label: 'fizz-cap', density: 0.0007, restitution: 0.48, frictionAir: 0.008,
+            });
+          Body.setAngle(fizzCap, bottle.angle);
+          World.add(world, fizzCap);
+          eventBodies.push(fizzCap);
+          Body.setVelocity(fizzCap, {
+            x: bottle.velocity.x + axis.x * 7,
+            y: bottle.velocity.y + axis.y * 7,
+          });
+          Body.setAngularVelocity(fizzCap, bottle.angularVelocity * 1.4);
+        }
+        const pulse = 0.58 + Math.max(0, Math.sin(arenaTime * 13 + rarePhase)) * 0.42;
+        state.thrustVector = {
+          x: -axis.x * bottle.mass * 0.00030 * pulse,
+          y: -axis.y * bottle.mass * 0.00030 * pulse,
+        };
         Body.applyForce(bottle, bottle.position, {
-          x: Math.cos(rarePhase) * bottle.mass * 0.00013 * pulse,
-          y: -bottle.mass * 0.00024 * pulse,
+          x: state.thrustVector.x,
+          y: state.thrustVector.y,
         });
       } else if (kind === 'golden-balance' && hasFlipped && bottle.position.y > groundY - 180) {
         Body.setAngularVelocity(bottle,
           bottle.angularVelocity * 0.91 - normalizeSignedAngle(bottle.angle) * 0.035);
-      } else if (kind === 'earthquake' && bottle.position.y > groundY - 150) {
-        const quake = Math.sin(arenaTime * 24 + rarePhase) * bottle.mass * 0.0014;
-        Body.applyForce(bottle, { x: bottle.position.x, y: bottle.position.y + 45 }, { x: quake, y: 0 });
+      } else if (kind === 'earthquake') {
+        const offsetX = Math.sin(arenaTime * 25 + rarePhase) * 11;
+        const offsetY = Math.sin(arenaTime * 37 + rarePhase * 0.7) * 4;
+        state.tableOffset = { x: offsetX, y: offsetY };
+        Body.setPosition(ground, {
+          x: state.groundOrigin.x + offsetX,
+          y: state.groundOrigin.y + offsetY,
+        });
+        if (bottle.position.y > groundY - 170) {
+          Body.applyForce(bottle, { x: bottle.position.x, y: bottle.position.y + 45 }, {
+            x: Math.sin(arenaTime * 25 + rarePhase) * bottle.mass * 0.0017,
+            y: Math.cos(arenaTime * 37 + rarePhase) * bottle.mass * 0.00055,
+          });
+        }
+      } else if (kind === 'shrink' && airborne && !state.flags.shrunk && state.elapsedMs >= 240) {
+        state.flags.shrunk = true;
+        state.bodyScale = config.bodyScale || 0.62;
+        const angularMomentum = bottle.inertia * bottle.angularVelocity;
+        Body.scale(bottle, state.bodyScale, state.bodyScale);
+        if (Number.isFinite(bottle.inertia) && bottle.inertia > 0) {
+          Body.setAngularVelocity(bottle, angularMomentum / bottle.inertia);
+        }
+        state.angularSpeedAfter = bottle.angularVelocity;
       } else if (kind === 'portals' && airborne && !state.flags.teleported) {
         const entry = state.portals[0], exitPortal = state.portals[1];
-        if (Math.hypot(bottle.position.x - entry.x, bottle.position.y - entry.y) < 95 ||
-            (bottle.velocity.y > 0 && bottle.position.y > groundY * 0.42)) {
+        if (Math.hypot(bottle.position.x - entry.x, bottle.position.y - entry.y) < entry.radius) {
+          const beforeSpeed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
+          const beforeSpin = bottle.angularVelocity;
+          const c = Math.cos(state.portalRotation);
+          const s = Math.sin(state.portalRotation);
+          const vx = bottle.velocity.x * c - bottle.velocity.y * s;
+          const vy = bottle.velocity.x * s + bottle.velocity.y * c;
+          const speed = Math.max(0.000001, Math.hypot(vx, vy));
           state.flags.teleported = true;
-          Body.setPosition(bottle, exitPortal);
-          Body.setVelocity(bottle, { x: -bottle.velocity.x * 0.85, y: bottle.velocity.y * 0.82 });
+          Body.setPosition(bottle, {
+            x: exitPortal.x + vx / speed * (exitPortal.radius + 12),
+            y: exitPortal.y + vy / speed * (exitPortal.radius + 12),
+          });
+          Body.setVelocity(bottle, { x: vx, y: vy });
+          Body.setAngularVelocity(bottle, beforeSpin);
+          state.conservation = {
+            speedBefore: beforeSpeed,
+            speedAfter: Math.hypot(vx, vy),
+            spinBefore: beforeSpin,
+            spinAfter: bottle.angularVelocity,
+            directionRotation: state.portalRotation,
+          };
         }
-      } else if (kind === 'tether' && airborne && state.elapsedMs < 1800) {
-        const dx = state.anchor.x - bottle.position.x;
-        const dy = state.anchor.y - bottle.position.y;
+      } else if (kind === 'tether' && state.constraint && !state.flags.released) {
+        const dx = bottle.position.x - state.anchor.x;
+        const dy = bottle.position.y - state.anchor.y;
         const dist = Math.max(1, Math.hypot(dx, dy));
-        const stretch = Math.max(0, dist - Math.max(180, groundY * 0.34));
-        Body.applyForce(bottle, bottle.position, {
-          x: dx / dist * stretch * bottle.mass * 0.000012,
-          y: dy / dist * stretch * bottle.mass * 0.000012,
-        });
-      } else if (kind === 'mitosis' && mitosisBottle) {
-        if (!state.flags.cloneLaunched) {
-          state.flags.cloneLaunched = true;
-          Body.setVelocity(mitosisBottle, { x: -bottle.velocity.x - 2.4, y: bottle.velocity.y * 0.96 });
-          Body.setAngularVelocity(mitosisBottle, -bottle.angularVelocity * 1.03);
+        state.cableDistance = dist;
+        state.cableStretch = dist - state.cableLength;
+        state.cableAngleFromDown = Math.atan2(dx, dy);
+        const nearLowPoint = Math.abs(state.cableAngleFromDown) < 0.20;
+        if (state.elapsedMs > 420 && bottle.velocity.y >= 0 && nearLowPoint) {
+          World.remove(world, state.constraint);
+          eventConstraints = eventConstraints.filter((item) => item !== state.constraint);
+          state.constraint = null;
+          state.flags.released = true;
+          state.releaseAngle = state.cableAngleFromDown;
+          state.releaseMs = state.elapsedMs;
         }
+      } else if (kind === 'mitosis' && airborne && !state.flags.split && state.elapsedMs >= 240) {
+        const initialVelocity = { ...bottle.velocity };
+        const initialAngularVelocity = bottle.angularVelocity;
+        const originalMass = bottle.mass;
+        const originalInertia = bottle.inertia;
+        mitosisBottle = cloneEventBottle(1, 'mitosis-bottle');
+        Body.setPosition(mitosisBottle, { x: bottle.position.x + 42, y: bottle.position.y });
+        Body.setAngle(mitosisBottle, bottle.angle);
+        Body.setPosition(bottle, { x: bottle.position.x - 42, y: bottle.position.y });
+        Body.setMass(bottle, originalMass * 0.5);
+        Body.setMass(mitosisBottle, originalMass * 0.5);
+        const splitVelocity = 2.6;
+        Body.setVelocity(bottle, { x: initialVelocity.x - splitVelocity, y: initialVelocity.y });
+        Body.setVelocity(mitosisBottle, { x: initialVelocity.x + splitVelocity, y: initialVelocity.y });
+        Body.setAngularVelocity(bottle, initialAngularVelocity);
+        Body.setAngularVelocity(mitosisBottle, initialAngularVelocity);
+        state.secondary = mitosisBottle;
+        state.flags.split = true;
+        state.splitTrackers = [
+          { body: bottle, launchAngle: bottle.angle, rotation: totalRotation, requireFlip: true },
+          { body: mitosisBottle, launchAngle: mitosisBottle.angle, rotation: totalRotation, requireFlip: true },
+        ];
+        state.massConservationError = Math.abs(
+          bottle.mass + mitosisBottle.mass - originalMass);
+        state.angularMomentumError = Math.abs(
+          bottle.inertia * bottle.angularVelocity +
+          mitosisBottle.inertia * mitosisBottle.angularVelocity -
+          originalInertia * initialAngularVelocity);
+      } else if (kind === 'cap-toss' && airborne && !state.flags.split && state.elapsedMs >= 210) {
+        const axis = { x: Math.sin(bottle.angle), y: -Math.cos(bottle.angle) };
+        capTossCap = Bodies.rectangle(bottle.position.x + axis.x * 74,
+          bottle.position.y + axis.y * 74, 28, 9, {
+            label: 'cap-toss-cap', density: 0.00035, restitution: 0.28,
+            friction: 0.76, frictionAir: 0.006,
+          });
+        Body.setAngle(capTossCap, bottle.angle);
+        World.add(world, capTossCap);
+        eventBodies.push(capTossCap);
+        Body.setVelocity(capTossCap, {
+          x: bottle.velocity.x + axis.x * 5.2,
+          y: bottle.velocity.y + axis.y * 5.2,
+        });
+        Body.setAngularVelocity(capTossCap, bottle.angularVelocity * 1.65);
+        state.secondary = capTossCap;
+        state.flags.split = true;
+        state.splitTrackers = [
+          { body: bottle, launchAngle, rotation: totalRotation, requireFlip: true },
+          { body: capTossCap, launchAngle: capTossCap.angle, rotation: 0, capBody: true },
+        ];
       } else if (kind === 'meteors') {
         for (const meteor of eventBodies) {
           if (meteor.position.y > groundY + 100) {
@@ -1488,40 +1953,75 @@ const Physics = (() => {
         const dx = state.singularity.x - bottle.position.x;
         const dy = state.singularity.y - bottle.position.y;
         const d2 = Math.max(3600, dx * dx + dy * dy);
-        const pull = Math.min(0.0014, 4.5 / d2) * bottle.mass;
-        Body.applyForce(bottle, bottle.position, { x: dx * pull, y: dy * pull });
-      } else if (kind === 'boomerang' && wasAirborne && !state.flags.returned && bottle.velocity.y > 0) {
-        state.flags.returned = true;
-        Body.setVelocity(bottle, { x: -bottle.velocity.x * 1.45, y: bottle.velocity.y * 0.82 });
-      } else if (kind === 'roulette' && airborne && !state.flags.wheelKick) {
-        state.flags.wheelKick = true;
-        const direction = state.rouletteSlot < 4 ? -1 : 1;
-        Body.setVelocity(bottle, { x: bottle.velocity.x + direction * (2 + state.reward.multiplier), y: bottle.velocity.y });
-      } else if (kind === 'rewind') {
-        if (airborne && bottle.velocity.y < 0) {
-          if (state.snapshots.length < 90) state.snapshots.push({
-            x: bottle.position.x, y: bottle.position.y, angle: bottle.angle,
-            vx: bottle.velocity.x, vy: bottle.velocity.y, av: bottle.angularVelocity,
+        const dist = Math.sqrt(d2);
+        const pull = Math.min(0.002, 50 / d2) * bottle.mass;
+        const vector = { x: dx / dist * pull, y: dy / dist * pull };
+        Body.applyForce(bottle, bottle.position, vector);
+        state.attractionVector = vector;
+        state.attractionDistance = dist;
+      } else if (kind === 'boomerang' && airborne) {
+        if (!state.direction) {
+          state.direction = bottle.velocity.x < 0 ? -1 : 1;
+          state.targetX = state.originX - state.direction * Math.min(260, canvasW * 0.22);
+        }
+        const descending = bottle.velocity.y > 0;
+        const desiredX = descending ? state.targetX
+          : state.originX + state.direction * Math.min(300, canvasW * 0.25);
+        const dx = desiredX - bottle.position.x;
+        const curve = Math.max(-1, Math.min(1, dx / Math.max(180, canvasW * 0.18)));
+        Body.applyForce(bottle, bottle.position, {
+          x: curve * bottle.mass * (descending ? 0.00105 : 0.00072),
+          y: descending ? bottle.mass * 0.00003 : 0,
+        });
+        state.returnArc = { targetX: state.targetX, desiredX, descending };
+        if (descending && Math.abs(bottle.position.x - state.targetX) < 55) state.flags.returned = true;
+      } else if (kind === 'roulette') {
+        state.wheelAngle += state.wheelAngularVelocity * FIXED_DT;
+        Body.setAngle(state.wheelBody, state.wheelAngle);
+        if (touchingFloor()) {
+          Body.applyForce(bottle, bottle.position, {
+            x: state.wheelAngularVelocity * bottle.mass * 0.00046,
+            y: 0,
           });
-        } else if (airborne && bottle.velocity.y > 1 && !state.flags.rewound && state.snapshots.length > 8) {
-          state.flags.rewound = true;
-          const snap = state.snapshots[Math.floor(state.snapshots.length * 0.35)];
-          Body.setPosition(bottle, { x: snap.x, y: snap.y });
-          Body.setAngle(bottle, snap.angle);
-          Body.setVelocity(bottle, { x: -snap.vx, y: snap.vy });
-          Body.setAngularVelocity(bottle, snap.av);
         }
       } else if (kind === 'mirror' && mirrorBottle) {
         Body.setPosition(mirrorBottle, { x: canvasW - bottle.position.x, y: bottle.position.y });
         Body.setAngle(mirrorBottle, -bottle.angle);
         Body.setVelocity(mirrorBottle, { x: -bottle.velocity.x, y: bottle.velocity.y });
         Body.setAngularVelocity(mirrorBottle, -bottle.angularVelocity);
+      } else if ((kind === 'magnet' || kind === 'life-drain') && airborne && hasFlipped) {
+        const target = canvasW / 2;
+        const dx = target - bottle.position.x;
+        const strength = kind === 'life-drain' ? 0.00055 : 0.00030;
+        const force = Math.max(-1, Math.min(1, dx / Math.max(90, canvasW * 0.15))) *
+          bottle.mass * strength;
+        Body.applyForce(bottle, bottle.position, { x: force, y: bottle.mass * 0.000035 });
+        state.magnetVector = { x: force, y: bottle.mass * 0.000035, targetX: target };
+      }
+      if (kind === 'gravity-slam') {
+        const distance = Math.max(0, groundY - bottle.bounds.max.y);
+        state.compression = Math.max(0, Math.min(1, 1 - distance / 150));
       }
       return undefined;
     }
 
     if (phase === 'contact') {
       state.phase = 'contact';
+      if (kind === 'liquid-shift') state.flags.baseStabilizing = true;
+      if (kind === 'bouncy') {
+        const contact = Math.min(state.contacts, state.maxBounces);
+        const restitution = [0.88, 0.58, 0.26][Math.max(0, contact - 1)] || 0.02;
+        state.bounces = contact;
+        state.bouncePeakSpeeds.push(Math.abs(bottle.velocity.y));
+        for (const part of [bottle, ...bottle.parts]) part.restitution =
+          state.contacts >= state.maxBounces ? 0.02 : restitution;
+        if (state.contacts >= state.maxBounces && bottle.velocity.y < 0) {
+          const finalBounceY = state.contacts === state.maxBounces
+            ? bottle.velocity.y * 0.22 : 0;
+          Body.setVelocity(bottle, { x: bottle.velocity.x * 0.72, y: finalBounceY });
+          state.flags.bouncesComplete = true;
+        }
+      }
       return undefined;
     }
 
@@ -1535,12 +2035,21 @@ const Physics = (() => {
       if (kind === 'shrink' && state.bodyScale && bottle) {
         Body.scale(bottle, 1 / state.bodyScale, 1 / state.bodyScale);
       }
+      if ((kind === 'golden-balance' || kind === 'mitosis') && state.originalMass && bottle) {
+        Body.setMass(bottle, state.originalMass);
+      }
+      if (kind === 'rewind' && bottle.isStatic) Body.setStatic(bottle, false);
+      if (kind === 'earthquake' && state.groundOrigin && ground) {
+        Body.setPosition(ground, state.groundOrigin);
+      }
       removeEventBodies();
       if (kind === 'plinko' && plinko) clearPlinko();
       applyBodyMaterial();
       if (engine) engine.gravity.y = profile.gravity;
       requiredRotation = 5.6;
       capThrowArmed = false;
+      if (ground) ground.collisionFilter.mask = state.groundMask == null
+        ? 0xFFFFFFFF : state.groundMask;
       if (ceilingBody) {
         ceilingBody.restitution = profile.wallBounce;
         ceilingBody.collisionFilter.mask = profile.ceiling ? 0xFFFFFFFF : 0;
@@ -1686,6 +2195,14 @@ const Physics = (() => {
       launchY = -Math.max(7, Math.abs(launchY) * 0.52);
     }
 
+    // A tethered throw starts tangentially from the cable's low point. The
+    // constraint supplies the centripetal force, replacing the usual parabola.
+    if (rareEvent === 'tether-swing') {
+      const swingDirection = Math.cos(rarePhase) < 0 ? -1 : 1;
+      launchX = swingDirection * (15 + power * 4);
+      launchY = -2.5;
+    }
+
     if (profile.minHorizRatio > 0) {
       const minX = Math.abs(launchY) * profile.minHorizRatio;
       if (Math.abs(launchX) < minX) launchX = (launchX >= 0 ? 1 : -1) * minX;
@@ -1766,8 +2283,9 @@ const Physics = (() => {
     if (launched && !wasAirborne && bottle.bounds.max.y < groundY - 24) wasAirborne = true;
     if (launched && wasAirborne) flightFrames++;
 
-    if (launched && !plinko) {
-      const nowTouching = touchingFloor();
+    if (launched && !plinko &&
+        !(eventRuntime && eventRuntime.kind === 'rewind' && eventRuntime.flags.reversing)) {
+      const nowTouching = touchingLandingPlane();
       if (wasAirborne && nowTouching && !previousTouching) {
         contactCount++;
         if (firstContactMs == null) {
@@ -1812,17 +2330,27 @@ const Physics = (() => {
     if (rareEvent === 'ice-slide' && launched && wasAirborne && !rareImpulseUsed &&
         bottle.bounds.max.y >= groundY - GROUND_TOUCH_PX && bottle.velocity.y > 0.5) {
       rareImpulseUsed = true;
-      rareEffectFrames = 140;
+      rareEffectFrames = 300;
       const direction = Math.cos(rarePhase) < 0 ? -1 : 1;
       Body.setVelocity(bottle, {
         x: direction * Math.max(27, Math.abs(bottle.velocity.x) + 20),
         y: -4.2,
       });
       Body.setAngularVelocity(bottle, bottle.angularVelocity + direction * 0.08);
+      if (eventRuntime) {
+        eventRuntime.flags.sliding = true;
+        eventRuntime.slideDirection = direction;
+      }
     }
     if (rareEvent === 'ice-slide' && rareEffectFrames > 0) {
       rareEffectFrames--;
-      for (const part of [bottle, ...bottle.parts]) part.friction = 0.001;
+      const returnProgress = rareEffectFrames > 120 ? 0 : (120 - rareEffectFrames) / 120;
+      const friction = 0.001 + (profile.friction - 0.001) * returnProgress;
+      for (const part of [bottle, ...bottle.parts]) part.friction = friction;
+      if (eventRuntime) {
+        eventRuntime.iceFriction = friction;
+        eventRuntime.frictionReturnProgress = returnProgress;
+      }
       if (rareEffectFrames === 0) {
         applyBodyMaterial();
         // Let the huge skid end decisively, then give the already-flipped
@@ -1844,10 +2372,22 @@ const Physics = (() => {
         // strong original flick and even hotter after a hard impact.
         y: -Math.max(32, Math.abs(bottle.velocity.y) * 1.75),
       });
+      Body.setPosition(bottle, { x: bottle.position.x, y: bottle.position.y - 18 });
       const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
       Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.15);
       groundedFrames = 0;
       angleWin = [];
+      // The launch is a new airborne phase. The first trampoline compression
+      // cannot consume the settle budget for the actual return landing.
+      firstContactMs = null;
+      settlingStartedMs = null;
+      landingPhase = 'airborne';
+      previousTouching = false;
+      if (eventRuntime) {
+        eventRuntime.flags.relaunched = true;
+        eventRuntime.phase = 'relaunch';
+        eventRuntime.relaunchVelocity = { ...bottle.velocity };
+      }
     }
 
     // 1/600 — WIND TUNNEL: a strong deterministic crosswind sweeps the object
@@ -1865,6 +2405,7 @@ const Physics = (() => {
         // The old fixed-above-center force cancelled half of all flips.
         y: bottle.position.y - 40 * spinDir * direction,
       }, { x: gust, y: 0 });
+      if (eventRuntime) eventRuntime.gustVector = { x: gust, y: 0 };
     }
 
     // 1/700 — DOUBLE FLIP: on the first descent, a rocket-like impulse sends
@@ -1875,26 +2416,42 @@ const Physics = (() => {
       Body.setVelocity(bottle, { x: bottle.velocity.x * 0.92, y: -18.0 });
       const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
       Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.150);
+      if (eventRuntime) {
+        eventRuntime.flags.doubleFlipAssisted = true;
+        eventRuntime.assistVelocity = { ...bottle.velocity };
+      }
     }
 
-    // 1/900 — HEART RUSH: one giant heartbeat kicks the completed throw back
-    // into the air. The game reward still requires the eventual landing.
-    if (rareEvent === 'heart-rush' && launched && wasAirborne && !rareImpulseUsed &&
-        hasFlipped && bottle.velocity.y > 1 && bottle.position.y < groundY - 130) {
-      rareImpulseUsed = true;
-      const direction = Math.cos(rarePhase) < 0 ? -1 : 1;
-      Body.setVelocity(bottle, { x: bottle.velocity.x + direction * 4.5, y: -11.5 });
-      Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.72);
+    // HEART RUSH: three visible physical pulses, each smaller than the last,
+    // stabilize the arc without converting the event into an automatic make.
+    if (rareEvent === 'heart-rush' && eventRuntime && launched && wasAirborne &&
+        bottle.bounds.max.y < groundY - 70) {
+      const count = eventRuntime.heartbeatCount || 0;
+      const threshold = 260 + count * 240;
+      if (count < 3 && eventRuntime.elapsedMs >= threshold) {
+        const direction = Math.cos(rarePhase + count) < 0 ? -1 : 1;
+        const lift = [8.5, 6.2, 4.4][count];
+        Body.setVelocity(bottle, {
+          x: bottle.velocity.x + direction * (2.8 - count * 0.6),
+          y: Math.min(bottle.velocity.y, -lift),
+        });
+        Body.setAngularVelocity(bottle, bottle.angularVelocity * (0.74 - count * 0.08));
+        eventRuntime.heartbeatCount = count + 1;
+        eventRuntime.lastHeartbeatMs = eventRuntime.elapsedMs;
+        if (eventRuntime.heartbeatCount === 3) eventRuntime.flags.threePulsesComplete = true;
+      }
     }
 
     // 1/50 — RAINBOW COMET: a real corkscrew path, not merely a color change.
     if ((rareEvent === 'rainbow-corkscrew' || rareEvent === 'rainbow-trail') && launched && wasAirborne &&
         bottle.bounds.max.y < groundY - GROUND_TOUCH_PX) {
       const wave = Math.sin(arenaTime * 9 + rarePhase);
-      Body.applyForce(bottle, { x: bottle.position.x, y: bottle.position.y - 34 }, {
+      const corkscrewForce = {
         x: wave * bottle.mass * 0.00062,
         y: -Math.abs(wave) * bottle.mass * 0.00010,
-      });
+      };
+      Body.applyForce(bottle, { x: bottle.position.x, y: bottle.position.y - 34 }, corkscrewForce);
+      if (eventRuntime) eventRuntime.corkscrewForce = corkscrewForce;
     }
 
     // 1/800 — MAGNET LANDING, plus Life Drain's hidden stronger magnet. Once
@@ -2133,9 +2690,51 @@ const Physics = (() => {
         phase: eventRuntime.phase,
         flags: { ...eventRuntime.flags },
         portals: eventRuntime.portals || null,
+        portalRotation: eventRuntime.portalRotation,
+        conservation: eventRuntime.conservation || null,
         anchor: eventRuntime.anchor || null,
+        cableLength: eventRuntime.cableLength,
+        cableDistance: eventRuntime.cableDistance,
+        cableStretch: eventRuntime.cableStretch,
+        cableAngleFromDown: eventRuntime.cableAngleFromDown,
+        releaseAngle: eventRuntime.releaseAngle,
+        releaseMs: eventRuntime.releaseMs,
         singularity: eventRuntime.singularity || null,
         rouletteSlot: eventRuntime.rouletteSlot,
+        wheelAngle: eventRuntime.wheelAngle,
+        wheelAngularVelocity: eventRuntime.wheelAngularVelocity,
+        wheelCenterX: eventRuntime.wheelCenterX,
+        wheelRadius: eventRuntime.wheelRadius,
+        landingPlane: eventRuntime.landingPlane || 'floor',
+        liquidShift: eventRuntime.liquidShift,
+        liquidVelocity: eventRuntime.liquidVelocity,
+        angularSpeedAfter: eventRuntime.angularSpeedAfter,
+        thrustVector: eventRuntime.thrustVector || null,
+        corkscrewForce: eventRuntime.corkscrewForce || null,
+        gustVector: eventRuntime.gustVector || null,
+        slideDirection: eventRuntime.slideDirection,
+        assistVelocity: eventRuntime.assistVelocity || null,
+        tableOffset: eventRuntime.tableOffset || null,
+        iceFriction: eventRuntime.iceFriction,
+        frictionReturnProgress: eventRuntime.frictionReturnProgress,
+        compression: eventRuntime.compression,
+        bounces: eventRuntime.bounces || 0,
+        maxBounces: eventRuntime.maxBounces,
+        bouncePeakSpeeds: eventRuntime.bouncePeakSpeeds
+          ? eventRuntime.bouncePeakSpeeds.slice() : null,
+        heartbeatCount: eventRuntime.heartbeatCount || 0,
+        magnetVector: eventRuntime.magnetVector || null,
+        returnArc: eventRuntime.returnArc || null,
+        originX: eventRuntime.originX,
+        targetX: eventRuntime.targetX,
+        attractionVector: eventRuntime.attractionVector || null,
+        attractionDistance: eventRuntime.attractionDistance,
+        rewindProgress: eventRuntime.rewindProgress,
+        firstFailureReason: eventRuntime.firstFailureReason || null,
+        correctionImpulse: eventRuntime.correctionImpulse || null,
+        meteorHits: eventRuntime.meteorHits || 0,
+        massConservationError: eventRuntime.massConservationError,
+        angularMomentumError: eventRuntime.angularMomentumError,
       } : null,
     };
   }
@@ -2145,6 +2744,10 @@ const Physics = (() => {
       x: body.position.x,
       y: body.position.y,
       angle: body.angle,
+      mass: body.mass,
+      inertia: body.inertia,
+      velocity: { x: body.velocity.x, y: body.velocity.y },
+      angularVelocity: body.angularVelocity,
       bounds: {
         min: { x: body.bounds.min.x, y: body.bounds.min.y },
         max: { x: body.bounds.max.x, y: body.bounds.max.y },
@@ -2162,6 +2765,7 @@ const Physics = (() => {
     const detail = info || {};
     const reason = detail.onCap || detail.reason === 'cap' ? 'cap' : (detail.reason || 'net-authority');
     const verdict = recordLanding(result, detail.tilt != null ? detail.tilt : null, reason);
+    if (verdict == null) return null;
     lastLandingInfo.perfect = !!detail.perfect;
     lastLandingInfo.maxTilt = detail.maxTilt || 0;
     if (detail.padOffset != null) lastLandingInfo.padOffset = detail.padOffset;

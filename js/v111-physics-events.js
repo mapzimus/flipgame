@@ -71,6 +71,7 @@
     },
     'half-full': {
       physicsKind: 'liquid-shift', spin: 0.90, angularDrive: 0.012, settleMs: 4000,
+      dynamicCenterOfMass: true, baseContactStabilization: true,
       visual: { theme: 'water', overlay: 'half-full' }, reward: {},
     },
     'power-launch': {
@@ -79,6 +80,7 @@
     },
     'fizz-jet': {
       physicsKind: 'fizz-jet', launchY: 1.12, spin: 1.08, settleMs: 4000,
+      rotatingAxisThrust: true, independentCap: true,
       visual: { theme: 'fizz', particles: 'bubbles' }, reward: {},
     },
     'golden-flip': {
@@ -88,6 +90,7 @@
     },
     'bouncy-bottle': {
       physicsKind: 'bouncy', restitution: 0.88, settleMs: 6000,
+      maxBounces: 3,
       visual: { theme: 'rubber', surface: 'bounce' }, reward: {},
     },
     earthquake: {
@@ -100,6 +103,7 @@
     },
     'ice-slide': {
       physicsKind: 'ice', settleMs: 6000,
+      frictionReturnMs: 2000, softBumpers: true,
       visual: { theme: 'ice', surface: 'slick' }, reward: {},
     },
     'alien-invasion': {
@@ -125,14 +129,17 @@
     },
     'portal-pair': {
       physicsKind: 'portals', settleMs: 4000,
+      conserveSpeed: true, conserveSpin: true,
       visual: { theme: 'portal', arena: 'paired-portals' }, reward: {},
     },
     'tether-swing': {
       physicsKind: 'tether', settleMs: 4000,
+      tautCable: true, releaseAtLowPoint: true,
       visual: { theme: 'tether', arena: 'anchor-line' }, reward: {},
     },
     mitosis: {
       physicsKind: 'mitosis', settleMs: 4000,
+      splitMassFraction: 0.5, conserveAngularMomentum: true,
       visual: { theme: 'mitosis', objectCopies: 2 },
       reward: { onSuccessByLandedCopies: { one: 1, both: 3 }, capped: true },
     },
@@ -147,6 +154,7 @@
     },
     'ceiling-flip': {
       physicsKind: 'ceiling', ceiling: true, launchY: 1.55, spin: 0.88, settleMs: 4000,
+      landingPlane: 'ceiling', invertedGravity: true,
       visual: { theme: 'ceiling', target: 'ceiling' }, reward: {},
     },
     'meteor-shower': {
@@ -172,11 +180,13 @@
     },
     'roulette-table': {
       physicsKind: 'roulette', settleMs: 4000,
+      physicalWheel: true, sectors: 8,
       visual: { theme: 'roulette', surface: 'eight-segment-wheel' },
       reward: { multipliers: Object.freeze([1, 2, 3, 4, 4, 3, 2, 1]), bypassAdditiveCap: true },
     },
     rewind: {
       physicsKind: 'rewind', settleMs: 4000,
+      trigger: 'first-failure', replayCount: 1, resolveFinalOnly: true,
       visual: { theme: 'rewind', trail: 'reverse' }, reward: {},
     },
     plinko: {
@@ -202,7 +212,7 @@
     },
     'cap-toss': {
       physicsKind: 'cap-toss', spin: 1.52, settleMs: 4000,
-      landing: { uprightValid: false, capValid: true },
+      landing: { uprightValid: true, capValid: true, bothBodiesRequired: true },
       visual: { theme: 'cap', target: 'cap-balance' },
       reward: { onSuccess: { additiveLives: 5, capped: true } },
     },
