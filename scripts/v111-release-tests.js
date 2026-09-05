@@ -24,6 +24,8 @@ assert.match(gradle, /versionName\s+'1\.1\.1'/);
 assert.match(workflow, /assembleRelease/);
 assert.match(workflow, /ANDROID_KEYSTORE_BASE64/);
 assert.match(workflow, /apksigner verify --verbose --print-certs/);
+assert.match(workflow, /git fetch --no-tags origin "refs\/tags\/v111:refs\/tags\/v111"/,
+  'immutable release reruns must fetch the shallow-checkout tag before verifying it');
 assert.doesNotMatch(workflow, /assembleDebug/);
 
 for (const [file, html] of [['index.html', index]]) {

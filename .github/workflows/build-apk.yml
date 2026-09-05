@@ -136,6 +136,7 @@ jobs:
           NOTES
           assets=(flipgame-offline.apk flipgame-offline.apk.sha256 apk-build-metadata.json apk-signing-certificate.txt apk-badging.txt)
           if gh release view v111 >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/v111:refs/tags/v111"
             tag_sha="$(git rev-list -n 1 v111)"
             test "$tag_sha" = "$GITHUB_SHA"
             gh release upload v111 "${assets[@]}" --clobber
