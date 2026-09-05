@@ -11,18 +11,18 @@
   'use strict';
 
   const FLAVORS = [
-    { id: 'blue',   displayName: 'Blue',   color: '#1f9bff' },
-    { id: 'red',    displayName: 'Red',    color: '#e3263c' },
-    { id: 'lime',   displayName: 'Lime',   color: '#8ed11a' },
-    { id: 'orange', displayName: 'Orange', color: '#ff7a00' },
-    { id: 'purple', displayName: 'Purple', color: '#8a3ffc' },
-    { id: 'ice',    displayName: 'Ice',    color: '#5fcfe6' },
-    { id: 'green',  displayName: 'Green',  color: '#3fae1a' },
-    { id: 'berry',  displayName: 'Berry',  color: '#ff5b86' },
-    { id: 'indigo', displayName: 'Indigo', color: '#4f63e0' },
-    { id: 'yellow', displayName: 'Yellow', color: '#ffc233' },
-    { id: 'cherry', displayName: 'Cherry', color: '#c8203a' },
-    { id: 'pink',   displayName: 'Pink',   color: '#ff9ecf' },
+    { id: 'blue-steel',         displayName: 'Blue Steel',         color: '#1f9bff' },
+    { id: 'sucker-punch',       displayName: 'Sucker Punch',       color: '#e3263c' },
+    { id: 'lime-light',         displayName: 'Lime Light',         color: '#8ed11a' },
+    { id: 'orange-crush',       displayName: 'Orange Crush',       color: '#ff7a00' },
+    { id: 'grape-expectations', displayName: 'Grape Expectations', color: '#8a3ffc' },
+    { id: 'ice-ice-baby',       displayName: 'Ice Ice Baby',       color: '#5fcfe6' },
+    { id: 'apple-solutely',     displayName: 'Apple-solutely',     color: '#3fae1a' },
+    { id: 'berry-nice',         displayName: 'Berry Nice',         color: '#ff5b86' },
+    { id: 'making-waves',       displayName: 'Making Waves',       color: '#4f63e0' },
+    { id: 'lemon-aid',          displayName: 'Lemon Aid',          color: '#ffc233' },
+    { id: 'very-cherry',        displayName: 'Very Cherry',        color: '#c8203a' },
+    { id: 'pink-fluff',         displayName: 'Pink Fluff',         color: '#ff9ecf' },
   ];
 
   // Compact authored cast notation: label | physical silhouette | surface finish.
@@ -35,7 +35,7 @@
 
   const OBJECTS = [
     {
-      id: 'coffee_mug', displayName: 'Coffee Mug', emoji: '☕', broadFamily: 'drinkware',
+      id: 'coffee-mug', displayName: 'Coffee Mug', emoji: '☕', broadFamily: 'drinkware',
       material: { shell: 'ceramic', contents: 'coffee', behavior: 'thin-liquid-slosh', transparency: 'opaque' },
       liquid: { mode: 'open', fill: 0.34, viscosity: 'thin' },
       dynamicArt: { ambient: 'steam-curl', flight: 'spoon-wobble', impact: 'handle-shiver', reducedMotion: 'static-steam' },
@@ -56,7 +56,7 @@
       ],
     },
     {
-      id: 'milk_carton', displayName: 'Milk Carton', emoji: '🥛', broadFamily: 'cartons',
+      id: 'milk-carton', displayName: 'Milk Carton', emoji: '🥛', broadFamily: 'cartons',
       material: { shell: 'paperboard', contents: 'milk-like drink', behavior: 'opaque-liquid-slosh', transparency: 'opaque' },
       liquid: { mode: 'closed', fill: 0.58, viscosity: 'medium' },
       dynamicArt: { ambient: 'tiny-carton-bubbles', flight: 'straw-flex', impact: 'gable-crumple', reducedMotion: 'fixed-straw' },
@@ -98,7 +98,7 @@
       ],
     },
     {
-      id: 'salt_pepper_shaker', displayName: 'Salt/Pepper Shaker', emoji: '🧂', broadFamily: 'table-shakers',
+      id: 'salt-pepper-shaker', displayName: 'Salt/Pepper Shaker', emoji: '🧂', broadFamily: 'table-shakers',
       material: { shell: 'glass-and-metal', contents: 'seasoning grains', behavior: 'granular-shift', transparency: 'clear' },
       liquid: { mode: 'sand', fill: 0.48, viscosity: 'granular' },
       dynamicArt: { ambient: 'grain-sparkle', flight: 'grain-tumble', impact: 'cap-rattle', reducedMotion: 'fixed-grains' },
@@ -119,7 +119,7 @@
       ],
     },
     {
-      id: 'soup_can', displayName: 'Soup Can', emoji: '🥫', broadFamily: 'food-cans',
+      id: 'soup-can', displayName: 'Soup Can', emoji: '🥫', broadFamily: 'food-cans',
       material: { shell: 'tinplate', contents: 'thick soup', behavior: 'viscous-liquid-roll', transparency: 'opaque' },
       liquid: { mode: 'closed', fill: 0.62, viscosity: 'thick' },
       dynamicArt: { ambient: 'label-shimmer', flight: 'pull-tab-twitch', impact: 'rim-ring', reducedMotion: 'fixed-tab' },
@@ -161,7 +161,7 @@
       ],
     },
     {
-      id: 'gumball_machine', displayName: 'Gumball Machine', emoji: '🍬', broadFamily: 'candy-machines',
+      id: 'gumball-machine', displayName: 'Gumball Machine', emoji: '🍬', broadFamily: 'candy-machines',
       material: { shell: 'glass-and-painted-metal', contents: 'gumballs', behavior: 'granular-ball-tumble', transparency: 'clear' },
       liquid: { mode: 'sand', fill: 0.58, viscosity: 'large-granules' },
       dynamicArt: { ambient: 'globe-sparkle', flight: 'gumball-tumble', impact: 'coin-handle-spin', reducedMotion: 'fixed-balls' },
@@ -203,7 +203,7 @@
       ],
     },
     {
-      id: 'desk_globe', displayName: 'Desk Globe', emoji: '🌐', broadFamily: 'globes',
+      id: 'desk-globe', displayName: 'Desk Globe', emoji: '🌐', broadFamily: 'globes',
       material: { shell: 'painted-sphere-and-metal', contents: 'none', behavior: 'rigid-solid', transparency: 'opaque' },
       liquid: null,
       dynamicArt: { ambient: 'cloud-drift', flight: 'sphere-counterspin', impact: 'axis-bounce', reducedMotion: 'fixed-clouds' },
@@ -224,7 +224,7 @@
       ],
     },
     {
-      id: 'microphone_stand', displayName: 'Microphone on a Stand', emoji: '🎤', broadFamily: 'stage-microphones',
+      id: 'microphone-stand', displayName: 'Microphone on a Stand', emoji: '🎤', broadFamily: 'stage-microphones',
       material: { shell: 'metal-and-rubber', contents: 'none', behavior: 'rigid-solid', transparency: 'opaque' },
       liquid: null,
       dynamicArt: { ambient: 'sound-ring-pulse', flight: 'cord-curl', impact: 'mesh-bob', reducedMotion: 'static-sound-ring' },
@@ -245,7 +245,7 @@
       ],
     },
     {
-      id: 'potted_plants', displayName: 'Potted Plants', emoji: '🪴', broadFamily: 'houseplants',
+      id: 'potted-plants', displayName: 'Potted Plants', emoji: '🪴', broadFamily: 'houseplants',
       material: { shell: 'terracotta-and-foliage', contents: 'soil', behavior: 'leaf-flex-and-granular-soil', transparency: 'opaque' },
       liquid: { mode: 'sand', fill: 0.30, viscosity: 'soil' },
       dynamicArt: { ambient: 'leaf-sway', flight: 'stem-flex', impact: 'soil-puff', reducedMotion: 'fixed-leaves' },
@@ -329,7 +329,7 @@
       ],
     },
     {
-      id: 'red_panda', displayName: 'Red Panda', emoji: '🐾', broadFamily: 'red-panda-characters',
+      id: 'red-panda', displayName: 'Red Panda', emoji: '🐾', broadFamily: 'red-panda-characters',
       material: { shell: 'plush-toy', contents: 'soft-stuffing', behavior: 'tail-flex', transparency: 'opaque' },
       liquid: null,
       dynamicArt: { ambient: 'ear-twitch', flight: 'ringed-tail-curl', impact: 'paw-bounce', reducedMotion: 'blink-only' },
@@ -350,7 +350,7 @@
       ],
     },
     {
-      id: 'trophy_cup', displayName: 'Trophy Cup', emoji: '🏆', broadFamily: 'trophies',
+      id: 'trophy-cup', displayName: 'Trophy Cup', emoji: '🏆', broadFamily: 'trophies',
       material: { shell: 'metal', contents: 'none', behavior: 'rigid-solid', transparency: 'opaque' },
       liquid: null,
       dynamicArt: { ambient: 'surface-gleam', flight: 'ribbon-stream', impact: 'handle-ring', reducedMotion: 'static-gleam' },
@@ -371,7 +371,7 @@
       ],
     },
     {
-      id: 'snow_globe', displayName: 'Snow Globe', emoji: '🔮', broadFamily: 'snow-globes',
+      id: 'snow-globe', displayName: 'Snow Globe', emoji: '🔮', broadFamily: 'snow-globes',
       material: { shell: 'glass-and-resin', contents: 'water-and-flakes', behavior: 'slow-particle-slosh', transparency: 'clear' },
       liquid: { mode: 'closed', fill: 0.78, viscosity: 'slow' },
       dynamicArt: { ambient: 'flake-drift', flight: 'flake-vortex', impact: 'base-chime', reducedMotion: 'sparse-fixed-flakes' },
@@ -392,7 +392,7 @@
       ],
     },
     {
-      id: 'eyeball_monster', displayName: 'Eyeball Monster', emoji: '👁️', broadFamily: 'friendly-monsters',
+      id: 'eyeball-monster', displayName: 'Eyeball Monster', emoji: '👁️', broadFamily: 'friendly-monsters',
       material: { shell: 'soft-rubber', contents: 'gel-core', behavior: 'gel-wobble', transparency: 'translucent' },
       liquid: { mode: 'closed', fill: 0.44, viscosity: 'gel' },
       dynamicArt: { ambient: 'iris-track', flight: 'eyelid-flutter', impact: 'gel-squash', reducedMotion: 'single-blink' },
@@ -413,7 +413,7 @@
       ],
     },
     {
-      id: 'soda_can', displayName: 'Soda Can', emoji: '🥤', broadFamily: 'drink-cans',
+      id: 'soda-can', displayName: 'Soda Can', emoji: '🥤', broadFamily: 'drink-cans',
       material: { shell: 'aluminum', contents: 'carbonated-drink', behavior: 'fizzy-liquid-slosh', transparency: 'opaque' },
       liquid: { mode: 'closed', fill: 0.64, viscosity: 'thin', fizz: true },
       dynamicArt: { ambient: 'bubble-rise', flight: 'pull-tab-twitch', impact: 'safe-fizz-ring', reducedMotion: 'static-bubbles' },
@@ -434,7 +434,7 @@
       ],
     },
     {
-      id: 'watering_can', displayName: 'Watering Can', emoji: '💧', broadFamily: 'garden-cans',
+      id: 'watering-can', displayName: 'Watering Can', emoji: '💧', broadFamily: 'garden-cans',
       material: { shell: 'painted-metal', contents: 'water', behavior: 'thin-liquid-slosh', transparency: 'opaque' },
       liquid: { mode: 'open', fill: 0.42, viscosity: 'thin' },
       dynamicArt: { ambient: 'spout-droplet', flight: 'handle-flex', impact: 'rose-rattle', reducedMotion: 'fixed-droplet' },
@@ -455,7 +455,7 @@
       ],
     },
     {
-      id: 'pinata', displayName: 'Pinata', emoji: '🎊', broadFamily: 'party-pinatas',
+      id: 'pinata', displayName: 'Piñata', emoji: '🎊', broadFamily: 'party-pinatas',
       material: { shell: 'paper-and-cardboard', contents: 'paper-confetti', behavior: 'light-granular-rattle', transparency: 'opaque' },
       liquid: { mode: 'sand', fill: 0.28, viscosity: 'paper-confetti' },
       dynamicArt: { ambient: 'fringe-ripple', flight: 'ribbon-stream', impact: 'confetti-puff', reducedMotion: 'fixed-fringe' },
@@ -476,7 +476,7 @@
       ],
     },
     {
-      id: 'huge_rubber_duck', displayName: 'Huge Rubber Duck', emoji: '🦆', broadFamily: 'rubber-duck-characters',
+      id: 'huge-rubber-duck', displayName: 'Huge Rubber Duck', emoji: '🦆', broadFamily: 'rubber-duck-characters',
       material: { shell: 'soft-vinyl', contents: 'air', behavior: 'hollow-squash', transparency: 'opaque' },
       liquid: null,
       dynamicArt: { ambient: 'blink-and-bob', flight: 'wing-flap', impact: 'rubber-squash', reducedMotion: 'blink-only' },
@@ -497,7 +497,7 @@
       ],
     },
     {
-      id: 'action_figures', displayName: 'Action Figures', emoji: '🦸', broadFamily: 'original-action-figures',
+      id: 'action-figures', displayName: 'Action Figures', emoji: '🦸', broadFamily: 'original-action-figures',
       material: { shell: 'molded-plastic', contents: 'none', behavior: 'jointed-solid', transparency: 'opaque' },
       liquid: null,
       dynamicArt: { ambient: 'hero-pose-shift', flight: 'cape-or-accessory-flutter', impact: 'joint-spring', reducedMotion: 'fixed-pose' },
@@ -518,7 +518,7 @@
       ],
     },
     {
-      id: 'tall_buildings', displayName: 'Tall Buildings', emoji: '🏙️', broadFamily: 'fictional-towers',
+      id: 'tall-buildings', displayName: 'Tall Buildings', emoji: '🏙️', broadFamily: 'fictional-towers',
       material: { shell: 'masonry-and-glass-model', contents: 'none', behavior: 'rigid-solid', transparency: 'mixed' },
       liquid: null,
       dynamicArt: { ambient: 'window-twinkle', flight: 'antenna-flex', impact: 'awning-bounce', reducedMotion: 'static-windows' },
@@ -539,7 +539,7 @@
       ],
     },
     {
-      id: 'box_of_snacks', displayName: 'Box of Snacks', emoji: '🍿', broadFamily: 'generic-snack-boxes',
+      id: 'box-of-snacks', displayName: 'Box of Snacks', emoji: '🍿', broadFamily: 'generic-snack-boxes',
       material: { shell: 'cardboard', contents: 'sealed-snack-packets', behavior: 'packet-rattle', transparency: 'opaque' },
       liquid: null,
       dynamicArt: { ambient: 'package-crinkle', flight: 'top-flap-flex', impact: 'packet-bounce', reducedMotion: 'fixed-flaps' },
@@ -564,11 +564,14 @@
   const objects = OBJECTS.map((object, objectIndex) => {
     const variants = object.casts.map((variantCast, variantIndex) => {
       const flavor = FLAVORS[variantIndex];
+      const displayName = `${object.displayName} — ${flavor.displayName} ${variantCast.label}`;
       return {
-        id: `${object.id}_${flavor.id}`,
+        id: `${object.id}.${flavor.id}`,
         objectId: object.id,
+        variantId: flavor.id,
         flavorId: flavor.id,
-        displayName: `${object.displayName} — ${flavor.displayName} ${variantCast.label}`,
+        displayName,
+        label: displayName,
         color: flavor.color,
         castLabel: variantCast.label,
         silhouette: variantCast.silhouette,
@@ -600,7 +603,7 @@
   return {
     schema: 'FlipgameObjectManifestV1',
     schemaVersion: 1,
-    contractRevision: 1,
+    contractRevision: 3,
     releaseVersion: 'v111',
     collisionPolicy: 'all-non-alien-objects-share-standard-competitive-v1',
     unlockPolicy: 'all-12-variants-available-with-object',

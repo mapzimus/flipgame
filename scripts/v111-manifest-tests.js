@@ -24,30 +24,60 @@ const EXPECTED_OBJECT_NAMES = [
   'Eyeball Monster',
   'Soda Can',
   'Watering Can',
-  'Pinata',
+  'Piñata',
   'Huge Rubber Duck',
   'Action Figures',
   'Tall Buildings',
   'Box of Snacks',
 ];
 
+const EXPECTED_OBJECT_IDS = [
+  'coffee-mug',
+  'milk-carton',
+  'teapot',
+  'salt-pepper-shaker',
+  'soup-can',
+  'smoothie',
+  'gumball-machine',
+  'microscope',
+  'desk-globe',
+  'microphone-stand',
+  'potted-plants',
+  'penguin',
+  'owl',
+  'giraffe',
+  'red-panda',
+  'trophy-cup',
+  'snow-globe',
+  'eyeball-monster',
+  'soda-can',
+  'watering-can',
+  'pinata',
+  'huge-rubber-duck',
+  'action-figures',
+  'tall-buildings',
+  'box-of-snacks',
+];
+
 const EXPECTED_FLAVORS = [
-  ['blue', 'Blue', '#1f9bff'],
-  ['red', 'Red', '#e3263c'],
-  ['lime', 'Lime', '#8ed11a'],
-  ['orange', 'Orange', '#ff7a00'],
-  ['purple', 'Purple', '#8a3ffc'],
-  ['ice', 'Ice', '#5fcfe6'],
-  ['green', 'Green', '#3fae1a'],
-  ['berry', 'Berry', '#ff5b86'],
-  ['indigo', 'Indigo', '#4f63e0'],
-  ['yellow', 'Yellow', '#ffc233'],
-  ['cherry', 'Cherry', '#c8203a'],
-  ['pink', 'Pink', '#ff9ecf'],
+  ['blue-steel', 'Blue Steel', '#1f9bff'],
+  ['sucker-punch', 'Sucker Punch', '#e3263c'],
+  ['lime-light', 'Lime Light', '#8ed11a'],
+  ['orange-crush', 'Orange Crush', '#ff7a00'],
+  ['grape-expectations', 'Grape Expectations', '#8a3ffc'],
+  ['ice-ice-baby', 'Ice Ice Baby', '#5fcfe6'],
+  ['apple-solutely', 'Apple-solutely', '#3fae1a'],
+  ['berry-nice', 'Berry Nice', '#ff5b86'],
+  ['making-waves', 'Making Waves', '#4f63e0'],
+  ['lemon-aid', 'Lemon Aid', '#ffc233'],
+  ['very-cherry', 'Very Cherry', '#c8203a'],
+  ['pink-fluff', 'Pink Fluff', '#ff9ecf'],
 ];
 
 const EXPECTED_UNLOCKS = Array.from({ length: 25 }, (_, index) => 2 + index * 4);
-const SAFE_ID = /^[a-z][a-z0-9_]*$/;
+const CANONICAL_OBJECT_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const CANONICAL_LOCAL_VARIANT_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const CANONICAL_VARIANT_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const BANNED_TUNING_KEYS = new Set([
   'mass',
   'density',
@@ -86,7 +116,7 @@ function findBannedKey(value, path = 'manifest') {
 
 assert.equal(manifest.schema, 'FlipgameObjectManifestV1');
 assert.equal(manifest.schemaVersion, 1);
-assert.equal(manifest.contractRevision, 1);
+assert.equal(manifest.contractRevision, 3);
 assert.equal(manifest.releaseVersion, 'v111');
 assert.equal(manifest.collisionPolicy, 'all-non-alien-objects-share-standard-competitive-v1');
 assert.equal(manifest.unlockPolicy, 'all-12-variants-available-with-object');
@@ -95,6 +125,7 @@ assert.equal(manifest.objects.length, 25, 'v111 must add exactly 25 objects');
 assert.equal(manifest.flavorOrder.length, 12, 'every object must expose exactly 12 flavors');
 assert.equal(manifest.variants.length, 300, '25 objects × 12 variants must produce 300 variants');
 assert.deepEqual(manifest.objects.map(({ displayName }) => displayName), EXPECTED_OBJECT_NAMES);
+assert.deepEqual(manifest.objects.map(({ id }) => id), EXPECTED_OBJECT_IDS);
 assert.deepEqual(manifest.objects.map(({ unlockAtWins }) => unlockAtWins), EXPECTED_UNLOCKS);
 assert.deepEqual(
   manifest.flavorOrder.map(({ id, displayName, color }) => [id, displayName, color]),
@@ -107,7 +138,7 @@ assertUnique(manifest.variants.map(({ id }) => id), 'variant IDs');
 assertUnique(manifest.variants.map(({ displayName }) => displayName), 'variant display names');
 
 for (const [objectIndex, object] of manifest.objects.entries()) {
-  assert.match(object.id, SAFE_ID, `${object.displayName} must have a stable machine-safe ID`);
+  assert.match(object.id, CANONICAL_OBJECT_ID, `${object.displayName} must have a canonical kebab-case ID`);
   assert.equal(object.rosterOrder, objectIndex + 1);
   assert.equal(object.unlockAtWins, EXPECTED_UNLOCKS[objectIndex]);
   assert.equal(object.visibility, 'locked-until-owned');
@@ -141,12 +172,15 @@ for (const [objectIndex, object] of manifest.objects.entries()) {
 
   for (const [variantIndex, variant] of object.variants.entries()) {
     const [flavorId, flavorName, flavorColor] = EXPECTED_FLAVORS[variantIndex];
-    assert.match(variant.id, SAFE_ID);
-    assert.equal(variant.id, `${object.id}_${flavorId}`);
+    assert.match(variant.id, CANONICAL_VARIANT_ID, 'persisted variant IDs must be <object-id>.<variant-id>');
+    assert.match(variant.variantId, CANONICAL_LOCAL_VARIANT_ID);
+    assert.equal(variant.id, `${object.id}.${flavorId}`);
     assert.equal(variant.objectId, object.id);
+    assert.equal(variant.variantId, flavorId);
     assert.equal(variant.flavorId, flavorId);
     assert.equal(variant.color, flavorColor);
     assert.ok(variant.displayName.startsWith(`${object.displayName} — ${flavorName} `));
+    assert.equal(variant.label, variant.displayName);
     assert.equal(variant.availability, 'with-object');
     assert.equal(variant.collisionProfile, 'standard-competitive-v1');
     assert.equal(Object.hasOwn(variant, 'unlockAtWins'), false, 'variants cannot have separate unlock gates');

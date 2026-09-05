@@ -18,53 +18,55 @@ with the existing object gates at 4, 8, ... 100 exactly as specified in
 
 | Order | Stable ID | Display name | Wins | Broad family | Shell/material | Contents mode |
 | ---: | --- | --- | ---: | --- | --- | --- |
-| 1 | `coffee_mug` | Coffee Mug | 2 | drinkware | ceramic | open liquid |
-| 2 | `milk_carton` | Milk Carton | 6 | cartons | paperboard | closed liquid |
+| 1 | `coffee-mug` | Coffee Mug | 2 | drinkware | ceramic | open liquid |
+| 2 | `milk-carton` | Milk Carton | 6 | cartons | paperboard | closed liquid |
 | 3 | `teapot` | Teapot | 10 | teaware | ceramic | closed liquid |
-| 4 | `salt_pepper_shaker` | Salt/Pepper Shaker | 14 | table shakers | glass and metal | granular |
-| 5 | `soup_can` | Soup Can | 18 | food cans | tinplate | closed liquid |
+| 4 | `salt-pepper-shaker` | Salt/Pepper Shaker | 14 | table shakers | glass and metal | granular |
+| 5 | `soup-can` | Soup Can | 18 | food cans | tinplate | closed liquid |
 | 6 | `smoothie` | Smoothie | 22 | drink cups | clear cup | closed liquid |
-| 7 | `gumball_machine` | Gumball Machine | 26 | candy machines | glass and painted metal | granular |
+| 7 | `gumball-machine` | Gumball Machine | 26 | candy machines | glass and painted metal | granular |
 | 8 | `microscope` | Microscope | 30 | lab instruments | painted metal and glass | none |
-| 9 | `desk_globe` | Desk Globe | 34 | globes | painted sphere and metal | none |
-| 10 | `microphone_stand` | Microphone on a Stand | 38 | stage microphones | metal and rubber | none |
-| 11 | `potted_plants` | Potted Plants | 42 | houseplants | terracotta and foliage | granular |
+| 9 | `desk-globe` | Desk Globe | 34 | globes | painted sphere and metal | none |
+| 10 | `microphone-stand` | Microphone on a Stand | 38 | stage microphones | metal and rubber | none |
+| 11 | `potted-plants` | Potted Plants | 42 | houseplants | terracotta and foliage | granular |
 | 12 | `penguin` | Penguin | 46 | penguin characters | plush toy | none |
 | 13 | `owl` | Owl | 50 | owl characters | plush and feather toy | none |
 | 14 | `giraffe` | Giraffe | 54 | giraffe characters | plush toy | none |
-| 15 | `red_panda` | Red Panda | 58 | red-panda characters | plush toy | none |
-| 16 | `trophy_cup` | Trophy Cup | 62 | trophies | metal | none |
-| 17 | `snow_globe` | Snow Globe | 66 | snow globes | glass and resin | closed liquid |
-| 18 | `eyeball_monster` | Eyeball Monster | 70 | friendly monsters | soft rubber | closed liquid |
-| 19 | `soda_can` | Soda Can | 74 | drink cans | aluminum | closed liquid |
-| 20 | `watering_can` | Watering Can | 78 | garden cans | painted metal | open liquid |
-| 21 | `pinata` | Pinata | 82 | party pinatas | paper and cardboard | granular |
-| 22 | `huge_rubber_duck` | Huge Rubber Duck | 86 | rubber-duck characters | soft vinyl | none |
-| 23 | `action_figures` | Action Figures | 90 | original action figures | molded plastic | none |
-| 24 | `tall_buildings` | Tall Buildings | 94 | fictional towers | masonry and glass model | none |
-| 25 | `box_of_snacks` | Box of Snacks | 98 | generic snack boxes | cardboard | none |
+| 15 | `red-panda` | Red Panda | 58 | red-panda characters | plush toy | none |
+| 16 | `trophy-cup` | Trophy Cup | 62 | trophies | metal | none |
+| 17 | `snow-globe` | Snow Globe | 66 | snow globes | glass and resin | closed liquid |
+| 18 | `eyeball-monster` | Eyeball Monster | 70 | friendly monsters | soft rubber | closed liquid |
+| 19 | `soda-can` | Soda Can | 74 | drink cans | aluminum | closed liquid |
+| 20 | `watering-can` | Watering Can | 78 | garden cans | painted metal | open liquid |
+| 21 | `pinata` | Piñata | 82 | party pinatas | paper and cardboard | granular |
+| 22 | `huge-rubber-duck` | Huge Rubber Duck | 86 | rubber-duck characters | soft vinyl | none |
+| 23 | `action-figures` | Action Figures | 90 | original action figures | molded plastic | none |
+| 24 | `tall-buildings` | Tall Buildings | 94 | fictional towers | masonry and glass model | none |
+| 25 | `box-of-snacks` | Box of Snacks | 98 | generic snack boxes | cardboard | none |
 
 ## Variant contract
 
-Each object owns exactly 12 variants. A variant ID is always
-`<object_id>_<flavor_id>`; for example, `coffee_mug_blue`. Its display name also
-identifies the physical-looking cast, for example `Coffee Mug — Blue Diner`.
-These IDs and the order below are stable integration keys.
+Each object owns exactly 12 variants. Object and local variant IDs use lowercase
+kebab-case. A persisted canonical variant ID is always
+`<object-id>.<variant-id>`; for example, `coffee-mug.blue-steel`. Its display
+name also identifies the physical-looking cast, for example
+`Coffee Mug — Blue Steel Diner`. These IDs and the order below are stable
+integration keys shared with `FlipArtV111`.
 
 | Index | Flavor ID | Display label | Base color |
 | ---: | --- | --- | --- |
-| 1 | `blue` | Blue | `#1f9bff` |
-| 2 | `red` | Red | `#e3263c` |
-| 3 | `lime` | Lime | `#8ed11a` |
-| 4 | `orange` | Orange | `#ff7a00` |
-| 5 | `purple` | Purple | `#8a3ffc` |
-| 6 | `ice` | Ice | `#5fcfe6` |
-| 7 | `green` | Green | `#3fae1a` |
-| 8 | `berry` | Berry | `#ff5b86` |
-| 9 | `indigo` | Indigo | `#4f63e0` |
-| 10 | `yellow` | Yellow | `#ffc233` |
-| 11 | `cherry` | Cherry | `#c8203a` |
-| 12 | `pink` | Pink | `#ff9ecf` |
+| 1 | `blue-steel` | Blue Steel | `#1f9bff` |
+| 2 | `sucker-punch` | Sucker Punch | `#e3263c` |
+| 3 | `lime-light` | Lime Light | `#8ed11a` |
+| 4 | `orange-crush` | Orange Crush | `#ff7a00` |
+| 5 | `grape-expectations` | Grape Expectations | `#8a3ffc` |
+| 6 | `ice-ice-baby` | Ice Ice Baby | `#5fcfe6` |
+| 7 | `apple-solutely` | Apple-solutely | `#3fae1a` |
+| 8 | `berry-nice` | Berry Nice | `#ff5b86` |
+| 9 | `making-waves` | Making Waves | `#4f63e0` |
+| 10 | `lemon-aid` | Lemon Aid | `#ffc233` |
+| 11 | `very-cherry` | Very Cherry | `#c8203a` |
+| 12 | `pink-fluff` | Pink Fluff | `#ff9ecf` |
 
 The color is only a palette anchor. Every entry also has an authored
 `castLabel`, `silhouette`, and `finish`, so the variants read as visibly
