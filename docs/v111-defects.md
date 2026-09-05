@@ -42,3 +42,4 @@
 | V111-038 | P2 | Mitosis reward | One landed body grants bonus instead of counting normally | UI/Rules | Fixed; QA pending | One/both landing reward tests pass |
 | V111-039 | P2 | Event forcing scope | Event display names force events in ordinary Classic | UI/Rules | Fixed; QA pending | Non-Practice forcing is rejected |
 | V111-040 | P2 | Stats rollup filters | Pruned flips disappear or are misclassified under categorical filters omitted from rollups | Stats/Data | Open | 500-flip one-raw fixture across every individual and combined filter required |
+| V111-041 | P2 | Atomic web upgrade | Active v110 worker can mix bare cached v110 scripts into a v111 shell during a flaky first upgrade | Release Engineering | Open | Controller-gated boot and interrupted-upgrade simulation required |

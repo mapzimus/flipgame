@@ -8,6 +8,7 @@ const PRECACHE_URLS = [
   './',
   './index.html',
   './css/style.css',
+  './js/v111-boot.js',
   './js/polyfills.js',
   './js/v111-interfaces.js',
   './js/v111-runtime.js',

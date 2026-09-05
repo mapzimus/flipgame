@@ -8,6 +8,7 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 const html = read('index.html');
+const boot = read('js/v111-boot.js');
 const css = read('css/style.css');
 const main = read('js/main.js');
 const renderer = read('js/renderer.js');
@@ -45,7 +46,10 @@ test('DOM smoke: complete route shell and accessibility regions are present', ()
 });
 
 test('loader order installs architecture, safety, modes, mirror, network, and platform before main', () => {
-  const sources = [...html.matchAll(/<script src="([^"]+)"/g)].map((match) => match[1].replace(/\?.*$/, ''));
+  const htmlSources = [...html.matchAll(/<script src="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(htmlSources, ['js/v111-boot.js?v=111'], 'index must expose only the release-unique boot script');
+  const sources = [...boot.matchAll(/['"](js\/[^'"]+\.js\?v=111)['"]/g)]
+    .map((match) => match[1].replace(/\?.*$/, ''));
   const position = (name) => sources.indexOf(`js/${name}`);
   for (const name of [
     'v111-interfaces.js', 'v111-runtime.js', 'v111-name-policy.js', 'v111-save-backup.js', 'v111-stats.js',
@@ -63,8 +67,10 @@ test('loader order installs architecture, safety, modes, mirror, network, and pl
   assert.ok(position('v111-mirror-match.js') < position('main.js'));
   assert.ok(position('v111-platform.js') < position('main.js'));
   assert.ok(sources.every((source) => source !== 'js/v111.js'));
-  assert.match(html, /\?v=111/);
-  assert.doesNotMatch(html, /\?v=110/);
+  assert.match(html + boot, /\?v=111/);
+  assert.doesNotMatch(html + boot, /\?v=110/);
+  assert.match(boot, /service-worker\.js\?v=['"]?\s*\+\s*VERSION|WORKER_URL/);
+  assert.match(boot, /await waitForReleaseController\(registration\)/);
 });
 
 test('responsive shell has 48px targets, twelve-column desktop, compact roster, focus and reduced motion', () => {

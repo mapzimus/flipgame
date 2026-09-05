@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 19
+Contract revision: 20
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -14,6 +14,12 @@ affected specialist continues.
   settling, ON FIRE, life-cap, sudden-death, resize, and Alien corrections.
 - The web build and offline APK are produced from the same commit and display
   `v111` on every screen.
+- The v111 HTML loads only its version-unique boot script. On remote HTTP(S),
+  that boot script installs and verifies the v111 service worker as the current
+  controller before loading any mutable application script. A v110 controller
+  can never satisfy a v111 runtime request through an ignore-search fallback;
+  an interrupted upgrade shows a retryable update message instead of mixing
+  release assets. Localhost and the bundled APK load directly.
 - Player-facing UI never reveals unlock thresholds, wins remaining, locked
   names, programmed event odds, or the Insane Mode occurrence rate.
 - Locked objects, cosmetics, achievements, Alien, Insane, and Physics Lab show

@@ -9,6 +9,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const normalizeAsset = (value) => './' + value.replace(/^\.\//, '').split(/[?#]/, 1)[0];
 
 const index = read('index.html');
+const boot = read('js/v111-boot.js');
 const manifestText = read('manifest.json');
 const manifest = JSON.parse(manifestText);
 const worker = read('service-worker.js');
@@ -28,7 +29,7 @@ assert.match(workflow, /git fetch --no-tags origin "refs\/tags\/v111:refs\/tags\
   'immutable release reruns must fetch the shallow-checkout tag before verifying it');
 assert.doesNotMatch(workflow, /assembleDebug/);
 
-for (const [file, html] of [['index.html', index]]) {
+for (const [file, html] of [['index.html', index], ['js/v111-boot.js', boot]]) {
   const versions = [...html.matchAll(/\?v=(\d+)/g)].map((match) => match[1]);
   assert.ok(versions.length > 0, `${file} has no versioned local assets`);
   assert.deepEqual([...new Set(versions)], ['111'], `${file} contains stale or mixed query versions`);
@@ -44,6 +45,9 @@ for (const html of [index]) {
     referenced.add(normalizeAsset(value));
   }
 }
+for (const match of boot.matchAll(/['"]((?:css|js)\/[^'"]+\?v=111)['"]/g)) {
+  referenced.add(normalizeAsset(match[1]));
+}
 for (const icon of manifest.icons || []) referenced.add(normalizeAsset(icon.src));
 
 for (const asset of referenced) {
@@ -57,10 +61,18 @@ const runtimeModules = fs.readdirSync(path.join(root, 'js'))
   .map((name) => './js/' + name);
 for (const asset of runtimeModules) {
   const indexPath = asset.replace(/^\.\//, '');
-  assert.match(index, new RegExp(indexPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\?v=111'),
-    `index does not load ${asset}`);
+  assert.match(index + '\n' + boot, new RegExp(indexPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\?v=111'),
+    `atomic boot graph does not load ${asset}`);
   assert.ok(precached.has(asset), `runtime module is not precached: ${asset}`);
 }
+
+const externalScripts = [...index.matchAll(/<script src=["']([^"']+)["']/g)].map((match) => match[1]);
+assert.deepEqual(externalScripts, ['js/v111-boot.js?v=111'],
+  'production HTML must not request mutable runtime scripts before worker verification');
+assert.match(boot, /service-worker\.js\?v=['"]?\s*\+\s*VERSION|WORKER_URL/);
+assert.match(boot, /controlledByThisRelease\(\)/);
+assert.match(boot, /await waitForReleaseController\(registration\)/);
+assert.ok(precached.has('./js/v111-boot.js'), 'version-unique boot script is not precached');
 
 assert.doesNotMatch(worker, /Promise\.allSettled\s*\(/,
   'critical precache must fail atomically instead of activating a partial release');

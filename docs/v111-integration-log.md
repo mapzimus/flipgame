@@ -336,3 +336,26 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Affected owner notified: State/Data/Safety. Independent State/Data and Browser
   gates must restart after integration; completed Simulation evidence remains
   provisional until the exact candidate is frozen.
+
+## Revision 20 - controller-gated atomic web upgrade
+
+- Trigger: Browser/Release QA reproduced a first-upgrade race where the active
+  v110 worker could serve a bare cached v110 `main.js` for the new HTML's
+  `main.js?v=111` request when the network failed.
+- Old behavior: new HTML immediately requested mutable scripts, then registered
+  the new worker after page load; the v110 ignore-search offline fallback could
+  therefore mix releases.
+- New behavior: index loads one version-unique `v111-boot.js`. On production
+  HTTP(S), the boot script registers `service-worker.js?v=111`, waits until that
+  exact worker controls the page, and only then loads the ordered v111 runtime.
+  Failure loads no application script and presents a retryable update notice.
+  Localhost and `file:`/APK execution continue directly.
+- Migration action: the boot asset owns loader order and error capture; the
+  service worker precaches it and the full runtime; the old late registration
+  block is removed from index.
+- Required tests: old-controller delayed activation, install failure/no runtime
+  load, controller-version verification, complete ordered runtime graph,
+  localhost/APK direct boot, and service-worker precache inventory.
+- Integration commit: pending.
+- Affected owners notified: Release Engineering and Browser/Release QA. Stats
+  corrective work is unaffected.
