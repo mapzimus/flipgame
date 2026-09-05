@@ -237,3 +237,15 @@ interface or behavior changes to the Program Integrator before proceeding.
 - UI focused suite: 13 cases. Mirror queue: 12 cases. Android storage and network
   platform suites pass. Full candidate gate: all 16 script suites and 43 Node
   test cases pass before independent QA.
+
+## Revision 15 - blocked-name feedback reset
+
+- Trigger: coordinator browser smoke found the generic blocked-name alert stayed
+  active after the player replaced the value with a safe name.
+- New behavior: editing a highlighted local name clears only the stale inline and
+  assertive error presentation. Match start still runs the shared NamePolicy and
+  blocks any invalid replacement.
+- Migration/interface: none.
+- Tests: browser reproduction plus full UI/name/release gates must rerun.
+- Affected owners notified: all three active independent QA specialists; their
+  audit baseline advances to the new candidate commit.

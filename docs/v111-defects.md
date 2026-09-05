@@ -17,3 +17,4 @@
 | V111-013 | P1 | Android files | WebView cannot import or export local save/stats files | Android | Fixed; QA pending | SAF bridge suite passes |
 | V111-014 | P1 | Artwork | Retired generated PNG pack ships in APK/Pages | Art/Release | Fixed; QA pending | 120 files removed; zero-raster release assertion passes |
 | V111-015 | P2 | Progression secrecy | Public roster page exposes names and win thresholds | UI/Release | Fixed; QA pending | Gallery removed; player-facing leak scan passes |
+| V111-016 | P3 | Name feedback | Generic blocked-name alert persists after the player edits the field | UI | Fixed; QA pending | Input clears stale inline/assertive state; submit still revalidates |

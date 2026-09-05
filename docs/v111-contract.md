@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 14
+Contract revision: 15
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -143,6 +143,8 @@ cap-toss:5500, life-drain:6000`.
   removes controls/bidi overrides, collapses whitespace, limits to 14 grapheme
   clusters, checks obfuscations, and returns a generic rename error. Exact
   `Mr. Howe` and event test names are allowlisted.
+- Editing a highlighted blocked name clears only its stale error presentation;
+  match start validates the replacement again before persistence or play.
 - Player names are rendered through text nodes or escaping, never unsafe HTML.
 
 ## Shared interfaces

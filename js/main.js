@@ -572,6 +572,12 @@
   let nameSaveTimer = null;
   playerInputs.addEventListener('input', (e) => {
     if (!e.target || e.target.tagName !== 'INPUT') return;
+    if (e.target.matches('input[type="text"]')) {
+      e.target.setAttribute('aria-invalid', 'false');
+      const error = e.target.closest('.player-input-row')?.querySelector('.field-error');
+      if (error) error.textContent = '';
+      if (appErrorEl) appErrorEl.textContent = '';
+    }
     clearTimeout(nameSaveTimer);
     nameSaveTimer = setTimeout(() => {
       if (typeof saveSetup === 'function') saveSetup();
