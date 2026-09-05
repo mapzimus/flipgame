@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 1
+Contract revision: 2
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -91,6 +91,13 @@ cap-toss:5500, life-drain:6000`.
   and one personal cosmetic. A global non-physical arena is separate.
 - All non-Alien objects share the standard competitive collision envelope.
   Variant silhouettes and moving parts do not alter physics.
+- Canonical art mapping is fixed to the existing cast pipeline: SVG viewBox
+  `300 x 420`, SVG ground `y=376`, art scale `0.74`, and local physics contact
+  `y=+39`. Therefore the shared SVG-space rotation pivot is
+  `{ x:150, y:323.297297... }`. A renderer painting directly in projected world
+  space uses `0.74 * bottleDrawScale`; a renderer already inside the existing
+  object-local transform uses only the `0.74` art transform. Object variants
+  may not override this pivot, baseline, scale, or contact plane.
 - The achievement catalog contains exactly 100 entries: the existing 30 plus
   30 event, 10 Classic, 8 Cup, 8 Team, 8 collection, and 6 Lab/stat entries.
 
@@ -120,6 +127,7 @@ cap-toss:5500, life-drain:6000`.
 - `StatsStore`, `FlipRecordV1`, and `MatchRecordV1`
 - `NamePolicy.validate()`
 - `NetworkEnvelopeV2`
-- `RenderVariant`
+- `RenderVariant` is immutable
+  `{ id, objectId, variantId, label, color, metrics, renderLocal }`; metrics use
+  the canonical viewBox, pivot, baseline, and collision mapping above.
 - Versioned outcome events consumed by achievements and statistics
-
