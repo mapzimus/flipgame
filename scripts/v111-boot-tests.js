@@ -140,6 +140,11 @@ async function main() {
     'HTML has no dependency-free boot status when the boot script itself fails');
   assert.match(index, /<a href="index\.html">Retry update<\/a>/,
     'HTML recovery shell has no script-independent reload path');
+  assert.match(index,
+    /body:not\(\.flipgame-boot-ready\)\s*>\s*\*:not\(#flipgame-boot-status\)\s*\{\s*visibility:\s*hidden;/,
+    'pre-CSS shell does not isolate every non-status application screen during failure');
+  assert.doesNotMatch(index, /body[^\{]*:not\(\.flipgame-boot-failed\)[^\{]*\{/,
+    'boot-failed must not disable application-screen isolation');
 
   console.log('v111 atomic boot tests passed.');
 }

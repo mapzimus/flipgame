@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-title" content="Bottle Game">
   <style id="flipgame-boot-shell">
     html, body { min-height: 100%; margin: 0; background: #091525; color: #fff; }
-    body:not(.flipgame-boot-ready):not(.flipgame-boot-failed) > * { visibility: hidden; }
+    body:not(.flipgame-boot-ready) > *:not(#flipgame-boot-status) { visibility: hidden; }
     #flipgame-boot-status { visibility: visible; max-width: 34rem; margin: 12vh auto; padding: 24px;
       border: 2px solid #f2bf58; border-radius: 14px; background: #17283c; color: #fff;
       font: 18px/1.45 system-ui, sans-serif; text-align: center; }

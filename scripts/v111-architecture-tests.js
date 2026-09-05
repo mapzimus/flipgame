@@ -236,7 +236,7 @@ function testBrowserGlobalsAndLoaderSeams() {
   assert.equal(context.FlipgameV111.art.current(), context.FlipgameV111Art);
   assert.equal(context.FlipgameV111Art.platform.cacheInfo().variantsBuilt, 0);
 
-  const scripts = [...read('index.html').matchAll(/<script src="([^"]+)"/g)]
+  const scripts = [...read('js/v111-boot.js').matchAll(/['"](js\/[^"]+?\.js\?v=111)['"]/g)]
     .map((match) => match[1].replace(/\?v=\d+$/, ''));
   const position = (file) => scripts.indexOf(file);
   assert.ok(position('js/v111-interfaces.js') < position('js/v111-runtime.js'));

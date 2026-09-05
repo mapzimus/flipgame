@@ -408,3 +408,25 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owners notified: Release Engineering and Browser/Release QA. UI
   settings and Stats corrective work are unaffected.
+
+## Revision 23 - isolated failure shell and boot-graph gate
+
+- Trigger: Browser/Release QA showed that adding the boot-failed class disabled
+  the shell's pre-CSS hiding selector, revealing every raw application screen
+  beside the retry notice. The complete integration run also proved that the
+  architecture gate still inspected direct index script tags removed by the
+  approved atomic loader.
+- Old behavior: runtime or controller failure exposed unstyled setup, game,
+  Stats, Lab, and game-over markup. The architecture suite falsely failed the
+  valid boot graph while no longer checking its actual dependency order.
+- New behavior: every application child except the boot status remains hidden
+  until boot-ready, regardless of failure state. The architecture gate extracts
+  and validates the ordered runtime graph from `v111-boot.js`.
+- Migration action: strengthen dependency-free shell CSS and move loader-order
+  assertions from removed index tags to the boot asset list.
+- Required tests: controller failure, stylesheet/runtime failure and missing
+  boot script each expose only the recovery surface; architecture order remains
+  interfaces, runtime, art packs, bootstrap, then main.
+- Integration commit: pending.
+- Affected owners notified: Release Engineering and Browser/Release QA. Other
+  active corrective work is unaffected.

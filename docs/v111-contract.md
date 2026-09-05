@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 22
+Contract revision: 23
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -24,6 +24,9 @@ affected specialist continues.
   that release's cache while offline and never forces a network update check.
   The HTML itself contains a visible, dependency-free loading/retry surface so
   failure to fetch the sole boot script cannot leave a blank page.
+  Before boot completes, including every failure path, all application screens
+  remain hidden and only that recovery surface is visible. Architecture and
+  release gates validate ordered runtime dependencies from the boot graph.
 - Player-facing UI never reveals unlock thresholds, wins remaining, locked
   names, programmed event odds, or the Insane Mode occurrence rate.
 - Locked objects, cosmetics, achievements, Alien, Insane, and Physics Lab show
