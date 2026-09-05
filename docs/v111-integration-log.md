@@ -430,3 +430,26 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owners notified: Release Engineering and Browser/Release QA. Other
   active corrective work is unaffected.
+
+## Revision 24 - authoritative v110 preference migration
+
+- Trigger: integrator review found that v110's failed `window.Settings` guards
+  prevented feel, Flick feedback, and reduced-motion setters from running, but
+  setup persistence still stored those visible selections. An unrelated mute
+  change could write a complete canonical object containing stale defaults.
+- Old assumption: an existing canonical field always won over the legacy setup
+  copy, which could silently discard the user's visibly saved selections during
+  upgrade.
+- New behavior: on the one-time v110-to-v111 migration, valid setup values for
+  feel, feedback, and reduced motion override those three canonical fields.
+  Sound remains canonical. The obsolete setup keys are then removed, making
+  subsequent v111 loads canonical-only.
+- Migration action: detect the presence of each valid legacy setup preference,
+  apply it before cleanup, save the canonical object once, and preserve all
+  unrelated setup fields.
+- Required tests: a complete stale canonical object plus divergent valid v110
+  setup choices migrates the visible choices exactly once; after cleanup,
+  subsequent canonical changes survive reload without being overridden.
+- Integration commit: pending.
+- Affected owner notified: the active Settings specialist was paused and given
+  the revised precedence before merge. Other active work is unaffected.

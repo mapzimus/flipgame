@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 23
+Contract revision: 24
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -44,6 +44,11 @@ affected specialist continues.
   Reduced motion is active when either the persisted explicit preference or
   the operating-system preference requests it; sound, physics feel, and flick
   feedback likewise survive reload through that same shared instance.
+  During the one-time v110 migration, valid `feel`, `feedback`, and
+  `reduceMotion` values saved in `flipgame.setup.v2` override those three
+  canonical fields because v110's guarded canonical setters never executed.
+  Sound remains canonical. The migrated setup copies are then removed so this
+  precedence applies exactly once.
 
 ## Gameplay contracts
 
