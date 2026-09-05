@@ -332,7 +332,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   matching individual filter and representative combined filters; online/CPU
   values must never coerce from missing data; nonmatching filters return zero;
   rollup-cell writes remain bounded to changed cells.
-- Integration commit: pending.
+- Integration commit: `5637886`.
 - Affected owner notified: State/Data/Safety. Independent State/Data and Browser
   gates must restart after integration; completed Simulation evidence remains
   provisional until the exact candidate is frozen.
@@ -356,7 +356,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: old-controller delayed activation, install failure/no runtime
   load, controller-version verification, complete ordered runtime graph,
   localhost/APK direct boot, and service-worker precache inventory.
-- Integration commit: pending.
+- Integration commits: `eb99a64`, `8a1d3fa`, `9909e95`, and `7e02a8b`.
 - Affected owners notified: Release Engineering and Browser/Release QA. Stats
   corrective work is unaffected.
 
@@ -382,7 +382,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   behavior, localStorage persistence and reload for reduced motion and Flick
   feedback, operating-system reduced-motion fallback, plus mute and physics
   feel regression coverage.
-- Integration commit: pending.
+- Integration commit: `06da1c9`.
 - Affected owner notified: UI/Renderer. Browser/Release QA must restart its
   settings checks after integration; Stats corrective work is unaffected.
 
@@ -405,7 +405,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: controlled-v111 cold offline boot with registration/update
   network failure, first-upgrade boot-script fetch failure with visible working
   reload link, ordinary old-controller activation, and no partial runtime.
-- Integration commit: pending.
+- Integration commit: `8a1d3fa`.
 - Affected owners notified: Release Engineering and Browser/Release QA. UI
   settings and Stats corrective work are unaffected.
 
@@ -427,7 +427,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: controller failure, stylesheet/runtime failure and missing
   boot script each expose only the recovery surface; architecture order remains
   interfaces, runtime, art packs, bootstrap, then main.
-- Integration commit: pending.
+- Integration commit: `9909e95`.
 - Affected owners notified: Release Engineering and Browser/Release QA. Other
   active corrective work is unaffected.
 
@@ -450,7 +450,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: a complete stale canonical object plus divergent valid v110
   setup choices migrates the visible choices exactly once; after cleanup,
   subsequent canonical changes survive reload without being overridden.
-- Integration commit: pending.
+- Integration commit: `06da1c9`.
 - Affected owner notified: the active Settings specialist was paused and given
   the revised precedence before merge. Other active work is unaffected.
 
@@ -471,6 +471,6 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: inject a synchronous error from a middle runtime script,
   assert the boot promise fails, no later dependency loads, failure remains
   isolated, and boot-ready is absent.
-- Integration commit: pending.
+- Integration commit: `7e02a8b`.
 - Affected owners notified: Release Engineering and Browser/Release QA. The
   integrated Settings implementation itself is unchanged.
