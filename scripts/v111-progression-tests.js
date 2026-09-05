@@ -168,27 +168,35 @@ function testAchievementCatalogAndDeterminism() {
   assert.ok(eventIds.every((id) => store.isUnlocked(`event-${id}`)));
 
   const broad = {
-    qualifying: true, won: true, result: 'MAKE', format: 'classic', totalFlipsLifetime: 1000,
-    totalMakesLifetime: 500, totalClassicWins: 50, winnerWins: 15, streak: 10,
+    qualifying: true, won: true, result: 'MAKE', format: 'classic', totalFlipsLifetime: 5000,
+    totalMakesLifetime: 500, totalClassicWins: 50, winnerWins: 15, streak: 20,
     onFireBonus: 10, justIgnited: true, pointCount: 12, perfect: true, perfectInMatch: true,
     power: 0.2, greatSave: true, capLand: true, capLandsLifetime: 10, greatSavesLifetime: 10,
     landingReason: 'tractor-ring', bankHits: 6, padOffset: 0.1, wonWithoutMiss: true,
     droppedToOneLife: true, sawSuddenDeath: true, playerCount: 8, ignitionsThisGame: 2,
-    qualifyingWins: 100, ownedObjectCount: 51, ownedCosmeticCount: 50, capstoneOwned: true,
-    distinctEventsObserved: 30, statsExported: true,
+    openingFlip: true, edgeLanding: true, rotations: 2, livesBefore: 1,
+    suddenDeathBefore: true, stakeBefore: 20, perfectPair: true, capMakesThisMatch: 3,
+    reachedOnFireCap: true, distinctObjectsUsed: 51, distinctCosmeticsEquipped: 50,
+    distinctArenasPlayed: 10, perfectLandingsLifetime: 100, capLandingsLifetime: 50,
+    matchesLifetime: 100,
   };
   const first = store.check(broad);
   assert.ok(first.length > 0);
   assert.ok(first.every((entry) => entry.earnedAt === '2030-01-02T03:04:05.000Z'));
   assert.deepEqual(store.check(broad), [], 'already earned achievements are deterministic/idempotent');
 
-  store.check({ qualifying: true, won: true, format: 'cup', heatWon: true, cupLength: 'short',
-    loserHeatWins: 0, lostFirstHeat: true, sawSuddenDeath: true, cupWonWithoutMiss: true });
+  store.check({ qualifying: true, won: true, format: 'cup', cupLength: 'short', playerCount: 8,
+    loserHeatWins: 0, lostFirstHeat: true, allCupStarterPositionsCovered: true, lifetimeCupWins: 3 });
   store.check({ qualifying: true, won: true, format: 'cup', cupLength: 'full' });
-  for (const playerCount of [2, 4, 6, 8]) {
+  for (const playerCount of [2, 8]) {
     store.check({ qualifying: true, won: true, format: 'team', playerCount,
-      perfectCancellation: true, winnerScore: 11, loserScore: 0, largestDeficit: 5 });
+      cancellationPoints: 5, largestDeficit: 5, everyTeammateScored: true,
+      matchPointCancellation: true, everyTeammateMadeInRound: true });
   }
+  store.check({ mode: 'physics-lab', physicsLab: true, qualifyingLabAction: true,
+    humanParticipant: true, advancedLabUsed: true });
+  store.check({ mode: 'physics-lab', physicsLab: true, qualifyingLabAction: true,
+    humanParticipant: true, replayedSeedImproved: true });
   const earnedCounts = {};
   store.earned().forEach((entry) => { earnedCounts[entry.category] = (earnedCounts[entry.category] || 0) + 1; });
   for (const category of ['events', 'classic', 'cup', 'team', 'collection', 'lab-stats']) {

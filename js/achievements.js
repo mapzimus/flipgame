@@ -35,6 +35,10 @@
   }
   function format(c) { return String(c.format || c.matchFormat || '').toLowerCase(); }
   function won(c) { return c.won === true || c.result === 'win' || c.matchWon === true; }
+  function made(c) { return String(c.result || '').toUpperCase() === 'MAKE'; }
+  function capMade(c) {
+    return made(c) && (!!c.capLand || !!c.onCap || c.landingPose === 'cap' || c.pose === 'cap');
+  }
 
   var CATALOG = [];
   function add(category, id, emoji, name, desc, rare) {
@@ -83,62 +87,62 @@
   });
 
   var CLASSIC = [
-    ['first-win','🏅','Classic Debut','Win a Classic match.'],
-    ['ten-wins','🔟','Classic Ten','Reach ten Classic wins.'],
-    ['twenty-five-wins','🏆','Classic Twenty-Five','Reach twenty-five Classic wins.'],
-    ['fifty-wins','👑','Classic Fifty','Reach fifty Classic wins.'],
-    ['clean-sweep','🧹','Classic Clean Sweep','Win Classic without missing.'],
-    ['comeback','🔄','Classic Comeback','Win Classic after dropping to one life.'],
-    ['sudden-death','💀','Classic Survivor','Win Classic in sudden death.'],
-    ['perfect-win','🎯','Classic Precision','Win Classic with a perfect landing.'],
-    ['on-fire-win','🔥','Classic Heat','Win Classic after going ON FIRE.'],
-    ['eight-player-win','8️⃣','Classic Full Table','Win an eight-player Classic match.'],
+    ['opening-make','🎬','Opening Statement','Make the opening flip of a Classic match.'],
+    ['edge-landing','📐','Living on the Edge','Make a Classic flip on the edge.'],
+    ['two-rotation-make','🌀','Double Rotation','Make an ordinary Classic flip with at least two rotations.'],
+    ['one-life-make','1️⃣','One Life Left','Make a Classic flip while starting the turn on one life.'],
+    ['sudden-death-cap','💀','Sudden Cap','Land on the cap during Classic sudden death.'],
+    ['stake-20-make','🎲','Twenty on the Table','Make a Classic flip with at least twenty lives staked.'],
+    ['perfect-pair','🎯','Perfect Pair','Land two consecutive perfect Classic flips.'],
+    ['three-caps','🙃','Hat Trick','Land three cap makes in one Classic match.'],
+    ['on-fire-cap','🔥','Fire Ceiling','Reach the ON FIRE additive-life cap in Classic.'],
+    ['twenty-make-streak','⚡','Twenty Straight','Reach a twenty-make Classic streak.'],
   ];
   CLASSIC.forEach(function (a) { add('classic', 'classic-' + a[0], a[1], a[2], a[3]); });
 
   var CUP = [
-    ['first-heat-win','🥇','Heat Winner','Win a Cup heat.'],
-    ['first-series-win','🏆','Cup Winner','Win a Cup series.'],
+    ['first-win','🏆','First Cup','Win a Cup.'],
+    ['sweep-2-0','🧹','Two–Zero Sweep','Win a Cup two heats to none.'],
+    ['reverse-sweep','🌊','Reverse Sweep','Win a Cup after losing its first heat.'],
     ['short-win','⏱️','Short Cup Champion','Win a Short Cup.'],
     ['full-win','🏛️','Full Cup Champion','Win a Full Cup.'],
-    ['sweep','🧹','Cup Sweep','Win a Cup two heats to none.'],
-    ['comeback','🌊','Cup Comeback','Win a Cup after losing its first heat.'],
-    ['sudden-death','💀','Cup Survivor','Win a Cup containing sudden death.'],
-    ['perfect-series','💎','Perfect Cup','Win every Cup heat without missing.',true],
+    ['eight-player','8️⃣','Full Cup Table','Win an eight-player Cup.'],
+    ['all-starters','🔄','Every Starting Seat','Start a Cup from every seat position.'],
+    ['three-lifetime','🥉','Cup Triple','Win three Cups on this device.'],
   ];
   CUP.forEach(function (a) { add('cup', 'cup-' + a[0], a[1], a[2], a[3], a[4]); });
 
   var TEAM = [
     ['first-win','🤝','Team Debut','Win Team Clash.'],
-    ['perfect-cancel','⚖️','Perfect Cancel','Finish a round with exact cancellation.'],
-    ['shutout','🛡️','Team Shutout','Win Team Clash eleven to zero.'],
-    ['comeback','🔄','Team Rally','Win after trailing by five team points.'],
-    ['2-player-win','2','2-Player Team Win','Win Team Clash with two players.'],
-    ['4-player-win','4','4-Player Team Win','Win Team Clash with four players.'],
-    ['6-player-win','6','6-Player Team Win','Win Team Clash with six players.'],
-    ['8-player-win','8','8-Player Team Win','Win Team Clash with eight players.'],
+    ['two-player-win','2️⃣','Two-Player Team Win','Win Team Clash with two players.'],
+    ['eight-player-win','8️⃣','Eight-Player Team Win','Win Team Clash with eight players.'],
+    ['five-point-cancellation','⚖️','Five-Point Cancel','Cancel at least five points in one Team Clash round.'],
+    ['five-point-comeback','🔄','Five-Point Comeback','Win Team Clash after trailing by at least five points.'],
+    ['every-teammate-scored','🤜','Everyone Scores','Have every teammate score in Team Clash.'],
+    ['match-point-cancellation','🛡️','Match Point Denied','Cancel a score that would have won Team Clash.'],
+    ['every-teammate-made-round','🙌','Perfect Team Round','Have every teammate make in the same Team Clash round.'],
   ];
   TEAM.forEach(function (a) { add('team', 'team-' + a[0], a[1], a[2], a[3]); });
 
   var COLLECTION = [
-    ['first-reward','🎁','First Reveal','Own a progression reward.'],
-    ['ten-objects','📦','Object Shelf','Own ten objects.'],
-    ['twenty-five-objects','🏛️','Object Gallery','Own twenty-five objects.'],
-    ['all-objects','👑','Complete Object Collection','Own all fifty-one objects.',true],
-    ['first-cosmetic','🎨','First Style','Own a cosmetic.'],
-    ['twenty-five-cosmetics','✨','Style Cabinet','Own twenty-five cosmetics.'],
-    ['all-cosmetics','🌈','Complete Style Collection','Own all fifty cosmetics.',true],
-    ['capstone','🛸','Capstone','Own Alien, Insane Mode, and Physics Lab.',true],
+    ['use-5-objects','📦','Object Sampler','Use five different objects.'],
+    ['use-15-objects','🗃️','Object Explorer','Use fifteen different objects.'],
+    ['use-30-objects','🏛️','Object Curator','Use thirty different objects.'],
+    ['use-all-objects','👑','Every Object','Use all fifty-one objects.',true],
+    ['equip-5-cosmetics','🎨','Style Sampler','Equip five different cosmetics.'],
+    ['equip-25-cosmetics','✨','Style Curator','Equip twenty-five different cosmetics.'],
+    ['equip-all-cosmetics','🌈','Every Style','Equip all fifty cosmetics.',true],
+    ['play-all-arenas','🌍','World Tour','Play in all ten arenas.',true],
   ];
   COLLECTION.forEach(function (a) { add('collection', 'collection-' + a[0], a[1], a[2], a[3], a[4]); });
 
   var LAB_STATS = [
-    ['hundred-flips','🧮','Sample Size','Record one hundred qualifying flips.'],
-    ['five-hundred-makes','📈','Make Archive','Record five hundred qualifying makes.'],
-    ['ten-cap-lands','🙃','Cap Sample','Record ten qualifying cap lands.'],
-    ['ten-great-saves','🧤','Recovery Sample','Record ten qualifying great saves.'],
-    ['all-events-observed','🔭','Event Observer','Observe all thirty events in qualifying play.',true],
-    ['exported','📤','Local Archivist','Export local statistics.'],
+    ['advanced-lab','🧪','Advanced Lab','Use an advanced Physics Lab control.'],
+    ['improved-seed','👻','Better Replay','Improve the result of a replayed seed in Physics Lab.'],
+    ['hundred-perfect-landings','🎯','Perfect Century','Record one hundred perfect landings.'],
+    ['fifty-cap-landings','🙃','Cap Fifty','Record fifty cap landings.'],
+    ['hundred-matches','🧮','One Hundred Matches','Complete one hundred matches.'],
+    ['five-thousand-flips','📈','Five Thousand Flips','Record five thousand flips.'],
   ];
   LAB_STATS.forEach(function (a) { add('lab-stats', 'stats-' + a[0], a[1], a[2], a[3], a[4]); });
 
@@ -186,6 +190,16 @@
     }
   }
 
+  // Outcome-context contract used by main.js and the statistics bridge:
+  // Classic: openingFlip, edgeLanding, rotations, livesBefore, suddenDeathBefore,
+  // stakeBefore, perfectPair, capMakesThisMatch, reachedOnFireCap, streak.
+  // Cup: loserHeatWins, lostFirstHeat, cupLength, playerCount,
+  // allCupStarterPositionsCovered, lifetimeCupWins.
+  // Team: cancellationPoints, largestDeficit, everyTeammateScored,
+  // matchPointCancellation, everyTeammateMadeInRound.
+  // Collection: distinctObjectsUsed, distinctCosmeticsEquipped, distinctArenasPlayed.
+  // Lab/stat: advancedLabUsed, replayedSeedImproved, perfectLandingsLifetime,
+  // capLandingsLifetime, matchesLifetime, totalFlipsLifetime.
   function matches(achievement, c) {
     var id = achievement.id;
     if (achievement.category === 'existing') return matchExisting(id, c);
@@ -193,60 +207,73 @@
       return canonicalEventId(c.eventId || c.rareEvent) === id.slice(6) && c.eventResolved !== false;
     }
     switch (id) {
-      case 'classic-first-win': return format(c) === 'classic' && won(c);
-      case 'classic-ten-wins': return (c.totalClassicWins || 0) >= 10;
-      case 'classic-twenty-five-wins': return (c.totalClassicWins || 0) >= 25;
-      case 'classic-fifty-wins': return (c.totalClassicWins || 0) >= 50;
-      case 'classic-clean-sweep': return format(c) === 'classic' && won(c) && !!c.wonWithoutMiss;
-      case 'classic-comeback': return format(c) === 'classic' && won(c) && !!c.droppedToOneLife;
-      case 'classic-sudden-death': return format(c) === 'classic' && won(c) && !!c.sawSuddenDeath;
-      case 'classic-perfect-win': return format(c) === 'classic' && won(c) && !!c.perfectInMatch;
-      case 'classic-on-fire-win': return format(c) === 'classic' && won(c) && (c.ignitionsThisGame || 0) > 0;
-      case 'classic-eight-player-win': return format(c) === 'classic' && won(c) && c.playerCount === 8;
-      case 'cup-first-heat-win': return format(c) === 'cup' && !!c.heatWon;
-      case 'cup-first-series-win': return format(c) === 'cup' && won(c);
+      case 'classic-opening-make': return format(c) === 'classic' && made(c) && !!c.openingFlip;
+      case 'classic-edge-landing': return format(c) === 'classic' && made(c) && !!c.edgeLanding;
+      case 'classic-two-rotation-make': return format(c) === 'classic' && made(c) &&
+        !canonicalEventId(c.eventId || c.rareEvent) && Number(c.rotations) >= 2;
+      case 'classic-one-life-make': return format(c) === 'classic' && made(c) && Number(c.livesBefore) === 1;
+      case 'classic-sudden-death-cap': return format(c) === 'classic' && !!c.suddenDeathBefore && capMade(c);
+      case 'classic-stake-20-make': return format(c) === 'classic' && made(c) && Number(c.stakeBefore) >= 20;
+      case 'classic-perfect-pair': return format(c) === 'classic' && !!c.perfectPair;
+      case 'classic-three-caps': return format(c) === 'classic' && Number(c.capMakesThisMatch) >= 3;
+      case 'classic-on-fire-cap': return format(c) === 'classic' && !!c.reachedOnFireCap;
+      case 'classic-twenty-make-streak': return format(c) === 'classic' && Number(c.streak) >= 20;
+      case 'cup-first-win': return format(c) === 'cup' && won(c);
+      case 'cup-sweep-2-0': return format(c) === 'cup' && won(c) && Number(c.loserHeatWins) === 0;
+      case 'cup-reverse-sweep': return format(c) === 'cup' && won(c) && !!c.lostFirstHeat;
       case 'cup-short-win': return format(c) === 'cup' && won(c) && c.cupLength === 'short';
       case 'cup-full-win': return format(c) === 'cup' && won(c) && c.cupLength === 'full';
-      case 'cup-sweep': return format(c) === 'cup' && won(c) && (c.loserHeatWins || 0) === 0;
-      case 'cup-comeback': return format(c) === 'cup' && won(c) && !!c.lostFirstHeat;
-      case 'cup-sudden-death': return format(c) === 'cup' && won(c) && !!c.sawSuddenDeath;
-      case 'cup-perfect-series': return format(c) === 'cup' && won(c) && !!c.cupWonWithoutMiss;
+      case 'cup-eight-player': return format(c) === 'cup' && won(c) && Number(c.playerCount) === 8;
+      case 'cup-all-starters': return format(c) === 'cup' && !!c.allCupStarterPositionsCovered;
+      case 'cup-three-lifetime': return Number(c.lifetimeCupWins) >= 3;
       case 'team-first-win': return format(c) === 'team' && won(c);
-      case 'team-perfect-cancel': return format(c) === 'team' && !!c.perfectCancellation;
-      case 'team-shutout': return format(c) === 'team' && won(c) && c.winnerScore === 11 && c.loserScore === 0;
-      case 'team-comeback': return format(c) === 'team' && won(c) && (c.largestDeficit || 0) >= 5;
-      case 'team-2-player-win': return format(c) === 'team' && won(c) && c.playerCount === 2;
-      case 'team-4-player-win': return format(c) === 'team' && won(c) && c.playerCount === 4;
-      case 'team-6-player-win': return format(c) === 'team' && won(c) && c.playerCount === 6;
-      case 'team-8-player-win': return format(c) === 'team' && won(c) && c.playerCount === 8;
-      case 'collection-first-reward': return (c.qualifyingWins || 0) >= 1;
-      case 'collection-ten-objects': return (c.ownedObjectCount || 0) >= 10;
-      case 'collection-twenty-five-objects': return (c.ownedObjectCount || 0) >= 25;
-      case 'collection-all-objects': return (c.ownedObjectCount || 0) >= 51;
-      case 'collection-first-cosmetic': return (c.ownedCosmeticCount || 0) >= 1;
-      case 'collection-twenty-five-cosmetics': return (c.ownedCosmeticCount || 0) >= 25;
-      case 'collection-all-cosmetics': return (c.ownedCosmeticCount || 0) >= 50;
-      case 'collection-capstone': return !!c.capstoneOwned;
-      case 'stats-hundred-flips': return (c.totalFlipsLifetime || 0) >= 100;
-      case 'stats-five-hundred-makes': return (c.totalMakesLifetime || 0) >= 500;
-      case 'stats-ten-cap-lands': return (c.capLandsLifetime || 0) >= 10;
-      case 'stats-ten-great-saves': return (c.greatSavesLifetime || 0) >= 10;
-      case 'stats-all-events-observed': return (c.distinctEventsObserved || 0) >= 30;
-      case 'stats-exported': return !!c.statsExported;
+      case 'team-two-player-win': return format(c) === 'team' && won(c) && Number(c.playerCount) === 2;
+      case 'team-eight-player-win': return format(c) === 'team' && won(c) && Number(c.playerCount) === 8;
+      case 'team-five-point-cancellation': return format(c) === 'team' && Number(c.cancellationPoints) >= 5;
+      case 'team-five-point-comeback': return format(c) === 'team' && won(c) && Number(c.largestDeficit) >= 5;
+      case 'team-every-teammate-scored': return format(c) === 'team' && !!c.everyTeammateScored;
+      case 'team-match-point-cancellation': return format(c) === 'team' && !!c.matchPointCancellation;
+      case 'team-every-teammate-made-round': return format(c) === 'team' && !!c.everyTeammateMadeInRound;
+      case 'collection-use-5-objects': return Number(c.distinctObjectsUsed) >= 5;
+      case 'collection-use-15-objects': return Number(c.distinctObjectsUsed) >= 15;
+      case 'collection-use-30-objects': return Number(c.distinctObjectsUsed) >= 30;
+      case 'collection-use-all-objects': return Number(c.distinctObjectsUsed) >= 51;
+      case 'collection-equip-5-cosmetics': return Number(c.distinctCosmeticsEquipped) >= 5;
+      case 'collection-equip-25-cosmetics': return Number(c.distinctCosmeticsEquipped) >= 25;
+      case 'collection-equip-all-cosmetics': return Number(c.distinctCosmeticsEquipped) >= 50;
+      case 'collection-play-all-arenas': return Number(c.distinctArenasPlayed) >= 10;
+      case 'stats-advanced-lab': return !!c.advancedLabUsed;
+      case 'stats-improved-seed': return !!c.replayedSeedImproved;
+      case 'stats-hundred-perfect-landings': return Number(c.perfectLandingsLifetime) >= 100;
+      case 'stats-fifty-cap-landings': return Number(c.capLandingsLifetime) >= 50;
+      case 'stats-hundred-matches': return Number(c.matchesLifetime) >= 100;
+      case 'stats-five-thousand-flips': return Number(c.totalFlipsLifetime) >= 5000;
       default: return false;
     }
   }
 
-  function isEligibleContext(context) {
+  // `qualifying:true` is the trusted compatibility signal. Otherwise a caller
+  // must provide one of these explicit human-participation signals.
+  function hasHumanSignal(c) {
+    return c.humanParticipant === true || c.hasHumanPlayer === true || Number(c.humanPlayers) > 0 ||
+      c.winnerIsHuman === true || c.humanWinner === true || c.winningTeamHasHuman === true ||
+      (Array.isArray(c.players) && c.players.some(function (player) { return player && player.isAI === false; }));
+  }
+
+  function isEligibleContext(context, achievement) {
     var c = context && typeof context === 'object' ? context : {};
     var activity = String(c.mode || c.activity || '').toLowerCase();
-    if (c.qualifying === false || c.practice || c.isPractice || c.lab || c.physicsLab ||
-        c.forced || c.isForced || c.test || c.testData || c.testMode || c.simulated || c.aiOnly ||
-        activity === 'practice' || activity === 'lab' || activity === 'physics-lab') return false;
-    if (c.qualifying === true || c.humanParticipant === true || c.hasHumanPlayer === true ||
-        Number(c.humanPlayers) > 0 || c.statsExported === true || c.winnerIsHuman === true ||
-        c.humanWinner === true || c.winningTeamHasHuman === true) return true;
-    return Array.isArray(c.players) && c.players.some(function (player) { return player && player.isAI === false; });
+    if (c.practice || c.isPractice || c.forced || c.isForced || c.test || c.testData || c.testMode ||
+        c.simulated || c.aiOnly || activity === 'practice') return false;
+
+    var isLab = !!c.lab || !!c.physicsLab || activity === 'lab' || activity === 'physics-lab';
+    if (isLab) {
+      var labId = achievement && achievement.id;
+      var explicitLabAchievement = labId === 'stats-advanced-lab' || labId === 'stats-improved-seed';
+      return explicitLabAchievement && c.qualifyingLabAction === true && hasHumanSignal(c);
+    }
+    if (c.qualifying === false) return false;
+    return c.qualifying === true || hasHumanSignal(c);
   }
 
   function parse(raw, fallback) {
@@ -291,11 +318,11 @@
       return map;
     }
     function check(context) {
-      if (!isEligibleContext(context)) return [];
+      var c = context && typeof context === 'object' ? context : {};
       var map = earnedMap();
       var fresh = [];
       CATALOG.forEach(function (achievement) {
-        if (map.has(achievement.id) || !matches(achievement, context || {})) return;
+        if (map.has(achievement.id) || !isEligibleContext(c, achievement) || !matches(achievement, c)) return;
         var earnedAt = now();
         state.earned.push({ id: achievement.id, earnedAt: earnedAt });
         var result = { id: achievement.id, category: achievement.category, emoji: achievement.emoji,
