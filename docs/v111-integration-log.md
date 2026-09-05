@@ -541,3 +541,24 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owner notified: Physics/Events paused its combined corrective work
   and received the exact corpus evidence before commit.
+
+## Revision 29 - physical assistance cannot normalize arbitrary input
+
+- Trigger: the same continuing 3,000-input QA corpus found Power Launch,
+  Trampoline, and Heart Rush also produced 3,000 upright makes each, including
+  downward, severely underrotated input.
+- Old behavior: event launch/spin/alignment tuning drove all three toward a
+  canonical upright pose regardless of player input; seed 5 (`vx=9594`,
+  `vy=+647`) became a make in each while ordinary play missed underrotated.
+- New behavior: Power's impulse, Trampoline's dramatic return relaunch, and
+  Heart's three stabilizing impulses remain extreme and visible but preserve
+  skill-dependent failure. Heart rewards only a valid landing and Trampoline
+  waits for the return landing.
+- Migration action: remove outcome-normalizing assistance from these profiles
+  while preserving their distinct physical signatures and settle lifecycles.
+- Required tests: seed 5 remains a miss for documented invalid input; each
+  broad deterministic corpus includes makes and misses; valid intended-input
+  seeds remain playable and event-specific visual/physics metadata persists.
+- Integration commit: pending.
+- Affected owner notified: Physics/Events paused again and is holding its
+  isolated commit until QA completes the full non-Plinko corpus.

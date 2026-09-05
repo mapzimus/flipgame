@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 28
+Contract revision: 29
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -143,6 +143,11 @@ cap-toss:5500, life-drain:6000`.
   gust forces and accepts stable base or cap landings, but it never aligns or
   stabilizes every trajectory into a make; deterministic input coverage must
   contain both makes and misses.
+- Power Launch, Trampoline, and Heart Rush are likewise skill-dependent. Their
+  impulses, relaunches, and heartbeat stabilization may strongly reshape a
+  trajectory, but may not normalize arbitrary spin/launch input into a make.
+  Heart's reward remains conditional on a valid landing and Trampoline is not
+  scored until its return landing resolves.
 
 ## Progression and content contracts
 
