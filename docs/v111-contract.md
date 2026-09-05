@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 4
+Contract revision: 5
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -55,6 +55,9 @@ affected specialist continues.
   result; Mirror copies the action; Plinko double pays 2, halve ceilings the
   opponent match score, magnet persists personally, and win/loss resolves the
   match. Other valid event makes pay 1. Life Drain is excluded.
+- Mirror copies only normalized launch/spin/seed/physics-profile input. A copied
+  flip cannot carry, repeat, or nest the source event or any reward/side effect.
+  Team scores the copied outcome as base 1 for a valid make and 0 for a miss.
 - Basic Practice is immediately available. Alien, Insane Mode, and advanced
   Physics Lab unlock together internally at qualifying win 100.
 - Alien success requires at least one bank followed by tractor-ring entry.

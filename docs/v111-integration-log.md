@@ -78,3 +78,12 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Physics metadata required by Rules/UI: canonical event ID, cap flag, Plinko
   prize, Mitosis landed count, Roulette multiplier/slot, automatic outcome.
 - Affected owners notified: Physics/Events and Rules/Modes.
+
+## Revision 5 - Mirror copy isolation
+
+- Trigger: Rules/Modes found ambiguity over whether Team Mirror should copy an
+  event-adjusted score or side effect.
+- Decision: Mirror copies physical input/profile only; copied flips have events
+  disabled and score base 1/0 in Team. Rewards and side effects never nest.
+- Affected owner notified: Rules/Modes. UI/Renderer must pass copied launch
+  metadata while suppressing event selection.
