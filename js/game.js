@@ -46,6 +46,7 @@ const game = {
   endedFireBonus: 0,     // peak ON FIRE bonus from the run that just ended (stats/achievements)
 
   // Modes
+  format: 'classic',       // 'classic' | 'cup' | 'team-clash'
   practice: false,       // solo free-flip practice (no lives/turns)
   difficulty: 'medium',  // AI skill: 'easy' | 'medium' | 'hard'
   feel: 'standard',      // physics spin-curve knob: forgiving | standard | pro
@@ -57,21 +58,26 @@ const game = {
   turnCounter: 0,        // flips this game (drives sudden death)
   startingLives: 10,
   maxLives: 15,
+  suddenDeathFlipThreshold: SD_THRESHOLD,
   perfectLanding: false,
   capLand: false,          // last make was a rare upside-down / on-cap land (worth 2)
   rareLifeGain: 0,         // +3 Heart Rush reward on the last successful rare flip
   doubleFlipReward: false, // last make doubled flipper lives and halved opponents
   lifeDrainTriggered: false, // last make set every opponent to one life
   lifeDrainActive: false,  // persistent sickly-green match state after Life Drain
+  eventReward: null,       // normalized reward metadata for the last resolved flip
 
   // defs: [{ name, color, isAI }]
   init(defs, direction, opts = {}) {
+    this.format = ['classic', 'cup', 'team-clash'].includes(opts.format) ? opts.format : 'classic';
     this.practice   = !!opts.practice;
     this.difficulty = opts.difficulty || 'medium';
     this.feel = ['forgiving', 'standard', 'pro'].includes(opts.feel) ? opts.feel : 'standard';
     this.insanity = !!opts.insanity;
     this.startingLives = STARTING_LIFE_PRESETS.includes(+opts.startingLives) ? +opts.startingLives : 10;
     this.maxLives = Math.ceil(this.startingLives * MAX_LIFE_MULTIPLIER);
+    this.suddenDeathFlipThreshold = Number.isInteger(opts.suddenDeathFlipThreshold) &&
+      opts.suddenDeathFlipThreshold >= 0 ? opts.suddenDeathFlipThreshold : SD_THRESHOLD;
     this.players = defs.map(d => ({
       name: d.name,
       color: d.color || '#0b86ff',
@@ -101,6 +107,7 @@ const game = {
     this.doubleFlipReward = false;
     this.lifeDrainTriggered = false;
     this.lifeDrainActive = false;
+    this.eventReward = null;
 
     // Winner-starts-next: caller passes the winner's INDEX (not name, which is
     // ambiguous when two players share a name). Ignored in practice.
@@ -153,10 +160,58 @@ const game = {
     player.lives *= 2;
     for (const opponent of this.players) {
       if (opponent === player || opponent.eliminated) continue;
-      opponent.lives = Math.floor(opponent.lives / 2);
-      if (opponent.lives <= 0) this.eliminatePlayer(opponent);
+      opponent.lives = Math.max(1, Math.ceil(opponent.lives / 2));
     }
     this.doubleFlipReward = true;
+  },
+
+  multiplyLives(player, multiplier) {
+    const factor = Number(multiplier);
+    if (!Number.isFinite(factor) || factor < 0) return 0;
+    const before = player.lives;
+    // Explicit multipliers intentionally bypass the additive 150% ceiling.
+    player.lives = Math.max(0, Math.ceil(before * factor));
+    if (player.lives === 0) this.eliminatePlayer(player);
+    return player.lives - before;
+  },
+
+  applyEventReward(player, meta = {}) {
+    const eventId = meta.eventId || meta.rareEvent || null;
+    const detail = meta.eventReward && typeof meta.eventReward === 'object'
+      ? meta.eventReward : meta;
+    const reward = { eventId, additive: 0, multiplier: null, opponentsHalved: false };
+
+    if (eventId === 'rainbow-corkscrew' || eventId === 'rainbow-trail') {
+      reward.additive = this.addLivesCapped(player, 1);
+    } else if (eventId === 'heart-rush') {
+      reward.additive = this.addLivesCapped(player, 3);
+      this.rareLifeGain = reward.additive;
+    } else if (eventId === 'shrink-ray') {
+      reward.additive = this.addLivesCapped(player, meta.onCap ? 3 : 2);
+    } else if (eventId === 'mitosis') {
+      const landedCount = Number(detail.landedCount != null ? detail.landedCount : detail.landings);
+      reward.additive = this.addLivesCapped(player, landedCount >= 2 ? 3 : 1);
+    } else if (eventId === 'cap-toss') {
+      reward.additive = this.addLivesCapped(player, 5);
+    } else if (eventId === 'roulette-table') {
+      const slots = [1, 2, 3, 4, 4, 3, 2, 1];
+      const slotIndex = Number(detail.slotIndex);
+      const requested = Number(detail.multiplier);
+      const multiplier = Number.isInteger(slotIndex) && slotIndex >= 0 && slotIndex < slots.length
+        ? slots[slotIndex]
+        : (Number.isInteger(requested) && requested >= 1 && requested <= 4 ? requested : 1);
+      this.multiplyLives(player, multiplier);
+      reward.multiplier = multiplier;
+    } else if (eventId === 'double-flip') {
+      this.applyDoubleFlipReward(player);
+      reward.multiplier = 2;
+      reward.opponentsHalved = true;
+    } else if (eventId === 'life-drain') {
+      this.applyLifeDrain(player);
+    }
+
+    this.eventReward = Object.freeze(reward);
+    return this.eventReward;
   },
 
   applyLifeDrain(player) {
@@ -169,6 +224,7 @@ const game = {
   },
 
   eliminatePlayer(player) {
+    player.lives = 0;
     player.eliminated = true;
     player.isOnFire = false;
     player.isHeatingUp = false;
@@ -182,12 +238,18 @@ const game = {
   // ── Sudden death ────────────────────────────────────────────────────────
   // resolveFlip increments turnCounter before reading SD, so UI helpers that
   // predict "this upcoming flip" must use turnCounter+1 to stay in sync.
-  inSuddenDeath() { return !this.practice && this.turnCounter > SD_THRESHOLD; },
-  sdLevel()       { return this.inSuddenDeath() ? Math.floor((this.turnCounter - SD_THRESHOLD) / SD_STEP) + 1 : 0; },
+  inSuddenDeath() { return !this.practice && this.turnCounter > this.suddenDeathFlipThreshold; },
+  sdLevel() {
+    return this.inSuddenDeath()
+      ? Math.floor((this.turnCounter - this.suddenDeathFlipThreshold - 1) / SD_STEP) + 1
+      : 0;
+  },
   sdLevelForNextFlip() {
     if (this.practice) return 0;
     const next = this.turnCounter + 1;
-    return next > SD_THRESHOLD ? Math.floor((next - SD_THRESHOLD) / SD_STEP) + 1 : 0;
+    return next > this.suddenDeathFlipThreshold
+      ? Math.floor((next - this.suddenDeathFlipThreshold - 1) / SD_STEP) + 1
+      : 0;
   },
 
   // Would the current player be ELIMINATED if they miss this flip? Drives the
@@ -207,9 +269,11 @@ const game = {
   //   'win'     center slot → every opponent is out; flipper wins the game
   //   'lose'    center-adjacent slots → flipper is eliminated
   //   'magnet'  inner slots → permanent magnet assistance for this match
-  //   'halve'   mid slots → every opponent's lives are halved (round down)
+  //   'halve'   mid slots → every opponent's lives are halved (ceil, minimum 1)
   //   'double'  outer slots → flipper's lives are doubled
   resolvePlinko(prize) {
+    const prizes = ['double', 'halve', 'magnet', 'lose', 'win'];
+    if (!prizes.includes(prize)) throw new RangeError('Unknown Plinko prize: ' + prize);
     const automaticLoss = prize === 'lose';
     this.lastResult = automaticLoss ? 'MISS' : 'MAKE';
     const player = this.currentPlayer();
@@ -218,6 +282,7 @@ const game = {
     this.capLand        = false;
     this.goldenFlip     = false;
     this.plinkoPrize    = prize;
+    this.eventReward    = Object.freeze({ eventId: 'plinko', prize });
 
     if (this.practice) {
       this.practiceAttempts++;
@@ -242,8 +307,7 @@ const game = {
     } else if (prize === 'halve') {
       for (const p of this.players) {
         if (p === player || p.eliminated) continue;
-        p.lives = Math.floor(p.lives / 2);
-        if (p.lives <= 0) this.eliminatePlayer(p);
+        p.lives = Math.max(1, Math.ceil(p.lives / 2));
       }
     } else if (prize === 'double') {
       player.lives *= 2;
@@ -258,6 +322,10 @@ const game = {
 
   // Called by physics when bottle result is determined
   resolveFlip(result, meta = {}) {
+    if (meta.plinko) return this.resolvePlinko(meta.plinko);
+    if (result !== 'MAKE' && result !== 'MISS') {
+      throw new RangeError('Flip result must be MAKE or MISS');
+    }
     this.lastResult = result;
     const player = this.currentPlayer();
     const wasOnFire = player.isOnFire;   // capture BEFORE we mutate any flags
@@ -268,6 +336,7 @@ const game = {
     this.capLand        = result === 'MAKE' && !!meta.onCap;
     this.goldenFlip     = result === 'MAKE' && !!meta.golden;
     this.plinkoPrize    = null;
+    this.eventReward    = null;
     // Cap / upside-down makes — and the rare golden flip — are worth 2
     // (stake steps, or ON FIRE lives).
     const worth = (this.capLand || this.goldenFlip) ? 2 : 1;
@@ -292,27 +361,24 @@ const game = {
     // ── ON FIRE bonus flips: each make = +1 life; a miss just ends the run ──
     if (wasOnFire) {
       if (result === 'MAKE') {
+        player.streak++;
         // +1 life per flip while ON FIRE — bounded by the match life cap. This
         // reward remains active in sudden death. Multiplier prizes may already
         // have put a player above the additive cap; never clamp those lives down.
         // Cap lands are worth 2 lives (same rarity bonus as the stake).
         this.onFireGain = this.addLivesCapped(player, worth);
         if (this.onFireGain > 0) this.onFireBonus += Math.min(worth, this.onFireGain);
-        if (meta.rareEvent === 'heart-rush') {
-          this.rareLifeGain = this.addLivesCapped(player, 3);
-        }
-        if (meta.rareEvent === 'double-flip') this.applyDoubleFlipReward(player);
-        if (meta.rareEvent === 'life-drain') this.applyLifeDrain(player);
-        // Reaching the fixed match ceiling ends the run gracefully: gains stay,
-        // there is no miss penalty, and the turn passes regardless of lobby size.
+        this.applyEventReward(player, meta);
+        // Reaching the fixed additive ceiling ends the bonus run gracefully.
+        // The live streak counter advances above three until that boundary.
         if (player.lives >= this.maxLives) {
-          player.isOnFire    = false;
+          player.isOnFire = false;
           player.isHeatingUp = false;
-          player.streak      = 0;
-          this.onFirePlayer  = null;
-          this.endedFireBonus = this.onFireBonus; // preserve for Inferno / hot-run stats
-          this.onFireBonus   = 0;
-          this.fireCapped    = true;
+          player.streak = 0;
+          this.onFirePlayer = null;
+          this.endedFireBonus = this.onFireBonus;
+          this.onFireBonus = 0;
+          this.fireCapped = true;
         }
       } else {
         // Miss ends ON FIRE with NO life loss. Sudden death still penalizes
@@ -337,11 +403,7 @@ const game = {
     if (result === 'MAKE') {
       player.streak++;
       this.pointCount += worth;   // upright +1; rare cap/upside-down +2
-      if (meta.rareEvent === 'heart-rush') {
-        this.rareLifeGain = this.addLivesCapped(player, 3);
-      }
-      if (meta.rareEvent === 'double-flip') this.applyDoubleFlipReward(player);
-      if (meta.rareEvent === 'life-drain') this.applyLifeDrain(player);
+      this.applyEventReward(player, meta);
       player.isHeatingUp = player.streak === 2;
       if (player.streak >= 3) {
         player.isOnFire    = true;
@@ -419,3 +481,14 @@ const game = {
     this.setState(GAME_STATES.TURN_START);
   },
 };
+
+if (typeof module === 'object' && module.exports) {
+  module.exports = {
+    GAME_STATES,
+    SD_THRESHOLD,
+    SD_STEP,
+    MAX_LIFE_MULTIPLIER,
+    STARTING_LIFE_PRESETS,
+    game,
+  };
+}
