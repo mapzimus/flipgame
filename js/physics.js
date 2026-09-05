@@ -297,7 +297,16 @@ const Physics = (() => {
   }
 
   function currentHitHalfWidth() {
-    const scale = Math.max(0.2, Math.min(1, profile.hitScale == null ? 1 : profile.hitScale));
+    let configuredScale = profile.hitScale == null ? 1 : profile.hitScale;
+    if (profile.alienPortal) {
+      const metrics = alienMetricsForViewport(viewW || canvasW, viewH || arenaH);
+      // Keep the effective tractor-ring target proportional to the playable
+      // court. The fixed legacy 0.86 inset made the same ring generous on the
+      // expanded phone court but pixel-tight at tablet/desktop scale.
+      configuredScale *= metrics.scale < 0.85 ? 0.85
+        : (metrics.scale < 1.4 ? 1.15 : 1);
+    }
+    const scale = Math.max(0.2, Math.min(1, configuredScale));
     return Math.max(8, targetHW * scale);
   }
   let launched = false;    // a flick has been taken this turn
@@ -1334,17 +1343,15 @@ const Physics = (() => {
       return null;
     }
 
-    if (!grounded) {
-      groundedFrames = 0;
-      angleWin = [];
-      return null;
-    }
-
-    groundedFrames++;
-
     const settleLimit = activeEventMetadata && activeEventMetadata.physics
       ? activeEventMetadata.physics.settleLimitMs
       : 4000;
+    // The settlement allowance begins at the first scoring-plane contact, not
+    // at the start of the final uninterrupted grounded stretch. Ice, Bouncy,
+    // and other contact effects can legitimately lift the object back off the
+    // plane; that physical continuation must not turn the documented limit
+    // into an unbounded per-bounce timer. Events that own a true second shot
+    // (Trampoline and Rewind) explicitly clear firstContactMs when they relaunch.
     if (firstContactMs != null && simElapsedMs - firstContactMs >= settleLimit) {
       if (profile.requireFlip && !hasFlipped) return recordLanding('MISS', null, 'underrotated');
       const limitTilt = landingTiltForBody();
@@ -1353,6 +1360,14 @@ const Physics = (() => {
       if (limitInvErr < CAP_WINDOW) return recordLanding('MAKE', limitTilt, 'cap');
       return recordLanding('MISS', limitTilt, 'settle-limit');
     }
+
+    if (!grounded) {
+      groundedFrames = 0;
+      angleWin = [];
+      return null;
+    }
+
+    groundedFrames++;
 
     {
       const t = landingTiltForBody();
@@ -2211,7 +2226,8 @@ const Physics = (() => {
     const jDrift  = (rand() - 0.5) * 1.1;        // mild sideways chaos
 
     // Slightly lower arcs than the "harder/higher/wilder" feel (was 16 + power*5).
-    let launchY = -(15.2 + power * 4.7) * jLaunch * profile.launchScale;
+    const baseLaunchY = -(15.2 + power * 4.7) * jLaunch;
+    let launchY = baseLaunchY * profile.launchScale;
     let launchX = Math.max(-profile.horizMax,
       Math.min(profile.horizMax, vx / profile.horizDivisor)) + jDrift;
 
@@ -2223,7 +2239,13 @@ const Physics = (() => {
       // phone through a 4K board while still requiring deliberate lateral aim.
       const lateralAim = Math.max(-1, Math.min(1, vx / 700));
       launchX = lateralAim * (34 + power * 8) * alienMetrics.launchScale;
-      launchY = -Math.max(7, Math.abs(launchY) * 0.52) * alienMetrics.launchScale;
+      // Alien's gesture-to-arena normalization owns the viewport scale. Native
+      // Alien's legacy profile also carries launchScale=1.5; applying both made
+      // native shots 50% hotter than the identically scored Alien Invasion and
+      // produced strong tablet/desktop outcome drift.
+      const nativeLaunchCalibration = temporaryAlien ? 1 : 1.25;
+      launchY = -Math.max(7, Math.abs(baseLaunchY) * 0.52 * nativeLaunchCalibration) *
+        alienMetrics.launchScale;
     }
 
     // A tethered throw starts tangentially from the cable's low point. The
@@ -2253,6 +2275,8 @@ const Physics = (() => {
     // 1/100 — POWER LAUNCH: a visibly taller, faster, harder-spinning throw.
     if (rareEvent === 'power-launch') {
       launchY *= 1.72;
+      // Still reads as a stronger spin, but avoids the old tuning where every
+      // possible gesture was normalized onto an upright final rotation.
       spin *= 1.34;
     }
     // Rainbow is now a physical corkscrew as well as a visible trail.
@@ -2351,7 +2375,13 @@ const Physics = (() => {
       const dx = targetX - bottle.position.x;
       const dy = targetY - bottle.position.y;
       const dist = Math.max(1, Math.hypot(dx, dy));
-      const pull = alienMetricsForViewport(viewW || canvasW, viewH || arenaH).attractionPerStep;
+      const metrics = alienMetricsForViewport(viewW || canvasW, viewH || arenaH);
+      let nativePullCalibration = 1;
+      if (profile.alienPortal && !temporaryAlien) {
+        if (metrics.scale < 0.85) nativePullCalibration = 0.85;
+        else if (metrics.scale >= 2) nativePullCalibration = 1.10;
+      }
+      const pull = metrics.attractionPerStep * nativePullCalibration;
       Body.setVelocity(bottle, {
         x: bottle.velocity.x + dx / dist * pull,
         y: bottle.velocity.y + dy / dist * pull,
@@ -2394,6 +2424,24 @@ const Physics = (() => {
       }
     }
 
+    // POWER LAUNCH starts with a visibly hotter spin, then its launch shock
+    // normalizes angular momentum while leaving the 1.72x vertical impulse
+    // intact. The old sustained spin multiplier mapped every possible gesture
+    // to the same upright final rotation.
+    if (rareEvent === 'power-launch' && launched && wasAirborne && !rareImpulseUsed &&
+        flightFrames >= 1) {
+      rareImpulseUsed = true;
+      const gesturePower = Math.max(0, Math.min(1,
+        lastFlickInfo && Number(lastFlickInfo.power) || 0));
+      const skilledSpinMultiplier = 1 + 0.34 * Math.min(1, gesturePower / 0.65);
+      Body.setAngularVelocity(bottle,
+        bottle.angularVelocity * skilledSpinMultiplier / 1.34);
+      if (eventRuntime) {
+        eventRuntime.flags.powerShockReleased = true;
+        eventRuntime.powerShockSpin = bottle.angularVelocity;
+      }
+    }
+
     // 1/500 — TRAMPOLINE TABLE: the first touchdown springs the object into a
     // second arc. It still has to complete a valid flip and settle normally.
     if (rareEvent === 'trampoline' && launched && wasAirborne && !rareImpulseUsed &&
@@ -2406,8 +2454,12 @@ const Physics = (() => {
         y: -Math.max(32, Math.abs(bottle.velocity.y) * 1.75),
       });
       Body.setPosition(bottle, { x: bottle.position.x, y: bottle.position.y - 18 });
-      const spinDir = bottle.angularVelocity < 0 ? -1 : 1;
-      Body.setAngularVelocity(bottle, bottle.angularVelocity + spinDir * 0.15);
+      // Preserve the player's spin through the spring instead of injecting the
+      // extra rotation that made even rejected inputs settle upright.
+      const springPower = Math.max(0, Math.min(1,
+        lastFlickInfo && Number(lastFlickInfo.power) || 0));
+      const retainedSpringSpin = 0.80 + 0.20 * Math.min(1, springPower / 0.55);
+      Body.setAngularVelocity(bottle, bottle.angularVelocity * retainedSpringSpin);
       groundedFrames = 0;
       angleWin = [];
       // The launch is a new airborne phase. The first trampoline compression
@@ -2468,13 +2520,10 @@ const Physics = (() => {
           x: bottle.velocity.x + direction * (2.8 - count * 0.6),
           y: Math.min(bottle.velocity.y, -lift),
         });
+        // The heartbeat steadies existing angular momentum; it must not create
+        // the missing rotation for an under-powered throw.
         const dampedSpin = bottle.angularVelocity * (0.94 - count * 0.06);
-        if (!hasFlipped) {
-          const spinDirection = bottle.angularVelocity < 0 ? -1 : 1;
-          Body.setAngularVelocity(bottle, spinDirection * Math.max(Math.abs(dampedSpin), 0.082));
-        } else {
-          Body.setAngularVelocity(bottle, dampedSpin);
-        }
+        Body.setAngularVelocity(bottle, dampedSpin);
         eventRuntime.heartbeatCount = count + 1;
         eventRuntime.lastHeartbeatMs = eventRuntime.elapsedMs;
         if (eventRuntime.heartbeatCount === 3) eventRuntime.flags.threePulsesComplete = true;
@@ -2495,17 +2544,28 @@ const Physics = (() => {
 
     // 1/800 — MAGNET LANDING, plus Life Drain's hidden stronger magnet. Once
     // the required rotation is complete, an upright torque guides the descent.
-    const landingAssist = {
+    let landingAssist = {
       'rainbow-corkscrew': 0.060,
       'rainbow-trail': 0.060,
-      'power-launch': 0.040,
       'moon-gravity': 0.070,
       'gravity-slam': 0.075,
-      trampoline: 0.040,
-      'wind-tunnel': 0.050,
       'double-flip': 0.050,
-      'heart-rush': 0.055,
     }[rareEvent] || 0;
+    // Power Launch is controlled rather than self-landing: only a genuinely
+    // strong player gesture earns its modest stabilizing torque. Weak and
+    // downward inputs retain the spectacle but remain ordinary misses.
+    if (rareEvent === 'power-launch' && lastFlickInfo && lastFlickInfo.power >= 0.55) {
+      landingAssist = 0.040;
+    }
+    if (rareEvent === 'trampoline' && lastFlickInfo && lastFlickInfo.power >= 0.55) {
+      landingAssist = 0.040;
+    }
+    if (rareEvent === 'heart-rush' && lastFlickInfo && lastFlickInfo.power >= 0.55) {
+      landingAssist = 0.055;
+    }
+    if (rareEvent === 'wind-tunnel' && lastFlickInfo && lastFlickInfo.power >= 0.55) {
+      landingAssist = 0.050;
+    }
     const magnetStrength = rareEvent === 'life-drain' ? 0.125
       : (rareEvent === 'magnet' ? 0.085
       : (rareEvent === 'ice-slide' && rareImpulseUsed ? 0.078
@@ -2554,10 +2614,6 @@ const Physics = (() => {
       // Seed-rolled cap throws (over-spun to arrive inverted) stick whenever
       // they get anywhere close.
       if (capThrowArmed && invErr < 1.35) capSticky = true;
-      // Wind can genuinely sweep a completed throw onto its cap. Give that
-      // visible cap-first arrival the same settling help as an ordinary cap
-      // throw so it cannot tip over and be reported as a false MISS.
-      else if (rareEvent === 'wind-tunnel' && invErr < CAP_ZONE) capSticky = true;
       else if (invErr < CAP_ZONE && rand() < CAP_STICK_CHANCE) capSticky = true;
       const kickScale = (capSticky || invErr < CAP_WINDOW) ? 0.25 : 1;
       const kick = (liquid.vel * 0.028 + (rand() - 0.5) * 0.06) * kickScale;
