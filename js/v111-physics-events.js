@@ -392,13 +392,20 @@
       mode: request.mode || 'normal',
       oddsProfile: request.oddsProfile || 'normal',
       seed: Number(request.seed) >>> 0,
+      excludedEventIds: Array.isArray(request.excludedEventIds)
+        ? request.excludedEventIds.map(function (id) { return String(id); })
+        : [],
     };
   }
   function roll(request) {
     var normalized = normalizeRequest(request);
+    var excluded = new Set(normalized.excludedEventIds);
+    var definitions = excluded.size
+      ? DEFINITIONS.filter(function (definition) { return !excluded.has(definition.id); })
+      : DEFINITIONS;
     return normalizeMode(normalized.mode) === 'insane'
-      ? rollInsane(normalized, DEFINITIONS)
-      : rollNormal(normalized, DEFINITIONS);
+      ? rollInsane(normalized, definitions)
+      : rollNormal(normalized, definitions);
   }
   function rollId(request) {
     var definition = roll(request);

@@ -328,6 +328,39 @@ function testDeterminismAndRngIsolation() {
     'event trajectory replay was not deterministic');
 }
 
+function testModeEventExclusions() {
+  let lifeDrainSeed = null;
+  for (let seed = 0; seed < 500000 && lifeDrainSeed === null; seed += 1) {
+    if (Events.rollId({ mode: 'normal', oddsProfile: 'normal', seed }) === 'life-drain') {
+      lifeDrainSeed = seed;
+    }
+  }
+  assert.notStrictEqual(lifeDrainSeed, null, 'test must find a deterministic Life Drain seed');
+  assert.notEqual(Events.rollId({
+    mode: 'normal', oddsProfile: 'normal', seed: lifeDrainSeed,
+    excludedEventIds: ['life-drain'],
+  }), 'life-drain', 'an excluded event must never be selected');
+  assert.equal(Events.rollId({
+    mode: 'normal', oddsProfile: 'normal', seed: lifeDrainSeed,
+    excludedEventIds: Events.list().map((definition) => definition.id),
+  }), null, 'excluding every event must produce no event');
+
+  const excludedForced = loadPhysics();
+  excludedForced.init(1280, 800);
+  excludedForced.forceSpecialEvent('life-drain');
+  excludedForced.applyFlick(0, -2500, 17, 1, 'normal', false, {
+    excludedEventIds: ['life-drain'],
+  });
+  assert.notEqual(excludedForced.getLastFlickInfo().rareEvent, 'life-drain');
+
+  const disabledForced = loadPhysics();
+  disabledForced.init(1280, 800);
+  disabledForced.forceSpecialEvent('plinko');
+  disabledForced.applyFlick(0, -2500, 18, 1, 'disabled');
+  assert.equal(disabledForced.getLastFlickInfo().rareEvent, null,
+    'events-disabled Cup shootouts must suppress forced events too');
+}
+
 function testNoTimeoutFuzzAndCleanup() {
   for (const id of Interfaces.EVENT_IDS) {
     for (let seed = 1; seed <= 3; seed++) {
@@ -355,5 +388,6 @@ testResizeDeferral();
 testAlienViewportMatrix();
 testRulesMetadata();
 testDeterminismAndRngIsolation();
+testModeEventExclusions();
 testNoTimeoutFuzzAndCleanup();
 console.log('v111 physics/event tests passed.');

@@ -87,3 +87,33 @@ interface or behavior changes to the Program Integrator before proceeding.
   disabled and score base 1/0 in Team. Rewards and side effects never nest.
 - Affected owner notified: Rules/Modes. UI/Renderer must pass copied launch
   metadata while suppressing event selection.
+
+## Revision 6 - deterministic mode event exclusions
+
+- Trigger: UI integration found that Rules/Modes exposed Team Life Drain
+  exclusion and Cup shootout event suppression without a physics roll input.
+- Old interface: event selection accepted only mode, odds profile, and seed.
+- New interface: `EventRegistry.roll` and the final optional policy argument of
+  `Physics.applyFlick` accept `excludedEventIds`. Definitions are filtered
+  before the single deterministic roll; there is no reroll. Disabled modes
+  suppress forced events too.
+- Migration: UI passes the mode adapter's exclusions in the final policy
+  argument and uses event mode `disabled` for Cup shootouts.
+- Tests: direct registry exclusions, all-events exclusion, forced Life Drain
+  exclusion, and forced Plinko suppression in disabled mode.
+- Affected owners notified: Physics/Events, Rules/Modes, UI/Renderer.
+
+## Revision 7 - reconnect state convergence
+
+- Trigger: Network/Platform found that protocol reconnection alone cannot
+  recover lives and turn order after missed accepted flips.
+- Old behavior: a reconnect could resume after transport identity validation
+  without an authoritative gameplay snapshot.
+- New behavior: UI binds JSON-safe capture/restore callbacks with
+  `Net.bindMatchState({ capture, restore })`. The host sends a targeted opaque
+  snapshot, the peer restores it before `resumed`, and play remains blocked
+  with `resume-state-missing` when authoritative state is unavailable.
+- Snapshot scope: roster/lives/elimination/order, current state/seat/turn,
+  stake, ON FIRE, sudden death, selected settings, and active mode state. DOM,
+  canvas, and physics bodies are excluded.
+- Affected owners notified: Network/Platform and UI/Renderer.

@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 5
+Contract revision: 7
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -141,13 +141,20 @@ cap-toss:5500, life-drain:6000`.
 
 ## Shared interfaces
 
-- `EventDefinition` and `EventRegistry.roll({ mode, oddsProfile, seed })`
+- `EventDefinition` and
+  `EventRegistry.roll({ mode, oddsProfile, seed, excludedEventIds? })`.
+  Exclusions are applied before the deterministic selection; they never cause
+  a second roll. `Physics.applyFlick` accepts the same exclusions as its final
+  optional event-policy argument. An events-disabled mode also suppresses a
+  pending forced event.
 - `EventController.prepare/applyPhysics/onContact/resolve/cleanup`
 - `LandingVerdict`
 - `ProgressionStateV3`
 - `StatsStore`, `FlipRecordV1`, and `MatchRecordV1`
 - `NamePolicy.validate()`
-- `NetworkEnvelopeV2`
+- `NetworkEnvelopeV2`; reconnect convergence uses the opaque, JSON-safe match
+  snapshot registered by `Net.bindMatchState({ capture, restore })`. A peer is
+  blocked rather than resumed when authoritative state is unavailable.
 - `RenderVariant` is immutable
   `{ id, objectId, variantId, label, color, metrics, renderLocal }`; metrics use
   the canonical viewBox, pivot, baseline, and collision mapping above.

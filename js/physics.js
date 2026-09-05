@@ -179,7 +179,7 @@ const Physics = (() => {
     const boost = Number.isFinite(multiplier) ? Math.max(1, multiplier) : 1;
     return Math.max(1, Math.floor(odds / boost));
   }
-  function rareEventForSeed(seed, plinkoRoll = false, multiplier = 1) {
+  function rareEventForSeed(seed, plinkoRoll = false, multiplier = 1, excludedEventIds = []) {
     if (plinkoRoll) return null;
     const events = eventSystem();
     if (events) {
@@ -187,9 +187,12 @@ const Physics = (() => {
         mode: 'normal',
         oddsProfile: Number(multiplier) === 10 ? 'mr-howe' : 'normal',
         seed,
+        excludedEventIds,
       });
     }
+    const excluded = new Set(excludedEventIds);
     for (const event of LEGACY_RARE_EVENT_ROLLS) {
+      if (excluded.has(event.id)) continue;
       if (mixSeed(seed, event.salt) % adjustedOdds(event.odds, multiplier) === 0) return event.id;
     }
     return null;
@@ -204,13 +207,20 @@ const Physics = (() => {
     .map((event) => event.id);
   const INSANITY_EVENT_SALT = 0x6c8e9cf5;
   const INSANITY_PICK_SALT = 0x3d20adea;
-  function insanityEventForSeed(seed) {
+  function insanityEventForSeed(seed, excludedEventIds = []) {
     const events = eventSystem();
-    if (events) return events.rollId({ mode: 'insane', oddsProfile: 'normal', seed });
+    if (events) return events.rollId({
+      mode: 'insane', oddsProfile: 'normal', seed, excludedEventIds,
+    });
     if (mixSeed(seed, INSANITY_EVENT_SALT) % 3 !== 0) return null;
-    const pick = mixSeed(seed, INSANITY_PICK_SALT) % (INSANITY_EVENTS.length * 4 + 5);
-    if (pick < 5) return 'plinko';
-    return INSANITY_EVENTS[Math.floor((pick - 5) / 4)];
+    const excluded = new Set(excludedEventIds);
+    const eligibleEvents = INSANITY_EVENTS.filter((id) => !excluded.has(id));
+    const includePlinko = !excluded.has('plinko');
+    const units = eligibleEvents.length * 4 + (includePlinko ? 5 : 0);
+    if (units === 0) return null;
+    const pick = mixSeed(seed, INSANITY_PICK_SALT) % units;
+    if (includePlinko && pick < 5) return 'plinko';
+    return eligibleEvents[Math.floor((pick - (includePlinko ? 5 : 0)) / 4)];
   }
 
   // ── Per-edition physics profiles ───────────────────────────────────────────
@@ -1575,7 +1585,7 @@ const Physics = (() => {
   // Pass an explicit `seed` to replay a flick's exact randomness (multiplayer);
   // otherwise a fresh seed is drawn and recorded in lastFlickInfo.
   // Does NOT re-roll the pad — that was seeded in seedTurn().
-  function applyFlick(vx, vy, seed, rareMultiplier = 1, eventMode = 'normal', alwaysMagnet = false) {
+  function applyFlick(vx, vy, seed, rareMultiplier = 1, eventMode = 'normal', alwaysMagnet = false, eventPolicy = {}) {
     const s = (seed !== undefined && seed !== null
       ? seed
       : Math.floor(Math.random() * 0xffffffff)) >>> 0;
@@ -1591,21 +1601,29 @@ const Physics = (() => {
     eventResultMetadata = null;
 
     const eventMultiplier = Number.isFinite(rareMultiplier) ? Math.max(1, rareMultiplier) : 1;
-    const forcedEvent = forcedSpecialEvent;
-    forcedSpecialEvent = null;
+    const excludedEventIds = Array.isArray(eventPolicy && eventPolicy.excludedEventIds)
+      ? eventPolicy.excludedEventIds.map((id) => String(id))
+      : [];
+    const excludedEvents = new Set(excludedEventIds);
     const mode = String(eventMode || 'normal').toLowerCase();
+    const eventsDisabled = mode === 'disabled' || mode === 'off' || mode === 'none';
+    const pendingForcedEvent = forcedSpecialEvent;
+    forcedSpecialEvent = null;
+    const forcedEvent = eventsDisabled || excludedEvents.has(pendingForcedEvent)
+      ? null
+      : pendingForcedEvent;
     const modernEvents = eventSystem();
     const legacyPlinko = !modernEvents && !forcedEvent && plinkoEnabled &&
       (mode === 'insane' || mode === 'insanity'
-        ? insanityEventForSeed(s) === 'plinko'
+        ? insanityEventForSeed(s, excludedEventIds) === 'plinko'
         : (s % adjustedOdds(1000, eventMultiplier)) ===
           (123 % adjustedOdds(1000, eventMultiplier)));
     const rolledEvent = forcedEvent || legacyPlinko ||
-      (mode === 'disabled' || mode === 'off' || mode === 'none'
+      (eventsDisabled
         ? null
         : (mode === 'insane' || mode === 'insanity'
-          ? insanityEventForSeed(s)
-          : rareEventForSeed(s, false, eventMultiplier)));
+          ? insanityEventForSeed(s, excludedEventIds)
+          : rareEventForSeed(s, false, eventMultiplier, excludedEventIds)));
     const plinkoRoll = forcedEvent === 'plinko' ||
       (plinkoEnabled && (rolledEvent === 'plinko' || rolledEvent === true));
     const effectiveEvent = rolledEvent === 'plinko' && !plinkoRoll ? null : rolledEvent;
