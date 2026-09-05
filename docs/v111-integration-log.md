@@ -272,3 +272,26 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owners notified: Physics/Events, State/Data/Safety, UI/Rules, and all
   three independent QA specialists.
+
+## Revision 17 - corrective data boundary interfaces
+
+- Trigger: the State/Data corrective owner needed explicit UI boundaries for
+  storage degradation, contracted Stats Lab fields, save backups, and the
+  unauthenticated online transport.
+- Old behavior: fallback failure had no warning interface; summary coverage was
+  partial; `.flipgame-save` had no implementation; built-in online envelopes
+  treated self-asserted fields as sender identity.
+- New behavior: `StatsStore.getWarning()/onWarning()` and the
+  `flipgame:stats-warning` event expose `{code,message}`; summary/filter fields
+  follow revision 17 of the contract; `FlipgameV111SaveBackup` owns checksummed
+  save serialization/import/migration/name sanitization; online is fail-closed
+  without an independently authenticated sender adapter.
+- Migration action: UI adds a non-blocking warning surface, the missing Stats
+  fields/seat filter, save export/import controls and loader, and removes every
+  built-in online exposure path.
+- Required tests: warning event/display, fallback reload, Stats inventory and
+  hidden test names, checksum corruption/migration, name sanitization, and
+  online query/transport fail-closed behavior.
+- Integration commit: pending.
+- Affected owners notified: State/Data/Safety and UI/Rules; UI acknowledged
+  revision 17 before integrating the new boundary.

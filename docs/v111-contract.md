@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 16
+Contract revision: 17
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -167,10 +167,22 @@ cap-toss:5500, life-drain:6000`.
 - `LandingVerdict`
 - `ProgressionStateV3`
 - `StatsStore`, `FlipRecordV1`, and `MatchRecordV1`
+- `StatsStore.getWarning()` / `onWarning(listener)` expose a non-blocking
+  `{ code, message }` storage warning; the same detail is dispatched as
+  `flipgame:stats-warning`. Summary fields include sample/fraction, upright,
+  streak/ON FIRE, Cup/Team/event, and average flight/settle metrics. Seat uses
+  the existing `seat`/`seats` filter boundary. Test-event IDs are discoverable
+  only with explicit internal `includeTestEventNames: true`.
 - `NamePolicy.validate()`
 - `NetworkEnvelopeV2`; reconnect convergence uses the opaque, JSON-safe match
   snapshot registered by `Net.bindMatchState({ capture, restore })`. A peer is
   blocked rather than resumed when authoritative state is unavailable.
+- Built-in v111 online transports do not establish independent sender identity
+  and therefore remain fail-closed/hidden. A future authenticated sender adapter
+  is required before online exposure; envelope fields/checksums are not identity.
+- `FlipgameV111SaveBackup.serialize/parse/validate/migratePayload/sanitizeNames`
+  owns the checksummed `.flipgame-save` boundary. UI loads the module and offers
+  explicit export/import controls without merging save backups into Stats data.
 - Android file import/export uses the system Storage Access Framework through
   the local WebView. It accepts trusted page file inputs and bounded Blob
   downloads without broad storage permissions. The APK is release-signed by
