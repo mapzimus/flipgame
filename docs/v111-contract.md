@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 8
+Contract revision: 9
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -43,6 +43,12 @@ affected specialist continues.
   tie for the most heat wins after heat three, only those leaders enter an
   events-disabled standard-physics shootout. Each receives one flip per round;
   exactly one maker wins, otherwise the opener rotates and another round runs.
+- After each non-final regulation Cup heat, an immutable
+  `ArenaDraftOfferV1` presents exactly three distinct choices from the frozen
+  symmetric pool. Offers are deterministic from an explicit draft seed and
+  Cup state, persist across save/reconnect, and never consume gameplay/event
+  RNG. The next heat accepts only `arenaDraftSelectionId` from the current
+  offer. Shootouts have no draft or arena profile.
 - Arena Draft's reward-free, all-player pool is exactly: Crosswind, Moon
   Gravity, Gravity Slam, Spring Table, and Slick Table. These are symmetric
   persistent physics profiles, not reward events.
@@ -163,3 +169,6 @@ cap-toss:5500, life-drain:6000`.
   preserve an opaque, detached statistics payload alongside the canonical game,
   landing, flick, and mode snapshots. Stats consumes it asynchronously; rules
   and physics never read it.
+- `createArenaDraftOffer(...)`, `CupSeries.arenaDraftOffer()`, and
+  `CupSeries.selectArenaDraft(profileId)` expose the between-heat draft without
+  disclosing or accepting arbitrary event definitions.

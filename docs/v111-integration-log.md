@@ -129,3 +129,18 @@ interface or behavior changes to the Program Integrator before proceeding.
   Stats normalizes, stores, aggregates, filters, and exports them.
 - Tests: nested mutation after emission cannot alter the observed record.
 - Affected owners notified: Architecture/Refactor, UI/Renderer, Stats/Name Safety.
+
+## Revision 9 - deterministic Arena Draft offers
+
+- Trigger: Wave 5 UI review found the five physics profiles existed but there
+  was no three-choice between-heat draft boundary.
+- New behavior: each non-final regulation Cup heat produces an immutable,
+  save-safe `ArenaDraftOfferV1` containing exactly three distinct choices from
+  the frozen symmetric pool. An explicit draft seed plus Cup state determines
+  the offer without touching gameplay/event RNG.
+- Migration: UI renders only `cupState.arenaDraft.choices` and submits the
+  selected ID as `arenaDraftSelectionId`; arbitrary `arenaProfileId` values are
+  rejected between heats. No draft/profile survives into a shootout.
+- Tests: all player counts/Cup lengths, replay/reconnect, forged/stale offers,
+  exact choice count/pool membership, and RNG isolation.
+- Affected owners notified: Rules/Modes and UI/Renderer.
