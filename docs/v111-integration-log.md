@@ -499,3 +499,25 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commits: pending.
 - Affected owners notified: Physics/Events and UI/Renderer. The final candidate
   is rejected; all three independent gates restart after both fixes integrate.
+
+## Revision 27 - native Alien calibration joins the shared viewport profile
+
+- Trigger: continuing Simulation QA proved the temporary Alien Invasion event
+  was calibrated but native Alien mode was not. The same 300-shot input corpus
+  ranged from 71.0% makes on phone to 52.0% on tablet while Classic remained
+  63.0%, a nineteen-point native viewport spread.
+- Old behavior: native Alien applied additional layout/profile coupling outside
+  the calibrated event path; seed 3 (`vx=-603`, `vy=-951`) made on 360x640 and
+  3840x2160 but hit the flight limit on 768x1024.
+- New behavior: native Alien and Alien Invasion share calibrated arena, launch,
+  ring, attraction, and timeout scaling while retaining native Alien's required
+  bank-then-tractor-ring scoring.
+- Migration action: remove or normalize the native-only viewport distortion,
+  without making object choice affect Alien difficulty or changing event cleanup.
+- Required tests: seed 3 has a comparable outcome path at 360x640, 768x1024,
+  and 3840x2160; the independent 300-input native corpus has a small viewport
+  spread and remains near the 63.0% Classic baseline; temporary Alien Invasion
+  calibration continues to pass.
+- Integration commit: pending.
+- Affected owner notified: Physics/Events paused its revision-26 work,
+  acknowledged revision 27, received exact seeds, and expanded its isolated test.

@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 26
+Contract revision: 27
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -105,7 +105,10 @@ affected specialist continues.
 - Basic Practice is immediately available. Alien, Insane Mode, and advanced
   Physics Lab unlock together internally at qualifying win 100.
 - Alien success requires at least one bank followed by tractor-ring entry.
-  Arena, ring, attraction, and timeout scale across supported viewports.
+  Arena, ring, attraction, timeout, and launch normalization scale across
+  supported viewports. Both native Alien mode and the temporary Alien Invasion
+  event use calibrated profiles whose deterministic make-rate corpus remains
+  comparable to ordinary Classic and does not materially diverge by viewport.
 
 ## Event contracts
 
