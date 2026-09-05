@@ -117,3 +117,15 @@ interface or behavior changes to the Program Integrator before proceeding.
   stake, ON FIRE, sudden death, selected settings, and active mode state. DOM,
   canvas, and physics bodies are excluded.
 - Affected owners notified: Network/Platform and UI/Renderer.
+
+## Revision 8 - detached full statistics payload
+
+- Trigger: Stats/UI integration found that the lifecycle bridge's fixed
+  payload omitted dimensions required by `FlipRecordV1` and `MatchRecordV1`.
+- New behavior: flip and match resolution bridge calls preserve a detached,
+  opaque `record` object on the versioned outcome. The Stats store consumes it
+  asynchronously; gameplay code cannot read it back or be blocked by writes.
+- Migration: UI emits the complete per-flip and per-match fields in `record`;
+  Stats normalizes, stores, aggregates, filters, and exports them.
+- Tests: nested mutation after emission cannot alter the observed record.
+- Affected owners notified: Architecture/Refactor, UI/Renderer, Stats/Name Safety.

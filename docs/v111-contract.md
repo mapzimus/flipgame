@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 7
+Contract revision: 8
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -159,3 +159,7 @@ cap-toss:5500, life-drain:6000`.
   `{ id, objectId, variantId, label, color, metrics, renderLocal }`; metrics use
   the canonical viewBox, pivot, baseline, and collision mapping above.
 - Versioned outcome events consumed by achievements and statistics
+- `bridge.flipResolved({ record })` and `bridge.matchResolved({ record })`
+  preserve an opaque, detached statistics payload alongside the canonical game,
+  landing, flick, and mode snapshots. Stats consumes it asynchronously; rules
+  and physics never read it.

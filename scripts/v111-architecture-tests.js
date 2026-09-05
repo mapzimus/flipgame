@@ -175,6 +175,35 @@ function testStatsWritesAreScheduledAndIsolated() {
   stats.dispose();
 }
 
+function testStatsRecordPassthroughIsDetached() {
+  const seen = [];
+  const unsubscribeFlip = Runtime.outcomes.on('flip.resolved.v1', (event) => seen.push(event));
+  const flipRecord = { matchId: 'm-1', cosmeticId: 'cosmetic.chrome', before: { lives: 3 } };
+  Runtime.bridge.flipResolved({
+    game: { state: 'RESULT', players: [{ id: 'p-1', name: 'Player', lives: 4 }] },
+    result: 'MAKE',
+    record: flipRecord,
+  });
+  flipRecord.before.lives = 99;
+  unsubscribeFlip();
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].payload.record.matchId, 'm-1');
+  assert.equal(seen[0].payload.record.before.lives, 3,
+    'per-flip stats payload must be detached from live UI state');
+
+  const matches = [];
+  const unsubscribeMatch = Runtime.outcomes.on('match.resolved.v1', (event) => matches.push(event));
+  const matchRecord = { completionReason: 'last-player-standing', totalFlips: 12 };
+  Runtime.bridge.matchResolved({
+    game: { state: 'GAME_OVER', players: [] },
+    match: { record: matchRecord },
+  });
+  matchRecord.totalFlips = 1000;
+  unsubscribeMatch();
+  assert.equal(matches[0].payload.record.totalFlips, 12,
+    'per-match stats payload must be detached from live UI state');
+}
+
 function testArtBootstrapIsCompleteAndLazy() {
   const art = require('../js/v111-bootstrap.js');
   assert.equal(art.objectIds.length, 25);
@@ -228,6 +257,7 @@ testVersionedDataContracts();
 testOutcomeLifecycleAndSnapshots();
 testModeAndNameEntrypoints();
 testStatsWritesAreScheduledAndIsolated();
+testStatsRecordPassthroughIsDetached();
 testArtBootstrapIsCompleteAndLazy();
 testBrowserGlobalsAndLoaderSeams();
 

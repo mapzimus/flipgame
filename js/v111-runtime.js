@@ -387,6 +387,7 @@
       var value = context || {};
       var result = value.result || (value.game && value.game.lastResult) || null;
       return lifecycle.flipResolved({
+        record: copy(value.record || {}),
         game: captureGame(value.game),
         flick: captureFlick(value.flick),
         landing: captureLanding(result, value.landing || {}),
@@ -400,6 +401,7 @@
     matchResolved: function (context) {
       var value = context || {};
       return lifecycle.matchResolved({
+        record: copy(value.record || (value.match && value.match.record) || {}),
         game: captureGame(value.game),
         match: copy(value.match || {}),
         online: !!value.online,
