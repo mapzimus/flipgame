@@ -269,7 +269,8 @@ interface or behavior changes to the Program Integrator before proceeding.
   viewport calibration, bounded rollups, session Test Data, all NamePolicy
   boundaries/evasions, online identity, save backup, achievement wiring,
   secrecy, Stats Lab completeness, touch sizes, and input activation.
-- Integration commit: pending.
+- Integration commits: `f57de17`, `62c5d1b`, `4136ded`, `ab922f6`, and
+  `8212984`.
 - Affected owners notified: Physics/Events, State/Data/Safety, UI/Rules, and all
   three independent QA specialists.
 
@@ -292,7 +293,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: warning event/display, fallback reload, Stats inventory and
   hidden test names, checksum corruption/migration, name sanitization, and
   online query/transport fail-closed behavior.
-- Integration commit: pending.
+- Integration commits: `62c5d1b`, `ab922f6`, and `8212984`.
 - Affected owners notified: State/Data/Safety and UI/Rules; UI acknowledged
   revision 17 before integrating the new boundary.
 
@@ -309,6 +310,6 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Migration action: none for UI; it must not derive or override these metrics.
 - Required tests: exact seed 3 phone/4K parity plus deterministic make-rate
   matrices across every required viewport and ordinary-Classic comparison.
-- Integration commit: pending.
+- Integration commit: `4136ded`.
 - Affected owners notified: Physics/Events and UI/Rules; UI acknowledged and
   confirmed no local Alien overrides.
