@@ -496,7 +496,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   7000ms simulation time; Wind/Moon/ordinary/Bouncy boundaries regress; Setup
   and Stats compute two columns at 768 and 1099, then 12-column/7:5 at 1100, for
   two and eight players with no horizontal overflow.
-- Integration commits: pending.
+- Integration commits: `1559761` (responsive UI) and `f9f9250` (physics).
 - Affected owners notified: Physics/Events and UI/Renderer. The final candidate
   is rejected; all three independent gates restart after both fixes integrate.
 
@@ -518,7 +518,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   and 3840x2160; the independent 300-input native corpus has a small viewport
   spread and remains near the 63.0% Classic baseline; temporary Alien Invasion
   calibration continues to pass.
-- Integration commit: pending.
+- Integration commit: `f9f9250`.
 - Affected owner notified: Physics/Events paused its revision-26 work,
   acknowledged revision 27, received exact seeds, and expanded its isolated test.
 
@@ -538,7 +538,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: exact seeds 5 and 3 remain skill-dependent misses for their
   documented inputs; a broad deterministic Wind corpus contains both makes and
   misses; ordinary and settled-cap regressions pass.
-- Integration commit: pending.
+- Integration commit: `f9f9250`.
 - Affected owner notified: Physics/Events paused its combined corrective work
   and received the exact corpus evidence before commit.
 
@@ -559,6 +559,6 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: seed 5 remains a miss for documented invalid input; each
   broad deterministic corpus includes makes and misses; valid intended-input
   seeds remain playable and event-specific visual/physics metadata persists.
-- Integration commit: pending.
+- Integration commit: `f9f9250`.
 - Affected owner notified: Physics/Events paused again and is holding its
   isolated commit until QA completes the full non-Plinko corpus.
