@@ -40,6 +40,11 @@
     var resumeToken = null;
     var outboundQueue = [];
     var matchStateAdapter = null;
+    // v111 has no account service or authenticated relay.  The public build
+    // therefore stays hidden/fail-closed.  A future transport may opt in only
+    // by supplying an independent sender-identity verifier.
+    var authenticateSender = typeof config.authenticateSender === 'function' ? config.authenticateSender : null;
+    compatible = compatible && !!authenticateSender;
 
     function on(evt, fn) {
       if (typeof fn !== 'function') throw new TypeError('Net listener must be a function');
@@ -195,8 +200,9 @@
 
     function sanitizeRoster(list, context) {
       if (!Array.isArray(list)) return [];
-      return list.map(function (player) { return normalizePlayer(player, context).player; })
-        .filter(function (player) { return !!player.id; });
+      return list.map(function (player) { return normalizePlayer(player, context); })
+        .filter(function (normalized) { return !normalized.rejected && !!normalized.player.id; })
+        .map(function (normalized) { return normalized.player; });
     }
 
     function sanitizeStart(payload, outbound) {
@@ -206,7 +212,7 @@
         var normalized = normalizePlayer(Object.assign({}, definition, { id: definition.netId }), {
           source: outbound ? 'network-send' : 'network-receive', matchStart: true,
         });
-        if (outbound && normalized.rejected) throw new Error('Choose a different name.');
+        if (normalized.rejected) throw new Error('Choose a different name.');
         return Object.assign({}, definition, {
           name: normalized.player.name,
           color: normalized.player.color,
@@ -393,7 +399,19 @@
       });
     }
 
-    function handleMessage(raw) {
+    function verifiedIdentity(envelope, transportIdentity) {
+      if (!authenticateSender) return null;
+      try {
+        var verified = authenticateSender(Object.freeze({
+          transport: mode, transportIdentity: transportIdentity == null ? null : transportIdentity,
+        }));
+        if (verified && typeof verified === 'object') verified = verified.senderId;
+        verified = String(verified || '');
+        return verified && verified === envelope.senderId ? verified : null;
+      } catch (_) { return null; }
+    }
+
+    function handleMessage(raw, transportIdentity) {
       var envelope;
       if (typeof raw === 'string' && raw.length > 262144) {
         emit('protocol-reject', Object.freeze({ code: 'message-too-large', senderId: null }));
@@ -404,6 +422,13 @@
       if (!compatible) return;
       if (!envelope || envelope.senderId === selfId) return;
       if (!protocolSession) { hideOnline('protocol-unavailable'); return; }
+      if (envelope.schema !== Protocol.SCHEMA || envelope.version !== Protocol.VERSION ||
+          envelope.protocol !== Protocol.PROTOCOL) { hideOnline('legacy-protocol'); return; }
+      var acceptedSender = verifiedIdentity(envelope, transportIdentity);
+      if (!acceptedSender) {
+        emit('protocol-reject', Object.freeze({ code: 'unauthenticated-sender', senderId: null }));
+        return;
+      }
 
       if (envelope.type === 'welcome' && !hostId && envelope.payload &&
           envelope.payload.targetId === selfId && envelope.payload.hostId === envelope.senderId) {
@@ -411,7 +436,7 @@
         catch (_) { hideOnline('host-conflict'); return; }
       }
 
-      var accepted = protocolSession.receive(envelope);
+      var accepted = protocolSession.receive(envelope, acceptedSender);
       if (!accepted.ok) {
         emit('protocol-reject', Object.freeze({ code: accepted.code, senderId: envelope && envelope.senderId || null }));
         if (accepted.code === 'legacy-protocol') hideOnline(accepted.code);
@@ -427,9 +452,9 @@
           var incoming = normalizePlayer(Object.assign({}, msg.player, { id: msg.from }), {
             source: 'network-receive', senderId: msg.from,
           });
+          if (incoming.rejected) { sendRenameRequired(msg.from, incoming.code); return; }
           incoming.player.host = false;
           upsertPeer(incoming.player);
-          if (incoming.rejected) sendRenameRequired(msg.from, incoming.code);
           sendControl('welcome', {
             targetId: msg.from,
             hostId: selfId,
@@ -446,9 +471,9 @@
           var joined = normalizePlayer(Object.assign({}, msg.player, { id: msg.from }), {
             source: 'network-receive', senderId: msg.from,
           });
+          if (joined.rejected) { sendRenameRequired(msg.from, joined.code); return; }
           joined.player.host = false;
           upsertPeer(joined.player);
-          if (joined.rejected) sendRenameRequired(msg.from, joined.code);
           sendControl('roster', { roster: roster });
           emit('roster', roster.slice());
           emit('join', Object.assign({}, joined.player));
@@ -749,6 +774,7 @@
       get protocol() { return Protocol && Protocol.PROTOCOL || null; },
       _testing: Object.freeze({
         handleMessage: handleMessage,
+        handleAuthenticatedMessage: handleMessage,
         validateName: validateName,
         normalizePlayer: normalizePlayer,
         protocolSnapshot: function () { return protocolSession && protocolSession.snapshot(); },

@@ -2,13 +2,17 @@
 (function (root, factory) {
   'use strict';
   var Progression = root && root.FlipgameV111Progression;
-  if (typeof module === 'object' && module.exports) Progression = require('./v111-progression.js');
-  var api = factory(Progression, root);
+  var NamePolicy = root && root.FlipgameV111NamePolicy;
+  if (typeof module === 'object' && module.exports) {
+    Progression = require('./v111-progression.js');
+    NamePolicy = require('./v111-name-policy.js');
+  }
+  var api = factory(Progression, NamePolicy, root);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.Records = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Progression, root) {
+  : (typeof window !== 'undefined' ? window : this)), function (Progression, NamePolicy, root) {
   'use strict';
   if (!Progression) throw new Error('v111 progression must load before records.js');
 
@@ -41,6 +45,10 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
+  function safeName(value) {
+    return NamePolicy && typeof NamePolicy.safeDisplay === 'function'
+      ? NamePolicy.safeDisplay(value, 'Player') : 'Player';
+  }
   function stableLegacyPlayerId(name) {
     var text = String(name || '').normalize ? String(name || '').normalize('NFKC') : String(name || '');
     var hash = 2166136261;
@@ -52,7 +60,7 @@
   }
   function normalizeWinnerRecord(entry) {
     if (!entry || typeof entry !== 'object') return null;
-    var displayName = String(entry.displayName == null ? '' : entry.displayName);
+    var displayName = safeName(entry.displayName);
     return {
       playerId: String(entry.playerId || stableLegacyPlayerId(displayName)),
       displayName: displayName,
@@ -66,7 +74,7 @@
       .map(normalizeWinnerRecord).filter(Boolean);
     if (!records.length && old.mostWins && typeof old.mostWins === 'object') {
       Object.keys(old.mostWins).forEach(function (displayName) {
-        records.push({ playerId: stableLegacyPlayerId(displayName), displayName: displayName, wins: number(old.mostWins[displayName]) });
+        records.push({ playerId: stableLegacyPlayerId(displayName), displayName: safeName(displayName), wins: number(old.mostWins[displayName]) });
       });
     }
     return {
@@ -142,7 +150,7 @@
       var progress = progression.recordQualifyingWin(context);
       if (!progress.qualified) return null;
 
-      var displayName = String(context.displayName || (context.winner && context.winner.name) || name || 'Player');
+      var displayName = safeName(context.displayName || (context.winner && context.winner.name) || name || 'Player');
       var playerId = String(context.playerId || context.winnerId ||
         (context.winner && context.winner.id) || stableLegacyPlayerId(displayName));
       var row = data.winnerRecords.find(function (entry) { return entry.playerId === playerId; });

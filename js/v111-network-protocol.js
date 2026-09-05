@@ -110,6 +110,7 @@
     var room = String(config.room || '').toUpperCase();
     var hostId = config.hostId == null ? null : String(config.hostId);
     var randomValues = typeof config.randomValues === 'function' ? config.randomValues : null;
+    var requireAuthenticatedSender = config.requireAuthenticatedSender !== false;
     var outboundSequence = 0;
     var inboundSequences = new Map();
     var matchId = null;
@@ -317,10 +318,13 @@
       return envelope;
     };
 
-    this.receive = function (candidate) {
+    this.receive = function (candidate, verifiedSenderId) {
       var envelope = candidate;
       var error = validateBase(envelope);
       if (error) return reject(error, envelope);
+      if (requireAuthenticatedSender && String(verifiedSenderId || '') !== envelope.senderId) {
+        return reject('unauthenticated-sender', envelope);
+      }
       if (envelope.senderId === selfId) return reject('self-message', envelope);
       error = validateOrder(envelope);
       if (error) return reject(error, envelope);

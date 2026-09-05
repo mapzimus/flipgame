@@ -73,10 +73,23 @@
     '\u039a': 'k', '\u039c': 'm', '\u039d': 'n', '\u039f': 'o', '\u03a1': 'p',
     '\u03a4': 't', '\u03a5': 'y', '\u03a7': 'x', '\u03b1': 'a', '\u03b5': 'e',
     '\u03b9': 'i', '\u03ba': 'k', '\u03bf': 'o', '\u03c1': 'p', '\u03c4': 't',
-    '\u03c5': 'y', '\u03c7': 'x', '\u0410': 'a', '\u0412': 'b', '\u0415': 'e',
+    '\u03c5': 'u', '\u03c7': 'x', '\u0410': 'a', '\u0412': 'b', '\u0415': 'e',
     '\u041a': 'k', '\u041c': 'm', '\u041d': 'h', '\u041e': 'o', '\u0420': 'p',
     '\u0421': 'c', '\u0422': 't', '\u0425': 'x', '\u0430': 'a', '\u0435': 'e',
     '\u043e': 'o', '\u0440': 'p', '\u0441': 'c', '\u0445': 'x', '\u0456': 'i',
+    // Additional single-code-point lookalikes seen in saved/imported-name
+    // evasions.  The display value is preserved; these folds are screening
+    // only and never transliterate an accepted player's name.
+    '\u0405': 's', '\u0455': 's', '\u0408': 'j', '\u0458': 'j', '\u04cf': 'l',
+    '\u0131': 'i', '\u057d': 'u', '\u1d1c': 'u',
+    '\u0501': 'd', '\u051b': 'q', '\u13a0': 'd', '\u13aa': 'a', '\u13ce': 'w',
+    '\uff21': 'a', '\uff22': 'b', '\uff25': 'e', '\uff27': 'g', '\uff29': 'i',
+    '\uff2a': 'j', '\uff2b': 'k', '\uff2d': 'm', '\uff2e': 'n', '\uff2f': 'o',
+    '\uff30': 'p', '\uff33': 's', '\uff34': 't', '\uff35': 'u', '\uff38': 'x',
+    '\uff39': 'y', '\uff41': 'a', '\uff42': 'b', '\uff45': 'e', '\uff47': 'g',
+    '\uff49': 'i', '\uff4a': 'j', '\uff4b': 'k', '\uff4d': 'm', '\uff4e': 'n',
+    '\uff4f': 'o', '\uff50': 'p', '\uff53': 's', '\uff54': 't', '\uff55': 'u',
+    '\uff58': 'x', '\uff59': 'y',
   };
   var LEET = { '0': 'o', '1': 'i', '2': 'z', '3': 'e', '4': 'a', '5': 's', '6': 'g', '7': 't', '8': 'b', '9': 'g' };
 
@@ -115,8 +128,14 @@
   function screen(value) {
     var folded = fold(value);
     var repeated = folded.replace(/(.)\1{1,}/g, '$1');
+    var rawCompact = folded.replace(/[^a-z]+/g, '');
+    // Collapse again *after* removing separators.  This catches evasions such
+    // as f.u.u.c.c.k where duplicated letters were not adjacent in the source.
+    var compactRepeated = rawCompact.replace(/(.)\1{1,}/g, '$1');
     var words = folded.split(/[^a-z]+/).concat(repeated.split(/[^a-z]+/)).filter(Boolean);
-    var compact = [folded.replace(/[^a-z]+/g, ''), repeated.replace(/[^a-z]+/g, '')];
+    var compact = [rawCompact, repeated.replace(/[^a-z]+/g, ''), compactRepeated,
+      rawCompact.replace(/ph/g, 'f'), compactRepeated.replace(/ph/g, 'f')]
+      .filter(function (candidate, index, values) { return values.indexOf(candidate) === index; });
     if (words.some(function (word) { return WORD_RULES.has(word) || HIGH_RISK_EXACT.has(word); })) {
       return false;
     }

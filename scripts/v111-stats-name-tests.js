@@ -142,7 +142,11 @@ async function testNamePolicyNormalizationAndLimits() {
 }
 
 async function testNamePolicyEvasionAndFalsePositives() {
-  for (const name of ['f.u.c.k', 'f u c k', 'a.s.s', 'phuuck', 'n1gg3r', 'nіggеr', 'FÁGGÓT', 'h3ll']) {
+  for (const name of [
+    'f.u.c.k', 'f u c k', 'f--u--c--k', 'f.u.u.c.c.k', 'a.s.s', 'phuuck',
+    'n1gg3r', 'nіggеr', 'n.і.g.g.е.r', 'nıgger', 'FÁGGÓT', 'f4gg0t',
+    'fυck', 'fսck', 'cυnt', 'ѕ.h.і.t', 'h3ll',
+  ]) {
     const result = NamePolicy.validate(name);
     assert.equal(result.valid, false, `${name} should be blocked`);
     assert.equal(result.error, 'Choose a different name.');
@@ -188,7 +192,12 @@ async function testNormalizationAndStableDedupe() {
   const duplicate = await store.recordFlip(flip(1));
   await store.recordMatch(match(1));
   assert.equal(duplicate.duplicate, true);
-  assert.deepEqual(await store.summary(), { flips: 1, makes: 1, misses: 0, makeRate: 1, makePercentage: 100, caps: 0, perfect: 0, matches: 1 });
+  assert.deepEqual(await store.summary(), {
+    flips: 1, makes: 1, misses: 0, makeRate: 1, makePercentage: 100,
+    fraction: '1/1', sampleSize: 1, upright: 1, caps: 0, perfect: 0,
+    bestStreak: 1, onFireRuns: 0, matches: 1, cups: 0, teamWins: 0,
+    events: 0, averageFlightMs: 600, averageSettleMs: 100,
+  });
   await store.close();
 }
 
@@ -301,14 +310,18 @@ async function testCompleteFiltersAndRollupDimensions() {
   assert.equal(Stats.buildDatasets(data, { scope: 'import', currentDeviceId: 'device-a', currentSessionId: 'session-a' }).sequenceStrip[0].playerId, 'cpu');
   assert.equal(Stats.buildDatasets(data, { scopes: ['device', 'import'], currentDeviceId: 'device-a' }).sequenceStrip.length, 2);
   const rollup = Stats.aggregateRecords([human], { prefix: 'retention' })[0];
-  for (const field of ['releaseVersion','heat','round','turn','playerCount','seat','cosmeticId','arenaId',
-    'viewportBucket','oddsProfile','eventSeed','trajectorySeed','contacts','bounces','banks','flightMs',
-    'firstContactMs','settleMs','stakeBefore','stakeAfter','livesBefore','livesAfter','streakBefore','streakAfter',
-    'onFireBefore','onFireAfter','suddenDeathBefore','suddenDeathAfter','appliedReward','appliedEffect','fpsBucket']) {
-    assert.ok(Object.prototype.hasOwnProperty.call(rollup.dimensions, field), `rollup missing ${field}`);
-  }
-  assert.equal(Stats.aggregateSummary({ flips: [], matches: [], rollups: [rollup] }, { cosmeticId: 'sparkles' }).flips, 1);
-  assert.equal(Stats.aggregateSummary({ flips: [], matches: [], rollups: [rollup] }, { cosmeticId: 'missing' }).flips, 0);
+  assert.deepEqual(Object.keys(rollup.dimensions).sort(), ['day','eventId','mode','objectId','testData'],
+    'retention keys contain only the bounded daily/mode/object/event contract');
+  assert.equal(rollup.counters.seats['0'], 1, 'bounded seat distribution detail is retained as a counter');
+  assert.equal(rollup.flightMsTotal, human.flightMs);
+  assert.equal(rollup.settleMsTotal, human.settleMs);
+  const highCardinality = Array.from({ length: 1000 }, (_, index) => Stats.normalizeFlipRecord(flip(5000 + index, {
+    timestamp: Date.UTC(2026, 0, 1) + index, eventSeed: index, trajectorySeed: index + 1,
+    flightMs: 1000 + index, settleMs: 100 + index, turn: index, stakeAfter: index,
+    mode: 'classic', objectId: 'bottle', eventId: null,
+  }), { deviceId: 'device-a', sessionId: 'session-a' }));
+  assert.equal(Stats.aggregateRecords(highCardinality, { prefix: 'retention' }).length, 1,
+    'per-flip IDs, seeds, timings, turn and mutable values cannot grow retention row cardinality');
   const countedMatch = match(53, { mode: 'cup', cup: { heats: [1, 0] },
     eventCounts: [{ eventId: 'plinko', count: 2 }] });
   assert.equal(Stats.buildDatasets({ flips: [], matches: [countedMatch], rollups: [] }, { eventId: 'plinko' })
@@ -383,6 +396,16 @@ async function testObservedOnlyDatasets() {
     'nested match players participate in filters');
   assert.equal(Stats.buildDatasets(data, { playerType: 'cpu', variantId: 'coffee-mug.red' }).cupTeam.team.length, 1);
   assert.ok(!JSON.stringify(charts).includes('normalDenominator'));
+
+  const testData = { flips: records.concat([flip(90, {
+    eventId: 'life-drain', forced: true, testData: true, result: 'MAKE', made: true,
+  })]), matches, rollups: [] };
+  const withTests = Stats.buildDatasets(testData, { includeTestData: true });
+  assert.ok(!JSON.stringify(withTests).includes('life-drain'),
+    'including Test Data does not disclose a forced event name by default');
+  assert.ok(JSON.stringify(Stats.buildDatasets(testData, {
+    includeTestData: true, includeTestEventNames: true,
+  })).includes('life-drain'), 'internal QA can explicitly request forced-event labels');
 }
 
 async function testImportExportRoundTripScopesAndCsv() {
@@ -408,7 +431,8 @@ async function testImportExportRoundTripScopesAndCsv() {
   assert.ok(!pseudo.includes('"p1"') && !pseudo.includes('"p2"'), 'stable player IDs are pseudonymized too');
   const named = await imported.exportCSV('flip', { includeNames: true, includeTestData: true });
   assert.ok(named.includes('Ada'));
-  assert.ok(named.includes("'=HYPERLINK"), 'explicit names are still spreadsheet-injection safe');
+  assert.ok(!named.includes('HYPERLINK') && named.includes('Player'),
+    'explicit named CSV still consumes NamePolicy and never persists a rejected value');
   assert.ok(named.includes('"releaseVersion"') && named.includes('"stakeBefore"') && named.includes('"performance"'));
   const pseudoMatch = await imported.exportCSV('match', { includeTestData: true });
   assert.ok(!pseudoMatch.includes('"Ada"') && !pseudoMatch.includes('"p1"'), 'match participant data is pseudonymized');
@@ -451,18 +475,25 @@ async function testLegacyMigrationAndTransactionFailureFallback() {
   assert.equal((await store.summary()).flips, 21);
   const saved = JSON.parse(storage.dump()[Stats.FALLBACK_KEY]);
   assert.equal(saved.schema, 'FlipStatsFallbackV1');
-  assert.equal(saved.rollups.reduce((n, row) => n + row.flips, 0), 21);
+  assert.equal(saved.rollups.filter((row) => row.schema === 'FlipAggregateV1')
+    .reduce((n, row) => n + row.flips, 0), 21);
   assert.ok(store.getErrors().some((error) => /Injected transaction/.test(error.message)));
   await store.close();
 
   const firstFallback = Stats.createStore({ indexedDB: null, localStorage: storage, deviceId: 'device-a', sessionId: 'fallback-1' });
   await firstFallback.recordFlip(flip(9, { sessionId: 'fallback-1' }));
+  await firstFallback.recordMatch(match(9, { sessionId: 'fallback-1', mode: 'cup', cup: { heats: [2, 1] } }));
   const beforeReload = await firstFallback.summary({ includeTestData: true });
+  assert.ok(firstFallback.getWarning());
+  let warned = false;
+  firstFallback.onWarning((notice) => { warned = notice.code === 'stats-storage-fallback'; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(warned, true, 'fallback warning API is non-blocking and observable');
   await firstFallback.close();
   const secondFallback = Stats.createStore({ indexedDB: null, localStorage: storage, deviceId: 'device-a', sessionId: 'fallback-2' });
   assert.equal(secondFallback.usingFallback(), true);
   assert.deepEqual(await secondFallback.summary({ includeTestData: true }), beforeReload,
-    'aggregate-only local fallback survives reload without double-counting');
+    'aggregate-only local fallback preserves flip totals and matches over reload without double-counting');
   await secondFallback.recordFlip(flip(10, { sessionId: 'fallback-2' }));
   assert.equal((await secondFallback.summary({ includeTestData: true })).flips, beforeReload.flips + 1);
   await secondFallback.close();

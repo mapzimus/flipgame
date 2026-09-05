@@ -3,26 +3,42 @@
   'use strict';
   var Interfaces = root && root.FlipgameV111Interfaces;
   var Runtime = root && root.FlipgameV111Runtime;
+  var NamePolicy = root && root.FlipgameV111NamePolicy;
   if (typeof module === 'object' && module.exports) {
     Interfaces = require('./v111-interfaces.js');
     Runtime = require('./v111-runtime.js');
+    NamePolicy = require('./v111-name-policy.js');
   }
-  var api = factory(Interfaces, Runtime, root);
+  var api = factory(Interfaces, Runtime, NamePolicy, root);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.FlipgameV111Stats = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Interfaces, Runtime, root) {
+  : (typeof window !== 'undefined' ? window : this)), function (Interfaces, Runtime, NamePolicy, root) {
   'use strict';
 
   var DB_NAME = 'flipgame-v111-stats';
-  var DB_VERSION = 2;
+  var DB_VERSION = 3;
   var EXPORT_SCHEMA = 'FlipStatsExportV1';
   var FALLBACK_KEY = 'flipgame.stats.aggregate.v1';
   var DEVICE_KEY = 'flipgame.stats.device-id.v1';
   var MAX_RAW_FLIPS = 100000;
+  var FALLBACK_WARNING = Object.freeze({
+    code: 'stats-storage-fallback',
+    message: 'Detailed statistics storage is unavailable. Match and flip totals will still be preserved on this device.',
+  });
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   var SCOPE_VALUES = new Set(['all', 'device', 'session', 'import']);
+  var ROLLUP_MODES = new Set(['classic','cup','team-clash','team','practice','physics-lab','lab','alien','insane']);
+  var ROLLUP_OBJECTS = new Set([
+    'bottle','coffee-mug','ketchup','milk-carton','maple','teapot','honeybear','salt-pepper-shaker',
+    'babybottle','soup-can','extinguisher','smoothie','soap','gumball-machine','hourglass','microscope',
+    'bowlingpin','desk-globe','cone','microphone-stand','flask','potted-plants','shell','penguin','pawn',
+    'owl','buoy','giraffe','wineglass','red-panda','toucan','trophy-cup','trex','snow-globe',
+    'whippedcream','eyeball-monster','potion','soda-can','tabasco','watering-can','coke','pinata','stanley',
+    'huge-rubber-duck','lavalamp','action-figures','lawnchair','tall-buildings','octopus','box-of-snacks','alien',
+  ]);
+  var ROLLUP_EVENTS = new Set(Interfaces && Array.isArray(Interfaces.EVENT_IDS) ? Interfaces.EVENT_IDS : []);
   var FLIP_RECORD_FIELDS = Object.freeze([
     'schema','version','releaseVersion','uuid','timestamp','sessionId','deviceId','matchId','sequence','scope',
     'mode','heat','round','turn','playerCount','online','practice','forced','testData','playerId','displayName',
@@ -41,7 +57,7 @@
   var FILTER_FIELDS = Object.freeze([
     'from','to','dateFrom','dateTo','modes','seats','playerIds','playerType','isAI','objectIds','variantIds',
     'cosmeticIds','arenaIds','eventIds','playerCounts','viewportBuckets','scope','scopes','sessionIds','deviceIds',
-    'teamIds','results','online','includeTestData',
+    'teamIds','results','online','includeTestData','includeTestEventNames',
   ]);
   var instanceSequence = 0;
 
@@ -78,12 +94,38 @@
     return null;
   }
   function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+  function policy() {
+    if (NamePolicy && typeof NamePolicy.validate === 'function') return NamePolicy;
+    if (Runtime && Runtime.namePolicy && typeof Runtime.namePolicy.current === 'function') {
+      var current = Runtime.namePolicy.current();
+      if (current && typeof current.validate === 'function') return current;
+    }
+    return null;
+  }
+  function safeName(value, fallback) {
+    var current = policy();
+    if (current && typeof current.safeDisplay === 'function') return current.safeDisplay(value, fallback || 'Player');
+    // Fail closed if a consumer loads the modules out of order.
+    return value == null || !String(value).trim() ? (fallback || 'Player') : 'Player';
+  }
+  function sanitizeNamesDeep(value, fallback, contextKey) {
+    if (Array.isArray(value)) return value.map(function (entry) { return sanitizeNamesDeep(entry, fallback, contextKey); });
+    if (!value || typeof value !== 'object') return value;
+    var output = {};
+    var playerContext = /^(player|players|participants|winner|winners|roster|members)$/i.test(contextKey || '') ||
+      value.playerId != null || value.netId != null || value.seat != null || value.playerIndex != null || value.isAI != null;
+    Object.keys(value).forEach(function (key) {
+      output[key] = /^(displayName|playerName)$/i.test(key) || (key === 'name' && playerContext)
+        ? safeName(value[key], fallback || 'Player') : sanitizeNamesDeep(value[key], fallback, key);
+    });
+    return output;
+  }
   function optionalBool(value) { return value == null ? null : !!value; }
   function timestamp(value, fallback) {
     var parsed = value;
     if (typeof value === 'string' && value.trim() && !Number.isFinite(Number(value))) parsed = Date.parse(value);
     var n = finite(parsed, fallback == null ? Date.now() : fallback);
-    return Math.max(0, Math.trunc(n));
+    return Math.min(8640000000000000, Math.max(0, Math.trunc(n)));
   }
   function fnv(textValue, seed) {
     var hash = seed >>> 0;
@@ -121,7 +163,7 @@
     var source = player && typeof player === 'object' ? player : {};
     return Object.assign({}, clone(source), {
       playerId: text(source.playerId != null ? source.playerId : source.id, 'seat-' + index),
-      displayName: text(source.displayName != null ? source.displayName : source.name, ''),
+      displayName: safeName(source.displayName != null ? source.displayName : source.name, 'Player'),
       playerIndex: integer(firstValue(source.playerIndex, source.seat, source.index), index),
       seat: integer(firstValue(source.seat, source.playerIndex, source.index), index),
       isAI: !!source.isAI,
@@ -237,7 +279,7 @@
       testData: !!(payload.testData || recordBase.testData || payload.forced ||
         recordBase.forced || payload.test || payload.simulated),
       playerId: text(firstValue(payload.playerId, recordBase.playerId), player.playerId),
-      displayName: text(firstValue(payload.displayName, recordBase.displayName), player.displayName),
+      displayName: safeName(firstValue(payload.displayName, recordBase.displayName, player.displayName), 'Player'),
       playerIndex: integer(firstValue(payload.playerIndex, recordBase.playerIndex), player.playerIndex),
       seat: integer(firstValue(payload.seat, recordBase.seat, payload.playerIndex, recordBase.playerIndex), player.seat),
       isAI: !!firstValue(payload.isAI, recordBase.isAI, player.isAI),
@@ -291,6 +333,7 @@
         recordBase.heat, modeState.heatIndex), null),
       teamScore: finite(firstValue(payload.teamScore, recordBase.teamScore), null),
     });
+    record = sanitizeNamesDeep(record);
     if (input && input._importId) record._importId = String(input._importId);
     return freeze(record);
   }
@@ -339,18 +382,18 @@
     if (!Array.isArray(teams)) teams = [];
     var winnerTeamId = text(firstValue(payload.winnerTeamId, recordBase.winnerTeamId,
       object(payload.winner).teamId, object(recordBase.winner).teamId, modeState.winnerTeamId), null);
-    var winner = freeze(Object.assign({}, clone(object(recordBase.winner)), clone(object(payload.winner)),
-      { playerIds: winnerIds.slice(), teamId: winnerTeamId }));
+    var winner = freeze(sanitizeNamesDeep(Object.assign({}, clone(object(recordBase.winner)), clone(object(payload.winner)),
+      { playerIds: winnerIds.slice(), teamId: winnerTeamId })));
     var recordIdentity = Object.assign({}, source, {
       uuid: firstValue(source.uuid, payload.uuid, recordBase.uuid), id: firstValue(source.id, payload.id, recordBase.id),
     });
     var completed = firstValue(payload.completed, recordBase.completed, true) !== false;
-    var startingSettings = clone(firstValue(payload.startingSettings, recordBase.startingSettings,
+    var startingSettings = sanitizeNamesDeep(clone(firstValue(payload.startingSettings, recordBase.startingSettings,
       nestedMatch.startingSettings, {
         mode: firstValue(payload.mode, recordBase.mode, game.format, modeState.format, 'classic'),
         startingLives: game.startingLives, maxLives: game.maxLives, feel: game.feel,
         insanity: game.insanity, arenaId: firstValue(payload.arenaId, recordBase.arenaId, modeState.arenaId),
-      }));
+      })));
     var record = Object.assign({}, recordBase, {
       schema: 'MatchRecordV1', version: 1,
       releaseVersion: text(firstValue(payload.releaseVersion, recordBase.releaseVersion),
@@ -376,23 +419,24 @@
       winnerId: text(firstValue(suppliedWinnerId, winnerIds[0]), null),
       winnerTeamId: winnerTeamId,
       winner: winner,
-      teams: clone(teams),
-      heatSummaries: clone(firstValue(payload.heatSummaries, recordBase.heatSummaries,
-        nestedMatch.heatSummaries, modeState.heatSummaries, modeState.heats, [])),
-      roundSummaries: clone(firstValue(payload.roundSummaries, recordBase.roundSummaries,
-        nestedMatch.roundSummaries, modeState.roundSummaries, modeState.rounds, [])),
+      teams: sanitizeNamesDeep(clone(teams)),
+      heatSummaries: sanitizeNamesDeep(clone(firstValue(payload.heatSummaries, recordBase.heatSummaries,
+        nestedMatch.heatSummaries, modeState.heatSummaries, modeState.heats, []))),
+      roundSummaries: sanitizeNamesDeep(clone(firstValue(payload.roundSummaries, recordBase.roundSummaries,
+        nestedMatch.roundSummaries, modeState.roundSummaries, modeState.rounds, []))),
       totalFlips: Math.max(0, totalFlips),
       eventCounts: clone(firstValue(payload.eventCounts, recordBase.eventCounts,
         nestedMatch.eventCounts, {})),
       startingSettings: startingSettings,
       completionReason: text(firstValue(payload.completionReason, recordBase.completionReason,
         nestedMatch.completionReason), completed ? 'completed' : 'abandoned'),
-      cup: clone(firstValue(payload.cup, recordBase.cup, modeState.cup,
-        String(firstValue(game.format, recordBase.mode)) === 'cup' ? modeState : null)),
-      team: clone(firstValue(payload.team, recordBase.team, modeState.team,
-        String(firstValue(game.format, recordBase.mode)) === 'team-clash' ? modeState : null)),
-      stats: clone(stats), completed: completed,
+      cup: sanitizeNamesDeep(clone(firstValue(payload.cup, recordBase.cup, modeState.cup,
+        String(firstValue(game.format, recordBase.mode)) === 'cup' ? modeState : null))),
+      team: sanitizeNamesDeep(clone(firstValue(payload.team, recordBase.team, modeState.team,
+        String(firstValue(game.format, recordBase.mode)) === 'team-clash' ? modeState : null))),
+      stats: sanitizeNamesDeep(clone(stats)), completed: completed,
     });
+    record = sanitizeNamesDeep(record);
     if (input && input._importId) record._importId = String(input._importId);
     return freeze(record);
   }
@@ -449,13 +493,72 @@
       return key + '=' + JSON.stringify(dimensions[key]);
     }).join('|');
   }
-  function newRollup(dimensions, prefix) {
+  function boundedRollupDimensions(record) {
+    var mode = text(record.mode, 'classic');
+    var objectId = text(record.objectId, null);
+    var eventId = text(record.eventId, null);
+    return {
+      day: record.day != null ? record.day : dayBucket(record.timestamp),
+      mode: ROLLUP_MODES.has(mode) ? mode : 'other',
+      objectId: objectId == null ? null : (ROLLUP_OBJECTS.has(objectId) ? objectId : 'other'),
+      eventId: eventId == null ? null : (ROLLUP_EVENTS.has(eventId) ? eventId : 'other'),
+      testData: !!record.testData,
+    };
+  }
+  function rangedBucket(value, cuts) {
+    var number = finite(value, null);
+    if (number == null) return null;
+    for (var i = 0; i < cuts.length; i++) if (number <= cuts[i]) return String(cuts[i]);
+    return String(cuts[cuts.length - 1]) + '+';
+  }
+  function boundedCounterKey(group, value) {
+    if (value == null) return null;
+    var key = String(value);
+    if (group === 'results') return key === 'MAKE' || key === 'MISS' ? key : 'OTHER';
+    if (group === 'poses') return ['upright','cap','side','inverted','other'].indexOf(key) >= 0 ? key : 'other';
+    if (group === 'landingReasons') {
+      return ['upright','cap','fallen','timeout','unstable','off-table','out-of-bounds','bank-missed',
+        'tractor-ring','automatic-win','automatic-loss'].indexOf(key) >= 0 ? key : 'other';
+    }
+    if (group === 'rotations') {
+      var rotations = Math.max(0, integer(value, 0)); return rotations >= 6 ? '6+' : String(rotations);
+    }
+    if (group === 'seats') {
+      var seat = integer(value, -1); return seat >= 0 && seat <= 7 ? String(seat) : 'other';
+    }
+    if (group === 'playerTypes') return key === 'cpu' ? 'cpu' : 'human';
+    if (group === 'powerDirection') {
+      var pieces = key.split('|');
+      var power = ['<1000','1000-1999','2000-2999','3000-3999','4000+','Unknown'].indexOf(pieces[0]) >= 0
+        ? pieces[0] : 'Unknown';
+      var direction = pieces[1] === '-1' || pieces[1] === '1' ? pieces[1] : 'Unknown';
+      return power + '|' + direction;
+    }
+    if (group === 'playerCounts') {
+      var players = integer(value, 0); return players >= 2 && players <= 8 ? String(players) : 'other';
+    }
+    if (group === 'lives') return rangedBucket(value, [0,1,2,3,5,10,25,50,100]);
+    if (group === 'stakes') return rangedBucket(value, [0,1,2,3,5,10,20,50,100]);
+    if (group === 'streaks') return rangedBucket(value, [0,1,2,3,5,10,20,50]);
+    return key;
+  }
+  function counterIncrement(counters, group, value, amount) {
+    var normalized = boundedCounterKey(group, value);
+    if (normalized == null) return;
+    if (!counters[group]) counters[group] = {};
+    var key = normalized;
+    counters[group][key] = (Number(counters[group][key]) || 0) + (Number(amount) || 0);
+  }
+  function newRollup(dimensions, prefix, partition) {
     var key = dimensionKey(dimensions);
     return {
-      schema: 'FlipAggregateV1', version: 1, uuid: stableUuid('rollup', (prefix || 'retention') + '|' + key),
+      schema: 'FlipAggregateV1', version: 2,
+      uuid: stableUuid('rollup', (prefix || 'retention') + '|' + (partition || 'device') + '|' + key),
       key: key, source: prefix || 'retention', timestampStart: null, timestampEnd: null,
       dimensions: clone(dimensions), flips: 0, makes: 0, caps: 0, perfect: 0,
-      eventObserved: 0, eventSuccesses: 0,
+      upright: 0, eventObserved: 0, eventSuccesses: 0, onFireRuns: 0,
+      flightMsTotal: 0, flightMsCount: 0, settleMsTotal: 0, settleMsCount: 0,
+      bestStreak: 0, counters: {}, makeCounters: {},
     };
   }
   function addRecordToRollup(cell, record) {
@@ -464,13 +567,89 @@
     if (record.made || record.result === 'MAKE') next.makes += 1;
     if (record.cap) next.caps += 1;
     if (record.perfect) next.perfect += 1;
+    if (record.pose === 'upright') next.upright += 1;
     if (record.eventId) {
       next.eventObserved += 1;
       if (record.eventSuccess === true) next.eventSuccesses += 1;
     }
+    if (record.onFireBefore !== true && record.onFireAfter === true) next.onFireRuns += 1;
+    if (finite(record.flightMs, null) != null) { next.flightMsTotal += Number(record.flightMs); next.flightMsCount += 1; }
+    if (finite(record.settleMs, null) != null) { next.settleMsTotal += Number(record.settleMs); next.settleMsCount += 1; }
+    next.bestStreak = Math.max(Number(next.bestStreak) || 0, Number(record.streakAfter) || 0);
+    next.counters = next.counters || {};
+    next.makeCounters = next.makeCounters || {};
+    function category(group, value) {
+      counterIncrement(next.counters, group, value, 1);
+      if (record.made) counterIncrement(next.makeCounters, group, value, 1);
+    }
+    category('results', record.result);
+    category('poses', record.pose);
+    category('landingReasons', record.landingReason);
+    category('powerDirection', (powerBucket(record.power) || 'Unknown') + '|' +
+      (record.direction == null ? 'Unknown' : record.direction));
+    category('rotations', rotationBucket(record.rotations));
+    category('seats', firstValue(record.seat, record.playerIndex));
+    category('playerTypes', record.isAI ? 'cpu' : 'human');
+    category('playerCounts', record.playerCount);
+    category('lives', record.livesAfter);
+    category('stakes', record.stakeAfter);
+    category('streaks', record.streakAfter);
     next.timestampStart = next.timestampStart == null ? record.timestamp : Math.min(next.timestampStart, record.timestamp);
     next.timestampEnd = next.timestampEnd == null ? record.timestamp : Math.max(next.timestampEnd, record.timestamp);
     if (record._importId) next._importId = record._importId;
+    return next;
+  }
+  function addCellToRollup(cell, source) {
+    var next = clone(cell);
+    ['flips','makes','caps','perfect','upright','eventObserved','eventSuccesses','onFireRuns',
+      'flightMsTotal','flightMsCount','settleMsTotal','settleMsCount'].forEach(function (key) {
+      next[key] = (Number(next[key]) || 0) + (Number(source[key]) || 0);
+    });
+    next.bestStreak = Math.max(Number(next.bestStreak) || 0, Number(source.bestStreak) || 0);
+    next.timestampStart = next.timestampStart == null ? source.timestampStart
+      : (source.timestampStart == null ? next.timestampStart : Math.min(next.timestampStart, source.timestampStart));
+    next.timestampEnd = next.timestampEnd == null ? source.timestampEnd
+      : (source.timestampEnd == null ? next.timestampEnd : Math.max(next.timestampEnd, source.timestampEnd));
+    next.counters = next.counters || {};
+    next.makeCounters = next.makeCounters || {};
+    var counters = source.counters || {};
+    Object.keys(counters).forEach(function (group) {
+      Object.keys(counters[group] || {}).forEach(function (key) {
+        counterIncrement(next.counters, group, key, counters[group][key]);
+      });
+    });
+    var makeCounters = source.makeCounters || {};
+    Object.keys(makeCounters).forEach(function (group) {
+      Object.keys(makeCounters[group] || {}).forEach(function (key) {
+        counterIncrement(next.makeCounters, group, key, makeCounters[group][key]);
+      });
+    });
+    // Migrate revision-1 high-cardinality cells without retaining their keys.
+    if (!source.counters) {
+      var dim = source.dimensions || {};
+      function oldCategory(group, value) {
+        counterIncrement(next.counters, group, value, source.flips);
+        counterIncrement(next.makeCounters, group, value, source.makes);
+      }
+      oldCategory('results', dim.result);
+      oldCategory('poses', dim.pose);
+      oldCategory('landingReasons', dim.landingReason);
+      oldCategory('powerDirection', (dim.powerBucket || 'Unknown') + '|' +
+        (dim.direction == null ? 'Unknown' : dim.direction));
+      oldCategory('rotations', dim.rotationBucket);
+      oldCategory('seats', firstValue(dim.seat, dim.playerIndex));
+      oldCategory('playerTypes', dim.isAI ? 'cpu' : 'human');
+      oldCategory('playerCounts', dim.playerCount);
+      oldCategory('lives', dim.livesAfter);
+      oldCategory('stakes', firstValue(dim.stakeAfter, dim.stake));
+      oldCategory('streaks', firstValue(dim.streakAfter, dim.streak));
+      next.upright += dim.pose === 'upright' ? Number(source.flips) || 0 : 0;
+      next.onFireRuns += dim.onFireBefore !== true && dim.onFireAfter === true ? Number(source.flips) || 0 : 0;
+      if (finite(dim.flightMs, null) != null) { next.flightMsTotal += Number(dim.flightMs) * (Number(source.flips) || 0); next.flightMsCount += Number(source.flips) || 0; }
+      if (finite(dim.settleMs, null) != null) { next.settleMsTotal += Number(dim.settleMs) * (Number(source.flips) || 0); next.settleMsCount += Number(source.flips) || 0; }
+      next.bestStreak = Math.max(next.bestStreak, Number(firstValue(dim.streakAfter, dim.streak)) || 0);
+    }
+    if (source._importId) next._importId = source._importId;
     return next;
   }
   function aggregateRecords(records, options) {
@@ -478,14 +657,58 @@
     var map = new Map();
     var passthrough = [];
     (Array.isArray(opts.existing) ? opts.existing : []).forEach(function (cell) {
-      if (cell.source !== (opts.prefix || 'retention')) { passthrough.push(clone(cell)); return; }
-      map.set(cell.key || dimensionKey(cell.dimensions || {}), clone(cell));
+      if (cell.schema === 'MatchAggregateV1' || cell.source !== (opts.prefix || 'retention')) {
+        passthrough.push(clone(cell)); return;
+      }
+      var dimensions = boundedRollupDimensions(cell.dimensions || {});
+      var partition = cell._importId || 'device';
+      var mapKey = partition + '|' + dimensionKey(dimensions);
+      var target = map.get(mapKey) || newRollup(dimensions, opts.prefix, partition);
+      map.set(mapKey, addCellToRollup(target, cell));
     });
     (Array.isArray(records) ? records : []).forEach(function (record) {
-      var dimensions = dimensionFor(record);
-      var key = dimensionKey(dimensions);
-      var cell = map.get(key) || newRollup(dimensions, opts.prefix);
+      var dimensions = boundedRollupDimensions(record);
+      var partition = record._importId || 'device';
+      var key = partition + '|' + dimensionKey(dimensions);
+      var cell = map.get(key) || newRollup(dimensions, opts.prefix, partition);
       map.set(key, addRecordToRollup(cell, record));
+    });
+    return passthrough.concat(Array.from(map.values())).map(freeze);
+  }
+
+  function aggregateMatches(records, options) {
+    var opts = options || {};
+    var prefix = opts.prefix || 'fallback-matches';
+    var map = new Map();
+    var passthrough = [];
+    (Array.isArray(opts.existing) ? opts.existing : []).forEach(function (cell) {
+      if (cell.schema !== 'MatchAggregateV1' || cell.source !== prefix) {
+        passthrough.push(clone(cell)); return;
+      }
+      map.set(cell.key, clone(cell));
+    });
+    (Array.isArray(records) ? records : []).forEach(function (record) {
+      var dimensions = {
+        day: dayBucket(record.timestamp), mode: text(record.mode, 'classic'), testData: !!record.testData,
+      };
+      var partition = record._importId || 'device';
+      var key = partition + '|' + dimensionKey(dimensions);
+      var cell = map.get(key) || {
+        schema: 'MatchAggregateV1', version: 1,
+        uuid: stableUuid('match-rollup', prefix + '|' + key), key: key, source: prefix,
+        timestampStart: null, timestampEnd: null, dimensions: dimensions,
+        matches: 0, cups: 0, teamMatches: 0, teamWins: 0,
+      };
+      cell.matches += 1;
+      if (record.mode === 'cup' || record.cup) cell.cups += 1;
+      if (record.mode === 'team-clash' || record.mode === 'team' || record.team) {
+        cell.teamMatches += 1;
+        if (record.winnerTeamId != null || (record.winner && record.winner.teamId != null)) cell.teamWins += 1;
+      }
+      cell.timestampStart = cell.timestampStart == null ? record.timestamp : Math.min(cell.timestampStart, record.timestamp);
+      cell.timestampEnd = cell.timestampEnd == null ? record.timestamp : Math.max(cell.timestampEnd, record.timestamp);
+      if (record._importId) cell._importId = record._importId;
+      map.set(key, cell);
     });
     return passthrough.concat(Array.from(map.values())).map(freeze);
   }
@@ -513,7 +736,9 @@
     if (playerType === 'human') aiFilter = false;
     if (playerType === 'cpu') aiFilter = true;
     return freeze({
-      includeTestData: source.includeTestData === true, scope: scopes[0], scopes: scopes,
+      includeTestData: source.includeTestData === true,
+      includeTestEventNames: source.includeTestEventNames === true,
+      scope: scopes[0], scopes: scopes,
       from: firstValue(source.from, source.dateFrom) == null ? null : timestamp(firstValue(source.from, source.dateFrom)),
       to: firstValue(source.to, source.dateTo) == null ? null : timestamp(firstValue(source.to, source.dateTo)),
       sessionIds: listFilter(source.sessionIds != null ? source.sessionIds : source.sessionId),
@@ -542,7 +767,7 @@
     return filter.scopes.some(function (scope) {
       if (scope === 'import') return !!record._importId;
       if (scope === 'session') return !record._importId && record.sessionId === filter.currentSessionId;
-      if (scope === 'device') return !record._importId && (!filter.currentDeviceId || record.deviceId === filter.currentDeviceId);
+      if (scope === 'device') return !record._importId && (!filter.currentDeviceId || record.deviceId == null || record.deviceId === filter.currentDeviceId);
       return false;
     });
   }
@@ -637,7 +862,9 @@
     var filter = normalizeFilters(filters);
     var flips = (data.flips || []).filter(function (record) { return matchesRecord(record, filter); });
     var matches = (data.matches || []).filter(function (record) { return matchesRecord(record, filter); });
-    var rollups = (data.rollups || data.aggregates || []).filter(function (cell) { return matchesRollup(cell, filter); });
+    var rollups = (data.rollups || data.aggregates || []).filter(function (cell) {
+      return cell.schema !== 'MatchAggregateV1' && matchesRollup(cell, filter);
+    });
     var contributions = flips.map(function (record) {
       return { timestamp: record.timestamp, dimensions: dimensionFor(record), flips: 1,
         makes: record.made ? 1 : 0, eventObserved: record.eventId ? 1 : 0,
@@ -646,7 +873,8 @@
     }).concat(rollups.map(function (cell) {
       return { timestamp: cell.timestampEnd, dimensions: cell.dimensions || {}, flips: cell.flips || 0,
         makes: cell.makes || 0, eventObserved: cell.eventObserved || 0,
-        eventSuccesses: cell.eventSuccesses || 0, rolledUp: true, uuid: cell.uuid, sequence: null };
+        eventSuccesses: cell.eventSuccesses || 0, rolledUp: true, uuid: cell.uuid, sequence: null,
+        counters: cell.counters || {}, makeCounters: cell.makeCounters || {} };
     }));
     contributions.sort(function (a, b) { return a.timestamp - b.timestamp; });
     var cumulativeFlips = 0;
@@ -666,7 +894,8 @@
         heat: record.heat, round: record.round, turn: record.turn,
         playerId: record.playerId, seat: record.seat, playerCount: record.playerCount,
         result: record.result, made: record.made, pose: record.pose,
-        eventId: record.eventId, objectId: record.objectId, variantId: record.variantId });
+        eventId: record.testData && !filter.includeTestEventNames ? null : record.eventId,
+        objectId: record.objectId, variantId: record.variantId });
     });
     var heat = metricMap();
     var rotations = metricMap();
@@ -681,13 +910,30 @@
     var streakTimeline = [];
     contributions.forEach(function (entry) {
       var dim = entry.dimensions;
-      metricAdd(heat, (dim.powerBucket || 'Unknown') + '|' + (dim.direction == null ? 'Unknown' : dim.direction), entry.flips, entry.makes,
-        { powerBucket: dim.powerBucket, direction: dim.direction });
-      metricAdd(rotations, dim.rotationBucket, entry.flips, entry.makes);
-      metricAdd(reasons, dim.landingReason, entry.flips, entry.makes);
-      metricAdd(lives, dim.livesAfter, entry.flips, entry.makes);
-      metricAdd(stakes, dim.stake, entry.flips, entry.makes);
-      metricAdd(streaks, dim.streak, entry.flips, entry.makes);
+      if (entry.rolledUp && entry.counters) {
+        function addCounterRows(group, target, extraForKey) {
+          Object.keys(entry.counters[group] || {}).forEach(function (key) {
+            metricAdd(target, key, entry.counters[group][key],
+              entry.makeCounters[group] && entry.makeCounters[group][key], extraForKey ? extraForKey(key) : null);
+          });
+        }
+        addCounterRows('powerDirection', heat, function (key) {
+          var parts = key.split('|'); return { powerBucket: parts[0], direction: parts[1] === 'Unknown' ? null : Number(parts[1]) };
+        });
+        addCounterRows('rotations', rotations);
+        addCounterRows('landingReasons', reasons);
+        addCounterRows('lives', lives);
+        addCounterRows('stakes', stakes);
+        addCounterRows('streaks', streaks);
+      } else {
+        metricAdd(heat, (dim.powerBucket || 'Unknown') + '|' + (dim.direction == null ? 'Unknown' : dim.direction), entry.flips, entry.makes,
+          { powerBucket: dim.powerBucket, direction: dim.direction });
+        metricAdd(rotations, dim.rotationBucket, entry.flips, entry.makes);
+        metricAdd(reasons, dim.landingReason, entry.flips, entry.makes);
+        metricAdd(lives, dim.livesAfter, entry.flips, entry.makes);
+        metricAdd(stakes, dim.stake, entry.flips, entry.makes);
+        metricAdd(streaks, dim.streak, entry.flips, entry.makes);
+      }
       metricAdd(objects, dim.objectId, entry.flips, entry.makes);
       if (dim.livesBefore != null || dim.livesAfter != null) livesTimeline.push(freeze({
         uuid: entry.uuid, timestamp: entry.timestamp, before: dim.livesBefore, after: dim.livesAfter,
@@ -704,7 +950,7 @@
         onFireAfter: dim.onFireAfter, count: entry.flips, playerId: dim.playerId,
         rolledUp: entry.rolledUp,
       }));
-      if (dim.eventId && entry.eventObserved > 0) {
+      if (dim.eventId && entry.eventObserved > 0 && (!dim.testData || filter.includeTestEventNames)) {
         var eventRow = events.get(dim.eventId) || { eventId: dim.eventId, observed: 0, successes: 0 };
         eventRow.observed += entry.eventObserved;
         eventRow.successes += entry.eventSuccesses;
@@ -759,19 +1005,51 @@
 
   function aggregateSummary(data, filters) {
     var filter = normalizeFilters(filters);
-    var flips = 0, makes = 0, caps = 0, perfect = 0;
+    var flips = 0, makes = 0, caps = 0, perfect = 0, upright = 0, events = 0;
+    var onFireRuns = 0, bestStreak = 0, flightMsTotal = 0, flightMsCount = 0;
+    var settleMsTotal = 0, settleMsCount = 0;
     (data.flips || []).forEach(function (record) {
       if (!matchesRecord(record, filter)) return;
       flips++; if (record.made) makes++; if (record.cap) caps++; if (record.perfect) perfect++;
+      if (record.pose === 'upright') upright++;
+      if (record.eventId && (!record.testData || filter.includeTestEventNames)) events++;
+      if (record.onFireBefore !== true && record.onFireAfter === true) onFireRuns++;
+      bestStreak = Math.max(bestStreak, Number(record.streakAfter) || 0);
+      if (finite(record.flightMs, null) != null) { flightMsTotal += Number(record.flightMs); flightMsCount++; }
+      if (finite(record.settleMs, null) != null) { settleMsTotal += Number(record.settleMs); settleMsCount++; }
     });
     (data.rollups || []).forEach(function (cell) {
+      if (cell.schema === 'MatchAggregateV1') return;
       if (!matchesRollup(cell, filter)) return;
       flips += cell.flips || 0; makes += cell.makes || 0; caps += cell.caps || 0; perfect += cell.perfect || 0;
+      upright += cell.upright || 0;
+      if (!cell.dimensions || !cell.dimensions.testData || filter.includeTestEventNames) events += cell.eventObserved || 0;
+      onFireRuns += cell.onFireRuns || 0;
+      bestStreak = Math.max(bestStreak, Number(cell.bestStreak) || 0);
+      flightMsTotal += Number(cell.flightMsTotal) || 0; flightMsCount += Number(cell.flightMsCount) || 0;
+      settleMsTotal += Number(cell.settleMsTotal) || 0; settleMsCount += Number(cell.settleMsCount) || 0;
     });
-    var matches = (data.matches || []).filter(function (record) { return matchesRecord(record, filter); }).length;
+    var matchedMatches = (data.matches || []).filter(function (record) { return matchesRecord(record, filter); });
+    var matches = matchedMatches.length;
+    var cups = matchedMatches.filter(function (record) { return record.mode === 'cup' || record.cup; }).length;
+    var teamWins = matchedMatches.filter(function (record) {
+      return (record.mode === 'team-clash' || record.mode === 'team' || record.team) &&
+        (record.winnerTeamId != null || (record.winner && record.winner.teamId != null));
+    }).length;
+    (data.rollups || []).forEach(function (cell) {
+      if (cell.schema !== 'MatchAggregateV1' || !matchesRollup(cell, filter)) return;
+      matches += Number(cell.matches) || 0;
+      cups += Number(cell.cups) || 0;
+      teamWins += Number(cell.teamWins) || 0;
+    });
     return freeze({ flips: flips, makes: makes, misses: Math.max(0, flips - makes), makeRate: flips ? makes / flips : 0,
       makePercentage: flips ? makes / flips * 100 : 0,
-      caps: caps, perfect: perfect, matches: matches });
+      fraction: makes + '/' + flips, sampleSize: flips,
+      upright: upright, caps: caps, perfect: perfect,
+      bestStreak: bestStreak, onFireRuns: onFireRuns, matches: matches,
+      cups: cups, teamWins: teamWins, events: events,
+      averageFlightMs: flightMsCount ? flightMsTotal / flightMsCount : 0,
+      averageSettleMs: settleMsCount ? settleMsTotal / settleMsCount : 0 });
   }
 
   function requestPromise(request) {
@@ -827,6 +1105,7 @@
         (operation.deleteFlipIds || []).forEach(function (uuid) { tx.objectStore('flips').delete(uuid); });
         (operation.putMatches || []).forEach(function (record) { tx.objectStore('matches').put(clone(record)); });
         (operation.putRollups || []).forEach(function (record) { tx.objectStore('rollups').put(clone(record)); });
+        (operation.deleteRollupIds || []).forEach(function (uuid) { tx.objectStore('rollups').delete(uuid); });
         (operation.putMeta || []).forEach(function (record) { tx.objectStore('meta').put(clone(record)); });
         (operation.putSeen || []).forEach(function (record) { tx.objectStore('seen').put(clone(record)); });
         return transactionPromise(tx);
@@ -862,6 +1141,7 @@
       (operation.deleteFlipIds || []).forEach(function (uuid) { next.flips.delete(uuid); });
       (operation.putMatches || []).forEach(function (row) { next.matches.set(row.uuid, clone(row)); });
       (operation.putRollups || []).forEach(function (row) { next.rollups.set(row.uuid, clone(row)); });
+      (operation.deleteRollupIds || []).forEach(function (uuid) { next.rollups.delete(uuid); });
       (operation.putMeta || []).forEach(function (row) { next.meta.set(row.key, clone(row)); });
       (operation.putSeen || []).forEach(function (row) { next.seen.set(row.uuid, clone(row)); });
       data = next;
@@ -903,9 +1183,12 @@
   function exportDocument(data, options) {
     var opts = options || {};
     var filter = normalizeFilters(Object.assign({}, opts, opts.filters || {}));
-    var flips = (data.flips || []).filter(function (row) { return matchesRecord(row, filter); }).map(cleanInternal);
-    var matches = (data.matches || []).filter(function (row) { return matchesRecord(row, filter); }).map(cleanInternal);
-    var rollups = (data.rollups || []).filter(function (row) { return matchesRollup(row, filter); }).map(cleanInternal);
+    var flips = (data.flips || []).filter(function (row) { return matchesRecord(row, filter); })
+      .map(function (row) { return sanitizeNamesDeep(cleanInternal(row)); });
+    var matches = (data.matches || []).filter(function (row) { return matchesRecord(row, filter); })
+      .map(function (row) { return sanitizeNamesDeep(cleanInternal(row)); });
+    var rollups = (data.rollups || []).filter(function (row) { return matchesRollup(row, filter); })
+      .map(function (row) { return sanitizeNamesDeep(cleanInternal(row)); });
     return freeze({ schema: EXPORT_SCHEMA, version: 1,
       exportedAt: timestamp(opts.exportedAt, Date.now()), flips: flips, matches: matches, rollups: rollups });
   }
@@ -926,7 +1209,7 @@
         !Array.isArray(document.flips) || !Array.isArray(document.matches) || !Array.isArray(document.rollups)) {
       throw new TypeError('Invalid .flipstats.json document');
     }
-    return document;
+    return sanitizeNamesDeep(document);
   }
   function csvCell(value) {
     var raw = value == null ? '' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
@@ -969,11 +1252,16 @@
   function exportCSV(data, type, options) {
     var opts = options || {};
     var filter = normalizeFilters(Object.assign({}, opts, opts.filters || {}));
-    var source = { flips: (data.flips || []).filter(function (row) { return matchesRecord(row, filter); }),
-      matches: (data.matches || []).filter(function (row) { return matchesRecord(row, filter); }),
-      rollups: (data.rollups || []).filter(function (row) { return matchesRollup(row, filter); }) };
+    var source = {
+      flips: (data.flips || []).filter(function (row) { return matchesRecord(row, filter); })
+        .map(function (row) { return sanitizeNamesDeep(row); }),
+      matches: (data.matches || []).filter(function (row) { return matchesRecord(row, filter); })
+        .map(function (row) { return sanitizeNamesDeep(row); }),
+      rollups: (data.rollups || []).filter(function (row) { return matchesRollup(row, filter); })
+        .map(function (row) { return sanitizeNamesDeep(row); }),
+    };
     var aliases = playerAliases(source);
-    var showName = function (id, name) { return opts.includeNames === true ? text(name, '') : (aliases.get(String(id)) || 'Player'); };
+    var showName = function (id, name) { return opts.includeNames === true ? safeName(name, 'Player') : (aliases.get(String(id)) || 'Player'); };
     if (type === 'flip') {
       var flipColumns = ['schema','version','releaseVersion','uuid','timestamp','sessionId','deviceId','matchId','sequence',
         'scope','mode','heat','round','turn','playerCount','playerId','player','playerIndex','seat','isAI','teamId',
@@ -1047,13 +1335,28 @@
     var closed = false;
     var state = { flips: [], matches: [], rollups: [], meta: [], seen: [] };
     var errors = [];
+    var warningListeners = [];
+    var warning = usingFallback ? FALLBACK_WARNING : null;
 
     function report(error) {
       errors.push(error);
       if (typeof opts.onError === 'function') { try { opts.onError(error); } catch (_) {} }
     }
+    function publishWarning() {
+      if (!warning) return;
+      var detail = freeze(clone(warning));
+      warningListeners.slice().forEach(function (listener) {
+        Promise.resolve().then(function () { try { listener(detail); } catch (_) {} });
+      });
+      if (root && typeof root.dispatchEvent === 'function' && typeof root.CustomEvent === 'function') {
+        Promise.resolve().then(function () {
+          try { root.dispatchEvent(new root.CustomEvent('flipgame:stats-warning', { detail: detail })); } catch (_) {}
+        });
+      }
+    }
     function fallbackState() {
       var current = aggregateRecords(state.flips, { prefix: 'fallback-' + deviceId, existing: state.rollups });
+      current = aggregateMatches(state.matches, { prefix: 'fallback-matches-' + deviceId, existing: current });
       return { schema: 'FlipStatsFallbackV1', version: 1, rollups: current.map(clone),
         seen: state.seen.map(clone), meta: state.meta.map(clone), savedAt: now() };
     }
@@ -1064,8 +1367,10 @@
     function activateFallback(error, deferPersist) {
       if (error) report(error);
       usingFallback = true;
+      warning = FALLBACK_WARNING;
       backend = createMemoryBackend(state);
       if (!deferPersist) persistFallback();
+      publishWarning();
     }
     function normalizeLoaded(loaded) {
       state.flips = (loaded.flips || []).map(function (row) { return normalizeFlipRecord(row, context()); });
@@ -1075,6 +1380,9 @@
       var seenMap = new Map((loaded.seen || []).map(function (row) { return [row.uuid, row]; }));
       state.flips.forEach(function (row) {
         if (!seenMap.has(row.uuid)) seenMap.set(row.uuid, { uuid: row.uuid, kind: 'flip' });
+      });
+      state.matches.forEach(function (row) {
+        if (!seenMap.has(row.uuid)) seenMap.set(row.uuid, { uuid: row.uuid, kind: 'match' });
       });
       state.seen = Array.from(seenMap.values()).map(function (row) { return freeze(clone(row)); });
     }
@@ -1111,7 +1419,9 @@
       if (lacksIndexedDB) hydrateLocalFallback();
     }).catch(function (error) {
       activateFallback(error, true); hydrateLocalFallback();
-    }).then(migrateLegacy);
+    }).then(migrateLegacy).then(function () {
+      if (usingFallback) { persistFallback(); publishWarning(); }
+    });
     var queue = ready;
     function enqueue(work) {
       var result = queue.then(function () {
@@ -1127,15 +1437,20 @@
       var remove = nextFlips.length > maxRaw ? nextFlips.slice(0, nextFlips.length - maxRaw) : [];
       var keep = remove.length ? nextFlips.slice(remove.length) : nextFlips;
       var rollups = remove.length ? aggregateRecords(remove, { prefix: 'retention', existing: state.rollups }) : state.rollups.slice();
+      var previousRollups = new Map(state.rollups.map(function (row) { return [row.uuid, JSON.stringify(row)]; }));
+      var changedRollups = remove.length ? rollups.filter(function (row) {
+        return row.source === 'retention' && previousRollups.get(row.uuid) !== JSON.stringify(row);
+      }) : [];
       var seen = freeze({ uuid: record.uuid, kind: 'flip' });
       return { state: { flips: keep, matches: state.matches.slice(), rollups: rollups, meta: state.meta.slice(), seen: state.seen.concat([seen]) },
         db: { putFlips: [record], deleteFlipIds: remove.map(function (row) { return row.uuid; }),
-          putRollups: remove.length ? rollups : [], putSeen: [seen] } };
+          putRollups: changedRollups, putSeen: [seen] } };
     }
     function operationForMatch(record) {
-      if (state.matches.some(function (row) { return row.uuid === record.uuid; })) return null;
-      return { state: { flips: state.flips.slice(), matches: state.matches.concat([record]), rollups: state.rollups.slice(), meta: state.meta.slice(), seen: state.seen.slice() },
-        db: { putMatches: [record] } };
+      if (state.seen.some(function (row) { return row.uuid === record.uuid; })) return null;
+      var seen = freeze({ uuid: record.uuid, kind: 'match' });
+      return { state: { flips: state.flips.slice(), matches: state.matches.concat([record]), rollups: state.rollups.slice(), meta: state.meta.slice(), seen: state.seen.concat([seen]) },
+        db: { putMatches: [record], putSeen: [seen] } };
     }
     function commitMutation(operation, kind, uuid) {
       if (!operation) return Promise.resolve({ stored: false, duplicate: true, uuid: uuid });
@@ -1194,7 +1509,8 @@
       var importId = stableUuid('import', JSON.stringify(document));
       return enqueue(function () {
         var flipIds = new Set(state.seen.map(function (row) { return row.uuid; }));
-        var matchIds = new Set(state.matches.map(function (row) { return row.uuid; }));
+        var matchIds = new Set(state.seen.filter(function (row) { return row.kind === 'match'; })
+          .map(function (row) { return row.uuid; }));
         var rollupIds = new Set(state.rollups.map(function (row) { return row.uuid; }));
         var addedFlips = document.flips.map(function (row) {
           var copy = clone(row); copy._importId = importId; return normalizeFlipRecord(copy, context());
@@ -1203,18 +1519,23 @@
           var copy = clone(row); copy._importId = importId; return normalizeMatchRecord(copy, context());
         }).filter(function (row) { if (matchIds.has(row.uuid)) return false; matchIds.add(row.uuid); return true; });
         var addedRollups = document.rollups.map(function (row) {
-          var copy = clone(row); copy._importId = importId; return freeze(copy);
+          var copy = sanitizeNamesDeep(clone(row)); copy._importId = importId; return freeze(copy);
         }).filter(function (row) { if (!row.uuid || rollupIds.has(row.uuid)) return false; rollupIds.add(row.uuid); return true; });
         var combined = state.flips.concat(addedFlips).sort(function (a, b) { return a.timestamp - b.timestamp || a.uuid.localeCompare(b.uuid); });
         var prune = combined.length > maxRaw ? combined.slice(0, combined.length - maxRaw) : [];
         var kept = prune.length ? combined.slice(prune.length) : combined;
         var combinedRollups = state.rollups.concat(addedRollups);
         if (prune.length) combinedRollups = aggregateRecords(prune, { prefix: 'retention', existing: combinedRollups });
-        var seen = addedFlips.map(function (row) { return freeze({ uuid: row.uuid, kind: 'flip' }); });
+        var seen = addedFlips.map(function (row) { return freeze({ uuid: row.uuid, kind: 'flip' }); })
+          .concat(addedMatches.map(function (row) { return freeze({ uuid: row.uuid, kind: 'match' }); }));
         var next = { flips: kept, matches: state.matches.concat(addedMatches), rollups: combinedRollups,
           meta: state.meta.slice(), seen: state.seen.concat(seen) };
+        var previousRollups = new Map(state.rollups.map(function (row) { return [row.uuid, JSON.stringify(row)]; }));
+        var changedRollups = combinedRollups.filter(function (row) {
+          return previousRollups.get(row.uuid) !== JSON.stringify(row);
+        });
         var operation = { putFlips: addedFlips, deleteFlipIds: prune.map(function (row) { return row.uuid; }),
-          putMatches: addedMatches, putRollups: combinedRollups, putSeen: seen };
+          putMatches: addedMatches, putRollups: changedRollups, putSeen: seen };
         return commitMutation({ state: next, db: operation }, 'import', importId).then(function (result) {
           return Object.assign({}, result, { imported: true, importId: importId,
             flips: addedFlips.length, matches: addedMatches.length, rollups: addedRollups.length,
@@ -1237,6 +1558,13 @@
       flush: function () { return queue; }, query: query, datasets: datasets, summary: summary,
       exportJSON: storeExportJSON, exportCSV: storeExportCSV, importJSON: importJSON, close: close,
       usingFallback: function () { return usingFallback; }, getErrors: function () { return errors.slice(); },
+      getWarning: function () { return warning ? clone(warning) : null; },
+      onWarning: function (listener) {
+        if (typeof listener !== 'function') throw new TypeError('Warning listener must be a function');
+        warningListeners.push(listener);
+        if (warning) Promise.resolve().then(function () { if (warningListeners.indexOf(listener) >= 0) listener(freeze(clone(warning))); });
+        return function () { warningListeners = warningListeners.filter(function (entry) { return entry !== listener; }); };
+      },
     });
   }
 
@@ -1250,11 +1578,13 @@
   var api = {
     schema: 'FlipgameStatsModuleV1', version: 1, DB_NAME: DB_NAME, DB_VERSION: DB_VERSION,
     EXPORT_SCHEMA: EXPORT_SCHEMA, FALLBACK_KEY: FALLBACK_KEY, DEVICE_KEY: DEVICE_KEY,
+    FALLBACK_WARNING: FALLBACK_WARNING,
     FLIP_RECORD_FIELDS: FLIP_RECORD_FIELDS, MATCH_RECORD_FIELDS: MATCH_RECORD_FIELDS,
     FILTER_FIELDS: FILTER_FIELDS,
     MAX_RAW_FLIPS: MAX_RAW_FLIPS,
     stableUuid: stableUuid, normalizeFlipRecord: normalizeFlipRecord, normalizeMatchRecord: normalizeMatchRecord,
-    normalizeFilters: normalizeFilters, aggregateRecords: aggregateRecords, buildDatasets: buildDatasets,
+    normalizeFilters: normalizeFilters, aggregateRecords: aggregateRecords, aggregateMatches: aggregateMatches,
+    buildDatasets: buildDatasets,
     aggregateSummary: aggregateSummary, createIndexedDBBackend: createIndexedDBBackend,
     createMemoryBackend: createMemoryBackend, createStore: createStore,
     exportDocument: exportDocument, exportJSON: exportJSON, parseImportJSON: parseImportJSON,

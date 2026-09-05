@@ -30,7 +30,7 @@ function session(selfId, hostId = ids[0]) {
 }
 
 function accept(peer, envelope, label) {
-  const received = peer.receive(envelope);
+  const received = peer.receive(envelope, envelope.senderId);
   assert.equal(received.ok, true, `${label || envelope.type}: ${received.code}`);
   return received.envelope;
 }
@@ -40,6 +40,10 @@ function testMultiPeerAuthorityAndOrdering() {
   const start = host.start({ defs, direction: 1, startingLives: 10 });
   assert.match(start.matchId, /^m_[a-f0-9]{32}$/);
   assert.equal(start.matchId, host.snapshot().matchId, 'host issues and adopts the match id');
+  assert.equal(second.receive(start).code, 'unauthenticated-sender',
+    'envelope sender fields alone never authenticate a message');
+  assert.equal(second.receive(start, ids[1]).code, 'unauthenticated-sender',
+    'a verified transport identity must exactly match the envelope sender');
   accept(second, start);
   accept(third, start);
 
@@ -49,14 +53,14 @@ function testMultiPeerAuthorityAndOrdering() {
   assert.equal(flick.payload.flickBinding, Protocol.flickBinding(42, 12.5, -2400));
   accept(second, flick);
   accept(third, flick);
-  assert.equal(second.receive(flick).code, 'duplicate-or-stale', 'duplicate flick is rejected');
+  assert.equal(second.receive(flick, flick.senderId).code, 'duplicate-or-stale', 'duplicate flick is rejected');
 
   const result = host.result({
     playerId: ids[0], result: 'MAKE', info: { reason: 'upright', tilt: undefined },
   });
   const wrongSeed = clone(result);
   wrongSeed.payload.flickSeed++;
-  assert.equal(second.receive(wrongSeed).code, 'result-binding-mismatch');
+  assert.equal(second.receive(wrongSeed, wrongSeed.senderId).code, 'result-binding-mismatch');
   accept(second, result, 'correct bound result after rejected tamper');
   accept(third, result);
 
@@ -75,7 +79,7 @@ function testMultiPeerAuthorityAndOrdering() {
     playerId: ids[0], vx: 0, vy: -2000, seed: 7,
     flickBinding: Protocol.flickBinding(7, 0, -2000),
   };
-  assert.equal(second.receive(spoof).code, 'not-current-player');
+  assert.equal(second.receive(spoof, spoof.senderId).code, 'not-current-player');
   accept(third, ordinary, 'untampered control keeps the third peer in sequence');
 
   const flick2 = second.flick({ playerId: ids[1], vx: -25, vy: -2300, seed: 99 });
@@ -84,23 +88,23 @@ function testMultiPeerAuthorityAndOrdering() {
   const result2 = second.result({ playerId: ids[1], result: 'MISS', info: { reason: 'fallen' } });
   const wrongFlip = clone(result2);
   wrongFlip.flipId = 1;
-  assert.equal(host.receive(wrongFlip).code, 'result-binding-mismatch');
+  assert.equal(host.receive(wrongFlip, wrongFlip.senderId).code, 'result-binding-mismatch');
   accept(host, result2);
   accept(third, result2);
 
   // Exact per-sender sequence order is required after the first observed packet.
   const ping3 = host.control('ping', {});
   const ping4 = host.control('ping', {});
-  assert.equal(third.receive(ping4).code, 'out-of-order');
+  assert.equal(third.receive(ping4, ping4.senderId).code, 'out-of-order');
   accept(third, ping3);
   accept(third, ping4);
-  assert.equal(third.receive(ping3).code, 'duplicate-or-stale');
+  assert.equal(third.receive(ping3, ping3.senderId).code, 'duplicate-or-stale');
 
   host.setTurn({ playerId: ids[2], turnId: 3 });
   third.setTurn({ playerId: ids[2], turnId: 3 });
   const staleTurn = clone(third.flick({ playerId: ids[2], vx: 0, vy: -2200, seed: 5 }));
   staleTurn.turnId = 2;
-  assert.equal(host.receive(staleTurn).code, 'wrong-turn');
+  assert.equal(host.receive(staleTurn, staleTurn.senderId).code, 'wrong-turn');
 }
 
 function testReconnectResumeSnapshot() {
@@ -141,6 +145,13 @@ function policyRoot(validate) {
   };
 }
 
+function authenticatedNet(root) {
+  return Net.create({
+    root, protocol: Protocol,
+    authenticateSender({ transportIdentity }) { return transportIdentity; },
+  });
+}
+
 function testNamePolicyOnSendAndReceive() {
   const contexts = [];
   const validate = (value, context) => {
@@ -148,7 +159,7 @@ function testNamePolicyOnSendAndReceive() {
     if (value === 'blocked') return { valid: false, code: 'screened' };
     return { valid: true, value: String(value).normalize('NFKC').trim() };
   };
-  const net = Net.create({ root: policyRoot(validate), protocol: Protocol });
+  const net = authenticatedNet(policyRoot(validate));
   assert.throws(() => net.bindMatchState({ capture: true }), /capture\/restore/);
   const bound = net.bindMatchState({ capture: () => ({ players: [] }) });
   assert.equal(typeof bound.capture, 'function');
@@ -157,10 +168,7 @@ function testNamePolicyOnSendAndReceive() {
   assert.ok(contexts.some((context) => context.source === 'network-send'));
   assert.ok(contexts.some((context) => context.source === 'network-receive'));
 
-  const malformed = Net.create({
-    root: policyRoot(() => null),
-    protocol: Protocol,
-  });
+  const malformed = authenticatedNet(policyRoot(() => null));
   assert.equal(malformed._testing.validateName('Anything').valid, false, 'malformed validator output fails closed');
 
   // Exercise the host receive path: an invalid remote name is never stored;
@@ -170,22 +178,27 @@ function testNamePolicyOnSendAndReceive() {
     roster: [{ id: ids[0], name: 'Host', host: true }],
   });
   const attacker = session(ids[1], ids[0]);
-  net._testing.handleMessage(attacker.control('hello', {
+  const rejectedHello = attacker.control('hello', {
     player: { id: ids[1], name: 'blocked', color: 'url(javascript:bad)', skin: '../bad' },
-  }));
+  });
+  net._testing.handleAuthenticatedMessage(rejectedHello, ids[1]);
   const received = net.roster.find((player) => player.id === ids[1]);
-  assert.equal(received.name, 'Player');
-  assert.equal(received.color, '#4fc3f7');
-  assert.equal(received.skin, 'bottle');
+  assert.equal(received, undefined, 'rejected peers never enter or get broadcast in the roster');
 
   // A welcome/roster is also screened, even when it claims to be authoritative.
-  const joiner = Net.create({ root: policyRoot(validate), protocol: Protocol });
+  const joiner = authenticatedNet(policyRoot(validate));
   joiner._testing.setSession({ selfId: ids[2], room: 'TEST', hostId: ids[0], isHost: false, name: 'Third' });
   const host = session(ids[0], ids[0]);
-  joiner._testing.handleMessage(host.control('welcome', {
+  const welcome = host.control('welcome', {
     targetId: ids[2], hostId: ids[0], roster: [{ id: ids[2], name: 'blocked', host: false }],
-  }));
-  assert.equal(joiner.roster[0].name, 'Player');
+  });
+  joiner._testing.handleAuthenticatedMessage(welcome, ids[0]);
+  assert.equal(joiner.roster[0].name, 'Third', 'invalid authoritative roster entries are dropped, not persisted');
+
+  const forged = attacker.control('ping', {});
+  net._testing.handleAuthenticatedMessage(forged, ids[2]);
+  assert.equal(net._testing.protocolSnapshot().inboundSequences[ids[1]], 1,
+    'a transport identity mismatch never advances attacker sequence state');
 }
 
 function testLegacyCompatibilityFailure() {
@@ -195,7 +208,10 @@ function testLegacyCompatibilityFailure() {
   };
   const env = policyRoot((value) => ({ valid: true, value }));
   env.document = fakeDocument;
-  const net = Net.create({ root: env, protocol: Protocol });
+  const publicNet = Net.create({ root: env, protocol: Protocol });
+  assert.equal(publicNet.compatible, false,
+    'public MQTT/BroadcastChannel transports stay unavailable without independent sender authentication');
+  const net = authenticatedNet(env);
   net._testing.setSession({ selfId: ids[0], room: 'TEST', hostId: ids[0], isHost: true });
   let failure;
   net.on('compatibility-failure', (event) => { failure = event; });
