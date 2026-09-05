@@ -249,3 +249,26 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Tests: browser reproduction plus full UI/name/release gates must rerun.
 - Affected owners notified: all three active independent QA specialists; their
   audit baseline advances to the new candidate commit.
+
+## Revision 16 - independent QA rejection and corrective wave
+
+- Trigger: Simulation, State/Data, and Browser/Release QA rejected candidate
+  `58b623b6ccd5a9c1f24fa6f373c48e14c3262f47` with reproducible P1/P2 defects.
+- Release state: deployment is frozen. Revision 15 is not release-eligible.
+- Clarifications: forced-event status is match-latched; stats retention uses
+  bounded aggregate dimensions; NamePolicy guards every data boundary; online
+  stays inaccessible without identity authentication; Practice event-name
+  forcing is complete and Practice-only; Cup Plinko resolves the current heat
+  and permanent magnet survives heat resets.
+- Corrective ownership: Physics/Events owns only physics and registry files;
+  State/Data/Safety owns stats, names, records, and protocol files; UI/Rules
+  owns main/game/modes/progression/styles. Each owner adds adversarial tests in
+  its own suite and reports any required cross-owner interface change.
+- Required test changes: add the exact QA repros for event makeability, Mirror
+  collision isolation, Golden duplication, Cup Plinko, event weighting, Alien
+  viewport calibration, bounded rollups, session Test Data, all NamePolicy
+  boundaries/evasions, online identity, save backup, achievement wiring,
+  secrecy, Stats Lab completeness, touch sizes, and input activation.
+- Integration commit: pending.
+- Affected owners notified: Physics/Events, State/Data/Safety, UI/Rules, and all
+  three independent QA specialists.

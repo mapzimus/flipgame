@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 15
+Contract revision: 16
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -21,7 +21,10 @@ affected specialist continues.
 - No public telemetry or third-party analytics ships in v111. Detailed stats
   are device-local and exportable.
 - Forced/test play never awards progression or achievements and is excluded
-  from default statistics.
+  from default statistics. Once any event is forced, Test Data status remains
+  latched for the whole match/session and its MatchRecord.
+- Online remains inaccessible in v111 unless sender identity is authenticated
+  independently of fields asserted by the incoming envelope.
 
 ## Gameplay contracts
 
@@ -135,6 +138,9 @@ cap-toss:5500, life-drain:6000`.
   detail is rolled into permanent aggregates before pruning.
 - Stats instrumentation observes results and never advances RNG or affects
   physics, scoring, or turn order.
+- Retention rollups contain bounded categorical dimensions only (day, mode,
+  object, and event plus aggregate counters); per-flip IDs, seeds, timings, and
+  mutable game state never become rollup keys.
 - Stats Lab shows observed counts, fractions, percentages, and distributions
   only. It does not show theoretical odds or undiscovered event names.
 - `.flipstats.json` imports deduplicate by UUID. CSV pseudonymizes players by
@@ -143,6 +149,8 @@ cap-toss:5500, life-drain:6000`.
   removes controls/bidi overrides, collapses whitespace, limits to 14 grapheme
   clusters, checks obfuscations, and returns a generic rename error. Exact
   `Mr. Howe` and event test names are allowlisted.
+- Every persistence, import, export, record, network, Hall of Fame, and Stats
+  path consumes the same `NamePolicy`; invalid input is never persisted.
 - Editing a highlighted blocked name clears only its stale error presentation;
   match start validates the replacement again before persistence or play.
 - Player names are rendered through text nodes or escaping, never unsafe HTML.
