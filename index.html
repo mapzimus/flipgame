@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Bottle Game">
-  <link rel="stylesheet" href="css/style.css?v=110">
+  <link rel="stylesheet" href="css/style.css?v=111">
 </head>
 <body>
   <div id="app-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -54,7 +54,7 @@
           </div>
           <fieldset id="difficulty-group" class="control-group hidden"><legend>CPU difficulty</legend><div class="segment-group segment-three"><label><input type="radio" name="difficulty" value="easy"><span>Easy</span></label><label><input type="radio" name="difficulty" value="medium" checked><span>Medium</span></label><label><input type="radio" name="difficulty" value="hard"><span>Hard</span></label></div></fieldset>
           <fieldset class="control-group"><legend>Mode</legend><div class="segment-group"><label><input type="radio" name="game-mode" value="normal" checked><span>Normal</span></label><label id="insane-mode-option" class="locked-tile" aria-label="Locked"><input id="insane-mode-radio" type="radio" name="game-mode" value="insanity" disabled><span id="insane-mode-label" aria-hidden="true">🔒</span></label></div><p id="insane-mode-note" class="control-summary hidden"></p></fieldset>
-          <fieldset class="control-group"><legend>Arena</legend><select id="arena-profile" aria-label="Arena"><option value="">Standard table</option><option value="crosswind">Crosswind</option><option value="moon-gravity">Moon Gravity</option><option value="gravity-slam">Gravity Slam</option><option value="spring-table">Spring Table</option><option value="slick-table">Slick Table</option></select></fieldset>
+          <input id="arena-profile" type="hidden" value="">
           <label class="check-control"><input type="checkbox" id="flick-feedback-toggle"><span>Show flick feedback</span></label>
           <label class="check-control"><input type="checkbox" id="reduce-motion-toggle"><span>Reduce motion</span></label>
         </section>
@@ -139,30 +139,30 @@
 
   <section id="game-over" class="screen hidden app-shell game-over-screen" data-route="game-over" aria-labelledby="game-over-title"><header class="app-header"><h1 id="game-over-title" tabindex="-1">Match complete</h1></header><main class="app-main game-over-main"><div class="result-hero"><div class="trophy-emoji" aria-hidden="true">🏆</div><div id="winner-name"></div><p id="result-summary"></p></div><div id="cup-series" class="series-markers"></div><section id="arena-draft" class="arena-draft hidden" aria-labelledby="arena-draft-title"><h2 id="arena-draft-title">Choose the next heat arena</h2><p>These modifiers affect every player equally.</p><div id="arena-draft-choices" class="arena-draft-choices" role="radiogroup" aria-label="Next heat arena"></div></section><div id="scoreboard" class="result-grid"></div><section aria-labelledby="this-match-title"><h2 id="this-match-title">This match</h2><div id="game-stats"></div></section><div id="award-notices" aria-live="polite"></div><div id="next-order" class="proposal-panel hidden" aria-live="polite"></div></main><footer class="app-footer result-footer"><button id="rotate-order-btn" type="button" class="secondary-action">Rotate first player</button><button id="shuffle-order-btn" type="button" class="secondary-action">Shuffle order</button><button id="swap-teams-btn" type="button" class="secondary-action hidden">Swap teams</button><button id="play-again-btn" type="button" class="primary-action">Same Setup</button><button id="home-btn" type="button" class="secondary-action">Main menu</button></footer></section>
 
-  <div id="version-badge" aria-label="Bottle Game version 110">v110</div>
+  <div id="version-badge" aria-label="Bottle Game version 111">v111</div>
   <script src="js/vendor/matter.min.js"></script>
-  <script src="js/polyfills.js?v=110"></script>
-  <script src="js/v111-interfaces.js?v=110"></script>
-  <script src="js/v111-runtime.js?v=110"></script>
-  <script src="js/v111-name-policy.js?v=110"></script>
-  <script src="js/v111-stats.js?v=110"></script>
-  <script src="js/v111-platform.js?v=110"></script>
-  <script src="js/v111-art-platform.js?v=110"></script>
-  <script src="js/v111-object-manifest.js?v=110"></script>
-  <script src="js/v111-art-reference.js?v=110"></script>
-  <script src="js/v111-art-pack-a.js?v=110"></script>
-  <script src="js/v111-art-pack-b.js?v=110"></script>
-  <script src="js/v111-art-pack-c.js?v=110"></script>
-  <script src="js/v111-bootstrap.js?v=110"></script>
-  <script src="js/v111-content-catalog.js?v=110"></script>
-  <script src="js/v111-cosmetic-catalog.js?v=110"></script>
-  <script src="js/v111-progression.js?v=110"></script>
-  <script src="js/v111-modes.js?v=110"></script>
-  <script src="js/v111-physics-events.js?v=110"></script>
-  <script src="js/v111-mirror-match.js?v=110"></script>
-  <script src="js/game.js?v=110"></script><script src="js/physics.js?v=110"></script><script src="js/input.js?v=110"></script><script src="js/renderer.js?v=110"></script><script src="js/audio.js?v=110"></script><script src="js/settings.js?v=110"></script><script src="js/records.js?v=110"></script><script src="js/achievements.js?v=110"></script><script src="js/cast25.js?v=110"></script><script src="js/skins.js?v=110"></script>
-  <script src="js/v111-network-protocol.js?v=110"></script>
-  <script src="js/net.js?v=110"></script><script src="js/main.js?v=110"></script>
+  <script src="js/polyfills.js?v=111"></script>
+  <script src="js/v111-interfaces.js?v=111"></script>
+  <script src="js/v111-runtime.js?v=111"></script>
+  <script src="js/v111-name-policy.js?v=111"></script>
+  <script src="js/v111-stats.js?v=111"></script>
+  <script src="js/v111-platform.js?v=111"></script>
+  <script src="js/v111-art-platform.js?v=111"></script>
+  <script src="js/v111-object-manifest.js?v=111"></script>
+  <script src="js/v111-art-reference.js?v=111"></script>
+  <script src="js/v111-art-pack-a.js?v=111"></script>
+  <script src="js/v111-art-pack-b.js?v=111"></script>
+  <script src="js/v111-art-pack-c.js?v=111"></script>
+  <script src="js/v111-bootstrap.js?v=111"></script>
+  <script src="js/v111-content-catalog.js?v=111"></script>
+  <script src="js/v111-cosmetic-catalog.js?v=111"></script>
+  <script src="js/v111-progression.js?v=111"></script>
+  <script src="js/v111-modes.js?v=111"></script>
+  <script src="js/v111-physics-events.js?v=111"></script>
+  <script src="js/v111-mirror-match.js?v=111"></script>
+  <script src="js/game.js?v=111"></script><script src="js/physics.js?v=111"></script><script src="js/input.js?v=111"></script><script src="js/renderer.js?v=111"></script><script src="js/audio.js?v=111"></script><script src="js/settings.js?v=111"></script><script src="js/records.js?v=111"></script><script src="js/achievements.js?v=111"></script><script src="js/cast25.js?v=111"></script><script src="js/skins.js?v=111"></script>
+  <script src="js/v111-network-protocol.js?v=111"></script>
+  <script src="js/net.js?v=111"></script><script src="js/main.js?v=111"></script>
   <script>
     window.onerror = (msg, src, line) => { const el = document.getElementById('err-overlay') || (() => { const d = document.createElement('div'); d.id = 'err-overlay'; d.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.9);color:#ff8585;font:16px monospace;padding:20px;z-index:9999;white-space:pre-wrap;overflow:auto'; document.body.appendChild(d); return d; })(); el.textContent += `[${src?.split('/').pop()}:${line}] ${msg}\n`; };
     if ('serviceWorker' in navigator && location.protocol.startsWith('http') && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') { window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').then(reg => reg.update().catch(() => {})).catch(console.error)); let reloadingForWorker = false; navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloadingForWorker) { reloadingForWorker = true; location.reload(); } }); }

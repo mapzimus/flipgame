@@ -207,3 +207,33 @@ interface or behavior changes to the Program Integrator before proceeding.
   suite and all 30 rules/modes cases pass.
 - Integration commit: `357caf7`.
 - Affected owners notified: Physics/Events and UI/Renderer.
+
+## Revision 14 - signed Android storage parity and release shell
+
+- Trigger: release preflight found ephemeral debug signing, missing WebView
+  document transfer, incomplete precaching, and split v110/v111 identifiers.
+- Android: trusted local file inputs use `ACTION_OPEN_DOCUMENT`; bounded Blob
+  exports use a chunked native bridge and `ACTION_CREATE_DOCUMENT`. Content URIs,
+  cancellation, lifecycle cleanup, and Internet permission are covered without
+  broad storage permissions.
+- Signing: one protected persistent PKCS12 key is stored in four repository
+  Actions secrets and decoded only in the ephemeral runner. The workflow builds
+  `assembleRelease`, verifies its certificate, package version, embedded source
+  commit, and SHA-256, then publishes immutable `v111` plus `apk-latest`.
+- Web: badge/query/cache/Android identifiers are unified at v111/111/1.1.1;
+  critical PWA precaching is atomic and includes the complete runtime graph.
+- Cleanup: retired generated raster skins and the public threshold-leaking roster
+  gallery are removed. Maintainer/install documentation now reflects v111.
+- Tests: Android storage, release inventory, atomic cache failure, exact version,
+  UI load order, and all prior suites pass on the candidate.
+- Integration commits: `75b353c`, `c399091`, plus coordinator release commit.
+- Affected owners notified: Android Platform, UI/Renderer, Release Engineering.
+
+## Wave 5 integrated
+
+- Responsive UI/Renderer, full Stats Lab surface, safe names, local records,
+  online protocol hardening, platform lifecycle, Mirror runtime, Physics Lab,
+  cosmetics/arenas, and Android document parity are integrated.
+- UI focused suite: 13 cases. Mirror queue: 12 cases. Android storage and network
+  platform suites pass. Full candidate gate: all 16 script suites and 43 Node
+  test cases pass before independent QA.

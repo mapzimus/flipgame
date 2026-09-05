@@ -54,13 +54,14 @@ test('loader order installs architecture, safety, modes, mirror, network, and pl
   assert.ok(position('v111-mirror-match.js') < position('main.js'));
   assert.ok(position('v111-platform.js') < position('main.js'));
   assert.ok(sources.every((source) => source !== 'js/v111.js'));
-  assert.match(html, /\?v=110/);
-  assert.doesNotMatch(html, /\?v=111/);
+  assert.match(html, /\?v=111/);
+  assert.doesNotMatch(html, /\?v=110/);
 });
 
 test('responsive shell has 48px targets, twelve-column desktop, compact roster, focus and reduced motion', () => {
   assert.match(css, /min-block-size:\s*48px/);
   assert.match(css, /\.setup-layout\s*\{[^}]*grid-template-columns:\s*repeat\(12,/s);
+  assert.match(css, /max-inline-size:\s*1480px/);
   assert.match(css, /\.player-input-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
   assert.match(css, /grid-template-rows:\s*repeat\(4,/);
   assert.match(css, /:focus-visible/);

@@ -2,6 +2,16 @@ plugins {
     id 'com.android.application'
 }
 
+def releaseKeystorePath = System.getenv('ANDROID_KEYSTORE_PATH')
+def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
+def releaseSigningReady = [releaseKeystorePath, releaseStorePassword, releaseKeyAlias,
+                           releaseKeyPassword].every { it != null && !it.isBlank() }
+def releaseTaskRequested = gradle.startParameter.taskNames.any {
+    it.toLowerCase(java.util.Locale.ROOT).contains('release')
+}
+
 android {
     namespace 'com.mapzimus.flipgame'
     compileSdk 34
@@ -10,13 +20,28 @@ android {
         applicationId 'com.mapzimus.flipgame'
         minSdk 24
         targetSdk 34
-        versionCode 110
-        versionName '1.1.0'
+        versionCode 111
+        versionName '1.1.1'
+    }
+
+    signingConfigs {
+        release {
+            if (releaseSigningReady) {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+                storeType 'PKCS12'
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
@@ -24,4 +49,8 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+if (releaseTaskRequested && !releaseSigningReady) {
+    throw new GradleException('Release signing environment is incomplete.')
 }

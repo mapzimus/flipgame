@@ -7,6 +7,53 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
 
+function loadWorker(overrides = {}) {
+  const handlers = {};
+  const context = vm.createContext({
+    console,
+    Promise,
+    caches: overrides.caches || {
+      open: async () => ({ add: async () => {}, match: async () => null, put: async () => {} }),
+      keys: async () => [],
+      delete: async () => true,
+    },
+    fetch: overrides.fetch || (async () => response('network')),
+    self: {
+      addEventListener: (type, handler) => { handlers[type] = handler; },
+      skipWaiting: overrides.skipWaiting || (() => {}),
+      clients: { claim: overrides.claim || (() => {}) },
+    },
+  });
+  vm.runInContext(source, context, { filename: 'service-worker.js' });
+  return handlers;
+}
+
+async function dispatchInstall(options = {}) {
+  let skipped = 0;
+  const added = [];
+  const handlers = loadWorker({
+    caches: {
+      open: async () => ({
+        add: async (url) => {
+          added.push(url);
+          if (url === options.failOn) throw new Error('simulated precache failure');
+        },
+      }),
+      keys: async () => ['flipgame-v110'],
+      delete: async () => { throw new Error('install must not delete old caches'); },
+    },
+    skipWaiting: () => { skipped++; },
+  });
+  let pending;
+  handlers.install({ waitUntil: (promise) => { pending = promise; } });
+  try {
+    await pending;
+    return { rejected: false, skipped, added };
+  } catch (error) {
+    return { rejected: true, skipped, added, error };
+  }
+}
+
 async function dispatchAssetFetch({ exact = null, fallback = null, network = null, offline = false }) {
   const handlers = {};
   const writes = [];
@@ -51,6 +98,16 @@ function response(label) {
 }
 
 async function main() {
+  const completeInstall = await dispatchInstall();
+  assert.equal(completeInstall.rejected, false, 'complete critical precache should install');
+  assert.equal(completeInstall.skipped, 1, 'worker activates only after all critical assets cache');
+  assert.ok(completeInstall.added.includes('./index.html'));
+  assert.ok(completeInstall.added.includes('./js/main.js'));
+
+  const failedInstall = await dispatchInstall({ failOn: './js/main.js' });
+  assert.equal(failedInstall.rejected, true, 'a missing critical asset must reject installation');
+  assert.equal(failedInstall.skipped, 0, 'a partial release must not replace the active worker');
+
   const oldBareAsset = response('v101 bare fallback');
   const freshAsset = response('v102 network');
 

@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 13
+Contract revision: 14
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -161,6 +161,11 @@ cap-toss:5500, life-drain:6000`.
 - `NetworkEnvelopeV2`; reconnect convergence uses the opaque, JSON-safe match
   snapshot registered by `Net.bindMatchState({ capture, restore })`. A peer is
   blocked rather than resumed when authoritative state is unavailable.
+- Android file import/export uses the system Storage Access Framework through
+  the local WebView. It accepts trusted page file inputs and bounded Blob
+  downloads without broad storage permissions. The APK is release-signed by
+  one persistent protected key; v111 establishes the identity used for future
+  in-place upgrades. The legacy disposable-key v110 APK requires one uninstall.
 - `RenderVariant` is immutable
   `{ id, objectId, variantId, label, color, metrics, renderLocal }`; metrics use
   the canonical viewBox, pivot, baseline, and collision mapping above.

@@ -7,7 +7,6 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const index = read('index.html');
-const roster = read('roster.html');
 const worker = read('service-worker.js');
 
 const cacheMatch = worker.match(/CACHE_NAME\s*=\s*'flipgame-v(\d+)'/);
@@ -19,7 +18,7 @@ const expected = cacheMatch[1];
 assert.equal(badgeMatch[1], expected, 'visible badge and service-worker versions differ');
 assert.ok(index.includes(`version ${expected}`), 'version badge accessibility label is stale');
 
-for (const [file, html] of [['index.html', index], ['roster.html', roster]]) {
+for (const [file, html] of [['index.html', index]]) {
   const versions = [...html.matchAll(/\?v=(\d+)/g)].map((match) => match[1]);
   assert.ok(versions.length > 0, `${file} has no versioned assets`);
   assert.deepEqual([...new Set(versions)], [expected], `${file} has mixed asset versions`);
