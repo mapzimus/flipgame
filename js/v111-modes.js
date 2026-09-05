@@ -14,7 +14,7 @@
 
   var SCHEMA = 'FlipgameModeStateV1';
   var VERSION = 1;
-  var CONTRACT_REVISION = 3;
+  var CONTRACT_REVISION = 4;
   var TEAM_COUNTS = Object.freeze([2, 4, 6, 8]);
   var ROULETTE_MULTIPLIERS = Object.freeze([1, 2, 3, 4, 4, 3, 2, 1]);
   var PLINKO_SLOTS = Object.freeze([
@@ -87,6 +87,68 @@
     var match = ARENA_DRAFT_PROFILES.find(function (profile) { return profile.id === profileId; });
     if (!match) throw new RangeError('Arena Draft profile is not competitively eligible: ' + profileId);
     return match;
+  }
+
+  function normalizeDraftSeed(seed) {
+    if (seed == null || seed === '') return 'cup-draft-v111';
+    return String(seed);
+  }
+
+  // FNV-1a provides a small, stable ordering primitive without touching the
+  // gameplay/event random stream (or Math.random). It is not used for physics.
+  function stableHash(value) {
+    var hash = 2166136261;
+    var text = String(value);
+    for (var index = 0; index < text.length; index++) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function draftSeriesSignature(input) {
+    var value = input || {};
+    var results = Array.isArray(value.heatResults) ? value.heatResults : [];
+    return JSON.stringify({
+      cupLength: value.cupLength || 'short',
+      playerCount: Number(value.playerCount) || 0,
+      playerIds: Array.isArray(value.playerIds) ? value.playerIds.map(String) : [],
+      heatNumber: Number(value.heatNumber) || 0,
+      heatWins: Array.isArray(value.heatWins) ? value.heatWins.map(Number) : [],
+      heatResults: results.map(function (result) {
+        return {
+          heatNumber: Number(result.heatNumber) || 0,
+          winnerIndex: Number(result.winnerIndex),
+          openerIndex: Number(result.openerIndex),
+          arenaProfileId: result.arenaProfileId || null,
+        };
+      }),
+      openerIndex: Number(value.openerIndex) || 0,
+    });
+  }
+
+  function createArenaDraftOffer(input) {
+    var value = input || {};
+    var heatNumber = Number(value.heatNumber);
+    if (!Number.isInteger(heatNumber) || heatNumber < 2 || heatNumber > 3) {
+      throw new RangeError('Arena Draft offers exist only between Cup regulation heats');
+    }
+    var seed = normalizeDraftSeed(value.seed);
+    var signature = draftSeriesSignature(value);
+    var choices = ARENA_DRAFT_PROFILES.map(function (profile) {
+      return { profile: profile, score: stableHash(seed + '|' + signature + '|' + profile.id) };
+    }).sort(function (left, right) {
+      return left.score - right.score || left.profile.id.localeCompare(right.profile.id);
+    }).slice(0, 3).map(function (entry) { return entry.profile; });
+    return snapshot({
+      schema: 'ArenaDraftOfferV1',
+      version: 1,
+      offerId: 'arena-draft-' + stableHash(seed + '|' + signature).toString(16).padStart(8, '0'),
+      seed: seed,
+      heatNumber: heatNumber,
+      choices: choices,
+      selectedProfileId: null,
+    });
   }
 
   function resolveRouletteMultiplier(detail) {
@@ -191,6 +253,8 @@
       clutch: null,
       highlight: null,
       arenaProfileId: config.arenaProfileId || null,
+      arenaDraftSeed: normalizeDraftSeed(config.arenaDraftSeed || config.seriesSeed || config.seed),
+      arenaDraft: null,
     };
     if (state.playerCount !== count || !Array.isArray(state.heatWins) || state.heatWins.length !== count) {
       throw new Error('Cup state does not match the player roster');
@@ -200,6 +264,55 @@
       throw new Error('Cup state player identities do not match the player roster');
     }
     arenaProfile(state.arenaProfileId);
+    state.arenaDraftSeed = normalizeDraftSeed(state.arenaDraftSeed || config.arenaDraftSeed || config.seriesSeed || config.seed);
+
+    function currentDraftOffer() {
+      return createArenaDraftOffer({
+        seed: state.arenaDraftSeed,
+        cupLength: state.cupLength,
+        playerCount: state.playerCount,
+        playerIds: state.playerIds,
+        heatNumber: state.heatNumber,
+        heatWins: state.heatWins,
+        heatResults: state.heatResults,
+        openerIndex: state.openerIndex,
+      });
+    }
+
+    function validateOrRestoreDraft() {
+      if (state.phase === 'shootout') {
+        state.arenaProfileId = null;
+        state.arenaDraft = null;
+        return;
+      }
+      if (state.heatNumber <= 1 || (state.phase !== 'heat' && state.phase !== 'between-heats')) return;
+      var expected = currentDraftOffer();
+      var expectedIds = expected.choices.map(function (profile) { return profile.id; });
+      if (state.arenaDraft == null) {
+        var migratedSelection = state.phase === 'heat' && expectedIds.indexOf(state.arenaProfileId) >= 0
+          ? state.arenaProfileId : null;
+        state.arenaDraft = clone(expected);
+        state.arenaDraft.selectedProfileId = migratedSelection;
+      } else {
+        var storedIds = Array.isArray(state.arenaDraft.choices)
+          ? state.arenaDraft.choices.map(function (profile) { return profile && profile.id; }) : [];
+        if (state.arenaDraft.schema !== expected.schema || state.arenaDraft.offerId !== expected.offerId ||
+            storedIds.length !== 3 || storedIds.some(function (id, index) { return id !== expectedIds[index]; })) {
+          throw new RangeError('Arena Draft save contains a forged or stale offer');
+        }
+        var selected = state.arenaDraft.selectedProfileId;
+        if (selected != null && expectedIds.indexOf(selected) < 0) {
+          throw new RangeError('Arena Draft selection is not in the current offer');
+        }
+        state.arenaDraft = clone(expected);
+        state.arenaDraft.selectedProfileId = selected || null;
+      }
+      if (state.phase === 'heat' && state.arenaDraft.selectedProfileId !== state.arenaProfileId) {
+        throw new RangeError('Arena Draft active profile does not match the saved selection');
+      }
+    }
+
+    validateOrRestoreDraft();
 
     function shootoutQueue() {
       return orderFromOpener(count, state.openerIndex, direction, state.tiebreakPlayers).map(function (index, position) {
@@ -241,6 +354,7 @@
         state.phase = 'between-heats';
         state.heatNumber++;
         state.openerIndex = modulo(state.openerIndex + direction, count);
+        state.arenaDraft = clone(currentDraftOffer());
       } else {
         var high = Math.max.apply(Math, state.heatWins);
         state.tiebreakPlayers = state.heatWins.map(function (wins, index) { return wins === high ? index : -1; })
@@ -251,14 +365,30 @@
         state.openerIndex = modulo(state.openerIndex + direction, count);
         state.openerIndex = orderFromOpener(count, state.openerIndex, direction, state.tiebreakPlayers)[0];
         state.tiebreakResults = [];
+        state.arenaProfileId = null;
+        state.arenaDraft = null;
       }
       updateQueue();
       return this.snapshot();
     };
 
+    this.selectArenaDraft = function (arenaProfileId) {
+      if (state.phase !== 'between-heats') throw new Error('Cup is not between heats');
+      if (!state.arenaDraft || !Array.isArray(state.arenaDraft.choices)) {
+        throw new Error('Cup has no current Arena Draft offer');
+      }
+      var requested = arenaProfile(arenaProfileId).id;
+      var offered = state.arenaDraft.choices.some(function (profile) { return profile.id === requested; });
+      if (!offered) throw new RangeError('Arena Draft selection is not in the current offer');
+      state.arenaDraft.selectedProfileId = requested;
+      return this.snapshot();
+    };
+
     this.beginNextHeat = function (arenaProfileId) {
       if (state.phase !== 'between-heats') throw new Error('Cup is not between heats');
-      state.arenaProfileId = arenaProfileId == null ? state.arenaProfileId : arenaProfile(arenaProfileId).id;
+      if (arenaProfileId != null) this.selectArenaDraft(arenaProfileId);
+      if (!state.arenaDraft.selectedProfileId) this.selectArenaDraft(state.arenaDraft.choices[0].id);
+      state.arenaProfileId = state.arenaDraft.selectedProfileId;
       state.phase = 'heat';
       state.highlight = null;
       updateQueue();
@@ -307,6 +437,7 @@
     };
 
     this.snapshot = function () { return snapshot(state); };
+    this.arenaDraftOffer = function () { return state.arenaDraft ? snapshot(state.arenaDraft) : null; };
     this.currentOpenerIndex = function () { return state.openerIndex; };
     this.isComplete = function () { return state.phase === 'complete'; };
     this.newCupOptions = function () {
@@ -317,6 +448,7 @@
         direction: state.direction,
         openingIndex: modulo(state.initialOpenerIndex + state.direction, count),
         arenaProfileId: state.arenaProfileId,
+        arenaDraftSeed: state.arenaDraftSeed,
       });
     };
   }
@@ -621,11 +753,12 @@
           direction: request.direction,
           openingIndex: Number.isInteger(opts.startIndex) ? opts.startIndex : 0,
           arenaProfileId: opts.arenaProfileId || (priorState && priorState.arenaProfileId),
+          arenaDraftSeed: opts.arenaDraftSeed || opts.seriesSeed || opts.seed,
           state: priorState,
         });
         var cup = series.snapshot();
         if (cup.phase === 'between-heats') {
-          series.beginNextHeat(opts.arenaProfileId);
+          series.beginNextHeat(opts.arenaDraftSelectionId);
           cup = series.snapshot();
         }
         opts.format = 'cup';
@@ -634,7 +767,10 @@
         opts.startIndex = cup.openerIndex;
         opts.suddenDeathFlipThreshold = cup.suddenDeathRotations * defs.length;
         opts.eventsDisabled = cup.phase === 'shootout';
-        opts.arenaProfile = arenaProfile(cup.arenaProfileId);
+        opts.arenaDraftSeed = cup.arenaDraftSeed;
+        opts.arenaDraft = cup.arenaDraft;
+        opts.arenaProfileId = cup.arenaProfileId;
+        opts.arenaProfile = cup.phase === 'shootout' ? null : arenaProfile(cup.arenaProfileId);
         opts.arenaRewardsDisabled = !!opts.arenaProfile;
         return Object.assign({}, request, { options: opts });
       },
@@ -798,6 +934,7 @@
     ROULETTE_MULTIPLIERS: ROULETTE_MULTIPLIERS,
     ARENA_DRAFT_PROFILES: ARENA_DRAFT_PROFILES,
     arenaProfile: arenaProfile,
+    createArenaDraftOffer: createArenaDraftOffer,
     additiveLifeCap: additiveLifeCap,
     addLivesCapped: addLivesCapped,
     multiplyLives: multiplyLives,

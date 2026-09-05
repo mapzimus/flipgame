@@ -305,6 +305,114 @@ test('Arena Draft exposes only five reward-free symmetric all-player profiles', 
   assert.throws(() => modes.arenaProfile('heart-rush'), /not competitively eligible/);
 });
 
+test('Arena Draft offers exactly three deterministic distinct profiles for every Cup size and length', () => {
+  const allowed = new Set(modes.ARENA_DRAFT_PROFILES.map(profile => profile.id));
+  for (let count = 2; count <= 8; count++) {
+    for (const cupLength of ['short', 'full']) {
+      const playerIds = defs(count).map(player => player.id);
+      const cup = new modes.CupSeries({
+        playerCount: count,
+        playerIds,
+        cupLength,
+        openingIndex: count - 1,
+        arenaDraftSeed: `draft-${cupLength}-${count}`,
+      });
+      const state = cup.recordHeatWinner(0);
+      const offer = state.arenaDraft;
+      assert.equal(state.phase, 'between-heats');
+      assert.equal(offer.schema, 'ArenaDraftOfferV1');
+      assert.equal(offer.heatNumber, 2);
+      assert.equal(offer.choices.length, 3);
+      assert.equal(new Set(offer.choices.map(profile => profile.id)).size, 3);
+      assert.ok(offer.choices.every(profile => allowed.has(profile.id)));
+      assert.ok(offer.choices.every(profile => profile.rewardFree && profile.symmetric && profile.affectsAllPlayers));
+      assert.equal(Object.isFrozen(offer), true);
+
+      const replay = modes.createArenaDraftOffer({
+        seed: state.arenaDraftSeed,
+        cupLength: state.cupLength,
+        playerCount: state.playerCount,
+        playerIds: state.playerIds,
+        heatNumber: state.heatNumber,
+        heatWins: state.heatWins,
+        heatResults: state.heatResults,
+        openerIndex: state.openerIndex,
+      });
+      assert.deepEqual(replay, offer);
+    }
+  }
+});
+
+test('Arena Draft offer and selected profile survive snapshot, adapter prepare, and reconnect', () => {
+  const playerIds = defs(8).map(player => player.id);
+  let cup = new modes.CupSeries({ playerCount: 8, playerIds, cupLength: 'full', arenaDraftSeed: 'save-seed' });
+  let state = cup.recordHeatWinner(0);
+  const chosen = state.arenaDraft.choices[1].id;
+  cup.selectArenaDraft(chosen);
+  state = cup.beginNextHeat();
+  assert.equal(state.arenaDraft.selectedProfileId, chosen);
+  assert.equal(state.arenaProfileId, chosen);
+
+  cup = new modes.CupSeries({ playerCount: 8, playerIds, cupLength: 'full', state: JSON.parse(JSON.stringify(state)) });
+  assert.equal(cup.snapshot().arenaDraft.selectedProfileId, chosen);
+  assert.equal(cup.snapshot().arenaProfileId, chosen);
+
+  cup.recordHeatWinner(1);
+  state = cup.snapshot();
+  assert.equal(state.phase, 'between-heats');
+  assert.equal(state.arenaDraft.heatNumber, 3);
+  const thirdHeatChoice = state.arenaDraft.choices[2].id;
+  const registry = new runtimeModule.constructors.ModeAdapterRegistry();
+  registry.register(modes.createCupAdapter());
+  const prepared = registry.prepareMatch({
+    defs: defs(8),
+    direction: 1,
+    options: { format: 'cup', cupLength: 'full', cupState: state, arenaDraftSelectionId: thirdHeatChoice },
+  });
+  assert.equal(prepared.options.arenaProfileId, thirdHeatChoice);
+  assert.equal(prepared.options.arenaDraft.selectedProfileId, thirdHeatChoice);
+  assert.equal(prepared.options.arenaDraftSeed, 'save-seed');
+});
+
+test('Arena Draft rejects forged selections and forged or stale saved offers', () => {
+  const cup = new modes.CupSeries({ playerCount: 4, cupLength: 'short', arenaDraftSeed: 'forgery-seed' });
+  const state = cup.recordHeatWinner(0);
+  const offered = new Set(state.arenaDraft.choices.map(profile => profile.id));
+  const unoffered = modes.ARENA_DRAFT_PROFILES.find(profile => !offered.has(profile.id));
+  assert.ok(unoffered);
+  assert.throws(() => cup.selectArenaDraft(unoffered.id), /not in the current offer/);
+  assert.throws(() => cup.beginNextHeat('heart-rush'), /not competitively eligible/);
+
+  const forgedChoice = JSON.parse(JSON.stringify(state));
+  forgedChoice.arenaDraft.choices[0] = modes.ARENA_DRAFT_PROFILES.find(profile => !offered.has(profile.id));
+  assert.throws(() => new modes.CupSeries({ playerCount: 4, cupLength: 'short', state: forgedChoice }), /forged or stale offer/);
+
+  const forgedSelection = JSON.parse(JSON.stringify(state));
+  forgedSelection.arenaDraft.selectedProfileId = unoffered.id;
+  assert.throws(() => new modes.CupSeries({ playerCount: 4, cupLength: 'short', state: forgedSelection }), /not in the current offer/);
+});
+
+test('Arena Draft never consumes Math.random or a gameplay RNG stream', () => {
+  const originalRandom = Math.random;
+  let gameplayRngCalls = 0;
+  const gameplayRng = () => { gameplayRngCalls++; return 0.5; };
+  Math.random = () => { throw new Error('Arena Draft touched Math.random'); };
+  try {
+    const cup = new modes.CupSeries({
+      playerCount: 6,
+      cupLength: 'full',
+      arenaDraftSeed: 'isolated-seed',
+      rng: gameplayRng,
+    });
+    const state = cup.recordHeatWinner(2);
+    cup.selectArenaDraft(state.arenaDraft.choices[0].id);
+    cup.beginNextHeat();
+    assert.equal(gameplayRngCalls, 0);
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
 test('Cup Short/Full are first-to-two, reset configuration, and rotate openers for 2–8 players', () => {
   for (let count = 2; count <= 8; count++) {
     for (const cupLength of ['short', 'full']) {
@@ -329,7 +437,9 @@ test('Cup Short/Full are first-to-two, reset configuration, and rotate openers f
 });
 
 test('Cup three-way tie enters events-disabled shootout and rotates opener on every repeated round', () => {
-  const cup = new modes.CupSeries({ playerCount: 5, cupLength: 'short', openingIndex: 0 });
+  const cup = new modes.CupSeries({
+    playerCount: 5, playerIds: defs(5).map(player => player.id), cupLength: 'short', openingIndex: 0,
+  });
   cup.recordHeatWinner(0);
   cup.beginNextHeat();
   cup.recordHeatWinner(1);
@@ -338,7 +448,19 @@ test('Cup three-way tie enters events-disabled shootout and rotates opener on ev
   assert.equal(state.phase, 'shootout');
   assert.equal(state.seriesTied, true);
   assert.equal(state.tiebreakRound, 1);
+  assert.equal(state.arenaDraft, null);
+  assert.equal(state.arenaProfileId, null);
   assert.deepEqual(state.tiebreakPlayers, [0, 1, 2]);
+
+  const shootoutRegistry = new runtimeModule.constructors.ModeAdapterRegistry();
+  shootoutRegistry.register(modes.createCupAdapter());
+  const shootoutPrepared = shootoutRegistry.prepareMatch({
+    defs: defs(5), direction: 1,
+    options: { format: 'cup', cupLength: 'short', cupState: state },
+  });
+  assert.equal(shootoutPrepared.options.eventsDisabled, true);
+  assert.equal(shootoutPrepared.options.arenaDraft, null);
+  assert.equal(shootoutPrepared.options.arenaProfile, null);
   const firstOrder = state.queue.map(entry => entry.playerIndex);
 
   for (const entry of state.queue) cup.recordShootoutFlip(entry.playerIndex, 'MISS');
