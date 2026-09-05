@@ -286,7 +286,7 @@ const Physics = (() => {
   function currentTargetHalfWidth() {
     const base = profile.targetHalfWidth;
     if (profile.alienPortal) {
-      return Math.round(Math.max(base, Math.min(112, canvasW * 0.065)));
+      return alienMetricsForViewport(viewW || canvasW, viewH || arenaH).ringRadius;
     }
     // Bank-shot pads stay nearly fixed — only a tiny grow on huge boards so
     // the make radius doesn't become a freebie on smartboards.
@@ -324,7 +324,7 @@ const Physics = (() => {
     const w = Math.max(320, Number(width) || 1280);
     const h = Math.max(480, Number(height) || 800);
     const shortEdge = Math.min(w, h);
-    const scale = Math.max(0.65, Math.min(1.6, shortEdge / 800));
+    const scale = Math.max(0.65, Math.min(2.7, shortEdge / 800));
     const compact = w < 900;
     return Object.freeze({
       width: w,
@@ -332,9 +332,10 @@ const Physics = (() => {
       scale,
       arenaExpandX: compact ? 1.45 : 1,
       arenaExpandY: compact ? 1.20 : 1,
-      ringRadius: Math.round(Math.max(64, Math.min(112, shortEdge * 0.105))),
-      attractionPerStep: 0.42 * Math.sqrt(scale),
-      timeoutFrames: Math.round(Math.max(600, Math.min(900, 720 * Math.sqrt(scale)))),
+      ringRadius: Math.round(Math.max(54, Math.min(210, shortEdge * 0.09))),
+      attractionPerStep: 0.10 * scale * scale,
+      timeoutFrames: Math.round(compact ? -130 + 584 * scale : 240 + 70 * scale),
+      launchScale: scale,
     });
   }
 
@@ -1114,8 +1115,14 @@ const Physics = (() => {
     const grounded = options.ceiling
       ? body.bounds.min.y <= ceilingY + GROUND_TOUCH_PX
       : touchingFloorBody(body);
-    tracker.rotation = Math.max(tracker.rotation || 0,
-      Math.abs(body.angle - (tracker.launchAngle || 0)));
+    // Compound split bodies inherit the rotation completed before separation.
+    // Accumulate their angular path from that point instead of comparing only
+    // against the split angle, which discarded the pre-split portion and made
+    // otherwise upright Mitosis copies fail as under-rotated.
+    const previousAngle = Number.isFinite(tracker.previousAngle)
+      ? tracker.previousAngle : body.angle;
+    tracker.rotation = (tracker.rotation || 0) + Math.abs(body.angle - previousAngle);
+    tracker.previousAngle = body.angle;
     if (!grounded) {
       tracker.stableFrames = 0;
       return;
@@ -1608,6 +1615,14 @@ const Physics = (() => {
     return copy;
   }
 
+  function syncMirrorPresentation() {
+    if (!mirrorBottle || !bottle) return;
+    Body.setPosition(mirrorBottle, { x: canvasW - bottle.position.x, y: bottle.position.y });
+    Body.setAngle(mirrorBottle, -bottle.angle);
+    Body.setVelocity(mirrorBottle, { x: -bottle.velocity.x, y: bottle.velocity.y });
+    Body.setAngularVelocity(mirrorBottle, -bottle.angularVelocity);
+  }
+
   // Concrete target for EventDefinition hooks. The registry remains independent
   // of Matter.js; this adapter owns all mutations and can therefore clean every
   // event deterministically at turn end.
@@ -1627,6 +1642,13 @@ const Physics = (() => {
       if (kind === 'mirror') {
         mirrorBottle = cloneEventBottle(1, 'mirror-bottle');
         Body.setPosition(mirrorBottle, { x: canvasW - bottle.position.x, y: bottle.position.y });
+        // The reflected body is a kinematic presentation of the source, not an
+        // overlapping collider. At center launch the old dynamic clone struck
+        // the source on frame one and erased nearly all of its rotation.
+        for (const part of [mirrorBottle, ...mirrorBottle.parts]) {
+          part.isSensor = true;
+          part.collisionFilter.mask = 0;
+        }
         state.secondary = mirrorBottle;
       } else if (kind === 'meteors') {
         state.meteorHits = 0;
@@ -1685,12 +1707,17 @@ const Physics = (() => {
         state.portalRotation = state.portals[1].angle - state.portals[0].angle;
       }
       if (kind === 'tether') {
+        const swingDirection = Math.cos(rarePhase) < 0 ? -1 : 1;
         state.anchor = {
           x: canvasW / 2,
           y: ceilingY + Math.max(105, groundY * 0.16),
         };
-        state.cableLength = Math.hypot(bottle.position.x - state.anchor.x,
-          bottle.position.y - state.anchor.y);
+        state.cableLength = Math.min(390, Math.max(250, (groundY - state.anchor.y) * 0.72));
+        state.startAngle = -swingDirection * 0.78;
+        Body.setPosition(bottle, {
+          x: state.anchor.x + Math.sin(state.startAngle) * state.cableLength,
+          y: state.anchor.y + Math.cos(state.startAngle) * state.cableLength,
+        });
         state.constraint = Constraint.create({
           pointA: state.anchor, bodyB: bottle, length: state.cableLength,
           stiffness: 0.98, damping: 0.055, label: 'tether-cable',
@@ -1885,7 +1912,7 @@ const Physics = (() => {
         state.cableStretch = dist - state.cableLength;
         state.cableAngleFromDown = Math.atan2(dx, dy);
         const nearLowPoint = Math.abs(state.cableAngleFromDown) < 0.20;
-        if (state.elapsedMs > 420 && bottle.velocity.y >= 0 && nearLowPoint) {
+        if (state.elapsedMs > 280 && bottle.velocity.y >= 0 && nearLowPoint) {
           World.remove(world, state.constraint);
           eventConstraints = eventConstraints.filter((item) => item !== state.constraint);
           state.constraint = null;
@@ -1912,8 +1939,10 @@ const Physics = (() => {
         state.secondary = mitosisBottle;
         state.flags.split = true;
         state.splitTrackers = [
-          { body: bottle, launchAngle: bottle.angle, rotation: totalRotation, requireFlip: true },
-          { body: mitosisBottle, launchAngle: mitosisBottle.angle, rotation: totalRotation, requireFlip: true },
+          { body: bottle, launchAngle: bottle.angle, previousAngle: bottle.angle,
+            rotation: totalRotation, requireFlip: true },
+          { body: mitosisBottle, launchAngle: mitosisBottle.angle, previousAngle: mitosisBottle.angle,
+            rotation: totalRotation, requireFlip: true },
         ];
         state.massConservationError = Math.abs(
           bottle.mass + mitosisBottle.mass - originalMass);
@@ -1985,10 +2014,7 @@ const Physics = (() => {
           });
         }
       } else if (kind === 'mirror' && mirrorBottle) {
-        Body.setPosition(mirrorBottle, { x: canvasW - bottle.position.x, y: bottle.position.y });
-        Body.setAngle(mirrorBottle, -bottle.angle);
-        Body.setVelocity(mirrorBottle, { x: -bottle.velocity.x, y: bottle.velocity.y });
-        Body.setAngularVelocity(mirrorBottle, -bottle.angularVelocity);
+        syncMirrorPresentation();
       } else if ((kind === 'magnet' || kind === 'life-drain') && airborne && hasFlipped) {
         const target = canvasW / 2;
         const dx = target - bottle.position.x;
@@ -2189,10 +2215,15 @@ const Physics = (() => {
     let launchX = Math.max(-profile.horizMax,
       Math.min(profile.horizMax, vx / profile.horizDivisor)) + jDrift;
 
-    if (temporaryAlien) {
-      const side = Math.abs(vx) > 120 ? (vx < 0 ? -1 : 1) : (Math.cos(rarePhase) < 0 ? -1 : 1);
-      launchX = side * (26 + power * 8);
-      launchY = -Math.max(7, Math.abs(launchY) * 0.52);
+    if (alienShotActive()) {
+      const alienMetrics = alienMetricsForViewport(viewW || canvasW, viewH || arenaH);
+      // Preserve the player's horizontal aim. The old fixed-speed/random-side
+      // launch turned almost every gesture into the same guaranteed bank shot.
+      // Scaling both axes with the arena keeps the gesture equivalent from a
+      // phone through a 4K board while still requiring deliberate lateral aim.
+      const lateralAim = Math.max(-1, Math.min(1, vx / 700));
+      launchX = lateralAim * (34 + power * 8) * alienMetrics.launchScale;
+      launchY = -Math.max(7, Math.abs(launchY) * 0.52) * alienMetrics.launchScale;
     }
 
     // A tethered throw starts tangentially from the cable's low point. The
@@ -2200,7 +2231,7 @@ const Physics = (() => {
     if (rareEvent === 'tether-swing') {
       const swingDirection = Math.cos(rarePhase) < 0 ? -1 : 1;
       launchX = swingDirection * (15 + power * 4);
-      launchY = -2.5;
+      launchY = 8 + power * 2;
     }
 
     if (profile.minHorizRatio > 0) {
@@ -2234,9 +2265,13 @@ const Physics = (() => {
       spin *= 1.08;
     }
     if (rareEvent === 'half-full') spin *= 0.90;
+    if (rareEvent === 'tether-swing') spin *= 1.18;
     if (rareEvent === 'ceiling-flip') {
-      launchY *= 1.55;
-      spin *= 0.88;
+      // Inverted gravity supplies the rise. A slightly softer initial impulse
+      // preserves normal-flip airtime instead of slamming into the ceiling
+      // before the player's rotation can complete.
+      launchY *= 0.65;
+      spin *= 1.32;
     }
     // Life Drain's hidden magnet needs a completed rotation to catch. A small
     // initial spin assist keeps ordinary classroom flicks inside that catch.
@@ -2316,9 +2351,7 @@ const Physics = (() => {
       const dx = targetX - bottle.position.x;
       const dy = targetY - bottle.position.y;
       const dist = Math.max(1, Math.hypot(dx, dy));
-      const pull = temporaryAlien
-        ? alienMetricsForViewport(viewW || canvasW, viewH || arenaH).attractionPerStep
-        : 0.62;
+      const pull = alienMetricsForViewport(viewW || canvasW, viewH || arenaH).attractionPerStep;
       Body.setVelocity(bottle, {
         x: bottle.velocity.x + dx / dist * pull,
         y: bottle.velocity.y + dy / dist * pull,
@@ -2435,7 +2468,13 @@ const Physics = (() => {
           x: bottle.velocity.x + direction * (2.8 - count * 0.6),
           y: Math.min(bottle.velocity.y, -lift),
         });
-        Body.setAngularVelocity(bottle, bottle.angularVelocity * (0.74 - count * 0.08));
+        const dampedSpin = bottle.angularVelocity * (0.94 - count * 0.06);
+        if (!hasFlipped) {
+          const spinDirection = bottle.angularVelocity < 0 ? -1 : 1;
+          Body.setAngularVelocity(bottle, spinDirection * Math.max(Math.abs(dampedSpin), 0.082));
+        } else {
+          Body.setAngularVelocity(bottle, dampedSpin);
+        }
         eventRuntime.heartbeatCount = count + 1;
         eventRuntime.lastHeartbeatMs = eventRuntime.elapsedMs;
         if (eventRuntime.heartbeatCount === 3) eventRuntime.flags.threePulsesComplete = true;
@@ -2477,6 +2516,17 @@ const Physics = (() => {
       const damping = rareEvent === 'life-drain' ? 0.70
         : (rareEvent === 'ice-slide' ? 0.82 : 0.86);
       Body.setAngularVelocity(bottle, bottle.angularVelocity * damping - tilt * magnetStrength);
+    }
+    if (rareEvent === 'ceiling-flip' && launched && hasFlipped &&
+        bottle.position.y < ceilingY + 230) {
+      // The inverted landing plane needs the same real, visible settling chance
+      // ordinary table friction gives a base landing. Apply a bounded alignment
+      // torque only after the required flip has completed; weak/under-rotated
+      // attempts still fail normally.
+      const ceilingTilt = normalizeSignedAngle(bottle.angle - Math.PI);
+      Body.setAngularVelocity(bottle,
+        bottle.angularVelocity * 0.84 - ceilingTilt * 0.072);
+      if (eventRuntime) eventRuntime.ceilingTorque = -ceilingTilt * 0.072;
     }
 
     // One ground thud per flick (positional — Matter ground collisions are dead
@@ -2523,6 +2573,10 @@ const Physics = (() => {
       Body.setAngularVelocity(bottle, bottle.angularVelocity * 0.72 + pull);
     }
 
+    // Several ordinary post-hook forces (landing assist/cap stick) can change
+    // the source after EventController.applyPhysics. Resync at the end of the
+    // fixed step so the visible clone is an exact reflection in the same frame.
+    if (rareEvent === 'mirror-match') syncMirrorPresentation();
     liquid.update(bottle.angularVelocity, FIXED_DT, bottle.angle);
     updateSaucers(FIXED_DT);
   }

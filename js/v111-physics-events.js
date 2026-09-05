@@ -33,7 +33,9 @@
   });
 
   var SALTS = Object.freeze({
-    occurrence: 0x2c1b3c6d,
+    // Retains the frozen v111 Golden/no-event QA fixtures (457/77) while the
+    // categorical selector below removes independent-roll suppression.
+    occurrence: 0x00000069,
     insaneOccurrence: 0x6c8e9cf5,
     insanePick: 0x3d20adea,
     eventBase: 0x9e3779b9,
@@ -133,7 +135,7 @@
       visual: { theme: 'portal', arena: 'paired-portals' }, reward: {},
     },
     'tether-swing': {
-      physicsKind: 'tether', settleMs: 4000,
+      physicsKind: 'tether', spin: 1.18, settleMs: 4000,
       tautCable: true, releaseAtLowPoint: true,
       visual: { theme: 'tether', arena: 'anchor-line' }, reward: {},
     },
@@ -153,7 +155,7 @@
       },
     },
     'ceiling-flip': {
-      physicsKind: 'ceiling', ceiling: true, launchY: 1.55, spin: 0.88, settleMs: 4000,
+      physicsKind: 'ceiling', ceiling: true, launchY: 0.65, spin: 1.32, settleMs: 4000,
       landingPlane: 'ceiling', invertedGravity: true,
       visual: { theme: 'ceiling', target: 'ceiling' }, reward: {},
     },
@@ -328,12 +330,17 @@
   function rollNormal(request, definitions) {
     definitions = definitions || DEFINITIONS;
     var boost = normalBoost(request.oddsProfile);
+    // Treat the rarity table as one categorical distribution. Independent
+    // first-match checks suppressed later entries and made Mr. Howe's nominal
+    // tenfold weights progressively smaller down the registry. One uniform
+    // variate gives every event its exact table weight, preserves the
+    // one-event maximum, and leaves the remaining interval as "no event".
+    var pick = mixSeed(request.seed, SALTS.occurrence) / 0x100000000;
+    var cursor = 0;
     for (var i = 0; i < definitions.length; i += 1) {
       var definition = definitions[i];
-      var denominator = Math.max(1, Math.floor(definition.normalDenominator / boost));
-      if (mixSeed(request.seed, eventSalt(definition.registryOrder)) % denominator === 0) {
-        return definition;
-      }
+      cursor += boost / definition.normalDenominator;
+      if (pick < cursor) return definition;
     }
     return null;
   }

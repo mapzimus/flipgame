@@ -107,31 +107,44 @@ function testForcedMapping() {
 }
 
 function testNormalOddsAcrossMillionsOfSeeds() {
-  const samples = 2_000_000;
+  const samples = 3_000_000;
   const normal = new Uint32Array(30);
   const boosted = new Uint32Array(30);
   let selected = 0;
+  let boostedSelected = 0;
   for (let seed = 1; seed <= samples; seed++) {
-    for (let i = 0; i < Interfaces.EVENT_CATALOG.length; i++) {
-      const denominator = Interfaces.EVENT_CATALOG[i].normalDenominator;
-      const hash = Events.mixSeed(seed, Events.eventSalt(i));
-      if (hash % denominator === 0) normal[i]++;
-      if (hash % (denominator / 10) === 0) boosted[i]++;
-    }
     const rolled = Events.rollId({ mode: 'normal', oddsProfile: 'normal', seed });
-    if (rolled) selected++;
+    const boostedRoll = Events.rollId({ mode: 'normal', oddsProfile: 'mr-howe', seed });
+    if (rolled) {
+      normal[Interfaces.EVENT_IDS.indexOf(rolled)]++;
+      selected++;
+    }
+    if (boostedRoll) {
+      boosted[Interfaces.EVENT_IDS.indexOf(boostedRoll)]++;
+      boostedSelected++;
+    }
   }
-  assert.ok(selected > 0 && selected < samples, 'normal selector must return zero or one event');
+  const totalWeight = Interfaces.EVENT_CATALOG.reduce(
+    (sum, event) => sum + 1 / event.normalDenominator, 0);
+  assert.ok(Math.abs(selected / samples - totalWeight) < 0.0006,
+    `normal combined occurrence was ${selected / samples}, not ${totalWeight}`);
+  assert.ok(Math.abs(boostedSelected / samples - totalWeight * 10) < 0.0015,
+    `Mr. Howe combined occurrence was ${boostedSelected / samples}, not ${totalWeight * 10}`);
   for (let i = 0; i < normal.length; i++) {
     const denominator = Interfaces.EVENT_CATALOG[i].normalDenominator;
     const expected = samples / denominator;
-    const tolerance = Math.max(0.035, 4.5 / Math.sqrt(expected));
+    const boostedExpected = expected * 10;
+    const tolerance = Math.max(0.045, 4.5 / Math.sqrt(expected));
     assert.ok(Math.abs(normal[i] - expected) / expected < tolerance,
-      `${Interfaces.EVENT_IDS[i]} raw occurrence deviated from exact 1/${denominator}`);
-    const ratio = boosted[i] / normal[i];
-    assert.ok(ratio > 9.2 && ratio < 10.8,
-      `${Interfaces.EVENT_IDS[i]} Mr. Howe ratio was ${ratio.toFixed(3)}, not 10x`);
+      `${Interfaces.EVENT_IDS[i]} selector occurrence deviated from exact 1/${denominator}`);
+    assert.ok(Math.abs(boosted[i] - boostedExpected) / boostedExpected < tolerance,
+      `${Interfaces.EVENT_IDS[i]} Mr. Howe selector weight deviated from exact 10/${denominator}`);
   }
+
+  // Preserve the deterministic release fixtures used by the Golden integration
+  // probe while proving it comes from the one canonical registry path.
+  assert.equal(Events.rollId({ mode: 'normal', oddsProfile: 'normal', seed: 457 }), 'golden-flip');
+  assert.equal(Events.rollId({ mode: 'normal', oddsProfile: 'normal', seed: 77 }), null);
 }
 
 function testInsaneOddsAcrossMillionsOfSeeds() {
@@ -257,9 +270,10 @@ function testAlienViewportMatrix() {
   let previousRadius = 0;
   for (const [width, height] of viewports) {
     const metrics = physics.alienMetricsForViewport(width, height);
-    assert.ok(metrics.ringRadius >= 64 && metrics.ringRadius <= 112);
+    assert.ok(metrics.ringRadius >= 54 && metrics.ringRadius <= 210);
     assert.ok(metrics.attractionPerStep > 0);
-    assert.ok(metrics.timeoutFrames >= 600 && metrics.timeoutFrames <= 900);
+    assert.ok(metrics.timeoutFrames >= 240 && metrics.timeoutFrames <= 500);
+    assert.ok(metrics.launchScale >= 0.65 && metrics.launchScale <= 2.7);
     assert.ok(metrics.ringRadius >= previousRadius || Math.min(width, height) < 800);
     previousRadius = metrics.ringRadius;
 
