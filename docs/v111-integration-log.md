@@ -562,3 +562,58 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: `f9f9250`.
 - Affected owner notified: Physics/Events paused again and is holding its
   isolated commit until QA completes the full non-Plinko corpus.
+
+## Revision 30 - imported snapshots and names are atomic safety boundaries
+
+- Trigger: exact-candidate State/Data QA reproduced three boundary failures. A
+  destination imported a two-flip export and then a later 100-flip export from
+  the same source but reported only three total flips; checksummed saved setup
+  `rows[]` retained a blocked name; and direct Greek, Cherokee, and Cyrillic
+  lookalikes bypassed the partial confusable fold.
+- Old behavior: every export received a content-derived import partition, an
+  existing rollup UUID was treated as a duplicate even when its aggregate had
+  grown, and earlier raw records remained when a newer rollup absorbed them.
+  Save sanitization did not classify `rows[]` as player context. Name screening
+  relied on an incomplete hand-maintained lookalike map.
+- New behavior: exports carry a stable source-archive lineage and monotonic
+  snapshot identity. A newer snapshot atomically replaces the destination's
+  complete prior imported contribution from that same lineage; identical or
+  older snapshots are no-ops and independent lineages remain additive. Setup
+  rows are sanitized before serialization, parsing, and persistence. The
+  deterministic screening skeleton covers direct Greek, Cyrillic, Cherokee,
+  full-width, and common modifier lookalikes without transliterating accepted
+  display names.
+- Migration action: preserve version-1 import compatibility while adding the
+  lineage metadata needed for new exports; never partially mutate memory or
+  IndexedDB if reconciliation fails. Route setup rows through `NamePolicy` at
+  both backup and apply boundaries, and extend the screening-only confusable
+  mapping with innocent-name regressions.
+- Required tests: import source snapshots at totals 2 then 100 and observe
+  exactly 100; re-import the same and then older snapshot without change; import
+  two independent sources additively; force backend failure and retain prior
+  state. Round-trip a blocked setup row without persisting it. Reject
+  `fu\u03f2k`, `f\u13ccck`, and `\u0455\u04bb\u0456t` while retaining ordinary
+  accented names, innocent substrings, exact `Mr. Howe`, and every event QA
+  name.
+- Integration commit: pending.
+- Affected owner notified: State/Data/Safety. Exact candidate `17b16e1` is
+  rejected and deployment remains frozen until correction and all three
+  independent gates restart on one new commit.
+
+## Revision 31 - flight duration includes settling
+
+- Trigger: continuing State/Data QA found the live outcome adapter assigns
+  first-contact time to both `flightMs` and `firstContactMs`, so device metrics
+  silently omit the entire settling interval.
+- Old behavior: an 800ms first contact followed by 300ms settling emitted
+  `flightMs=800`, `firstContactMs=800`, and `settleMs=300`.
+- New behavior: the same lifecycle emits `flightMs=1100`,
+  `firstContactMs=800`, and `settleMs=300`; total flight is measured through
+  final resolution and the three fields retain distinct meanings.
+- Migration action: correct only the outcome instrumentation boundary. Do not
+  alter landing timing, physics integration, rules, or previously stored data.
+- Required tests: an exact synthetic 800+300ms lifecycle produces 1100/800/300,
+  zero-contact and timeout paths remain finite/non-negative, and Stats summary
+  averages consume full-flight values.
+- Integration commit: pending.
+- Affected owners notified: UI/Stats instrumentation and State/Data QA.

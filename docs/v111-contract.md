@@ -185,6 +185,11 @@ cap-toss:5500, life-drain:6000`.
   detail is rolled into permanent aggregates before pruning.
 - Stats instrumentation observes results and never advances RNG or affects
   physics, scoring, or turn order.
+- `FlipRecordV1.flightMs` is the full airborne-to-resolution duration,
+  `firstContactMs` is the airborne-to-first-contact duration, and `settleMs` is
+  the first-contact-to-resolution duration. For ordinary single-contact
+  resolution, `flightMs` is at least `firstContactMs + settleMs`; the fields are
+  never aliases.
 - Retention rollups contain the bounded categorical dimensions required to
   preserve every Stats Lab filter and aggregate counters. They include day,
   scope/device/session, stable local player reference/seat/type/team, mode,
@@ -194,14 +199,27 @@ cap-toss:5500, life-drain:6000`.
   become rollup keys.
 - Stats Lab shows observed counts, fractions, percentages, and distributions
   only. It does not show theoretical odds or undiscovered event names.
-- `.flipstats.json` imports deduplicate by UUID. CSV pseudonymizes players by
+- `.flipstats.json` imports deduplicate by UUID. Repeated snapshots from one
+  source archive form a monotonic lineage: importing a newer snapshot
+  atomically supersedes the complete contribution of an older imported
+  snapshot from that lineage. Re-importing the same or an older snapshot is a
+  no-op; imports from different source archives remain additive. Reconciliation
+  must not lose a growing retention rollup or double-count raw records that a
+  later snapshot has absorbed into that rollup. CSV pseudonymizes players by
   default; including display names is an explicit export choice.
 - `NamePolicy` is local and deterministic. It performs NFKC normalization,
   removes controls/bidi overrides, collapses whitespace, limits to 14 grapheme
   clusters, checks obfuscations, and returns a generic rename error. Exact
   `Mr. Howe` and event test names are allowlisted.
-- Every persistence, import, export, record, network, Hall of Fame, and Stats
-  path consumes the same `NamePolicy`; invalid input is never persisted.
+- Every persistence, import, export, record, network, Hall of Fame, Stats, and
+  `.flipgame-save` setup-row path consumes the same `NamePolicy`; invalid input
+  is never persisted. `rows[]` inside saved setup data is player context, so a
+  blocked imported row name is replaced with the import-boundary empty value
+  before any local-storage write.
+- Name screening uses a deterministic Unicode confusable skeleton broad enough
+  to reject direct Greek, Cyrillic, Cherokee, full-width, and common modifier
+  lookalike spellings of blocked English terms while retaining ordinary
+  accented names and the exact QA allowlist.
 - Editing a highlighted blocked name clears only its stale error presentation;
   match start validates the replacement again before persistence or play.
 - Player names are rendered through text nodes or escaping, never unsafe HTML.
