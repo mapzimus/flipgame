@@ -66,6 +66,11 @@ affected specialist continues.
   Event relaunch, bounce, slide, or temporary loss of grounded contact never
   pauses or resets that deadline; the event-specific verdict is evaluated no
   later than its limit.
+- A deadline can award a make only while the scoring body is grounded on the
+  active landing plane within its contact tolerance. A body suspended on an Ice
+  bumper, obstacle, or other off-plane geometry resolves as a miss (or performs
+  an explicitly contracted event recovery); upright tilt alone is never a
+  landing.
 - Physics geometry is frozen during an airborne viewport resize. Canvas pixels
   may resize immediately; world reflow waits until the flip resolves.
 - ON FIRE upright makes add 1 life and cap makes add 2. The streak continues

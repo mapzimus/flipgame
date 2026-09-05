@@ -639,3 +639,27 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owner notified: State/Data/Safety; revision must be acknowledged and
   included in its active isolated correction before merge.
+
+## Revision 33 - deadline verdicts require the scoring plane
+
+- Trigger: continuing Simulation QA replayed Ice seed `3668341011` after the
+  absolute-deadline correction. It resolves at the intended six-second deadline
+  but receives `upright-settle-limit` while almost motionless on an Ice bumper,
+  with its bottom approximately 95px above the scoring ground.
+- Old behavior: the deadline check runs before the grounded check and awards a
+  make from current tilt alone, so off-plane suspension can count as a landing.
+- New behavior: the deadline remains absolute from first scoring-plane contact,
+  but a make requires the scoring body to be grounded within tolerance of the
+  active landing plane. An off-plane body resolves as a miss unless an event has
+  an explicit recovery contract; tilt alone never qualifies.
+- Migration action: preserve the deadline ordering and all event-specific
+  settle durations, then gate the deadline pose verdict on scoring-plane contact.
+  Do not restore the earlier unbounded wait or make Ice an automatic miss.
+- Required tests: exact Ice seed `3668341011` resolves at frame 420 as MISS while
+  off-plane; a deadline-bound grounded upright seed remains MAKE; settled cap,
+  Wind, Moon, Bouncy, Trampoline return-landing, ceiling-plane, and ordinary
+  timing regressions pass.
+- Integration commit: pending.
+- Affected owner: Physics/Events. Exact candidate remains rejected and physics
+  may not merge until it acknowledges this revision and supplies both negative
+  and positive scoring-plane fixtures.
