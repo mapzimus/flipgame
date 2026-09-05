@@ -647,12 +647,31 @@ test('mode adapters register through architecture hooks and emit versioned outco
   assert.equal(game.format, 'cup');
   assert.equal(prepared.options.suddenDeathFlipThreshold, 12);
   assert.equal(registry.snapshot({}).schema, 'FlipgameModeStateV1');
+  assert.equal(registry.snapshot({}).newCupOptions.openingIndex, 1,
+    'Cup adapter snapshot exposes the tested fair next-Cup opener');
 
   emitFakeCupHeat(registry, outcomes);
   assert.equal(events[0].schema, 'FlipgameOutcomeEventV1');
   assert.equal(events[0].version, 1);
   assert.equal(events[0].type, 'mode.cup-heat-resolved.v1');
   assert.equal(events[0].metadata.source, 'v111-modes');
+});
+
+test('mode adapter snapshots expose immutable fair rematch proposals', () => {
+  const cup = modes.createCupAdapter();
+  cup.prepareMatch({ defs: defs(4), direction: 1, options: { format: 'cup', cupLength: 'short', startIndex: 2 } });
+  const cupState = cup.snapshot();
+  assert.equal(cupState.newCupOptions.openingIndex, 3);
+  assert.equal(Object.isFrozen(cupState.newCupOptions), true);
+
+  const team = modes.createTeamAdapter();
+  team.prepareMatch({ defs: defs(8), direction: 1, options: { format: 'team-clash' } });
+  const teamState = team.snapshot();
+  assert.equal(teamState.rematchOptions.startingTeam, 1);
+  assert.deepEqual(teamState.rematchOptions.teammateOffsets, [1, 1]);
+  assert.deepEqual(teamState.swapTeamOptions.teams, [teamState.teams[1], teamState.teams[0]]);
+  assert.equal(Object.isFrozen(teamState.rematchOptions), true);
+  assert.equal(Object.isFrozen(teamState.swapTeamOptions), true);
 });
 
 function emitFakeCupHeat(registry) {

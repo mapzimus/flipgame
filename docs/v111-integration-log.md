@@ -144,3 +144,29 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Tests: all player counts/Cup lengths, replay/reconnect, forged/stale offers,
   exact choice count/pool membership, and RNG isolation.
 - Affected owners notified: Rules/Modes and UI/Renderer.
+
+## Revision 10 - exact achievement catalog restoration
+
+- Trigger: integration review found the 70 added achievement definitions did
+  not match the frozen Classic, Cup, Team, collection, and Lab/stat list.
+- New behavior: the 30 legacy IDs remain intact and the other 70 now match the
+  contract exactly: 30 event, 10 Classic, 8 Cup, 8 Team, 8 collection, and 6
+  Lab/stat achievements.
+- Eligibility: ordinary Practice/Lab/forced/test/AI-only outcomes remain
+  excluded. Only the two explicit Lab actions can qualify in advanced Lab,
+  without awarding progression.
+- Tests: exact IDs/counts, every matcher, legacy migration, eligibility,
+  lock-only secrecy, and RNG isolation.
+- Affected owners notified: Progression/Achievements and UI/Renderer.
+
+## Revision 11 - rules-owned rematch proposals
+
+- Trigger: UI review found tested Cup/Team rematch rotation helpers were not
+  reachable through the normalized mode adapter boundary.
+- New behavior: Cup snapshots include immutable `newCupOptions`; Team snapshots
+  include immutable `rematchOptions` and `swapTeamOptions`.
+- Migration: UI merges the selected proposal rather than deriving opener,
+  team, or teammate offsets. This preserves fair rematch rotation for every
+  supported player count.
+- Tests: adapter snapshot immutability and exact proposed openers/offsets.
+- Affected owners notified: Rules/Modes and UI/Renderer.

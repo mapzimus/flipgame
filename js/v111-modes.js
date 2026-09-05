@@ -830,7 +830,12 @@
         game.advanceTurn();
         return true;
       },
-      snapshot: function () { return series ? series.snapshot() : null; },
+      snapshot: function () {
+        if (!series) return null;
+        return snapshot(Object.assign({}, series.snapshot(), {
+          newCupOptions: series.newCupOptions(),
+        }));
+      },
     };
   }
 
@@ -913,7 +918,13 @@
         game.setState('TURN_START');
         return true;
       },
-      snapshot: function () { return match ? match.snapshot() : null; },
+      snapshot: function () {
+        if (!match) return null;
+        return snapshot(Object.assign({}, match.snapshot(), {
+          rematchOptions: match.rematchOptions(),
+          swapTeamOptions: match.swapTeamOptions(),
+        }));
+      },
     };
   }
 

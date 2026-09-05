@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 9
+Contract revision: 11
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -172,3 +172,6 @@ cap-toss:5500, life-drain:6000`.
 - `createArenaDraftOffer(...)`, `CupSeries.arenaDraftOffer()`, and
   `CupSeries.selectArenaDraft(profileId)` expose the between-heat draft without
   disclosing or accepting arbitrary event definitions.
+- Completed-mode snapshots expose immutable, rules-owned rematch proposals:
+  Cup `newCupOptions`, Team `rematchOptions`, and Team `swapTeamOptions`. UI
+  applies these proposals and never recalculates opener/team rotations.
