@@ -359,3 +359,29 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owners notified: Release Engineering and Browser/Release QA. Stats
   corrective work is unaffected.
+
+## Revision 21 - one browser-global settings authority
+
+- Trigger: Browser/Release QA proved that the classic `settings.js` script
+  declared a lexical `const Settings` without exposing `window.Settings`.
+  Guarded setup handlers therefore skipped persistence while unguarded runtime
+  reads happened to reach the lexical binding, allowing the UI and renderer to
+  disagree after reload.
+- Old behavior: Reduce motion and Flick feedback could appear selected in the
+  saved setup while their setters were skipped; the renderer could continue
+  with the previous preference. Sound and physics-feel paths relied on the
+  same accidental split authority.
+- New behavior: one browser-global `window.Settings` object owns all four
+  preferences. Setup controls, setup restoration, audio, gameplay, and the
+  renderer read and update that exact instance. Explicit reduced motion is
+  combined with the operating-system preference.
+- Migration action: expose the existing settings object without duplicating
+  state, remove divergent guarded behavior, and resynchronize the rendered
+  setup state immediately after load and after each control change.
+- Required tests: classic-script browser-global availability, toggle-to-runtime
+  behavior, localStorage persistence and reload for reduced motion and Flick
+  feedback, operating-system reduced-motion fallback, plus mute and physics
+  feel regression coverage.
+- Integration commit: pending.
+- Affected owner notified: UI/Renderer. Browser/Release QA must restart its
+  settings checks after integration; Stats corrective work is unaffected.

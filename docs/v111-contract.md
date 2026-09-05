@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 20
+Contract revision: 21
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -31,6 +31,12 @@ affected specialist continues.
   latched for the whole match/session and its MatchRecord.
 - Online remains inaccessible in v111 unless sender identity is authenticated
   independently of fields asserted by the incoming envelope.
+- `window.Settings` is the single shared settings instance used by setup,
+  persistence, audio, gameplay, and the renderer. A visible setup control and
+  its saved value must never diverge from the effective runtime preference.
+  Reduced motion is active when either the persisted explicit preference or
+  the operating-system preference requests it; sound, physics feel, and flick
+  feedback likewise survive reload through that same shared instance.
 
 ## Gameplay contracts
 
