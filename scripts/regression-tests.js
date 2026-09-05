@@ -143,8 +143,9 @@ function testPlinkoRewards() {
   assert.equal(game.maxLives, 5, 'multipliers must not raise the additive reward ceiling');
 
   game.resolvePlinko('halve');
-  assert.deepEqual(game.players.slice(1).map((p) => p.lives), [4, 1, 0]);
-  assert.equal(game.players[3].eliminated, true, 'halving one life rounds down and eliminates');
+  assert.deepEqual(game.players.slice(1).map((p) => p.lives), [5, 1, 1]);
+  assert.equal(game.players[3].eliminated, false,
+    'opponent halving uses ceil with a one-life floor and cannot auto-eliminate');
   assert.equal(game.players[0].lives, 14, 'halving must not affect the flipper');
 
   const jackpot = loadGame();
@@ -201,8 +202,9 @@ function testDoubleFlipCompoundReward() {
   game.resolveFlip('MAKE', { rareEvent: 'double-flip', onCap: true });
   assert.equal(game.players[0].lives, 10, 'Double Flip must double the flipper');
   assert.equal(game.maxLives, 8, 'Double Flip must not raise the additive reward ceiling');
-  assert.deepEqual(game.players.slice(1).map((p) => p.lives), [4, 1, 0]);
-  assert.equal(game.players[3].eliminated, true, 'halving one life must eliminate');
+  assert.deepEqual(game.players.slice(1).map((p) => p.lives), [5, 1, 1]);
+  assert.equal(game.players[3].eliminated, false,
+    'halving one life keeps the opponent alive at the one-life floor');
   assert.equal(game.pointCount, 2, 'a Double Flip cap landing still earns cap stake value');
   assert.equal(game.doubleFlipReward, true);
 
