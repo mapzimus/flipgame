@@ -29,16 +29,9 @@
   });
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   var SCOPE_VALUES = new Set(['all', 'device', 'session', 'import']);
+  var ROLLUP_UNKNOWN = '__unknown__';
   var ROLLUP_MODES = new Set(['classic','cup','team-clash','team','practice','physics-lab','lab','alien','insane']);
-  var ROLLUP_OBJECTS = new Set([
-    'bottle','coffee-mug','ketchup','milk-carton','maple','teapot','honeybear','salt-pepper-shaker',
-    'babybottle','soup-can','extinguisher','smoothie','soap','gumball-machine','hourglass','microscope',
-    'bowlingpin','desk-globe','cone','microphone-stand','flask','potted-plants','shell','penguin','pawn',
-    'owl','buoy','giraffe','wineglass','red-panda','toucan','trophy-cup','trex','snow-globe',
-    'whippedcream','eyeball-monster','potion','soda-can','tabasco','watering-can','coke','pinata','stanley',
-    'huge-rubber-duck','lavalamp','action-figures','lawnchair','tall-buildings','octopus','box-of-snacks','alien',
-  ]);
-  var ROLLUP_EVENTS = new Set(Interfaces && Array.isArray(Interfaces.EVENT_IDS) ? Interfaces.EVENT_IDS : []);
+  var ROLLUP_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
   var FLIP_RECORD_FIELDS = Object.freeze([
     'schema','version','releaseVersion','uuid','timestamp','sessionId','deviceId','matchId','sequence','scope',
     'mode','heat','round','turn','playerCount','online','practice','forced','testData','playerId','displayName',
@@ -494,16 +487,56 @@
     }).join('|');
   }
   function boundedRollupDimensions(record) {
-    var mode = text(record.mode, 'classic');
-    var objectId = text(record.objectId, null);
-    var eventId = text(record.eventId, null);
+    var source = record && typeof record === 'object' ? record : {};
+    function has(key) { return Object.prototype.hasOwnProperty.call(source, key); }
+    function value(key) { return has(key) ? source[key] : ROLLUP_UNKNOWN; }
+    function stringValue(key) {
+      var current = value(key);
+      if (current === ROLLUP_UNKNOWN || current == null) return current;
+      var normalized = String(current);
+      if (key === 'scope') return normalized === 'device' || normalized === 'session' ? normalized : 'other';
+      if (key === 'mode') return ROLLUP_MODES.has(normalized) ? normalized : 'other';
+      if (key === 'result') return normalized === 'MAKE' || normalized === 'MISS' ? normalized : 'other';
+      return ROLLUP_ID_RE.test(normalized) ? normalized : 'other';
+    }
+    function booleanValue(key) {
+      var current = value(key);
+      return typeof current === 'boolean' ? current : (current === ROLLUP_UNKNOWN ? current : ROLLUP_UNKNOWN);
+    }
+    function boundedInteger(key, minimum, maximum) {
+      if (!has(key)) return ROLLUP_UNKNOWN;
+      var current = Number(source[key]);
+      return Number.isInteger(current) && current >= minimum && current <= maximum ? current : 'other';
+    }
+    var day = has('day') ? source.day : (has('timestamp') ? dayBucket(source.timestamp) : ROLLUP_UNKNOWN);
+    if (day !== ROLLUP_UNKNOWN) {
+      day = typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day) &&
+        dayBucket(Date.parse(day + 'T00:00:00.000Z')) === day ? day : 'other';
+    }
+    var viewportBucket = has('viewportBucket') ? source.viewportBucket
+      : (has('viewport') && source.viewport && Object.prototype.hasOwnProperty.call(source.viewport, 'bucket')
+        ? source.viewport.bucket : ROLLUP_UNKNOWN);
     return {
-      day: record.day != null ? record.day : dayBucket(record.timestamp),
-      mode: ROLLUP_MODES.has(mode) ? mode : 'other',
-      objectId: objectId == null ? null : (ROLLUP_OBJECTS.has(objectId) ? objectId : 'other'),
-      eventId: eventId == null ? null : (ROLLUP_EVENTS.has(eventId) ? eventId : 'other'),
-      testData: !!record.testData,
+      day: day,
+      scope: stringValue('scope'), sessionId: stringValue('sessionId'), deviceId: stringValue('deviceId'),
+      mode: stringValue('mode'), playerId: stringValue('playerId'),
+      seat: boundedInteger('seat', 0, 7),
+      isAI: booleanValue('isAI'), teamId: stringValue('teamId'),
+      objectId: stringValue('objectId'), variantId: stringValue('variantId'),
+      cosmeticId: stringValue('cosmeticId'), arenaId: stringValue('arenaId'),
+      eventId: stringValue('eventId'),
+      playerCount: boundedInteger('playerCount', 1, 8),
+      viewportBucket: viewportBucket == null || viewportBucket === ROLLUP_UNKNOWN
+        ? viewportBucket : (ROLLUP_ID_RE.test(String(viewportBucket)) ? String(viewportBucket) : 'other'),
+      result: stringValue('result'), online: booleanValue('online'),
+      testData: booleanValue('testData'),
     };
+  }
+
+  function rollupDayRange(day) {
+    if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return { start: null, end: null };
+    var start = Date.parse(day + 'T00:00:00.000Z');
+    return Number.isFinite(start) ? { start: start, end: start + 86399999 } : { start: null, end: null };
   }
   function rangedBucket(value, cuts) {
     var number = finite(value, null);
@@ -551,10 +584,11 @@
   }
   function newRollup(dimensions, prefix, partition) {
     var key = dimensionKey(dimensions);
+    var range = rollupDayRange(dimensions.day);
     return {
-      schema: 'FlipAggregateV1', version: 2,
+      schema: 'FlipAggregateV1', version: 3,
       uuid: stableUuid('rollup', (prefix || 'retention') + '|' + (partition || 'device') + '|' + key),
-      key: key, source: prefix || 'retention', timestampStart: null, timestampEnd: null,
+      key: key, source: prefix || 'retention', timestampStart: range.start, timestampEnd: range.end,
       dimensions: clone(dimensions), flips: 0, makes: 0, caps: 0, perfect: 0,
       upright: 0, eventObserved: 0, eventSuccesses: 0, onFireRuns: 0,
       flightMsTotal: 0, flightMsCount: 0, settleMsTotal: 0, settleMsCount: 0,
@@ -594,8 +628,6 @@
     category('lives', record.livesAfter);
     category('stakes', record.stakeAfter);
     category('streaks', record.streakAfter);
-    next.timestampStart = next.timestampStart == null ? record.timestamp : Math.min(next.timestampStart, record.timestamp);
-    next.timestampEnd = next.timestampEnd == null ? record.timestamp : Math.max(next.timestampEnd, record.timestamp);
     if (record._importId) next._importId = record._importId;
     return next;
   }
@@ -606,10 +638,6 @@
       next[key] = (Number(next[key]) || 0) + (Number(source[key]) || 0);
     });
     next.bestStreak = Math.max(Number(next.bestStreak) || 0, Number(source.bestStreak) || 0);
-    next.timestampStart = next.timestampStart == null ? source.timestampStart
-      : (source.timestampStart == null ? next.timestampStart : Math.min(next.timestampStart, source.timestampStart));
-    next.timestampEnd = next.timestampEnd == null ? source.timestampEnd
-      : (source.timestampEnd == null ? next.timestampEnd : Math.max(next.timestampEnd, source.timestampEnd));
     next.counters = next.counters || {};
     next.makeCounters = next.makeCounters || {};
     var counters = source.counters || {};
@@ -657,7 +685,11 @@
     var map = new Map();
     var passthrough = [];
     (Array.isArray(opts.existing) ? opts.existing : []).forEach(function (cell) {
-      if (cell.schema === 'MatchAggregateV1' || cell.source !== (opts.prefix || 'retention')) {
+      // Pre-v3 retention cells do not contain the expanded categorical contract.
+      // Keep them immutable: rewriting them would invent missing dimensions and turn
+      // a single prune into an unbounded full-store migration.
+      if (cell.schema === 'MatchAggregateV1' || cell.source !== (opts.prefix || 'retention') ||
+          (cell.schema === 'FlipAggregateV1' && !(Number(cell.version) >= 3))) {
         passthrough.push(clone(cell)); return;
       }
       var dimensions = boundedRollupDimensions(cell.dimensions || {});
@@ -732,7 +764,7 @@
     var playerType = oneOf(source.playerType, ['all', 'human', 'cpu'], 'all');
     if (source.human === true) playerType = 'human';
     if (source.cpu === true) playerType = 'cpu';
-    var aiFilter = source.isAI == null ? null : !!source.isAI;
+    var aiFilter = typeof source.isAI === 'boolean' ? source.isAI : null;
     if (playerType === 'human') aiFilter = false;
     if (playerType === 'cpu') aiFilter = true;
     return freeze({
@@ -756,7 +788,7 @@
         source.viewports, source.viewport)),
       teamIds: listFilter(source.teamIds != null ? source.teamIds : source.teamId),
       results: listFilter(source.results != null ? source.results : source.result),
-      online: source.online == null ? null : !!source.online,
+      online: typeof source.online === 'boolean' ? source.online : null,
       playerType: playerType, isAI: aiFilter,
       currentSessionId: text(source.currentSessionId, null), currentDeviceId: text(source.currentDeviceId, null),
     });
@@ -767,12 +799,12 @@
     return filter.scopes.some(function (scope) {
       if (scope === 'import') return !!record._importId;
       if (scope === 'session') return !record._importId && record.sessionId === filter.currentSessionId;
-      if (scope === 'device') return !record._importId && (!filter.currentDeviceId || record.deviceId == null || record.deviceId === filter.currentDeviceId);
+      if (scope === 'device') return !record._importId && (!filter.currentDeviceId || record.deviceId === filter.currentDeviceId);
       return false;
     });
   }
   function matchesDimensions(dim, cell, filter) {
-    if (!filter.includeTestData && dim.testData) return false;
+    if (!filter.includeTestData && dim.testData !== false) return false;
     if (!inScope(Object.assign({}, dim, { _importId: cell ? cell._importId : dim._importId }), filter)) return false;
     if (!contains(filter.sessionIds, dim.sessionId) || !contains(filter.deviceIds, dim.deviceId) ||
         !contains(filter.playerIds, dim.playerId) || !contains(filter.seats, firstValue(dim.seat, dim.playerIndex)) ||
@@ -782,8 +814,8 @@
         !contains(filter.arenaIds, dim.arenaId) || !contains(filter.playerCounts, dim.playerCount) ||
         !contains(filter.viewportBuckets, dim.viewportBucket || (dim.viewport && dim.viewport.bucket)) ||
         !contains(filter.teamIds, dim.teamId) || !contains(filter.results, dim.result)) return false;
-    if (filter.online != null && !!dim.online !== filter.online) return false;
-    if (filter.isAI != null && !!dim.isAI !== filter.isAI) return false;
+    if (filter.online != null && dim.online !== filter.online) return false;
+    if (filter.isAI != null && dim.isAI !== filter.isAI) return false;
     var start = cell ? cell.timestampStart : dim.timestamp;
     var end = cell ? cell.timestampEnd : dim.timestamp;
     if (filter.from != null && end < filter.from) return false;

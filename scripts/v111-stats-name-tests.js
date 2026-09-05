@@ -310,15 +310,17 @@ async function testCompleteFiltersAndRollupDimensions() {
   assert.equal(Stats.buildDatasets(data, { scope: 'import', currentDeviceId: 'device-a', currentSessionId: 'session-a' }).sequenceStrip[0].playerId, 'cpu');
   assert.equal(Stats.buildDatasets(data, { scopes: ['device', 'import'], currentDeviceId: 'device-a' }).sequenceStrip.length, 2);
   const rollup = Stats.aggregateRecords([human], { prefix: 'retention' })[0];
-  assert.deepEqual(Object.keys(rollup.dimensions).sort(), ['day','eventId','mode','objectId','testData'],
-    'retention keys contain only the bounded daily/mode/object/event contract');
+  assert.deepEqual(Object.keys(rollup.dimensions).sort(), [
+    'arenaId','cosmeticId','day','deviceId','eventId','isAI','mode','objectId','online','playerCount',
+    'playerId','result','scope','seat','sessionId','teamId','testData','variantId','viewportBucket',
+  ], 'retention keys contain only contractually filterable categorical dimensions');
   assert.equal(rollup.counters.seats['0'], 1, 'bounded seat distribution detail is retained as a counter');
   assert.equal(rollup.flightMsTotal, human.flightMs);
   assert.equal(rollup.settleMsTotal, human.settleMs);
   const highCardinality = Array.from({ length: 1000 }, (_, index) => Stats.normalizeFlipRecord(flip(5000 + index, {
     timestamp: Date.UTC(2026, 0, 1) + index, eventSeed: index, trajectorySeed: index + 1,
     flightMs: 1000 + index, settleMs: 100 + index, turn: index, stakeAfter: index,
-    mode: 'classic', objectId: 'bottle', eventId: null,
+    mode: 'classic', objectId: 'bottle', eventId: null, result: 'MAKE', made: true,
   }), { deviceId: 'device-a', sessionId: 'session-a' }));
   assert.equal(Stats.aggregateRecords(highCardinality, { prefix: 'retention' }).length, 1,
     'per-flip IDs, seeds, timings, turn and mutable values cannot grow retention row cardinality');
