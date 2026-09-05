@@ -1,6 +1,10 @@
 // main.js — game loop, wires everything together (loaded last)
 
 (function () {
+  // settings.js owns the one preference object for the whole classic-script
+  // runtime. Keep a local alias to that exact browser global, never a copy.
+  const Settings = window.Settings;
+  if (!Settings) throw new Error('Settings must load before main.js');
   const canvas       = document.getElementById('game-canvas');
   const setupScreen  = document.getElementById('setup-screen');
   const gameScreen   = document.getElementById('game-screen');
@@ -866,8 +870,7 @@
     return document.querySelector('input[name="difficulty"]:checked')?.value || 'medium';
   }
   function chosenFeel() {
-    return document.querySelector('input[name="feel"]:checked')?.value ||
-      (window.Settings && Settings.feel) || 'standard';
+    return Settings.feel;
   }
   function chosenStartingLives() {
     const v = parseInt(document.querySelector('input[name="starting-lives"]:checked')?.value || '10', 10);
@@ -924,9 +927,8 @@
   });
   const reduceMotionToggle = document.getElementById('reduce-motion-toggle');
   if (reduceMotionToggle) reduceMotionToggle.addEventListener('change', () => {
-    document.body.classList.toggle('reduce-motion', reduceMotionActive());
-    Renderer.setReduceMotion(reduceMotionActive());
-    if (window.Settings && typeof Settings.setReduceMotion === 'function') Settings.setReduceMotion(reduceMotionToggle.checked);
+    Settings.setReduceMotion(reduceMotionToggle.checked);
+    applyReducedMotion();
     saveSetup();
   });
   let labLastSuccessful = null;
@@ -1053,9 +1055,7 @@
     startPhysicsLab(true);
   });
   function flickFeedbackOn() {
-    const el = document.getElementById('flick-feedback-toggle');
-    if (el) return !!el.checked;
-    return !!(window.Settings && Settings.flickFeedback);
+    return Settings.flickFeedback;
   }
   function setRadio(name, value) {
     const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
@@ -1078,15 +1078,12 @@
         })),
         direction:  document.querySelector('input[name="direction"]:checked')?.value ?? '1',
         difficulty: chosenDifficulty(),
-        feel:       chosenFeel(),
         startingLives: String(chosenStartingLives()),
         gameMode:    chosenGameMode(),
         format:      chosenFormat(),
         cupLength:   chosenCupLength(),
         arenaProfileId: chosenArenaProfile(),
         visualArenaId,
-        feedback:   flickFeedbackOn(),
-        reduceMotion: !!reduceMotionToggle?.checked,
       }));
     } catch (_) {}
   }
@@ -1112,7 +1109,6 @@
       renderFrom(rows);
       setRadio('direction', s.direction);
       setRadio('difficulty', s.difficulty);
-      setRadio('feel', s.feel);
       setRadio('starting-lives', s.startingLives);
       setRadio('game-mode', s.gameMode || 'normal');
       setRadio('match-format', s.format || 'classic');
@@ -1120,13 +1116,7 @@
       const arena = document.getElementById('arena-profile');
       if (arena) arena.value = s.arenaProfileId || '';
       visualArenaId = s.visualArenaId || null;
-      const fb = document.getElementById('flick-feedback-toggle');
-      if (fb) fb.checked = !!s.feedback;
-      if (reduceMotionToggle) reduceMotionToggle.checked = !!s.reduceMotion;
-      if (window.Settings) {
-        if (s.feel) Settings.setFeel(s.feel);
-        Settings.setFlickFeedback(!!s.feedback);
-      }
+      syncPreferenceControls();
       syncFormatControls(); syncCpuDifficulty();
       return true;
     } catch (_) { return false; }
@@ -1135,21 +1125,20 @@
   // Persist feel / flick-feedback whenever the player picks them.
   document.querySelectorAll('input[name="feel"]').forEach((el) => {
     el.addEventListener('change', () => {
-      if (window.Settings) Settings.setFeel(el.value);
+      Settings.setFeel(el.value);
       saveSetup();
     });
   });
   const flickFeedbackEl = document.getElementById('flick-feedback-toggle');
   if (flickFeedbackEl) {
-    if (window.Settings) flickFeedbackEl.checked = !!Settings.flickFeedback;
     flickFeedbackEl.addEventListener('change', () => {
-      if (window.Settings) Settings.setFlickFeedback(flickFeedbackEl.checked);
+      Settings.setFlickFeedback(flickFeedbackEl.checked);
       saveSetup();
     });
   }
   document.querySelectorAll('input[name="direction"], input[name="difficulty"], input[name="starting-lives"], input[name="game-mode"], #arena-profile')
     .forEach((el) => el.addEventListener('change', saveSetup));
-  if (window.Settings) setFeelRadio(Settings.feel);
+  syncPreferenceControls();
 
   // ── Start game ─────────────────────────────────────────────────────────────
   // Platform owns the single wake lock and visibility lifecycle.
@@ -1717,7 +1706,7 @@
     Physics.init(physicsWidth, physicsHeight, physicsInset);  // logical coords
     const feel = (opts && opts.feel) || chosenFeel();
     if (Physics.setFeel) Physics.setFeel(feel);
-    if (window.Settings && !onlineMode) Settings.setFeel(feel);
+    if (!onlineMode) Settings.setFeel(feel);
     if (Physics.setImpactCallback) {
       let lastWallT = 0;
       Physics.setImpactCallback((type, speed, x, y) => {
@@ -3777,6 +3766,17 @@
     return Settings.reduceMotion ||
       (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) || false;
   }
+  function applyReducedMotion() {
+    const active = reduceMotionActive();
+    document.body.classList.toggle('reduce-motion', active);
+    Renderer.setReduceMotion(active);
+    return active;
+  }
+  function syncPreferenceControls() {
+    if (reduceMotionToggle) reduceMotionToggle.checked = Settings.reduceMotion;
+    if (flickFeedbackEl) flickFeedbackEl.checked = Settings.flickFeedback;
+    setFeelRadio(Settings.feel);
+  }
   function syncMuteBtn() {
     if (!muteBtn) return;
     muteBtn.textContent = Settings.sound ? '🔊' : '🔇';
@@ -3843,7 +3843,7 @@
   if (homeBtn) homeBtn.addEventListener('click', backToMenu);
   if (window.matchMedia) {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onMq = () => Renderer.setReduceMotion(reduceMotionActive());
+    const onMq = () => applyReducedMotion();
     if (mq.addEventListener) mq.addEventListener('change', onMq);
     else if (mq.addListener) mq.addListener(onMq);
   }
@@ -4106,8 +4106,9 @@
   }
 
   // Apply persisted prefs + render the hall-of-fame
+  syncPreferenceControls();
   Sound.setMuted(!Settings.sound);
-  Renderer.setReduceMotion(reduceMotionActive());
+  applyReducedMotion();
   syncMuteBtn();
   if (Records.syncUnlocksFromWins) Records.syncUnlocksFromWins();
   syncInsaneModeUnlock();
