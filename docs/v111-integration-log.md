@@ -474,3 +474,28 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: `7e02a8b`.
 - Affected owners notified: Release Engineering and Browser/Release QA. The
   integrated Settings implementation itself is unchanged.
+
+## Revision 26 - hard settle deadlines and exact compact-layout band
+
+- Trigger: exact-candidate Simulation QA found a forced Ice Slide seed resolving
+  more than ten seconds after first contact because the six-second check was
+  skipped while the object was temporarily ungrounded. Browser/Release QA also
+  found Setup and Stats remained single-column at 768px because their column
+  breakpoint began at 900px rather than the frozen compact band.
+- Old behavior: landing timeout evaluation was nested under grounded contact,
+  allowing event relaunch to pause it. Setup/Stats used one column from
+  768-899px and the desktop 12-column split began before 1100px.
+- New behavior: the event settle deadline is absolute from first scoring-plane
+  contact and is evaluated even during a temporary relaunch. Setup and Stats use
+  compact two-column composition throughout 768-1099px; the 12-column 7/5
+  desktop shell begins only at 1100px.
+- Migration action: move deadline handling ahead of grounded-only stability
+  checks while preserving each event's verdict logic; split responsive CSS into
+  exact compact and desktop bands without changing phone layout.
+- Required tests: Ice seed `3668341011` at 360x640 resolves by approximately
+  7000ms simulation time; Wind/Moon/ordinary/Bouncy boundaries regress; Setup
+  and Stats compute two columns at 768 and 1099, then 12-column/7:5 at 1100, for
+  two and eight players with no horizontal overflow.
+- Integration commits: pending.
+- Affected owners notified: Physics/Events and UI/Renderer. The final candidate
+  is rejected; all three independent gates restart after both fixes integrate.

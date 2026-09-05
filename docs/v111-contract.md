@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 25
+Contract revision: 26
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -33,6 +33,9 @@ affected specialist continues.
   in the isolated recovery state.
 - Player-facing UI never reveals unlock thresholds, wins remaining, locked
   names, programmed event odds, or the Insane Mode occurrence rate.
+- Responsive Setup and Stats use one column below 768px, a compact two-column
+  composition throughout 768-1099px, and the 12-column desktop shell beginning
+  at 1100px. Desktop Setup assigns Players seven columns and Match five.
 - Locked objects, cosmetics, achievements, Alien, Insane, and Physics Lab show
   only a lock symbol with accessible label `Locked`.
 - No public telemetry or third-party analytics ships in v111. Detailed stats
@@ -59,6 +62,10 @@ affected specialist continues.
 - Landing lifecycle: `airborne -> contact -> settling -> resolved`. A contact
   is never an immediate miss. Settle limits are 4 seconds normally, 5 for Wind
   and Moon, and 6 for Ice and Bouncy.
+- A settle limit is a hard deadline measured from first scoring-plane contact.
+  Event relaunch, bounce, slide, or temporary loss of grounded contact never
+  pauses or resets that deadline; the event-specific verdict is evaluated no
+  later than its limit.
 - Physics geometry is frozen during an airborne viewport resize. Canvas pixels
   may resize immediately; world reflow waits until the flip resolves.
 - ON FIRE upright makes add 1 life and cap makes add 2. The streak continues
