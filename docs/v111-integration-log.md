@@ -521,3 +521,23 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owner notified: Physics/Events paused its revision-26 work,
   acknowledged revision 27, received exact seeds, and expanded its isolated test.
+
+## Revision 28 - Wind Tunnel remains a physical skill event
+
+- Trigger: continuing Simulation QA found forced Wind Tunnel made 3,000 of
+  3,000 extremely broad deterministic inputs while the ordinary profile made
+  668, making Wind a de facto automatic win despite Plinko's exclusive rule.
+- Old behavior: launch spin assistance plus continuing alignment/stabilization
+  overrode even downward and severely underrotated input; seed 5 (`vx=9594`,
+  `vy=+647`) changed from an ordinary underrotated miss into an upright make.
+- New behavior: Wind keeps strong visible lateral and rotational gust physics,
+  its five-second hard deadline, and valid settled cap scoring, but does not
+  guarantee alignment or a make. Both success and failure remain possible.
+- Migration action: remove guaranteed stabilization/alignment from the Wind
+  profile without reducing its physical/visual impact or changing other events.
+- Required tests: exact seeds 5 and 3 remain skill-dependent misses for their
+  documented inputs; a broad deterministic Wind corpus contains both makes and
+  misses; ordinary and settled-cap regressions pass.
+- Integration commit: pending.
+- Affected owner notified: Physics/Events paused its combined corrective work
+  and received the exact corpus evidence before commit.

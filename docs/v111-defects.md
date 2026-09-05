@@ -53,3 +53,4 @@
 | V111-049 | P2 | Ice settling | Ice Slide can leave the landing plane and postpone its six-second settle deadline until returning | Physics/Events | Open | Seed `3668341011` at 360x640 must resolve by about 7000ms simulation time |
 | V111-050 | P2 | Compact layout | Setup and Stats remain single-column at 768-899px and desktop shell starts before the 1100px contract boundary | UI/Renderer | Open | Computed layout at 768/1099/1100 with two and eight players |
 | V111-051 | P2 | Native Alien calibration | Native Alien ranges from 71% phone to 52% tablet makes while Classic remains 63% | Physics/Events | Open | Seed 3 and the 300-input corpus must remain comparable phone through 4K |
+| V111-052 | P2 | Wind calibration | Wind Tunnel produces 3,000/3,000 makes across broad inputs, acting as an automatic win | Physics/Events | Open | Exact miss seeds plus a deterministic corpus containing both outcomes |

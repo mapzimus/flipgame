@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 27
+Contract revision: 28
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -139,6 +139,10 @@ cap-toss:5500, life-drain:6000`.
   `Lives Doubled | Everyone Else Halved | Always Magnet | Automatic Loss |
   Automatic Win | Automatic Loss | Always Magnet | Everyone Else Halved |
   Lives Doubled`.
+- Wind Tunnel remains skill-dependent. It applies strong lateral and rotational
+  gust forces and accepts stable base or cap landings, but it never aligns or
+  stabilizes every trajectory into a make; deterministic input coverage must
+  contain both makes and misses.
 
 ## Progression and content contracts
 
