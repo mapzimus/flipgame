@@ -56,6 +56,17 @@
   const menuBtn      = document.getElementById('menu-btn');
   const homeBtn      = document.getElementById('home-btn');
 
+  // v111 feature modules attach through this passive bridge. Every call is
+  // optional and isolated so the legacy controller remains the authority when
+  // no v111 implementation is registered.
+  const v111Runtime = (typeof window !== 'undefined' && window.FlipgameV111) || null;
+  function v111Bridge(method, payload, fallback) {
+    try {
+      const fn = v111Runtime && v111Runtime.bridge && v111Runtime.bridge[method];
+      return typeof fn === 'function' ? fn(payload) : fallback;
+    } catch (_) { return fallback; }
+  }
+
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Scale the backing store by devicePixelRatio so everything is crisp on a
   // hi-DPI smartboard. We draw in LOGICAL (CSS) pixels — the transform maps
@@ -952,6 +963,8 @@
   // disabled online because prizes rewrite lives directly.
   let plinkoFlipActive = false;
   let rareEventActive = null;
+  let testDataFlipActive = false; // forced-name/typed-event marker for observers
+  let bridgeLandingInfo = null;   // includes non-physics verdicts such as timeout
   const RARE_EVENT_LABELS = {
     'rainbow-trail': '🌈 RAINBOW TRAIL!',
     'power-launch': '⚡ POWER LAUNCH!',
@@ -1060,7 +1073,7 @@
       });
       netAuthority = false;
     }
-    game.resolveFlip('MISS');
+    resolveGameFlip('MISS', { result: 'MISS', reason: 'timeout' });
   }
 
   function clearTimers() { clearTimeout(aiTimer); clearTimeout(elimTimer); clearTimeout(gameOverTimer); }
@@ -1073,6 +1086,36 @@
       plinko:  (landingInfo && landingInfo.plinko) || null,
       rareEvent: rareEventActive,
     };
+  }
+
+  function canonicalEventId() {
+    if (plinkoFlipActive) return 'plinko';
+    if (goldenFlipActive) return 'golden-flip';
+    // v110 called this event rainbow-trail; v111's durable id is frozen as
+    // rainbow-corkscrew. The alias affects observer data only.
+    return rareEventActive === 'rainbow-trail' ? 'rainbow-corkscrew' : rareEventActive;
+  }
+
+  function resolveGameFlip(result, landingInfo) {
+    const meta = landingMeta(landingInfo);
+    bridgeLandingInfo = landingInfo || null;
+    const handled = v111Bridge('resolveFlip', {
+      game,
+      result,
+      meta,
+      landing: landingInfo || null,
+      eventId: canonicalEventId(),
+      online: onlineMode,
+      testData: testDataFlipActive,
+    }, false);
+    if (handled) return;
+    if (meta.plinko && game.resolvePlinko) game.resolvePlinko(meta.plinko);
+    else game.resolveFlip(result, meta);
+  }
+
+  function advanceGameTurn() {
+    const handled = v111Bridge('advanceTurn', { game, online: onlineMode }, false);
+    if (!handled) game.advanceTurn();
   }
 
   // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
@@ -1112,6 +1155,17 @@
   }
 
   function startGame(defs, dir, opts) {
+    const prepared = v111Bridge('prepareMatch', {
+      defs,
+      direction: dir,
+      options: opts || {},
+      online: onlineMode,
+    }, null);
+    if (prepared) {
+      if (Array.isArray(prepared.defs)) defs = prepared.defs;
+      if (prepared.direction === 1 || prepared.direction === -1) dir = prepared.direction;
+      if (prepared.options && typeof prepared.options === 'object') opts = prepared.options;
+    }
     clearTimers();
     Sound.setSuddenDeath(false);
     passScreen.classList.add('hidden');
@@ -1168,6 +1222,7 @@
       perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0, lowestLives: Infinity })),
     };
     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
+    v111Bridge('matchStarted', { game, options: opts || {}, online: onlineMode }, null);
 
     if (loopId) cancelAnimationFrame(loopId);
     lastTime = performance.now();
@@ -1230,7 +1285,7 @@
           pendingNetResult = null;
           evaluating = false;
           showGlow = forced === 'MAKE';
-          game.resolveFlip(forced, landingMeta(Physics.getLastLandingInfo()));
+          resolveGameFlip(forced, Physics.getLastLandingInfo());
           break;
         }
         // Online non-authority: display-only sim — wait for the flicker's result
@@ -1257,9 +1312,7 @@
             });
           }
           netAuthority = false;
-          const meta = landingMeta(landingInfo);
-          if (meta.plinko && game.resolvePlinko) game.resolvePlinko(meta.plinko);
-          else game.resolveFlip(result, meta);
+          resolveGameFlip(result, landingInfo);
           break;
         }
       }
@@ -1293,7 +1346,7 @@
       if (resultTimer <= 0) {
         showGlow    = false;
         resultAlpha = 0;
-        game.advanceTurn();
+        advanceGameTurn();
       }
     }
 
@@ -1416,6 +1469,8 @@
     plinkoFlipActive = false;
     rareEventActive = null;
     lastFlickPower = null;
+    testDataFlipActive = false;
+    bridgeLandingInfo = null;
   }
 
   function onTurnStart() {
@@ -1582,6 +1637,17 @@
       if (game.inSuddenDeath && game.inSuddenDeath()) gameStats.sawSuddenDeath = true;
       if (game.justIgnited) gameStats.ignitionsThisGame = (gameStats.ignitionsThisGame || 0) + 1;
     }
+
+    v111Bridge('flipResolved', {
+      game,
+      result: game.lastResult,
+      landing: landing || bridgeLandingInfo,
+      flick: Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null,
+      eventId: canonicalEventId(),
+      online: onlineMode,
+      forced: testDataFlipActive,
+      testData: testDataFlipActive,
+    }, null);
 
     // NB: achievements.js declares `const Achievements` (script scope, not on
     // window) — same gotcha as Renderer above, so feature-detect via typeof.
@@ -1774,7 +1840,7 @@
     turnBannerEl.textContent = `❌ ${p.name} is out!`;
     updateHUD();
     clearTimeout(elimTimer);
-    elimTimer = setTimeout(() => game.advanceTurn(), 1800 / gameSpeed());
+    elimTimer = setTimeout(advanceGameTurn, 1800 / gameSpeed());
   }
 
   // Lightweight toast queue (self-creating so it needs no markup). Used for
@@ -1840,6 +1906,11 @@
     const active = game.activePlayers();
     const loser  = game.currentPlayer();
     const finalElim = !game.practice && !!(loser && loser.eliminated);
+    v111Bridge('matchResolved', {
+      game,
+      online: onlineMode,
+      match: { stats: gameStats, seriesWins: matchWins },
+    }, null);
     if (finalElim) {
       turnBannerEl.textContent = `❌ ${loser.name} is out!`;
       Sound.play('miss');
@@ -1954,13 +2025,18 @@
     Sound.play('flick');
     lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);
     // Typed test commands are offline-only because several prizes rewrite lives.
+    testDataFlipActive = false;
     if (!onlineMode && Physics.forceSpecialEvent) {
       if (specialEventArmed) {
         Physics.forceSpecialEvent(specialEventArmed);
         specialEventArmed = null;
+        testDataFlipActive = true;
       } else {
         const namedEvent = testEventForName(game.currentPlayer()?.name);
-        if (namedEvent) Physics.forceSpecialEvent(namedEvent);
+        if (namedEvent) {
+          Physics.forceSpecialEvent(namedEvent);
+          testDataFlipActive = true;
+        }
       }
     }
     const eventMultiplier = isMrHoweName(game.currentPlayer()?.name) ? 10 : 1;
@@ -1976,6 +2052,14 @@
       fi.seed % goldenOdds === 77 % goldenOdds);
     moonFlipActive = !!(fi && fi.moon);
     plinkoFlipActive = !!(fi && fi.plinko);
+    v111Bridge('flipStarted', {
+      game,
+      flick: fi,
+      eventId: canonicalEventId(),
+      online: onlineMode,
+      forced: testDataFlipActive,
+      testData: testDataFlipActive,
+    }, null);
     document.body.classList.toggle('life-drain-active',
       !!game.lifeDrainActive || rareEventActive === 'life-drain');
     if (game.practice) updatePracticeMeter(fi, false);
@@ -2194,6 +2278,7 @@
     onlineMode = false;
     netAuthority = false;
     pendingNetResult = null;
+    v111Bridge('menuEntered', { game, reason: 'menu' }, null);
     if (window.Net) Net.leave();
     game.state = GAME_STATES.SETUP;
     gameScreen.classList.add('hidden');
@@ -2390,7 +2475,7 @@
       if (wasCurrent || game.activePlayers().length <= 1) {
         // Treat like an elimination so advanceTurn can end or rotate.
         game.justEliminated = true;
-        game.advanceTurn();
+        advanceGameTurn();
       }
     });
     Net.on('disconnected', () => {
