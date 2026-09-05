@@ -24,3 +24,17 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Migration: Coffee Mug reference and all Wave 2 art must use the shared pivot.
 - Tests: assert pivot/baseline mapping for every object and variant.
 - Affected owners: Art Platform, all three Art Production agents, UI/Renderer.
+
+## Revision 3 - canonical content IDs
+
+- Trigger: Wave 1 review found the art registry using kebab-case while the data
+  manifest used underscore IDs for the same new objects and variants.
+- Old contract: stable IDs were required but their spelling convention was not
+  explicit.
+- New contract: all new object/variant IDs use lowercase kebab-case end to end;
+  persisted variant IDs are `<object-id>.<variant-id>`.
+- Migration: no released build contains these new IDs, so Wave 1 normalizes the
+  manifest before integration. Display label `Piñata` keeps its accent.
+- Tests: manifest/art ID parity and canonical-ID regex are mandatory.
+- Affected owners: Object Manifest, Art Platform, Art Production, Progression,
+  Stats, and UI/Renderer.

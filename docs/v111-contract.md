@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 2
+Contract revision: 3
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -85,6 +85,10 @@ cap-toss:5500, life-drain:6000`.
   Stand, Potted Plants, Penguin, Owl, Giraffe, Red Panda, Trophy Cup, Snow
   Globe, Eyeball Monster, Soda Can, Watering Can, Pinata, Huge Rubber Duck,
   Action Figures, Tall Buildings, Box of Snacks.
+- New object and variant IDs use canonical lowercase kebab-case consistently in
+  the manifest, art registry, progression, saves, statistics, and UI. Examples:
+  `coffee-mug`, `salt-pepper-shaker`, and `coffee-mug.blue-steel`. Display text
+  preserves the selected name `Piñata` while its stable ID is `pinata`.
 - Odd qualifying wins 1-99 award the frozen 50-item cosmetic sequence. Even
   wins award objects. Existing saves migrate without relocking.
 - A player selects one object, one of its 12 immediately available variants,
