@@ -201,7 +201,8 @@ function testLockSecrecyAndNoRng() {
     assert.deepEqual(Object.keys(view).sort(), ['ariaLabel', 'locked', 'symbol']);
   });
   const html = target.renderGridHtml();
-  assert.equal((html.match(/aria-label="Locked"/g) || []).length, 100);
+  assert.equal((html.match(/aria-label="Locked"/g) || []).length, 1);
+  assert.ok(!html.includes('/100'));
   for (const hidden of ['Opening Statement', 'Plinko', 'Advanced Lab', 'Twenty Straight']) {
     assert.ok(!html.includes(hidden), `locked HTML leaked ${hidden}`);
   }

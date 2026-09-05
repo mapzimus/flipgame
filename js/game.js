@@ -190,7 +190,9 @@ const game = {
       reward.additive = this.addLivesCapped(player, meta.onCap ? 3 : 2);
     } else if (eventId === 'mitosis') {
       const landedCount = Number(detail.landedCount != null ? detail.landedCount : detail.landings);
-      reward.additive = this.addLivesCapped(player, landedCount >= 2 ? 3 : 1);
+      // One copy is an ordinary successful flip. Only landing both copies pays
+      // the special three-life Mitosis reward.
+      reward.additive = landedCount >= 2 ? this.addLivesCapped(player, 3) : 0;
     } else if (eventId === 'cap-toss') {
       reward.additive = this.addLivesCapped(player, 5);
     } else if (eventId === 'roulette-table') {

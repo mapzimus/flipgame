@@ -356,13 +356,17 @@
         .map(function (achievement) { return unlockedView(achievement, map.get(achievement.id)); }));
     }
     function renderGridHtml() {
-      return '<div class="records-title ach-heading">🏅 Achievements · ' + unlockedCount() + '/' + CATALOG.length + '</div>' +
-        '<div class="ach-grid">' + list().map(function (view) {
-          if (view.locked) return '<div class="ach-card locked" aria-label="Locked"><div class="ach-emoji" aria-hidden="true">🔒</div></div>';
-          return '<div class="ach-card unlocked' + (view.rare ? ' rare' : '') + '" title="' + esc(view.desc) +
-            '" aria-label="' + esc(view.name) + '"><div class="ach-emoji" aria-hidden="true">' + esc(view.emoji) +
-            '</div><div class="ach-name">' + esc(view.name) + '</div></div>';
-        }).join('') + '</div>';
+      var views = list();
+      var cards = views.filter(function (view) { return !view.locked; }).map(function (view) {
+        return '<div class="ach-card unlocked' + (view.rare ? ' rare' : '') + '" title="' + esc(view.desc) +
+          '" aria-label="' + esc(view.name) + '"><div class="ach-emoji" aria-hidden="true">' + esc(view.emoji) +
+          '</div><div class="ach-name">' + esc(view.name) + '</div></div>';
+      });
+      if (views.some(function (view) { return view.locked; })) {
+        cards.push('<div class="ach-card locked" aria-label="Locked"><div class="ach-emoji" aria-hidden="true">🔒</div></div>');
+      }
+      return '<div class="records-title ach-heading">🏅 Achievements · ' + unlockedCount() + ' discovered</div>' +
+        '<div class="ach-grid">' + cards.join('') + '</div>';
     }
     function exportState() { return freeze(clone(state)); }
     function reset() { state = normalizeState({}, []); save(); }

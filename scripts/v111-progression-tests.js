@@ -105,7 +105,7 @@ function testMigrationAndNoRelock() {
     legacyAchievements: ['great_save'],
   });
   assert.equal(migrated.qualifyingWins, 12);
-  for (const id of ['alien', 'future-object', 'buildings', 'octopus', 'coffee-mug', 'milk-carton', 'teapot']) {
+  for (const id of ['alien', 'future-object', 'tall-buildings', 'octopus', 'coffee-mug', 'milk-carton', 'teapot']) {
     assert.ok(migrated.ownedObjectIds.includes(id), `migration preserves/grants ${id}`);
   }
   assert.ok(migrated.ownedCosmeticIds.includes('arena.aurora-stage'));
@@ -209,7 +209,8 @@ function testAchievementCatalogAndDeterminism() {
   const html = locked.renderGridHtml();
   assert.ok(!html.includes('First Flip'));
   assert.ok(!html.includes('Take your'));
-  assert.equal((html.match(/aria-label="Locked"/g) || []).length, 100);
+  assert.equal((html.match(/aria-label="Locked"/g) || []).length, 1);
+  assert.ok(!html.includes('/100'));
 }
 
 function testRecordsSchemaAndHtmlSafety() {

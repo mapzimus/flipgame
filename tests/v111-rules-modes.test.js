@@ -269,7 +269,7 @@ test('Classic event rewards cover all additive, multiplier, and opponent effects
     ['heart-rush', {}, 3],
     ['shrink-ray', {}, 2],
     ['shrink-ray', { onCap: true }, 3],
-    ['mitosis', { eventReward: { landedCount: 1 } }, 1],
+    ['mitosis', { eventReward: { landedCount: 1 } }, 0],
     ['mitosis', { eventReward: { landedCount: 2 } }, 3],
     ['cap-toss', {}, 5],
   ];
@@ -291,6 +291,52 @@ test('Classic event rewards cover all additive, multiplier, and opponent effects
   current = init(3, 10);
   current.resolveFlip('MAKE', { eventId: 'life-drain' });
   assert.deepEqual(current.players.map(p => p.lives), [10, 1, 1]);
+
+  assert.equal(modes.classicEventReward({ result: 'MAKE', eventId: 'mitosis',
+    eventReward: { landedCount: 1 } }).additive, 0, 'one Mitosis landing is ordinary');
+  assert.equal(modes.classicEventReward({ result: 'MAKE', eventId: 'mitosis',
+    eventReward: { landedCount: 2 } }).additive, 3, 'both Mitosis landings pay three');
+});
+
+test('Cup Plinko automatic win/loss resolves its heat and Always Magnet survives heat reinit', () => {
+  for (const prize of ['win', 'lose']) {
+    const adapter = modes.createCupAdapter();
+    const definitions = defs(4);
+    const prepared = adapter.prepareMatch({
+      defs: definitions, direction: 1, options: { format: 'cup', cupLength: 'short' },
+    });
+    const current = init(4, 3, prepared.options);
+    current.currentPlayerIndex = 1;
+    adapter.resolveFlip({ game: current, result: prize === 'win' ? 'MAKE' : 'MISS',
+      eventId: 'plinko', meta: { eventId: 'plinko', plinko: prize } });
+    const state = adapter.snapshot();
+    const expectedWinner = prize === 'win' ? 1 : 2;
+    assert.equal(state.phase, 'between-heats', `${prize} ends the current heat`);
+    assert.equal(state.heatResults[0].winnerIndex, expectedWinner);
+    assert.equal(current.winnerIndex, expectedWinner);
+    assert.deepEqual(current.players.map(player => player.eliminated),
+      current.players.map((_, index) => index !== expectedWinner));
+    adapter.advanceTurn({ game: current });
+    assert.equal(current.state, GAME_STATES.GAME_OVER);
+  }
+
+  const adapter = modes.createCupAdapter();
+  const definitions = defs(2);
+  const prepared = adapter.prepareMatch({
+    defs: definitions, direction: 1, options: { format: 'cup', cupLength: 'short' },
+  });
+  const current = init(2, 3, prepared.options);
+  adapter.resolveFlip({ game: current, result: 'MAKE', eventId: 'plinko',
+    meta: { eventId: 'plinko', plinko: 'magnet' } });
+  assert.equal(current.players[0].alwaysMagnet, true);
+  current.eliminatePlayer(current.players[1]);
+  adapter.advanceTurn({ game: current });
+  const between = adapter.snapshot();
+  assert.deepEqual(between.persistentMagnetPlayerIndexes, [0]);
+  const next = adapter.prepareMatch({ defs: definitions, direction: 1,
+    options: { format: 'cup', cupLength: 'short', cupState: between,
+      arenaDraftSelectionId: between.arenaDraft.choices[0].id } });
+  assert.deepEqual(next.options.persistentMagnetPlayerIndexes, [0]);
 });
 
 test('Arena Draft exposes only five reward-free symmetric all-player profiles', () => {

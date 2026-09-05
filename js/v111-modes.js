@@ -198,7 +198,7 @@
     if (eventId === 'rainbow-corkscrew') additive = 1;
     else if (eventId === 'heart-rush') additive = 3;
     else if (eventId === 'shrink-ray') additive = onCap ? 3 : 2;
-    else if (eventId === 'mitosis') additive = Number(detail.landedCount) >= 2 ? 3 : 1;
+    else if (eventId === 'mitosis') additive = Number(detail.landedCount) >= 2 ? 3 : 0;
     else if (eventId === 'cap-toss') additive = 5;
     else if (eventId === 'roulette-table') multiplier = resolveRouletteMultiplier(detail);
     else if (eventId === 'double-flip') { multiplier = 2; opponentEffect = 'halve-lives'; }
@@ -252,6 +252,7 @@
       queue: [],
       clutch: null,
       highlight: null,
+      persistentMagnetPlayerIndexes: [],
       arenaProfileId: config.arenaProfileId || null,
       arenaDraftSeed: normalizeDraftSeed(config.arenaDraftSeed || config.seriesSeed || config.seed),
       arenaDraft: null,
@@ -264,6 +265,9 @@
       throw new Error('Cup state player identities do not match the player roster');
     }
     arenaProfile(state.arenaProfileId);
+    if (!Array.isArray(state.persistentMagnetPlayerIndexes)) state.persistentMagnetPlayerIndexes = [];
+    state.persistentMagnetPlayerIndexes = Array.from(new Set(state.persistentMagnetPlayerIndexes
+      .filter(function (index) { return Number.isInteger(index) && index >= 0 && index < count; })));
     state.arenaDraftSeed = normalizeDraftSeed(state.arenaDraftSeed || config.arenaDraftSeed || config.seriesSeed || config.seed);
 
     function currentDraftOffer() {
@@ -370,6 +374,31 @@
       }
       updateQueue();
       return this.snapshot();
+    };
+
+    this.recordPlinko = function (playerIndex, prize, metadata) {
+      if (state.phase !== 'heat') throw new Error('Cup is not accepting a Plinko result');
+      if (!Number.isInteger(playerIndex) || playerIndex < 0 || playerIndex >= count) {
+        throw new RangeError('Invalid Plinko player');
+      }
+      if (prize === 'magnet') {
+        if (state.persistentMagnetPlayerIndexes.indexOf(playerIndex) < 0) {
+          state.persistentMagnetPlayerIndexes.push(playerIndex);
+          state.persistentMagnetPlayerIndexes.sort(function (a, b) { return a - b; });
+        }
+        return snapshot({ heatResolved: false, winnerIndex: null, state: state });
+      }
+      if (prize !== 'win' && prize !== 'lose') {
+        return snapshot({ heatResolved: false, winnerIndex: null, state: state });
+      }
+      var winnerIndex = playerIndex;
+      if (prize === 'lose') {
+        winnerIndex = modulo(playerIndex + state.direction, count);
+      }
+      this.recordHeatWinner(winnerIndex, Object.assign({}, metadata || {}, {
+        eventId: 'plinko', prize: prize, automatic: true, playerIndex: playerIndex,
+      }));
+      return snapshot({ heatResolved: true, winnerIndex: winnerIndex, state: state });
     };
 
     this.selectArenaDraft = function (arenaProfileId) {
@@ -770,6 +799,7 @@
         opts.arenaDraftSeed = cup.arenaDraftSeed;
         opts.arenaDraft = cup.arenaDraft;
         opts.arenaProfileId = cup.arenaProfileId;
+        opts.persistentMagnetPlayerIndexes = cup.persistentMagnetPlayerIndexes.slice();
         opts.arenaProfile = cup.phase === 'shootout' ? null : arenaProfile(cup.arenaProfileId);
         opts.arenaRewardsDisabled = !!opts.arenaProfile;
         return Object.assign({}, request, { options: opts });
@@ -778,8 +808,26 @@
         if (!series) return false;
         var cup = series.snapshot();
         if (cup.phase !== 'shootout') {
-          if (context.meta && context.meta.plinko && context.game.resolvePlinko) context.game.resolvePlinko(context.meta.plinko);
-          else context.game.resolveFlip(context.result, Object.assign({}, context.meta, { eventId: context.eventId }));
+          if (context.meta && context.meta.plinko && context.game.resolvePlinko) {
+            var prize = context.meta.plinko;
+            var currentIndex = context.game.currentPlayerIndex;
+            context.game.resolvePlinko(prize);
+            var plinko = series.recordPlinko(currentIndex, prize, { turns: context.game.turnCounter });
+            if (prize === 'magnet') context.game.currentPlayer().alwaysMagnet = true;
+            if (plinko.heatResolved) {
+              context.game.players.forEach(function (player, index) {
+                if (index === plinko.winnerIndex) return;
+                if (context.game.eliminatePlayer) context.game.eliminatePlayer(player);
+                else { player.lives = 0; player.eliminated = true; }
+              });
+              context.game.winnerIndex = plinko.winnerIndex;
+              emit(config.outcomes, 'mode.cup-heat-resolved.v1', series.snapshot());
+              if (series.isComplete() && !resolutionEmitted) {
+                emit(config.outcomes, 'mode.cup-resolved.v1', series.snapshot());
+                resolutionEmitted = true;
+              }
+            }
+          } else context.game.resolveFlip(context.result, Object.assign({}, context.meta, { eventId: context.eventId }));
           return true;
         }
         var game = context.game;

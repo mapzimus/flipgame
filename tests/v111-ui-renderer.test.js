@@ -68,6 +68,8 @@ test('responsive shell has 48px targets, twelve-column desktop, compact roster, 
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /@media\s*\(min-width:\s*3000px\)/);
   assert.match(css, /@media\s*\(max-width:\s*420px\)/);
+  assert.doesNotMatch(css, /\.player-input-row button\s*\{\s*min-block-size:\s*44px/);
+  assert.match(css, /\.segment-group input\s*\{[^}]*inset:\s*-1px;[^}]*inline-size:\s*calc\(100% \+ 2px\);[^}]*block-size:\s*calc\(100% \+ 2px\)/s);
 });
 
 test('locked content is lock-only and pressure timers are absent', () => {
@@ -126,6 +128,10 @@ test('physics and rules bridge receives deterministic event and qualification co
   assert.doesNotMatch(main, /FlipgameV111Progression\.recordQualifyingWin/);
   assert.match(main, /v111Bridge\('flipResolved',[\s\S]*record:\s*statsRecord/);
   assert.match(main, /v111Bridge\('matchResolved',[\s\S]*record:\s*matchRecord/);
+  assert.match(main, /let matchTestDataActive = false/);
+  assert.match(main, /matchTestDataActive = true;[\s\S]*currentMatchOptions\.testData = true/);
+  assert.match(main, /qualifyingResult = finalModeResult && !game\.practice && !matchTestDataActive/);
+  assert.doesNotMatch(main, /goldenOdds|fi\.seed %/);
 });
 
 test('full stats surface offers scopes, filters, charts and export datasets', () => {
@@ -165,6 +171,24 @@ test('Cup arena draft and fair rematch options are rules-owned', () => {
   assert.match(main, /textContent = 'Same Setup'/);
   assert.match(main, /textContent = 'Next heat'/);
   assert.match(main, /textContent = 'New Cup'/);
+  assert.match(main, /persistentMagnetPlayerIndexes/);
+});
+
+test('Practice event names use the complete registry, remain long-name capable, and never force Classic', () => {
+  assert.match(main, /FlipgameV111PhysicsEvents/);
+  assert.match(main, /typeof events\.forcedEventId === 'function'/);
+  assert.match(main, /const namedEvent = game\.practice \? testEventForName/);
+  assert.doesNotMatch(main, /const TEST_EVENT_NAMES/);
+  assert.doesNotMatch(main, /type="text"[^>]*maxlength="14"[^>]*value=/);
+  assert.match(main, /persistedPlayerName/);
+});
+
+test('undiscovered galleries expose one opaque lock rather than catalog count or threshold order', () => {
+  assert.match(main, /function undiscoveredTileHtml/);
+  assert.match(main, /unlocked\.length < catalog\.length\) tiles\.push\(undiscoveredTileHtml\(\)\)/);
+  assert.match(main, /sort\(\(a, b\) => familyLabel\(a\.rep\.id\)\.localeCompare/);
+  assert.match(main, /scoped\.some\(\(entry\) => entry\.view\.locked\)/);
+  assert.match(main, /views\.some\(\(view\) => view\.locked\)\) tiles\.push\(undiscoveredTileHtml\(\)\)/);
 });
 
 test('online and platform call sites enforce safe lifecycle and resume state', () => {
@@ -212,4 +236,17 @@ test('Physics Lab captures a successful path and replays exact launch, profile, 
   assert.match(renderer, /Array\.isArray\(ghost\.path\)/);
   assert.match(renderer, /ctx\.lineTo\(Number\(path\[index\]\.x\), Number\(path\[index\]\.y\)\)/);
   assert.match(main, /qualifyingLabAction:\s*true/);
+  assert.match(main, /mode:\s*'physics-lab'/);
+  assert.match(main, /physicsLab:\s*true/);
+  assert.match(main, /advancedLabUsed:\s*!!currentMatchOptions\.advancedLabUsed/);
+  assert.match(main, /labShotQuality\(statsRecord\) > Number\(currentMatchOptions\.labReplayShot\?\.quality \|\| 0\)/);
+});
+
+test('Cup achievements consume persisted Cup wins and first-heat starter evidence', () => {
+  assert.match(main, /matchingCupRows = matchRows\.filter/);
+  assert.match(main, /record\.heatSummaries \|\| record\.cup\?\.heatResults/);
+  assert.match(main, /currentModeState\.heatResults\?\.\[0\]\?\.openerIndex/);
+  assert.match(main, /allCupStarterPositionsCovered:\s*game\.format === 'cup' && lifetime\.cupStarterPositions\.size >= game\.players\.length/);
+  assert.match(main, /lifetimeCupWins:\s*lifetime\.cupWins/);
+  assert.doesNotMatch(main, /modeWins\?\.cup/);
 });

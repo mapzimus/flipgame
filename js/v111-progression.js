@@ -118,7 +118,7 @@
     var legacyRecords = parse(sources.legacyRecords, {}) || {};
     var legacyAchievements = parse(sources.legacyAchievements, []) || [];
     var legacyObjects = Array.isArray(legacyRecords.unlockedSkins)
-      ? legacyRecords.unlockedSkins.map(function (id) { return id === 'trophy_gold' ? 'buildings' : id; }) : [];
+      ? legacyRecords.unlockedSkins.map(function (id) { return id === 'trophy_gold' ? 'tall-buildings' : id; }) : [];
     var legacyAchievementIds = Array.isArray(legacyAchievements) ? legacyAchievements
       : (Array.isArray(legacyAchievements.achievementIds) ? legacyAchievements.achievementIds : []);
 

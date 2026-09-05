@@ -285,6 +285,21 @@
     if (window.Skins && Skins.drawColor) return Skins.drawColor(charId, color);
     return color || defaultColorFor(charId);
   }
+  function testEventForName(name) {
+    const events = window.FlipgameV111PhysicsEvents;
+    return events && typeof events.forcedEventId === 'function'
+      ? events.forcedEventId(name) : null;
+  }
+  function persistedPlayerName(value) {
+    const name = String(value == null ? '' : value);
+    // Canonical Practice QA names are intentionally allowed to exceed the
+    // ordinary 14-grapheme roster limit. All other names use NamePolicy's
+    // grapheme-aware limit rather than slicing UTF-16 code units.
+    if (testEventForName(name)) return name;
+    const policy = window.FlipgameV111NamePolicy;
+    return policy && typeof policy.truncate === 'function'
+      ? policy.truncate(name, policy.MAX_GRAPHEMES || 14) : name.slice(0, 14);
+  }
   function isFamilyUnlocked(id) {
     const k = familyKey(id);
     if (k === familyKey(BASE_SKIN)) return true;
@@ -339,26 +354,31 @@
     const hit = fam.members.find((m) => isCharUnlocked(m.id));
     return normalizeColor((hit && (hit.tint || hit.color)) || defaultColorFor(charId));
   }
+  function undiscoveredTileHtml() {
+    return '<button type="button" class="picker-tile locked-tile undiscovered-tile" role="gridcell" ' +
+      'data-locked="1" aria-disabled="true" aria-label="Locked" tabindex="-1"><span aria-hidden="true">🔒</span></button>';
+  }
 
   // The picker grid: one tile per family, art drawn in the player's CURRENT
   // color so the choice previews exactly what they'll flip.
   function familyTilesHtml(curCharId, curColor) {
     const curFam = familyKey(curCharId);
-    return familyCatalog().map((e) => {
+    const catalog = familyCatalog();
+    const unlocked = catalog.filter((entry) => entry.unlocked)
+      .sort((a, b) => familyLabel(a.rep.id).localeCompare(familyLabel(b.rep.id)));
+    const tiles = unlocked.map((e) => {
       const label = familyLabel(e.rep.id);
       const art = (id) => `<canvas class="fam-art" width="200" height="280" ` +
         `data-preview-char="${id}" aria-hidden="true"></canvas>`;
       const forColor = resolveCharForColor(e.rep.id, curColor);
       const artId = (e.unlocked && !isCharUnlocked(forColor)) ? e.rep.id : forColor;
-      if (!e.unlocked) {
-        return `<button type="button" class="picker-tile locked-tile" role="gridcell" data-locked="1" ` +
-          `aria-disabled="true" aria-label="Locked" tabindex="-1"><span aria-hidden="true">🔒</span></button>`;
-      }
       const sel = e.key === curFam;
       return `<button type="button" class="picker-tile" role="gridcell" data-char="${e.rep.id}" ` +
         `aria-pressed="${sel}" tabindex="${sel ? '0' : '-1'}" aria-label="${escapeHtml(label)}${sel ? ', selected' : ''}">` +
         art(artId) + `<span class="fam-name">${escapeHtml(label)}</span></button>`;
-    }).join('');
+    });
+    if (unlocked.length < catalog.length) tiles.push(undiscoveredTileHtml());
+    return tiles.join('');
   }
 
   // For a cast family each color IS a separate character, so a colour the player
@@ -367,14 +387,17 @@
   function colorSwatchesHtml(selColor, charId) {
     const sel = normalizeColor(selColor);
     const id = charId || defaultCharId();
-    return FLAVORS.map((f) => {
+    const values = FLAVORS.map((f) => {
       const character = characterById(id);
       const nm = character?.v111Art ? `${character.name} — ${f.name}` : defaultNameFor(id, f.color);
       const open = isColorAvailable(id, f.color);
-      if (!open) return `<button type="button" class="picker-tile locked-tile" data-locked="1" aria-disabled="true" aria-label="Locked" tabindex="-1"><span aria-hidden="true">🔒</span></button>`;
+      if (!open) return null;
       return `<button type="button" role="gridcell" class="picker-tile variant-tile" data-color="${f.color}" ` +
         `aria-pressed="${f.color === sel}" tabindex="${f.color === sel ? '0' : '-1'}" aria-label="${escapeHtml(nm)}"><span class="variant-swatch" style="background:${f.color}" aria-hidden="true"></span><span>${escapeHtml(nm)}</span></button>`;
-    }).join('');
+    });
+    const tiles = values.filter(Boolean);
+    if (tiles.length < values.length) tiles.push(undiscoveredTileHtml());
+    return tiles.join('');
   }
 
   function rowHtml(i, def) {
@@ -389,7 +412,7 @@
           <div class="prow-line">
             <span class="player-num" style="color:${col}">P${i + 1}</span>
             <label class="player-name-label" for="player-name-${escapeHtml(stableId)}">Player name</label>
-            <input id="player-name-${escapeHtml(stableId)}" type="text" aria-label="Player name" aria-describedby="player-help-${escapeHtml(stableId)} player-error-${escapeHtml(stableId)}" maxlength="14" value="${escapeHtml(name)}">
+            <input id="player-name-${escapeHtml(stableId)}" type="text" aria-label="Player name" aria-describedby="player-help-${escapeHtml(stableId)} player-error-${escapeHtml(stableId)}" value="${escapeHtml(name)}">
             <span id="player-help-${escapeHtml(stableId)}" class="name-helper">14 max</span>
           </div>
           <div class="prow-line">
@@ -599,14 +622,19 @@
   function cosmeticTilesHtml(type) {
     const state = window.FlipgameV111Progression ? FlipgameV111Progression.snapshot() : {};
     const views = window.FlipgameV111Cosmetics ? FlipgameV111Cosmetics.listForPlayer(state) : [];
+    const internal = window.FlipgameV111Cosmetics?.internalCatalog?.() || [];
+    const wantedScope = type === 'arena' ? 'global' : 'personal';
+    const scoped = views.map((view, index) => ({ view, scope: internal[index]?.scope }))
+      .filter((entry) => entry.scope === wantedScope);
     const selected = type === 'arena' ? arenaDraft : currentDraft()?.cosmeticId;
     const noneSelected = !selected;
     const none = `<button type="button" role="gridcell" class="picker-tile" data-${type}="" ` +
       `aria-pressed="${noneSelected}" tabindex="${noneSelected ? '0' : '-1'}"><span aria-hidden="true">∅</span><span>None</span></button>`;
-    return none + views.filter((view) => view.locked || (type === 'arena' ? view.scope === 'global' : view.scope === 'personal'))
-      .map((view) => view.locked
-        ? `<button type="button" role="gridcell" class="picker-tile locked-tile" data-locked="1" aria-disabled="true" aria-label="Locked" tabindex="-1"><span aria-hidden="true">🔒</span></button>`
-        : `<button type="button" role="gridcell" class="picker-tile" data-${type}="${escapeHtml(view.id)}" aria-pressed="${selected === view.id}" tabindex="${selected === view.id ? '0' : '-1'}"><span aria-hidden="true">✦</span><span>${escapeHtml(view.displayName)}</span></button>`).join('');
+    const visible = scoped.map((entry) => entry.view).filter((view) => !view.locked);
+    const tiles = visible.map((view) =>
+      `<button type="button" role="gridcell" class="picker-tile" data-${type}="${escapeHtml(view.id)}" aria-pressed="${selected === view.id}" tabindex="${selected === view.id ? '0' : '-1'}"><span aria-hidden="true">✦</span><span>${escapeHtml(view.displayName)}</span></button>`);
+    if (scoped.some((entry) => entry.view.locked)) tiles.push(undiscoveredTileHtml());
+    return none + tiles.join('');
   }
 
   function renderCustomizeGrid(focusGrid = false) {
@@ -907,6 +935,14 @@
   let activeLaunchInput = null;
   let activeLaunchRoster = null;
   let activeLaunchProfile = null;
+  function labShotQuality(record) {
+    if (!record || record.result !== 'MAKE') return 0;
+    const tilt = Number(record.tilt);
+    const settle = Number(record.settleMs);
+    return 100000 + (record.perfect ? 10000 : 0) + (record.cap ? 5000 : 0) +
+      (Number.isFinite(tilt) ? Math.max(0, 2000 - Math.abs(tilt) * 2000) : 0) +
+      (Number.isFinite(settle) ? Math.max(0, 1000 - settle / 10) : 0);
+  }
   function captureLabTrajectoryPoint(force = false) {
     if (!currentMatchOptions.lab || (!evaluating && !force)) return;
     const body = Physics.getBottle && Physics.getBottle();
@@ -991,11 +1027,16 @@
     };
     Sound.unlock(); onlineMode = false; if (window.Net) Net.leave(); enterImmersive();
     labScreen.classList.add('hidden'); setupScreen.classList.add('hidden'); gameScreen.classList.remove('hidden'); gameOverEl.classList.add('hidden');
+    const advancedLabUsed = !!(config.eventId || config.seed != null || config.viewportPreset ||
+      config.slowMotion || config.replaying || config.objectId !== (row.charId || defaultCharId()) ||
+      normalizeColor(config.color) !== normalizeColor(row.color || defaultColorFor(row.charId || defaultCharId())) ||
+      (config.showGhost && labLastSuccessful));
     startGame([definition], 1, {
       practice: true, lab: true, testData: true, forced: !!config.eventId,
       labEventId: config.eventId, labSeed: config.seed, viewportPreset: config.viewportPreset,
       slowMotion: config.slowMotion, showSuccessfulGhost: config.showGhost, replaying: config.replaying,
-      labReplayShot: replayShot, feel: replayShot?.feel || chosenFeel(), startingLives: chosenStartingLives(), insanity: false,
+      labReplayShot: replayShot, advancedLabUsed,
+      feel: replayShot?.feel || chosenFeel(), startingLives: chosenStartingLives(), insanity: false,
       arenaProfileId: replayShot?.arenaProfileId || chosenArenaProfile(),
       visualArenaId: replayShot?.visualArenaId || visualArenaId, newMatch: true,
     });
@@ -1029,7 +1070,7 @@
       localStorage.setItem(SETUP_KEY, JSON.stringify({
         rows: readRows().map((r) => ({
           id: r.id,
-          name: String(r.name || '').slice(0, 14),
+          name: persistedPlayerName(r.name),
           charId: r.charId,
           color: r.color,
           ai: !!r.ai,
@@ -1058,7 +1099,7 @@
         const charId = resolveCharForColor(r.charId || defaultCharId(), color);
         return {
           id: r.id,
-          name: String(r.name ?? '').slice(0, 14),
+          name: persistedPlayerName(r.name),
           charId,
           color,
           ai: !!r.ai,
@@ -1326,10 +1367,9 @@
   let lastFlickPower = null;   // 0..1 strength of the current flip's flick (achievements)
   let greatSaveActive = false; // the RESULT being shown is a rare Great Save
   let capLandActive = false;   // the RESULT being shown is a rare on-cap / upside-down make
-  // Easter egg: ~1/150 flicks is a GOLDEN FLIP — the object bakes in gold and a
-  // make is worth 2 (same bonus as a cap land). Derived from the flick seed so
-  // online peers replaying the same seed see the same golden throw.
-  let goldenFlipActive = false;  // this flick rolled golden
+  // Golden Flip is selected exclusively by the canonical v111 event registry.
+  // There is deliberately no second controller-side lottery.
+  let goldenFlipActive = false;
   let goldenShowActive = false;  // the RESULT being shown is a golden make
   const GOLDEN_COLOR = '#f2c14e';
   // Moon Gravity is part of the deterministic rare-event ladder in physics.js.
@@ -1341,6 +1381,7 @@
   let rareEventActive = null;
   let activeArenaPhysicsId = null;
   let testDataFlipActive = false; // forced-name/typed-event marker for observers
+  let matchTestDataActive = false; // once forced, the whole match/Cup remains Test Data
   let bridgeLandingInfo = null;
   let currentMatchOptions = {};
   let currentMatchDefs = [];
@@ -1371,29 +1412,6 @@
   const isMrHoweName = (name) => String(name || '') === 'Mr. Howe';
   // Offline test names force their matching event on every flip. Normalize
   // spaces/hyphens so both "Double Flip" and "doubleflip" work in the roster.
-  const TEST_EVENT_NAMES = {
-    rainbowtrail: 'rainbow-trail',
-    powerlaunch: 'power-launch',
-    moongravity: 'moon-gravity',
-    iceslide: 'ice-slide',
-    alien: 'alien-invasion',
-    alieninvasion: 'alien-invasion',
-    gravityslam: 'gravity-slam',
-    trampoline: 'trampoline',
-    trampolinetab: 'trampoline', // 14-character roster truncation of the full label
-    trampolinetable: 'trampoline',
-    windtunnel: 'wind-tunnel',
-    doubleflip: 'double-flip',
-    magnet: 'magnet',
-    magnetlanding: 'magnet',
-    heartrush: 'heart-rush',
-    lifedrain: 'life-drain',
-    plinko: 'plinko',
-    plinkodrop: 'plinko',
-  };
-  const testEventForName = (name) => TEST_EVENT_NAMES[
-    String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  ] || null;
   // Easter egg: secret player names — all pure cosmetics.
   //   party/disco   → rainbow table edge      ghost/boo     → see-through object
   //   tiny/smol     → pocket-sized object     giant/jumbo   → oversized object
@@ -1569,7 +1587,6 @@
   function canonicalEventId() {
     if (activeArenaPhysicsId && rareEventActive === activeArenaPhysicsId) return null;
     if (plinkoFlipActive) return 'plinko';
-    if (goldenFlipActive) return 'golden-flip';
     // v110 called this event rainbow-trail; v111's durable id is frozen as
     // rainbow-corkscrew. The alias affects observer data only.
     return rareEventActive === 'rainbow-trail' ? 'rainbow-corkscrew' : rareEventActive;
@@ -1585,7 +1602,8 @@
       landing: landingInfo || null,
       eventId: canonicalEventId(),
       online: onlineMode,
-      testData: testDataFlipActive,
+      forced: testDataFlipActive,
+      testData: matchTestDataActive,
     }, false);
     if (handled) return;
     if (meta.plinko && game.resolvePlinko) game.resolvePlinko(meta.plinko);
@@ -1649,6 +1667,12 @@
     currentMatchDefs = defs.map((definition) => ({ ...definition }));
     const cupContinuation = currentMatchOptions.format === 'cup' &&
       currentMatchOptions.cupState?.phase === 'between-heats' && matchTelemetry;
+    if (!cupContinuation) {
+      matchTestDataActive = !!(currentMatchOptions.testData || currentMatchOptions.lab || currentMatchOptions.forced);
+    } else if (currentMatchOptions.testData || currentMatchOptions.forced) {
+      matchTestDataActive = true;
+    }
+    currentMatchOptions.testData = matchTestDataActive;
     if (!cupContinuation) {
       currentMatchStartedAt = Number(currentMatchOptions.resumeMatchStartedAt) || Date.now();
       currentMatchId = currentMatchOptions.resumeMatchId || `match-${currentMatchStartedAt.toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -1730,6 +1754,11 @@
     game.on(GAME_STATES.GAME_OVER,  onGameOver);
 
     game.init(defs, dir, opts || {});
+    if (game.format === 'cup' && Array.isArray(currentMatchOptions.persistentMagnetPlayerIndexes)) {
+      currentMatchOptions.persistentMagnetPlayerIndexes.forEach((index) => {
+        if (game.players[index]) game.players[index].alwaysMagnet = true;
+      });
+    }
     if (modeBadgeEl) modeBadgeEl.textContent = game.insanity ? '🤯 INSANE MODE' : '';
     document.body.classList.remove('life-drain-active');
     game.feel = feel;
@@ -2121,7 +2150,7 @@
   // Edition unlocks + achievements only count when a human is in the lobby.
   // Kids were farming AI-vs-AI blitz games to unlock the whole ladder.
   function progressCounts() {
-    return !game.practice && !testDataFlipActive && game.players.some((p) => !p.isAI);
+    return !game.practice && !matchTestDataActive && game.players.some((p) => !p.isAI);
   }
 
   function viewportRecord() {
@@ -2216,6 +2245,7 @@
       flightMs: lifecycle.firstContactMs ?? landing?.firstContactMs ?? null,
       firstContactMs: lifecycle.firstContactMs ?? landing?.firstContactMs ?? null,
       settleMs: landing?.settleMs ?? lifecycle.settleMs ?? null,
+      tilt: landing?.tilt ?? lifecycle.tilt ?? null,
       stakeBefore: flipTelemetry?.stakeBefore ?? null,
       stakeAfter: Number(game.pointCount) || 0,
       livesBefore: flipTelemetry?.livesBefore ?? null,
@@ -2233,7 +2263,7 @@
       practice: !!game.practice,
       lab: !!currentMatchOptions.lab,
       forced: !!testDataFlipActive,
-      testData: !!testDataFlipActive,
+      testData: !!matchTestDataActive,
     };
     if (matchTelemetry) {
       matchTelemetry.totalFlips++;
@@ -2307,7 +2337,7 @@
       ? Records.recordFlip(game, { greatSave: greatSaveActive, capLand: capLandActive }, {
           mode: currentMatchOptions.lab ? 'physics-lab' : game.practice ? 'practice' : game.format,
           format: game.format, practice: !!game.practice, lab: !!currentMatchOptions.lab,
-          forced: !!testDataFlipActive, testData: !!testDataFlipActive,
+          forced: !!testDataFlipActive, testData: !!matchTestDataActive,
           humanPlayers: game.players.filter((player) => !player.isAI).length,
           players: game.players.map((player) => ({ isAI: !!player.isAI })),
         })
@@ -2349,7 +2379,7 @@
       eventId: canonicalEventId(),
       online: onlineMode,
       forced: testDataFlipActive,
-      testData: testDataFlipActive,
+      testData: matchTestDataActive,
       record: statsRecord,
     }, null);
 
@@ -2382,18 +2412,27 @@
           feel: game.feel || currentMatchOptions.feel || chosenFeel(),
           arenaProfileId: currentMatchOptions.arenaProfileId || modeState.arenaProfileId || null,
           visualArenaId: currentMatchOptions.visualArenaId || null,
+          result: statsRecord.result,
+          perfect: !!statsRecord.perfect,
+          cap: !!statsRecord.cap,
+          tilt: statsRecord.tilt,
+          settleMs: statsRecord.settleMs,
+          quality: labShotQuality(statsRecord),
         };
         const replay = document.getElementById('lab-replay-btn');
         if (replay) replay.disabled = false;
       }
       if (typeof Achievements !== 'undefined') {
         announceAchievements(Achievements.check({
+          mode: 'physics-lab',
+          physicsLab: true,
           qualifying: false,
           qualifyingLabAction: true,
           humanParticipant: !p?.isAI,
           players: game.players.map((player) => ({ isAI: !!player.isAI })),
-          advancedLabUsed: true,
-          replayedSeedImproved: !!currentMatchOptions.replaying && game.lastResult === 'MAKE',
+          advancedLabUsed: !!currentMatchOptions.advancedLabUsed,
+          replayedSeedImproved: !!currentMatchOptions.replaying &&
+            labShotQuality(statsRecord) > Number(currentMatchOptions.labReplayShot?.quality || 0),
           eventId: statsRecord.eventId,
           eventResolved: !!statsRecord.eventId,
           result: game.lastResult,
@@ -2407,7 +2446,7 @@
       matchTelemetry.perfectRun = statsRecord.perfect ? (Number(matchTelemetry.perfectRun) || 0) + 1 : 0;
       if (statsRecord.cap && statsRecord.result === 'MAKE') matchTelemetry.capMakes = (Number(matchTelemetry.capMakes) || 0) + 1;
       const fresh = Achievements.check({
-        qualifying: !game.practice && !currentMatchOptions.lab && !testDataFlipActive,
+        qualifying: !game.practice && !currentMatchOptions.lab && !matchTestDataActive,
         humanParticipant: !p?.isAI,
         players: game.players.map((player) => ({ isAI: !!player.isAI })),
         format: game.format === 'team-clash' ? 'team' : game.format,
@@ -2666,7 +2705,7 @@
   const GAME_OVER_HOLD_MS = 1500;
   let gameOverTimer = null;
 
-  async function achievementLifetimeContext() {
+  async function achievementLifetimeContext(currentModeState) {
     const fallback = Records.snapshot ? Records.snapshot() : {};
     const currentArena = currentMatchOptions.visualArenaId || currentMatchOptions.arenaProfileId || null;
     const objects = new Set(currentMatchDefs.map((definition) => definition.skin).filter(Boolean));
@@ -2676,9 +2715,11 @@
     let caps = Number(fallback.capLands) || 0;
     let matches = Number(fallback.matches) || 0;
     let flips = Number(fallback.totalFlips) || 0;
+    let cupWins = 0;
+    const cupStarterPositions = new Set();
     const store = v111Runtime?.stats;
     if (!store || typeof store.query !== 'function') {
-      return { objects, cosmetics, arenas, perfect, caps, matches, flips };
+      return { objects, cosmetics, arenas, perfect, caps, matches, flips, cupWins, cupStarterPositions };
     }
     try {
       if (typeof store.flush === 'function') await store.flush();
@@ -2699,10 +2740,25 @@
       caps = flipRows.filter((record) => record.cap || record.onCap).length || caps;
       matches = matchRows.length || matches;
       flips = flipRows.length || flips;
+      const matchingCupRows = matchRows.filter((record) => String(record.mode || '').toLowerCase() === 'cup');
+      cupWins = matchingCupRows.length;
+      matchingCupRows.forEach((record) => {
+        const settings = record.startingSettings || {};
+        if (Number(settings.playerCount) !== game.players.length) return;
+        const heats = record.heatSummaries || record.cup?.heatResults || [];
+        const opener = Number(heats[0]?.openerIndex);
+        if (Number.isInteger(opener) && opener >= 0 && opener < game.players.length) cupStarterPositions.add(opener);
+      });
+      if (game.format === 'cup' && currentModeState?.phase === 'complete' &&
+          !matchingCupRows.some((record) => String(record.matchId) === String(currentMatchId))) {
+        cupWins++;
+        const opener = Number(currentModeState.heatResults?.[0]?.openerIndex);
+        if (Number.isInteger(opener) && opener >= 0 && opener < game.players.length) cupStarterPositions.add(opener);
+      }
     } catch (error) {
       console.error('Achievement lifetime context failed', error);
     }
-    return { objects, cosmetics, arenas, perfect, caps, matches, flips };
+    return { objects, cosmetics, arenas, perfect, caps, matches, flips, cupWins, cupStarterPositions };
   }
 
   function onGameOver() {
@@ -2735,7 +2791,7 @@
     const winner = game.players[winnerIndex] || active[0] || null;
     const winningTeamHasHuman = game.format === 'team-clash' && Number.isInteger(modeState?.winnerTeamIndex)
       ? (modeState.teams?.[modeState.winnerTeamIndex] || []).some((index) => !game.players[index]?.isAI) : false;
-    const qualifyingResult = finalModeResult && !game.practice && !testDataFlipActive &&
+    const qualifyingResult = finalModeResult && !game.practice && !matchTestDataActive &&
       !!winner && (!winner.isAI || winningTeamHasHuman);
     if (finalModeResult) {
       const participantRecords = game.players.map((player, index) => {
@@ -2776,8 +2832,8 @@
         online: onlineMode,
         practice: !!game.practice,
         lab: !!currentMatchOptions.lab,
-        forced: !!testDataFlipActive,
-        testData: !!testDataFlipActive,
+        forced: !!matchTestDataActive,
+        testData: !!matchTestDataActive,
         participants: participantRecords,
         players: participantRecords,
         winner: participantRecords[winnerIndex] || null,
@@ -2892,7 +2948,7 @@
         const winningTeam = Number.isInteger(modeState?.winnerTeamIndex) ? modeState.teams?.[modeState.winnerTeamIndex] || [] : [];
         const scorerIds = matchTelemetry?.scorerIds || [];
         playAgainBtn.disabled = true;
-        const lifetime = await achievementLifetimeContext();
+        const lifetime = await achievementLifetimeContext(modeState);
         announceAchievements(Achievements.check({
           qualifying: true,
           qualifyingLabAction: false,
@@ -2909,8 +2965,8 @@
           loserHeatWins: Math.max(0, ...otherHeatWins.map(Number)),
           lostFirstHeat: game.format === 'cup' && heatResults.length > 0 && heatResults[0].winnerIndex !== wIdx,
           cupLength: currentMatchOptions.cupLength || modeState?.cupLength || null,
-          allCupStarterPositionsCovered: game.format === 'cup' && new Set(heatResults.map((heat) => heat.openerIndex)).size >= game.players.length,
-          lifetimeCupWins: Number(winRec?.progression?.modeWins?.cup) || 0,
+          allCupStarterPositionsCovered: game.format === 'cup' && lifetime.cupStarterPositions.size >= game.players.length,
+          lifetimeCupWins: lifetime.cupWins,
           cancellationPoints: (matchTelemetry?.roundSummaries || []).reduce((sum, round) => sum + (Number(round.cancelled) || 0), 0),
           largestDeficit: Number(modeState?.largestDeficit) || 0,
           everyTeammateScored: game.format === 'team-clash' && winningTeam.length > 0 && winningTeam.every((seat) => scorerIds.includes(currentMatchDefs[seat]?.id || `seat-${seat + 1}`)),
@@ -3070,19 +3126,25 @@
     if (currentMatchOptions.lab && Physics.forceSpecialEvent) {
       if (currentMatchOptions.labEventId) Physics.forceSpecialEvent(currentMatchOptions.labEventId);
       testDataFlipActive = true;
+      matchTestDataActive = true;
+      currentMatchOptions.testData = true;
     } else if (!mirrorClaim && !currentMatchOptions.eventsDisabled && currentMatchOptions.arenaProfile?.physicsProfileId && Physics.forceSpecialEvent) {
       activeArenaPhysicsId = currentMatchOptions.arenaProfile.physicsProfileId;
       Physics.forceSpecialEvent(activeArenaPhysicsId);
     } else if (!onlineMode && Physics.forceSpecialEvent) {
-      if (specialEventArmed) {
+      if (game.practice && specialEventArmed) {
         Physics.forceSpecialEvent(specialEventArmed);
         specialEventArmed = null;
         testDataFlipActive = true;
-      } else {
-        const namedEvent = testEventForName(game.currentPlayer()?.name);
+        matchTestDataActive = true;
+        currentMatchOptions.testData = true;
+      } else if (game.practice) {
+        const namedEvent = game.practice ? testEventForName(game.currentPlayer()?.name) : null;
         if (namedEvent) {
           Physics.forceSpecialEvent(namedEvent);
           testDataFlipActive = true;
+          matchTestDataActive = true;
+          currentMatchOptions.testData = true;
         }
       }
     }
@@ -3094,14 +3156,10 @@
       mirrorEventsDisabled ? 'disabled' : (currentMatchOptions.eventsDisabled ? 'disabled' : (!onlineMode && game.insanity ? 'insanity' : 'normal')),
       mirrorClaim ? false : !!game.currentPlayer()?.alwaysMagnet,
       { excludedEventIds: mirrorPolicy?.eventPolicy?.excludedEventIds || currentMatchOptions.excludedEventIds || [] });
-    // Golden flip lottery — read the seed physics actually used (it generates
-    // one when we pass undefined) so local and replayed flicks agree.
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     if (activeLaunchInput) activeLaunchInput.seed = fi?.seed ?? activeLaunchInput.seed;
     rareEventActive = (fi && fi.rareEvent) || null;
-    const goldenOdds = Math.max(1, Math.floor(150 / eventMultiplier));
-    goldenFlipActive = !!(!mirrorClaim && fi && !fi.plinko && !rareEventActive &&
-      fi.seed % goldenOdds === 77 % goldenOdds);
+    goldenFlipActive = rareEventActive === 'golden-flip';
     moonFlipActive = !!(fi && fi.moon);
     plinkoFlipActive = !!(fi && fi.plinko);
     v111Bridge('flipStarted', {
@@ -3110,7 +3168,7 @@
       eventId: canonicalEventId(),
       online: onlineMode,
       forced: testDataFlipActive,
-      testData: testDataFlipActive,
+      testData: matchTestDataActive,
     }, null);
     document.body.classList.toggle('life-drain-active',
       !!game.lifeDrainActive || rareEventActive === 'life-drain');
@@ -3529,10 +3587,12 @@
     const all = Achievements.list();
     let views = achievementFilter === 'earned' ? all.filter((view) => !view.locked) : all;
     if (achievementCategory) views = views.filter((view) => !view.locked && (view.category === achievementCategory || (achievementCategory === 'lab-stats' && /lab|stat/.test(view.category))));
-    grid.innerHTML = views.map((view, index) => view.locked
-      ? `<button type="button" role="gridcell" class="picker-tile locked-tile" aria-label="Locked" aria-disabled="true" tabindex="${index ? -1 : 0}"><span aria-hidden="true">🔒</span></button>`
-      : `<button type="button" role="gridcell" class="picker-tile achievement-tile" aria-label="${escapeHtml(view.name)}" tabindex="${index ? -1 : 0}"><span aria-hidden="true">${escapeHtml(view.emoji)}</span><strong>${escapeHtml(view.name)}</strong><span>${escapeHtml(view.desc)}</span>${view.earnedAt ? `<time datetime="${escapeHtml(view.earnedAt)}">Earned ${new Date(view.earnedAt).toLocaleDateString()}</time>` : ''}</button>`).join('');
-    document.getElementById('achievement-summary').textContent = `${Achievements.unlockedCount()} earned`;
+    const discovered = views.filter((view) => !view.locked);
+    const tiles = discovered.map((view, index) =>
+      `<button type="button" role="gridcell" class="picker-tile achievement-tile" aria-label="${escapeHtml(view.name)}" tabindex="${index ? -1 : 0}"><span aria-hidden="true">${escapeHtml(view.emoji)}</span><strong>${escapeHtml(view.name)}</strong><span>${escapeHtml(view.desc)}</span>${view.earnedAt ? `<time datetime="${escapeHtml(view.earnedAt)}">Earned ${new Date(view.earnedAt).toLocaleDateString()}</time>` : ''}</button>`);
+    if (achievementFilter !== 'earned' && views.some((view) => view.locked)) tiles.push(undiscoveredTileHtml());
+    grid.innerHTML = tiles.join('');
+    document.getElementById('achievement-summary').textContent = `${Achievements.unlockedCount()} discovered`;
     document.getElementById('achievement-empty').classList.toggle('hidden', views.length > 0);
   }
   achievementsBtn?.addEventListener('click', () => { enterRoute(achievementsScreen, achievementsBtn); renderAchievements(); });
@@ -3902,6 +3962,10 @@
     let konamiIdx = 0;
     // Typed-word secrets (skip when focus is in a text input — player names).
     const armEvent = (id, label) => () => {
+      if (!gameStarted || !game.practice) {
+        showToast('Event tests are available in Practice.');
+        return;
+      }
       specialEventArmed = id;
       showToast(`${label} armed — next flip!`);
       Sound.play('ignite');
