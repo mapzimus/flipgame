@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 11
+Contract revision: 12
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -175,3 +175,9 @@ cap-toss:5500, life-drain:6000`.
 - Completed-mode snapshots expose immutable, rules-owned rematch proposals:
   Cup `newCupOptions`, Team `rematchOptions`, and Team `swapTeamOptions`. UI
   applies these proposals and never recalculates opener/team rotations.
+- `FlipgameV111MirrorMatch.create({ matchId?, snapshot? })` owns the persistent
+  Mirror copy queue. `arm` records the resolved source launch and every other
+  active target; `claim` returns an immutable normalized launch/profile with
+  events, rewards, side effects, and nesting disabled; `consume` accepts only a
+  final MAKE/MISS; `syncRoster`, `snapshot`, and `cleanup` preserve elimination,
+  reconnect, and match-boundary behavior. Source MAKE and MISS both arm copies.

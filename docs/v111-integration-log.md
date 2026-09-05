@@ -170,3 +170,22 @@ interface or behavior changes to the Program Integrator before proceeding.
   supported player count.
 - Tests: adapter snapshot immutability and exact proposed openers/offsets.
 - Affected owners notified: Rules/Modes and UI/Renderer.
+
+## Revision 12 - persistent Mirror Match queue
+
+- Trigger: integration review found the event's visual clone did not schedule
+  opponents' later turns or survive reconnect.
+- New behavior: a resolved Mirror source, whether MAKE or MISS, arms one copied
+  flip for every other active opponent. Each target receives the same normalized
+  launch vector, spin, seed, and JSON-safe physics profile exactly once.
+- Isolation: copied flips disable events, rewards, side effects, and nesting;
+  they resolve from their own base landing verdict. Eliminated targets are
+  skipped without reordering the remaining queue.
+- Migration: UI claims the queued launch at turn start, consumes it only after
+  final MAKE/MISS, synchronizes eliminations, and includes the opaque snapshot
+  in save/reconnect state.
+- Tests: 12 deterministic cases cover 2-8 players, order independence,
+  idempotent claims, reconnect, elimination, cleanup, malformed snapshots, and
+  zero RNG use.
+- Integration commit: `1fbd493`.
+- Affected owner notified: UI/Renderer.
