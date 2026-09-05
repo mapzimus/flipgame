@@ -189,3 +189,21 @@ interface or behavior changes to the Program Integrator before proceeding.
   zero RNG use.
 - Integration commit: `1fbd493`.
 - Affected owner notified: UI/Renderer.
+
+## Revision 13 - physical event resolution metadata
+
+- Trigger: event-by-event audit found several effects had presentation labels
+  but lacked the full physical resolution required by the product contract.
+- New behavior: Rewind is failure-triggered and resolves only its replay;
+  Portal conserves speed/spin across a rotated exit; Ceiling uses the inverted
+  plane; Fizz has a rotating-axis jet and detached cap; Half Full shifts center
+  of mass; Tether uses a constraint and low-point release; Mitosis and Cap Toss
+  resolve independent bodies; Roulette derives its sector from physical landing
+  position and wheel angle. Ice, Bouncy, Trampoline, and Meteor now wait for
+  their event-specific settlement paths.
+- Interface: existing rules/reward fields are unchanged. Optional JSON-safe
+  render/result metadata exposes physical phase and body outcomes.
+- Tests: expanded deterministic physics suite plus every previously integrated
+  suite and all 30 rules/modes cases pass.
+- Integration commit: `357caf7`.
+- Affected owners notified: Physics/Events and UI/Renderer.

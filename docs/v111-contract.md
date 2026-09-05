@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 12
+Contract revision: 13
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -181,3 +181,10 @@ cap-toss:5500, life-drain:6000`.
   events, rewards, side effects, and nesting disabled; `consume` accepts only a
   final MAKE/MISS; `syncRoster`, `snapshot`, and `cleanup` preserve elimination,
   reconnect, and match-boundary behavior. Source MAKE and MISS both arm copies.
+- Event render/result snapshots may add JSON-safe physical metadata without
+  changing rules payloads: Rewind phase/replay, portal geometry/conservation,
+  tether cable/release, Roulette wheel angle/sector, ceiling landing plane,
+  liquid shift, detached Fizz cap/spray, Mitosis copy outcomes, Cap Toss
+  body/cap outcomes, and Meteor collision counts. Rewind suppresses its first
+  would-be MISS and publishes only the final replay verdict. Roulette derives
+  its multiplier from the settled object position and current wheel angle.
