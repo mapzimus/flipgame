@@ -1,6 +1,6 @@
 # Flipgame v111 Contract
 
-Contract revision: 3
+Contract revision: 4
 Baseline commit: `3a3ace0`
 Release version: `v111`
 
@@ -39,8 +39,22 @@ affected specialist continues.
 - Cup is best-of-three. Short uses 3 lives with sudden death after 3 rotations;
   Full uses 10 lives with sudden death after 5 rotations. Lives reset and the
   opener rotates between heats.
+- Cup is first to two with at most three regulation heats. If multiple players
+  tie for the most heat wins after heat three, only those leaders enter an
+  events-disabled standard-physics shootout. Each receives one flip per round;
+  exactly one maker wins, otherwise the opener rotates and another round runs.
+- Arena Draft's reward-free, all-player pool is exactly: Crosswind, Moon
+  Gravity, Gravity Slam, Spring Table, and Slick Table. These are symmetric
+  persistent physics profiles, not reward events.
 - Team Clash supports 2, 4, 6, or 8 players, three alternating flips per team,
   cancellation scoring, and first to 11 without win-by-two.
+- Team raw scoring is upright/cap 1 and Golden 2. Event adapters are: Rainbow 2;
+  Shrink 2 upright/3 cap; Mitosis 1 for one/3 for both; Roulette multiplies base
+  raw score by 1-4; Cap Toss 5; Heart 4; Double 2 plus halving the opponent's
+  uncancelled current-round subtotal with ceiling; Rewind uses only the final
+  result; Mirror copies the action; Plinko double pays 2, halve ceilings the
+  opponent match score, magnet persists personally, and win/loss resolves the
+  match. Other valid event makes pay 1. Life Drain is excluded.
 - Basic Practice is immediately available. Alien, Insane Mode, and advanced
   Physics Lab unlock together internally at qualifying win 100.
 - Alien success requires at least one bank followed by tractor-ring entry.

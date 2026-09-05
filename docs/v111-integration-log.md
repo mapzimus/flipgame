@@ -65,3 +65,16 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Gates: all nine Node suites and localhost Start Game smoke pass.
 - Release action: coordinator must precache all v111 runtime/art scripts when
   the final service-worker cache key is bumped.
+
+## Revision 4 - mode edge cases and adapters
+
+- Trigger: Rules/Modes found undefined multiplayer Cup ties, an unnamed Arena
+  Draft pool, and incomplete Team event scoring.
+- Cup: after three tied regulation heats, tied leaders use an events-disabled
+  one-flip-per-player shootout until exactly one makes; opener rotates.
+- Arena Draft pool: Crosswind, Moon Gravity, Gravity Slam, Spring Table, Slick
+  Table, all reward-free and symmetrical for the entire heat.
+- Team: exact event raw-score adapters are now frozen in the contract.
+- Physics metadata required by Rules/UI: canonical event ID, cap flag, Plinko
+  prize, Mitosis landed count, Roulette multiplier/slot, automatic outcome.
+- Affected owners notified: Physics/Events and Rules/Modes.
