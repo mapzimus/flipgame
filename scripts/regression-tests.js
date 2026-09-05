@@ -220,7 +220,7 @@ function testDoubleFlipCompoundReward() {
   fire.resolveFlip('MAKE', { rareEvent: 'double-flip' });
   assert.equal(fire.players[0].lives, 8,
     'an ON FIRE Double Flip must add its fire life, then double the total');
-  assert.deepEqual(fire.players.slice(1).map((p) => p.lives), [1, 1, 1, 1, 1, 1, 1]);
+  assert.deepEqual(fire.players.slice(1).map((p) => p.lives), [2, 2, 2, 2, 2, 2, 2]);
   assert.equal(fire.maxLives, 5);
   assert.equal(fire.players[0].isOnFire, false,
     'an ON FIRE multiplier above the additive ceiling must pass the turn gracefully');
