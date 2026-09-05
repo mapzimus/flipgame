@@ -15,6 +15,13 @@
 
   var ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
   var PHYSICS_KEYS = ['physics', 'body', 'hitbox', 'mass', 'collision', 'collisionEnvelope'];
+  var MAPPING_TOLERANCE = 1e-9;
+  var CANONICAL_MAPPING = Object.freeze({
+    pivot: Object.freeze({ x: 150, y: 323.2972972973 }),
+    baselineY: 376,
+    artScale: 0.74,
+    localContactOffset: 39,
+  });
   var objects = new Map();
   var renderVariantCache = new Map();
 
@@ -55,6 +62,15 @@
     return Object.freeze(copy);
   }
 
+  function getLocalContactOffset(mapping) {
+    var source = mapping || CANONICAL_MAPPING;
+    if (!source.pivot || !Number.isFinite(source.pivot.y) ||
+        !Number.isFinite(source.baselineY) || !Number.isFinite(source.artScale)) {
+      throw new TypeError('Contact mapping requires pivot.y, baselineY, and artScale');
+    }
+    return (source.baselineY - source.pivot.y) * source.artScale;
+  }
+
   function normalizedMetrics(input) {
     var src = input || {};
     var vb = src.viewBox || {};
@@ -77,6 +93,8 @@
       y: finite(pivotSrc.y, viewBox.y + viewBox.height / 2),
     };
     var baselineY = finite(src.baselineY, NaN);
+    var artScale = positive(src.artScale == null
+      ? CANONICAL_MAPPING.artScale : src.artScale, 'metrics.artScale');
 
     if (!Number.isFinite(baselineY)) {
       throw new TypeError('metrics.baselineY must be a finite number');
@@ -93,12 +111,23 @@
         pivot.y < viewBox.y || pivot.y > viewBox.y + viewBox.height) {
       throw new RangeError('metrics.pivot must stay inside metrics.viewBox');
     }
+    var computedContactOffset = getLocalContactOffset({
+      pivot: pivot,
+      baselineY: baselineY,
+      artScale: artScale,
+    });
+    var localContactOffset = finite(src.localContactOffset, computedContactOffset);
+    if (Math.abs(computedContactOffset - localContactOffset) > MAPPING_TOLERANCE) {
+      throw new RangeError('metrics.localContactOffset must match the baseline mapping');
+    }
 
     return cloneAndFreeze({
       viewBox: viewBox,
       bounds: bounds,
       pivot: pivot,
       baselineY: baselineY,
+      artScale: artScale,
+      localContactOffset: localContactOffset,
     });
   }
 
@@ -237,7 +266,8 @@
     ctx.save();
     try {
       if (mode === 'gameplay') {
-        var gameScale = positive(req.scale == null ? 1 : req.scale, 'gameplay scale');
+        var gameScale = positive(req.scale == null ? metrics.artScale : req.scale,
+          'gameplay scale');
         ctx.translate(finite(req.x, 0), finite(req.y, 0));
         if (typeof ctx.rotate === 'function') ctx.rotate(finite(req.angle, 0));
         ctx.scale(gameScale, gameScale);
@@ -306,7 +336,9 @@
   }
 
   return Object.freeze({
-    contractVersion: 1,
+    contractVersion: 2,
+    CANONICAL_MAPPING: CANONICAL_MAPPING,
+    getLocalContactOffset: getLocalContactOffset,
     registerObject: registerObject,
     getObject: getObject,
     listObjects: listObjects,

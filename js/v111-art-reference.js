@@ -193,8 +193,10 @@
         viewBox: { x: 0, y: 0, width: 300, height: 420 },
         // Includes the widest handle and highest reduced-motion steam pose.
         bounds: { x: 54, y: 60, width: 222, height: 316 },
-        pivot: { x: 150, y: 232 },
+        pivot: { x: 150, y: 323.2972972973 },
         baselineY: 376,
+        artScale: 0.74,
+        localContactOffset: 39,
       },
       variants: FLAVORS.map(function (flavor) {
         return {

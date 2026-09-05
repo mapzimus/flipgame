@@ -53,7 +53,7 @@ function fakeContext() {
 }
 
 function testReferenceCatalogAndStableIds() {
-  assert.equal(Art.contractVersion, 1);
+  assert.equal(Art.contractVersion, 2);
   assert.equal(Reference.objectId, 'coffee-mug');
   assert.deepEqual(Array.from(Reference.variantIds), EXPECTED_IDS);
   assert.equal(new Set(Reference.variantIds).size, 12);
@@ -72,8 +72,19 @@ function testBoundsAndBaseline() {
   const metrics = Art.getObject('coffee-mug').metrics;
   assert.deepEqual(metrics.viewBox, { x: 0, y: 0, width: 300, height: 420 });
   assert.deepEqual(metrics.bounds, { x: 54, y: 60, width: 222, height: 316 });
-  assert.deepEqual(metrics.pivot, { x: 150, y: 232 });
+  assert.deepEqual(metrics.pivot, { x: 150, y: 323.2972972973 });
   assert.equal(metrics.baselineY, 376);
+  assert.equal(metrics.artScale, 0.74);
+  assert.equal(metrics.localContactOffset, 39);
+  assert.ok(Math.abs((metrics.baselineY - metrics.pivot.y) * metrics.artScale - 39) < 1e-9);
+  assert.strictEqual(Art.CANONICAL_MAPPING.pivot.x, 150);
+  assert.strictEqual(Art.CANONICAL_MAPPING.pivot.y, 323.2972972973);
+  assert.strictEqual(Art.CANONICAL_MAPPING.baselineY, 376);
+  assert.strictEqual(Art.CANONICAL_MAPPING.artScale, 0.74);
+  assert.strictEqual(Art.CANONICAL_MAPPING.localContactOffset, 39);
+  assert.ok(Object.isFrozen(Art.CANONICAL_MAPPING));
+  assert.ok(Object.isFrozen(Art.CANONICAL_MAPPING.pivot));
+  assert.ok(Math.abs(Art.getLocalContactOffset(Art.CANONICAL_MAPPING) - 39) < 1e-9);
   assert.equal(metrics.bounds.y + metrics.bounds.height, metrics.baselineY,
     'the visible silhouette must terminate on the shared art baseline');
   assert.ok(metrics.bounds.x >= metrics.viewBox.x);
@@ -133,7 +144,6 @@ function testPreviewAndGameplayRendering() {
     x: 320,
     y: 410,
     angle: 0.75,
-    scale: 1.4,
     time: 2,
     reducedMotion: true,
   });
@@ -142,7 +152,7 @@ function testPreviewAndGameplayRendering() {
     call[0] === 'translate' && call[1] === 320 && call[2] === 410));
   assert.ok(gameplay.calls.some((call) => call[0] === 'rotate' && call[1] === 0.75));
   assert.ok(gameplay.calls.some((call) =>
-    call[0] === 'scale' && call[1] === 1.4 && call[2] === 1.4));
+    call[0] === 'scale' && call[1] === 0.74 && call[2] === 0.74));
 }
 
 function testPaintOnlyValidation() {
@@ -158,6 +168,21 @@ function testPaintOnlyValidation() {
     variants: [{ id: 'default' }],
     buildVariant: () => () => {},
   }), /cannot declare physics field/);
+
+  assert.throws(() => Art.registerObject({
+    id: 'bad-contact-art',
+    label: 'Bad contact mapping',
+    metrics: {
+      viewBox: { width: 300, height: 420 },
+      bounds: { x: 54, y: 60, width: 222, height: 316 },
+      pivot: { x: 150, y: 323.2972972973 },
+      baselineY: 376,
+      artScale: 0.74,
+      localContactOffset: 38,
+    },
+    variants: [{ id: 'default' }],
+    buildVariant: () => () => {},
+  }), /must match the baseline mapping/);
 
   const platformSource = fs.readFileSync(path.join(root, 'js', 'v111-art-platform.js'), 'utf8');
   const executableSource = platformSource
@@ -175,6 +200,9 @@ function testBrowserGlobalsWithoutCommonJs() {
     { filename: 'v111-art-reference.js' });
   assert.ok(context.FlipArtV111);
   assert.ok(context.FlipArtV111Reference);
+  assert.equal(context.FlipArtV111.contractVersion, 2);
+  assert.ok(Object.isFrozen(context.FlipArtV111.CANONICAL_MAPPING));
+  assert.ok(Math.abs(context.FlipArtV111.getLocalContactOffset() - 39) < 1e-9);
   assert.equal(context.FlipArtV111Reference.definition.variants.length, 12);
 
   const ctx = fakeContext();
