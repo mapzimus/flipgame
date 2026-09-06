@@ -892,6 +892,13 @@ const Physics = (() => {
       : body.bounds.max.y >= groundY - GROUND_TOUCH_PX;
   }
 
+  function withinLandingPlaneTolerance(body = bottle, ceiling = ceilingLandingActive()) {
+    if (!body) return false;
+    const edge = ceiling ? body.bounds.min.y : body.bounds.max.y;
+    const plane = ceiling ? ceilingY : groundY;
+    return Math.abs(edge - plane) <= GROUND_TOUCH_PX;
+  }
+
   // Return tilt relative to the active gravity/landing plane. On a Ceiling Flip
   // the visually inverted bottle is upright relative to the ceiling.
   function landingTiltForBody(body = bottle) {
@@ -1124,6 +1131,8 @@ const Physics = (() => {
     const grounded = options.ceiling
       ? body.bounds.min.y <= ceilingY + GROUND_TOUCH_PX
       : touchingFloorBody(body);
+    const limit = options.settleLimitMs || 4000;
+    const deadline = tracker.contactMs != null && simElapsedMs - tracker.contactMs >= limit;
     // Compound split bodies inherit the rotation completed before separation.
     // Accumulate their angular path from that point instead of comparing only
     // against the split angle, which discarded the pre-split portion and made
@@ -1134,6 +1143,15 @@ const Physics = (() => {
     tracker.previousAngle = body.angle;
     if (!grounded) {
       tracker.stableFrames = 0;
+      // A split body gets the same absolute first-contact deadline as the main
+      // scoring body.  Being motionless on another collider is not a landing.
+      if (!tracker.resolved && deadline) {
+        tracker.resolved = true;
+        tracker.made = false;
+        tracker.onCap = false;
+        tracker.tilt = poseForBody(body, !!options.capBody).tilt;
+        tracker.reason = 'off-plane-settle-limit';
+      }
       return;
     }
     if (tracker.contactMs == null) tracker.contactMs = simElapsedMs;
@@ -1145,9 +1163,17 @@ const Physics = (() => {
     } else if (!stable) {
       tracker.stableFrames = 0;
     }
-    const limit = options.settleLimitMs || 4000;
-    const deadline = simElapsedMs - tracker.contactMs >= limit;
-    if (!tracker.resolved && ((tracker.stableFrames || 0) >= SETTLE_FRAMES || deadline)) {
+    const reachedDeadline = simElapsedMs - tracker.contactMs >= limit;
+    if (!tracker.resolved && reachedDeadline &&
+        !withinLandingPlaneTolerance(body, !!options.ceiling)) {
+      tracker.resolved = true;
+      tracker.made = false;
+      tracker.onCap = false;
+      tracker.tilt = poseForBody(body, !!options.capBody).tilt;
+      tracker.reason = 'off-plane-settle-limit';
+      return;
+    }
+    if (!tracker.resolved && ((tracker.stableFrames || 0) >= SETTLE_FRAMES || reachedDeadline)) {
       const pose = poseForBody(body, !!options.capBody);
       const rotationValid = !options.requireFlip || tracker.rotation >= requiredRotation;
       tracker.resolved = true;
@@ -1354,6 +1380,12 @@ const Physics = (() => {
     // (Trampoline and Rewind) explicitly clear firstContactMs when they relaunch.
     if (firstContactMs != null && simElapsedMs - firstContactMs >= settleLimit) {
       if (profile.requireFlip && !hasFlipped) return recordLanding('MISS', null, 'underrotated');
+      // The deadline is absolute, but the pose only scores on the active plane.
+      // Event furniture (notably Ice bumpers and Earthquake debris) can hold an
+      // otherwise upright bottle above that plane; tilt alone is not a landing.
+      if (!withinLandingPlaneTolerance()) {
+        return recordLanding('MISS', landingTiltForBody(), 'off-plane-settle-limit');
+      }
       const limitTilt = landingTiltForBody();
       const limitInvErr = Math.abs(limitTilt - Math.PI);
       if (limitTilt < MAKE_ANGLE) return recordLanding('MAKE', limitTilt, 'upright-settle-limit');

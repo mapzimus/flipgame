@@ -31,7 +31,9 @@ function loadPhysics() {
     if (relative === 'js/physics.js') source += '\nthis.__physics = Physics;';
     vm.runInContext(source, context, { filename: relative });
   }
-  return context.__physics;
+  const physics = context.__physics;
+  Object.defineProperty(physics, '__testMatter', { value: context.Matter });
+  return physics;
 }
 
 function startShot({ eventId = null, nativeAlien = false, width = 1280, height = 720,
@@ -43,6 +45,10 @@ function startShot({ eventId = null, nativeAlien = false, width = 1280, height =
     physics.resetBottle();
     physics.seedTurn(seed);
   } else if (eventId) {
+    // Match the production per-turn order so arenaTime and turn-owned RNG do
+    // not inherit state from a warmed simulation corpus.
+    physics.resetBottle();
+    physics.seedTurn(seed);
     assert.equal(physics.forceSpecialEvent(eventId), true);
   }
   physics.applyFlick(vx, vy, seed, 1,
@@ -65,7 +71,7 @@ function resolve(physics, maxFrames = 1800) {
   throw new Error('Shot did not resolve');
 }
 
-function testIceDeadlineSurvivesTemporaryUngrounding() {
+function testDeadlineRequiresActiveLandingPlane() {
   const outcome = resolve(startShot({ eventId: 'ice-slide', width: 360, height: 640,
     vx: 0, vy: -1800, seed: 3668341011 }));
   assert.equal(outcome.firstContactFrame, 60);
@@ -73,8 +79,57 @@ function testIceDeadlineSurvivesTemporaryUngrounding() {
     `Ice hard deadline resolved on frame ${outcome.frame}, expected about frame 420`);
   assert.ok(outcome.lifecycle.settleMs >= 5999 && outcome.lifecycle.settleMs <= 6017,
     `Ice settlement allowance was ${outcome.lifecycle.settleMs}ms`);
-  assert.equal(outcome.verdict, 'MAKE');
-  assert.equal(outcome.lifecycle.reason, 'upright-settle-limit');
+  assert.equal(outcome.verdict, 'MISS');
+  assert.equal(outcome.lifecycle.reason, 'off-plane-settle-limit');
+  assert.ok(outcome.physics.getBottle().bounds.max.y < outcome.physics.getGroundY() - 6,
+    'Ice bumper fixture unexpectedly reached the scoring plane');
+
+  // Shared-logic fixture: after a genuine scoring-plane contact, suspend an
+  // upright, already-flipped body above the table until the absolute deadline.
+  // This isolates the plane requirement from any one event implementation.
+  const suspendedPhysics = startShot({ seed: 7781, vx: 0, vy: -2500 });
+  let suspendedAtContact = false;
+  let suspended = null;
+  for (let frame = 1; frame <= 600; frame += 1) {
+    suspendedPhysics.step(1 / 60);
+    const lifecycle = suspendedPhysics.getLandingLifecycle();
+    if (!suspendedAtContact && lifecycle.firstContactMs != null) {
+      suspendedAtContact = true;
+      const body = suspendedPhysics.getBottle();
+      const Body = suspendedPhysics.__testMatter.Body;
+      Body.setAngle(body, 0);
+      Body.setPosition(body, { x: body.position.x, y: body.position.y - 48 });
+      Body.setVelocity(body, { x: 0, y: 0 });
+      Body.setAngularVelocity(body, 0);
+      Body.setStatic(body, true);
+    }
+    const verdict = suspendedPhysics.checkLanding();
+    if (verdict) {
+      suspended = { verdict, frame, lifecycle: suspendedPhysics.getLandingLifecycle() };
+      break;
+    }
+  }
+  assert.ok(suspendedAtContact, 'Generic deadline fixture never contacted the scoring plane');
+  assert.ok(suspended, 'Generic off-plane deadline fixture did not resolve');
+  assert.equal(suspended.verdict, 'MISS');
+  assert.equal(suspended.lifecycle.reason, 'off-plane-settle-limit');
+  assert.ok(suspended.lifecycle.settleMs >= 3999 && suspended.lifecycle.settleMs <= 4017,
+    `Generic off-plane deadline resolved after ${suspended.lifecycle.settleMs}ms`);
+
+  const earthquake = resolve(startShot({ eventId: 'earthquake', width: 768, height: 1024,
+    vx: 3803, vy: -1406, seed: 27 }));
+  assert.equal(earthquake.verdict, 'MISS',
+    'Earthquake deadline awarded an off-plane/upright pose');
+  assert.equal(earthquake.lifecycle.reason, 'off-plane-settle-limit');
+  assert.ok(earthquake.physics.getBottle().bounds.max.y < earthquake.physics.getGroundY() - 6,
+    'Earthquake fixture unexpectedly reached the scoring plane');
+
+  const grounded = resolve(startShot({ eventId: 'earthquake', width: 1280, height: 720,
+    vx: 320, vy: -2500, seed: 1 }));
+  assert.equal(grounded.verdict, 'MAKE');
+  assert.equal(grounded.lifecycle.reason, 'upright-settle-limit');
+  assert.ok(Math.abs(grounded.physics.getBottle().bounds.max.y - grounded.physics.getGroundY()) <= 6,
+    'Grounded deadline fixture was not on the scoring plane');
 }
 
 function testContactDeadlineAndEventResets() {
@@ -245,7 +300,7 @@ function testAssistedEventsRemainSkillDependent() {
   }
 }
 
-testIceDeadlineSurvivesTemporaryUngrounding();
+testDeadlineRequiresActiveLandingPlane();
 testContactDeadlineAndEventResets();
 testWindRemainsPhysicalButNotAutomatic();
 testAssistedEventsRemainSkillDependent();
