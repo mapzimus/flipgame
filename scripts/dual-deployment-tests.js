@@ -13,6 +13,8 @@ assert.match(workflow, /group: flipgame-production-\$\{\{ github\.ref \}\}/,
   'production updates require serialized concurrency');
 assert.match(workflow, /needs: build/,
   'mapzimus.com deployment must wait for the complete APK and game qualification job');
+assert.match(workflow, /Reject a reused public release identity/,
+  'same-version commits must fail before either public origin can advance');
 assert.match(workflow, /repository: mapzimus\/lab/);
 assert.match(workflow, /ssh-key: \$\{\{ secrets\.LAB_DEPLOY_KEY \}\}/,
   'Lab access must use the repository-scoped deploy key');
@@ -27,6 +29,12 @@ assert.doesNotMatch(workflow, /gh release (?:view|create|upload) v1\.11/,
 assert.match(workflow, /git -C lab add -- vendor\/apps\/flip-game/,
   'automation may stage only the owned Flipgame snapshot');
 assert.match(workflow, /git -C lab push origin HEAD:main/);
+assert.match(workflow, /uses: actions\/upload-pages-artifact@v3/);
+assert.match(workflow, /uses: actions\/deploy-pages@v4/);
+assert.match(workflow, /deploy_github_pages:[\s\S]*needs: publish_mapzimus/,
+  'GitHub Pages must wait for the verified Cloudflare publication');
+assert.match(workflow, /verify_dual_origins:[\s\S]*verify-dual-deployment\.mjs/,
+  'a final job must reconcile provenance and bytes at both public origins');
 assert.doesNotMatch(workflow, /git[^\n]*(?:push[^\n]*--force|add\s+-A|add\s+--all)/,
   'deployment must not force-push or stage unrelated Lab files');
 assert.match(workflow, /rev-parse origin\/master/,

@@ -17,6 +17,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject a reused public release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_version="$(node -p "require('./js/v111-interfaces.js').RELEASE_VERSION")"
+          if git ls-remote --exit-code --tags origin "refs/tags/${release_version}" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/${release_version}:refs/tags/${release_version}"
+            tag_sha="$(git rev-list -n 1 "$release_version")"
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "Release ${release_version} already belongs to ${tag_sha}; bump the public version, cache, asset build, and Android version before publishing another commit." >&2
+              exit 1
+            fi
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -190,10 +206,24 @@ jobs:
           npm ci
           npm run check
 
+      - name: Revalidate both production branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C flipgame fetch origin master --depth=1
+          test "$(git -C flipgame rev-parse origin/master)" = "$GITHUB_SHA"
+          test "$(git -C flipgame rev-parse HEAD)" = "$GITHUB_SHA"
+          git -C lab fetch origin main
+          test "$(git -C lab rev-parse HEAD)" = "$(git -C lab rev-parse origin/main)"
+
       - name: Commit and push only the Flipgame snapshot
         shell: bash
         run: |
           set -euo pipefail
+          git -C flipgame fetch origin master --depth=1
+          test "$(git -C flipgame rev-parse origin/master)" = "$GITHUB_SHA"
+          git -C lab fetch origin main
+          test "$(git -C lab rev-parse HEAD)" = "$(git -C lab rev-parse origin/main)"
           git -C lab add -- vendor/apps/flip-game
           if git -C lab diff --cached --quiet; then
             echo "Lab already contains Flipgame $GITHUB_SHA."
@@ -202,6 +232,107 @@ jobs:
           git -C lab config user.name "flipgame-release-bot"
           git -C lab config user.email "flipgame-release-bot@users.noreply.github.com"
           git -C lab commit -m "chore: sync Flipgame ${GITHUB_SHA:0:12}"
+          git -C flipgame fetch origin master --depth=1
+          test "$(git -C flipgame rev-parse origin/master)" = "$GITHUB_SHA"
           git -C lab fetch origin main
           test "$(git -C lab rev-parse HEAD^)" = "$(git -C lab rev-parse origin/main)"
           git -C lab push origin HEAD:main
+
+      - name: Wait for the verified Cloudflare publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error --max-time 15 \
+              "https://mapzimus.com/flipgame/.upstream.json?commit=${GITHUB_SHA}" \
+              --output lab-upstream.json && \
+              EXPECTED_SHA="$GITHUB_SHA" node -e \
+                "const m=require('./lab-upstream.json');if(m?.upstream?.sourceSha!==process.env.EXPECTED_SHA)process.exit(1)"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Cloudflare did not publish Flipgame $GITHUB_SHA within five minutes." >&2
+          exit 1
+
+      - name: Preserve the verified web provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipgame-web-provenance-${{ github.sha }}
+          path: lab-upstream.json
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy_github_pages:
+    name: Publish mapzimus.github.io/flipgame
+    needs: publish_mapzimus
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out the exact qualified Flipgame commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download the Cloudflare-verified provenance
+        uses: actions/download-artifact@v4
+        with:
+          name: flipgame-web-provenance-${{ github.sha }}
+          path: web-provenance
+
+      - name: Stage only the web runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin master --depth=1
+          test "$(git rev-parse origin/master)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir pages-site
+          cp -R index.html service-worker.js manifest.json css js icons pages-site/
+          if [ -f .nojekyll ]; then cp .nojekyll pages-site/; fi
+          cp web-provenance/lab-upstream.json pages-site/.upstream.json
+          EXPECTED_SHA="$GITHUB_SHA" node -e \
+            "const m=require('./pages-site/.upstream.json');if(m?.upstream?.sourceSha!==process.env.EXPECTED_SHA)process.exit(1)"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the exact Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-site
+
+      - name: Recheck master immediately before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin master --depth=1
+          test "$(git rev-parse origin/master)" = "$GITHUB_SHA"
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  verify_dual_origins:
+    name: Verify both public Flipgame origins
+    needs: [publish_mapzimus, deploy_github_pages]
+    if: always() && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require both publication jobs
+        env:
+          LAB_RESULT: ${{ needs.publish_mapzimus.result }}
+          PAGES_RESULT: ${{ needs.deploy_github_pages.result }}
+        run: test "$LAB_RESULT" = success && test "$PAGES_RESULT" = success
+      - name: Reconcile provenance and every runtime byte
+        run: node scripts/verify-dual-deployment.mjs --sha "$GITHUB_SHA"
