@@ -22,7 +22,7 @@ assert.match(workflow,
   /node lab\/scripts\/sync-flipgame\.mjs --source flipgame --source-commit "\$GITHUB_SHA"/,
   'Lab must receive the exact qualified checkout through its guarded sync command');
 assert.match(workflow, /npm run check/, 'the complete Lab site must pass before publication');
-assert.match(workflow, /RELEASE_VERSION: \$\{\{ steps\.build_metadata\.outputs\.release_version \}\}/,
+assert.match(workflow, /RELEASE_VERSION: \$\{\{ needs\.build\.outputs\.release_version \}\}/,
   'immutable release publication must follow the game release metadata');
 assert.doesNotMatch(workflow, /gh release (?:view|create|upload) v1\.11/,
   'future version bumps must not require hand-editing release commands');
@@ -35,6 +35,11 @@ assert.match(workflow, /deploy_github_pages:[\s\S]*needs: publish_mapzimus/,
   'GitHub Pages must wait for the verified Cloudflare publication');
 assert.match(workflow, /verify_dual_origins:[\s\S]*verify-dual-deployment\.mjs/,
   'a final job must reconcile provenance and bytes at both public origins');
+assert.match(workflow, /publish_release:[\s\S]*needs: \[build, verify_dual_origins\]/,
+  'the public APK release must wait for both qualified web origins');
+const buildSection = workflow.split(/\n  publish_mapzimus:/)[0];
+assert.doesNotMatch(buildSection, /gh release (?:create|upload)/,
+  'the build job may upload a private artifact but must not publish an APK before web verification');
 assert.doesNotMatch(workflow, /git[^\n]*(?:push[^\n]*--force|add\s+-A|add\s+--all)/,
   'deployment must not force-push or stage unrelated Lab files');
 assert.match(workflow, /rev-parse origin\/master/,

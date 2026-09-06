@@ -10,11 +10,14 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write           # needed to publish the APK as a Release asset
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.build_metadata.outputs.release_version }}
+      short_commit: ${{ steps.build_metadata.outputs.short_commit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -128,33 +131,6 @@ jobs:
             apk-build-metadata.json
             apk-signing-certificate.txt
             apk-badging.txt
-
-      - name: Publish immutable release and refresh apk-latest
-        if: github.ref == 'refs/heads/master'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ steps.build_metadata.outputs.release_version }}
-        run: |
-          set -euo pipefail
-          cat > release-notes.md <<NOTES
-          Self-contained, persistently signed Flipgame ${RELEASE_VERSION} APK. Game files are
-          bundled for offline play. Sideload it by enabling “Install unknown
-          apps” and opening the APK. The legacy v110 APK used a disposable CI
-          key and must be uninstalled once; signed releases from v1.11 onward
-          can upgrade in place.
-          NOTES
-          assets=(flipgame-offline.apk flipgame-offline.apk.sha256 apk-build-metadata.json apk-signing-certificate.txt apk-badging.txt)
-          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
-            git fetch --no-tags origin "refs/tags/${RELEASE_VERSION}:refs/tags/${RELEASE_VERSION}"
-            tag_sha="$(git rev-list -n 1 "$RELEASE_VERSION")"
-            test "$tag_sha" = "$GITHUB_SHA"
-            gh release upload "$RELEASE_VERSION" "${assets[@]}" --clobber
-          else
-            gh release create "$RELEASE_VERSION" --target "$GITHUB_SHA" --title "Flip Game ${RELEASE_VERSION}" --notes-file release-notes.md "${assets[@]}"
-          fi
-          gh release delete apk-latest --cleanup-tag --yes >/dev/null 2>&1 || true
-          gh release create apk-latest --target "$GITHUB_SHA" --title "Flip Game — offline APK (latest)" --notes-file release-notes.md "${assets[@]}"
 
   publish_mapzimus:
     name: Publish mapzimus.com/flipgame
@@ -336,3 +312,59 @@ jobs:
         run: test "$LAB_RESULT" = success && test "$PAGES_RESULT" = success
       - name: Reconcile provenance and every runtime byte
         run: node scripts/verify-dual-deployment.mjs --sha "$GITHUB_SHA"
+
+  publish_release:
+    name: Publish the signed v1.11 APK release
+    needs: [build, verify_dual_origins]
+    if: always() && github.ref == 'refs/heads/master' && needs.build.result == 'success' && needs.verify_dual_origins.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact dual-origin-verified commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Recheck master before publishing the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin master --depth=1
+          test "$(git rev-parse origin/master)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Download the qualified signed APK
+        uses: actions/download-artifact@v4
+        with:
+          name: flipgame-offline-apk-${{ needs.build.outputs.short_commit }}
+          path: release-assets
+
+      - name: Publish immutable release and refresh apk-latest
+        working-directory: release-assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.build.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_VERSION"
+          cat > release-notes.md <<NOTES
+          Self-contained, persistently signed Flipgame ${RELEASE_VERSION} APK. Game files are
+          bundled for offline play. Sideload it by enabling “Install unknown
+          apps” and opening the APK. The legacy v110 APK used a disposable CI
+          key and must be uninstalled once; signed releases from v1.11 onward
+          can upgrade in place.
+          NOTES
+          assets=(flipgame-offline.apk flipgame-offline.apk.sha256 apk-build-metadata.json apk-signing-certificate.txt apk-badging.txt)
+          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            git -C .. fetch --no-tags origin "refs/tags/${RELEASE_VERSION}:refs/tags/${RELEASE_VERSION}"
+            tag_sha="$(git -C .. rev-list -n 1 "$RELEASE_VERSION")"
+            test "$tag_sha" = "$GITHUB_SHA"
+            gh release upload "$RELEASE_VERSION" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_VERSION" --target "$GITHUB_SHA" --title "Flip Game ${RELEASE_VERSION}" --notes-file release-notes.md "${assets[@]}"
+          fi
+          gh release delete apk-latest --cleanup-tag --yes >/dev/null 2>&1 || true
+          gh release create apk-latest --target "$GITHUB_SHA" --title "Flip Game — offline APK (latest)" --notes-file release-notes.md "${assets[@]}"
