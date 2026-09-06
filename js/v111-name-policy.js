@@ -83,7 +83,7 @@
     // evasions.  The display value is preserved; these folds are screening
     // only and never transliterate an accepted player's name.
     '\u0405': 's', '\u0455': 's', '\u0408': 'j', '\u0458': 'j', '\u04cf': 'l',
-    '\u0131': 'i', '\u057d': 'u', '\u1d1c': 'u',
+    '\u0131': 'i', '\u0261': 'g', '\u028b': 'u', '\u028c': 'u', '\u057d': 'u', '\u1d1c': 'u',
     '\u0501': 'd', '\u051b': 'q',
     // Cherokee glyphs which are direct Latin lookalikes. This deliberately is
     // a screening skeleton only; accepted Cherokee display names stay intact.

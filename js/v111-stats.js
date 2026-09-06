@@ -27,6 +27,10 @@
     code: 'stats-storage-fallback',
     message: 'Detailed statistics storage is unavailable. Match and flip totals will still be preserved on this device.',
   });
+  var AGGREGATE_CAPACITY_WARNING = Object.freeze({
+    code: 'stats-aggregate-capacity',
+    message: 'Statistics reached this device\'s safe aggregate limit. The last consistent data remains available.',
+  });
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   var SCOPE_VALUES = new Set(['all', 'device', 'session', 'import']);
   var ROLLUP_UNKNOWN = '__unknown__';
@@ -34,6 +38,8 @@
   var ROLLUP_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
   var MAX_ROLLUP_CELLS_PER_DAY_LINEAGE = 64;
   var DETAILED_ROLLUP_CELLS_PER_DAY_LINEAGE = 60;
+  var MAX_AGGREGATE_INDEX_ENTRIES = 100000;
+  var MAX_AGGREGATE_COUNT = 1000000000;
   var OPEN_ID_LIMITS = Object.freeze({ sessionId: 32, deviceId: 4, playerId: 8, teamId: 8 });
   var OBJECT_IDS = [
     'bottle','coffee-mug','ketchup','milk-carton','maple','teapot','honeybear','salt-pepper-shaker',
@@ -153,7 +159,7 @@
     if (Array.isArray(value)) return value.map(function (entry) { return sanitizeNamesDeep(entry, fallback, contextKey); });
     if (!value || typeof value !== 'object') return value;
     var output = {};
-    var playerContext = /^(player|players|participants|winner|winners|roster|members)$/i.test(contextKey || '') ||
+    var playerContext = /^(player|players|participants|winner|winners|roster|members|rows)$/i.test(contextKey || '') ||
       value.playerId != null || value.netId != null || value.seat != null || value.playerIndex != null || value.isAI != null;
     Object.keys(value).forEach(function (key) {
       output[key] = /^(displayName|playerName)$/i.test(key) || (key === 'name' && playerContext)
@@ -616,7 +622,7 @@
       eventId: stringValue('eventId'),
       playerCount: boundedInteger('playerCount', 1, 8),
       viewportBucket: viewportBucket == null || viewportBucket === ROLLUP_UNKNOWN
-        ? viewportBucket : (ROLLUP_ID_RE.test(String(viewportBucket)) ? String(viewportBucket) : 'other'),
+        ? viewportBucket : (STATIC_ROLLUP_IDS.viewportBucket.has(String(viewportBucket)) ? String(viewportBucket) : 'other'),
       result: stringValue('result'), online: booleanValue('online'),
       testData: booleanValue('testData'),
     };
@@ -720,6 +726,45 @@
     if (record._importId) next._importId = record._importId;
     return next;
   }
+  function flipIndexEntry(cell) {
+    var entry = { dimensions: clone(cell.dimensions || {}), timestampStart: cell.timestampStart,
+      timestampEnd: cell.timestampEnd, flips: 0, makes: 0, caps: 0, perfect: 0, upright: 0,
+      eventObserved: 0, eventSuccesses: 0, onFireRuns: 0, flightMsTotal: 0, flightMsCount: 0,
+      settleMsTotal: 0, settleMsCount: 0, bestStreak: 0, counters: {}, makeCounters: {} };
+    var plain = clone(cell); delete plain.overflow; delete plain.index;
+    return addCellToRollup(entry, plain);
+  }
+  function aggregateCapacityError() {
+    var error = new RangeError('Statistics aggregate index capacity exceeded');
+    error.code = 'stats-aggregate-capacity';
+    return error;
+  }
+  function mergeFlipIndex(current, additions) {
+    var map = new Map();
+    (current || []).forEach(function (entry) { map.set(dimensionKey(entry.dimensions || {}), clone(entry)); });
+    if (map.size > MAX_AGGREGATE_INDEX_ENTRIES) throw aggregateCapacityError();
+    (additions || []).forEach(function (entry) {
+      var key = dimensionKey(entry.dimensions || {});
+      var target = map.get(key) || { dimensions: clone(entry.dimensions || {}),
+        timestampStart: entry.timestampStart, timestampEnd: entry.timestampEnd,
+        flips: 0, makes: 0, caps: 0, perfect: 0, upright: 0, eventObserved: 0,
+        eventSuccesses: 0, onFireRuns: 0, flightMsTotal: 0, flightMsCount: 0,
+        settleMsTotal: 0, settleMsCount: 0, bestStreak: 0, counters: {}, makeCounters: {} };
+      target = addCellToRollup(target, entry);
+      target.timestampStart = target.timestampStart == null ? entry.timestampStart
+        : Math.min(target.timestampStart, entry.timestampStart);
+      target.timestampEnd = target.timestampEnd == null ? entry.timestampEnd
+        : Math.max(target.timestampEnd, entry.timestampEnd);
+      map.set(key, target);
+      if (map.size > MAX_AGGREGATE_INDEX_ENTRIES) throw aggregateCapacityError();
+    });
+    return Array.from(map.values()).sort(function (a, b) {
+      return dimensionKey(a.dimensions || {}).localeCompare(dimensionKey(b.dimensions || {}));
+    });
+  }
+  function flipIndexEntries(cell) {
+    return cell && cell.overflow && Array.isArray(cell.index) ? cell.index.map(clone) : [flipIndexEntry(cell)];
+  }
   function addCellToRollup(cell, source) {
     var next = clone(cell);
     ['flips','makes','caps','perfect','upright','eventObserved','eventSuccesses','onFireRuns',
@@ -767,10 +812,26 @@
       next.bestStreak = Math.max(next.bestStreak, Number(firstValue(dim.streakAfter, dim.streak)) || 0);
     }
     if (source._importId) next._importId = source._importId;
+    if (source._sourceRollupId) next._sourceRollupId = source._sourceRollupId;
     if (source.overflow) next.overflow = true;
+    if (next.overflow || source.overflow) {
+      next.index = mergeFlipIndex(next.index || [], source.overflow && Array.isArray(source.index)
+        ? source.index : [Object.assign(flipIndexEntry(source), { dimensions: clone(source.dimensions || {}) })]);
+    }
     return next;
   }
   function rollupPartition(cell) { return cell && cell._importId ? cell._importId : 'device'; }
+  function assertAggregateIndexBudget(cells) {
+    var counts = new Map();
+    (cells || []).forEach(function (cell) {
+      if (!Array.isArray(cell.index)) return;
+      var key = rollupPartition(cell) + '|' + String((cell.dimensions || {}).day);
+      var count = (counts.get(key) || 0) + cell.index.length;
+      if (count > MAX_AGGREGATE_INDEX_ENTRIES) throw aggregateCapacityError();
+      counts.set(key, count);
+    });
+    return cells;
+  }
   function overflowDimensions(source) {
     return clone(source.dimensions || {});
   }
@@ -825,7 +886,8 @@
         added.push(freeze(cell));
       });
     });
-    return cells.filter(function (cell) { return !removed.has(cell.uuid); }).concat(added).map(freeze);
+    return assertAggregateIndexBudget(cells.filter(function (cell) { return !removed.has(cell.uuid); })
+      .concat(added)).map(freeze);
   }
   function aggregateRecords(records, options) {
     var opts = options || {};
@@ -846,11 +908,16 @@
       }
       var partition = cell._importId || 'device';
       var dictionary = dictionaryFor(partition);
-      Object.keys(OPEN_ID_LIMITS).forEach(function (key) {
-        var value = (cell.dimensions || {})[key];
-        if (value != null && value !== ROLLUP_UNKNOWN && value !== 'other' &&
-            dictionary[key].size < OPEN_ID_LIMITS[key] && ROLLUP_ID_RE.test(String(value))) dictionary[key].add(String(value));
-      });
+      [cell.dimensions || {}].concat((cell.index || []).map(function (entry) { return entry.dimensions || {}; }))
+        .forEach(function (entry) {
+          Object.keys(OPEN_ID_LIMITS).forEach(function (key) {
+            var value = entry[key];
+            if (value != null && value !== ROLLUP_UNKNOWN && value !== 'other' &&
+                dictionary[key].size < OPEN_ID_LIMITS[key] && ROLLUP_ID_RE.test(String(value))) {
+              dictionary[key].add(String(value));
+            }
+          });
+        });
       var dimensions = boundedRollupDimensions(cell.dimensions || {}, dictionary, false);
       var mapKey = partition + '|' + dimensionKey(dimensions);
       var target = map.get(mapKey) || newRollup(dimensions, opts.prefix, partition);
@@ -867,6 +934,70 @@
       map.set(key, addRecordToRollup(cell, record));
     });
     return enforceRollupCellBudget(passthrough.concat(Array.from(map.values())), opts.prefix || 'retention');
+  }
+
+  function matchIndexEntry(cell) {
+    return { dimensions: clone(cell.dimensions || {}), timestampStart: cell.timestampStart,
+      timestampEnd: cell.timestampEnd, matches: Number(cell.matches) || 0, cups: Number(cell.cups) || 0,
+      teamMatches: Number(cell.teamMatches) || 0, teamWins: Number(cell.teamWins) || 0 };
+  }
+  function mergeMatchIndex(current, additions) {
+    var map = new Map();
+    (current || []).forEach(function (entry) { map.set(dimensionKey(entry.dimensions || {}), clone(entry)); });
+    if (map.size > MAX_AGGREGATE_INDEX_ENTRIES) throw aggregateCapacityError();
+    (additions || []).forEach(function (entry) {
+      var key = dimensionKey(entry.dimensions || {});
+      var target = map.get(key) || { dimensions: clone(entry.dimensions || {}),
+        timestampStart: entry.timestampStart, timestampEnd: entry.timestampEnd,
+        matches: 0, cups: 0, teamMatches: 0, teamWins: 0 };
+      ['matches','cups','teamMatches','teamWins'].forEach(function (counter) {
+        target[counter] = (Number(target[counter]) || 0) + (Number(entry[counter]) || 0);
+      });
+      target.timestampStart = target.timestampStart == null ? entry.timestampStart
+        : Math.min(target.timestampStart, entry.timestampStart);
+      target.timestampEnd = target.timestampEnd == null ? entry.timestampEnd
+        : Math.max(target.timestampEnd, entry.timestampEnd);
+      map.set(key, target);
+      if (map.size > MAX_AGGREGATE_INDEX_ENTRIES) throw aggregateCapacityError();
+    });
+    return Array.from(map.values()).sort(function (a, b) {
+      return dimensionKey(a.dimensions || {}).localeCompare(dimensionKey(b.dimensions || {}));
+    });
+  }
+  function addMatchAggregate(cell, source) {
+    var next = clone(cell);
+    ['matches','cups','teamMatches','teamWins'].forEach(function (counter) {
+      next[counter] = (Number(next[counter]) || 0) + (Number(source[counter]) || 0);
+    });
+    next.timestampStart = next.timestampStart == null ? source.timestampStart
+      : Math.min(next.timestampStart, source.timestampStart);
+    next.timestampEnd = next.timestampEnd == null ? source.timestampEnd
+      : Math.max(next.timestampEnd, source.timestampEnd);
+    if (source._importId) next._importId = source._importId;
+    if (source._sourceRollupId) next._sourceRollupId = source._sourceRollupId;
+    if (source.overflow) next.overflow = true;
+    if (next.overflow || source.overflow) {
+      next.index = mergeMatchIndex(next.index || [], source.overflow && Array.isArray(source.index)
+        ? source.index : [matchIndexEntry(source)]);
+    }
+    return next;
+  }
+
+  function boundedMatchEventIds(record) {
+    var ids = [];
+    var counts = record && record.eventCounts;
+    if (Array.isArray(counts)) {
+      counts.forEach(function (row) {
+        if (!row || Number(firstValue(row.count, row.observed, row.frequency, 0)) <= 0) return;
+        var id = String(firstValue(row.eventId, row.id, ''));
+        ids.push(STATIC_ROLLUP_IDS.eventId.has(id) ? id : 'other');
+      });
+    } else {
+      Object.keys(object(counts)).forEach(function (id) {
+        if (Number(counts[id]) > 0) ids.push(STATIC_ROLLUP_IDS.eventId.has(id) ? id : 'other');
+      });
+    }
+    return ids.filter(function (id, index, values) { return values.indexOf(id) === index; }).sort();
   }
 
   function aggregateMatches(records, options) {
@@ -886,7 +1017,11 @@
       var partition = cell._importId || 'device';
       var dictionary = dictionaryFor(partition);
       var dim = cell.dimensions || {};
-      [dim].concat(Array.isArray(dim.participants) ? dim.participants : []).forEach(function (entry) {
+      [dim].concat(Array.isArray(dim.participants) ? dim.participants : [],
+        (cell.index || []).reduce(function (entries, slice) {
+          var sliceDim = slice.dimensions || {};
+          return entries.concat([sliceDim], Array.isArray(sliceDim.participants) ? sliceDim.participants : []);
+        }, [])).forEach(function (entry) {
         Object.keys(OPEN_ID_LIMITS).forEach(function (key) {
           var value = entry && entry[key];
           if (value != null && value !== ROLLUP_UNKNOWN && value !== 'other' &&
@@ -905,6 +1040,7 @@
         day: top.day, scope: top.scope, sessionId: top.sessionId, deviceId: top.deviceId,
         mode: top.mode, online: top.online, testData: top.testData,
         arenaId: top.arenaId, playerCount: top.playerCount, viewportBucket: top.viewportBucket,
+        eventIds: boundedMatchEventIds(record),
         participants: players.map(function (player) {
           var bounded = boundedRollupDimensions(player, dictionary, !record._importId);
           return { playerId: bounded.playerId, seat: bounded.seat, isAI: bounded.isAI,
@@ -962,13 +1098,7 @@
         } else {
           target.dimensions = mergeOverflowDimensions(target.dimensions, cell.dimensions);
         }
-        ['matches','cups','teamMatches','teamWins'].forEach(function (counter) {
-          target[counter] = (Number(target[counter]) || 0) + (Number(cell[counter]) || 0);
-        });
-        target.timestampStart = target.timestampStart == null ? cell.timestampStart
-          : Math.min(target.timestampStart, cell.timestampStart);
-        target.timestampEnd = target.timestampEnd == null ? cell.timestampEnd
-          : Math.max(target.timestampEnd, cell.timestampEnd);
+        target = addMatchAggregate(target, cell);
         overflow.set(overflowKey, target); removed.add(cell.uuid);
       });
       overflow.forEach(function (cell) {
@@ -977,7 +1107,8 @@
         added.push(freeze(cell));
       });
     });
-    return cells.filter(function (cell) { return !removed.has(cell.uuid); }).concat(added).map(freeze);
+    return assertAggregateIndexBudget(cells.filter(function (cell) { return !removed.has(cell.uuid); })
+      .concat(added)).map(freeze);
   }
 
   function listFilter(value) {
@@ -1104,9 +1235,7 @@
     }
     return matchesDimensions(Object.assign({ timestamp: record.timestamp }, record), null, effective);
   }
-  function matchesRollup(cell, filter) {
-    var dim = cell.dimensions || {};
-    if (cell.schema !== 'MatchAggregateV1') return matchesDimensions(dim, cell, filter);
+  function matchesMatchDimensions(dim, cell, filter) {
     var participants = Array.isArray(dim.participants) ? dim.participants : [];
     var effective = filter;
     function participantFilter(filterKey, dimensionKeyName) {
@@ -1118,11 +1247,53 @@
     if (!participantFilter('playerIds', 'playerId') || !participantFilter('seats', 'seat') ||
         !participantFilter('objectIds', 'objectId') || !participantFilter('variantIds', 'variantId') ||
         !participantFilter('cosmeticIds', 'cosmeticId') || !participantFilter('teamIds', 'teamId')) return false;
+    if (effective.eventIds) {
+      var eventIds = Array.isArray(dim.eventIds) ? dim.eventIds : [];
+      if (!effective.eventIds.some(function (eventId) { return eventIds.indexOf(eventId) >= 0; })) return false;
+      effective = Object.assign({}, effective, { eventIds: null });
+    }
     if (effective.isAI != null) {
       if (!participants.some(function (player) { return player.isAI === effective.isAI; })) return false;
       effective = Object.assign({}, effective, { isAI: null });
     }
     return matchesDimensions(dim, cell, effective);
+  }
+  function filteredRollupSlices(cell, filter) {
+    var slices = cell && cell.overflow && Array.isArray(cell.index) ? cell.index : [cell];
+    return slices.filter(function (slice) {
+      var scoped = Object.assign({}, slice, { _importId: cell._importId,
+        timestampStart: slice.timestampStart, timestampEnd: slice.timestampEnd });
+      return cell.schema === 'MatchAggregateV1'
+        ? matchesMatchDimensions(slice.dimensions || {}, scoped, filter)
+        : matchesDimensions(slice.dimensions || {}, scoped, filter);
+    });
+  }
+  function projectRollupCell(cell, filter) {
+    var slices = filteredRollupSlices(cell, filter);
+    if (!slices.length) return null;
+    if (!(cell.overflow && Array.isArray(cell.index))) return clone(cell);
+    var dimensions = clone(slices[0].dimensions || {});
+    slices.slice(1).forEach(function (slice) {
+      dimensions = mergeOverflowDimensions(dimensions, slice.dimensions || {});
+    });
+    var projected;
+    if (cell.schema === 'MatchAggregateV1') {
+      projected = { schema: 'MatchAggregateV1', version: 2, uuid: cell.uuid, key: cell.key,
+        source: cell.source, timestampStart: null, timestampEnd: null, dimensions: dimensions,
+        overflow: true, matches: 0, cups: 0, teamMatches: 0, teamWins: 0, index: [] };
+      slices.forEach(function (slice) { projected = addMatchAggregate(projected, slice); });
+    } else {
+      projected = newRollup(dimensions, cell.source, rollupPartition(cell));
+      projected.uuid = cell.uuid; projected.key = cell.key; projected.source = cell.source;
+      projected.overflow = true; projected.index = [];
+      slices.forEach(function (slice) { projected = addCellToRollup(projected, slice); });
+    }
+    if (cell._importId) projected._importId = cell._importId;
+    if (cell._sourceRollupId) projected._sourceRollupId = cell._sourceRollupId;
+    return projected;
+  }
+  function matchesRollup(cell, filter) {
+    return filteredRollupSlices(cell, filter).length > 0;
   }
 
   function metricMap() { return new Map(); }
@@ -1148,8 +1319,10 @@
     var filter = normalizeFilters(filters);
     var flips = (data.flips || []).filter(function (record) { return matchesRecord(record, filter); });
     var matches = (data.matches || []).filter(function (record) { return matchesRecord(record, filter); });
-    var rollups = (data.rollups || data.aggregates || []).filter(function (cell) {
-      return cell.schema !== 'MatchAggregateV1' && matchesRollup(cell, filter);
+    var rollups = [];
+    (data.rollups || data.aggregates || []).forEach(function (cell) {
+      if (cell.schema === 'MatchAggregateV1') return;
+      filteredRollupSlices(cell, filter).forEach(function (slice) { rollups.push(slice); });
     });
     var contributions = flips.map(function (record) {
       return { timestamp: record.timestamp, dimensions: dimensionFor(record), flips: 1,
@@ -1304,9 +1477,9 @@
       if (finite(record.flightMs, null) != null) { flightMsTotal += Number(record.flightMs); flightMsCount++; }
       if (finite(record.settleMs, null) != null) { settleMsTotal += Number(record.settleMs); settleMsCount++; }
     });
-    (data.rollups || []).forEach(function (cell) {
+    (data.rollups || []).forEach(function (sourceCell) {
+      filteredRollupSlices(sourceCell, filter).forEach(function (cell) {
       if (cell.schema === 'MatchAggregateV1') return;
-      if (!matchesRollup(cell, filter)) return;
       flips += cell.flips || 0; makes += cell.makes || 0; caps += cell.caps || 0; perfect += cell.perfect || 0;
       upright += cell.upright || 0;
       if (!cell.dimensions || !cell.dimensions.testData || filter.includeTestEventNames) events += cell.eventObserved || 0;
@@ -1314,6 +1487,7 @@
       bestStreak = Math.max(bestStreak, Number(cell.bestStreak) || 0);
       flightMsTotal += Number(cell.flightMsTotal) || 0; flightMsCount += Number(cell.flightMsCount) || 0;
       settleMsTotal += Number(cell.settleMsTotal) || 0; settleMsCount += Number(cell.settleMsCount) || 0;
+      });
     });
     var matchedMatches = (data.matches || []).filter(function (record) { return matchesRecord(record, filter); });
     var matches = matchedMatches.length;
@@ -1323,10 +1497,12 @@
         (record.winnerTeamId != null || (record.winner && record.winner.teamId != null));
     }).length;
     (data.rollups || []).forEach(function (cell) {
-      if (cell.schema !== 'MatchAggregateV1' || !matchesRollup(cell, filter)) return;
-      matches += Number(cell.matches) || 0;
-      cups += Number(cell.cups) || 0;
-      teamWins += Number(cell.teamWins) || 0;
+      if (cell.schema !== 'MatchAggregateV1') return;
+      filteredRollupSlices(cell, filter).forEach(function (slice) {
+        matches += Number(slice.matches) || 0;
+        cups += Number(slice.cups) || 0;
+        teamWins += Number(slice.teamWins) || 0;
+      });
     });
     return freeze({ flips: flips, makes: makes, misses: Math.max(0, flips - makes), makeRate: flips ? makes / flips : 0,
       makePercentage: flips ? makes / flips * 100 : 0,
@@ -1472,6 +1648,11 @@
     });
     return output;
   }
+  function cleanRollupInternal(row, preserveSourceId) {
+    var output = cleanInternal(row);
+    if (preserveSourceId && row && row._sourceRollupId) output.uuid = row._sourceRollupId;
+    return output;
+  }
   function contributionCount(data) {
     var total = (data.flips || []).length + (data.matches || []).length;
     (data.rollups || []).forEach(function (row) {
@@ -1498,7 +1679,11 @@
     });
     (data.rollups || []).forEach(function (row) {
       collect(row.dimensions || {});
-      ((row.dimensions || {}).participants || []).forEach(collect);
+      (Array.isArray((row.dimensions || {}).participants) ? row.dimensions.participants : []).forEach(collect);
+      (row.index || []).forEach(function (slice) {
+        collect(slice.dimensions || {});
+        (Array.isArray((slice.dimensions || {}).participants) ? slice.dimensions.participants : []).forEach(collect);
+      });
     });
     return dictionaries;
   }
@@ -1509,8 +1694,10 @@
       .map(function (row) { return sanitizeNamesDeep(cleanInternal(row)); });
     var matches = (data.matches || []).filter(function (row) { return matchesRecord(row, filter); })
       .map(function (row) { return sanitizeNamesDeep(cleanInternal(row)); });
-    var rollups = (data.rollups || []).filter(function (row) { return matchesRollup(row, filter); })
-      .map(function (row) { return sanitizeNamesDeep(cleanInternal(row)); });
+    var rollups = (data.rollups || []).map(function (row) { return projectRollupCell(row, filter); })
+      .filter(Boolean).map(function (row) {
+        return sanitizeNamesDeep(cleanRollupInternal(row, opts.preserveSourceRollupIds === true));
+      });
     var output = { schema: EXPORT_SCHEMA, version: 1 };
     if (opts.sourceArchiveId != null) {
       var archiveId = String(opts.sourceArchiveId);
@@ -1539,6 +1726,140 @@
       assertSafeImportObject(value[key]);
     });
   }
+  function plainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+  function aggregateInteger(value, label, maximum) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > maximum) {
+      throw new TypeError('Invalid aggregate ' + label);
+    }
+    return value;
+  }
+  function aggregateFinite(value, label) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 ||
+        value > Number.MAX_SAFE_INTEGER) throw new TypeError('Invalid aggregate ' + label);
+    return value;
+  }
+  function validateAggregateCounters(counters, parentCount, label) {
+    if (counters == null) return;
+    if (!plainObject(counters) || Object.keys(counters).length > 16) {
+      throw new TypeError('Invalid aggregate ' + label);
+    }
+    Object.keys(counters).forEach(function (group) {
+      var bucket = counters[group];
+      if (!ROLLUP_ID_RE.test(group) || !plainObject(bucket) || Object.keys(bucket).length > 32) {
+        throw new TypeError('Invalid aggregate ' + label);
+      }
+      var total = 0;
+      Object.keys(bucket).forEach(function (key) {
+        if (!key || key.length > 64) throw new TypeError('Invalid aggregate ' + label);
+        total += aggregateInteger(bucket[key], label + '.' + group, parentCount);
+      });
+      if (total > parentCount) throw new TypeError('Invalid aggregate ' + label);
+    });
+  }
+  function closeAggregateNumber(actual, expected) {
+    return Math.abs(actual - expected) <= Math.max(0.000001, Math.abs(expected) * 1e-12);
+  }
+  function validateAggregateDimensions(dimensions) {
+    if (!plainObject(dimensions) || JSON.stringify(dimensions).length > 65536) {
+      throw new TypeError('Invalid aggregate dimensions');
+    }
+  }
+  function validateFlipAggregateBody(row, indexed) {
+    validateAggregateDimensions(row.dimensions);
+    var flips = aggregateInteger(row.flips, 'flips', MAX_AGGREGATE_COUNT);
+    ['makes','caps','perfect','upright','eventObserved','eventSuccesses','onFireRuns',
+      'flightMsCount','settleMsCount'].forEach(function (key) {
+      if (row[key] != null) aggregateInteger(row[key], key, flips);
+    });
+    if ((row.makes || 0) > flips || (row.caps || 0) > flips || (row.perfect || 0) > flips ||
+        (row.eventSuccesses || 0) > (row.eventObserved || 0)) {
+      throw new TypeError('Invalid aggregate flip counters');
+    }
+    ['flightMsTotal','settleMsTotal','bestStreak'].forEach(function (key) {
+      if (row[key] != null) aggregateFinite(row[key], key);
+    });
+    validateAggregateCounters(row.counters, flips, 'counters');
+    validateAggregateCounters(row.makeCounters, row.makes || 0, 'makeCounters');
+    if (indexed && (row.index != null || row.overflow === true)) {
+      if (row.index != null && !Array.isArray(row.index)) throw new TypeError('Invalid aggregate index');
+    }
+  }
+  function validateMatchAggregateBody(row, indexed) {
+    validateAggregateDimensions(row.dimensions);
+    var matches = aggregateInteger(row.matches, 'matches', MAX_AGGREGATE_COUNT);
+    ['cups','teamMatches','teamWins'].forEach(function (key) {
+      if (row[key] != null) aggregateInteger(row[key], key, matches);
+    });
+    if ((row.cups || 0) > matches || (row.teamMatches || 0) > matches ||
+        (row.teamWins || 0) > (row.teamMatches || 0)) {
+      throw new TypeError('Invalid aggregate match counters');
+    }
+    if (indexed && row.index != null && !Array.isArray(row.index)) {
+      throw new TypeError('Invalid aggregate index');
+    }
+  }
+  function validateAggregateIndex(row, bodyValidator, numericKeys) {
+    if (row.index == null) return;
+    if (!Array.isArray(row.index) || row.index.length > MAX_AGGREGATE_INDEX_ENTRIES) {
+      throw new TypeError('Invalid aggregate index');
+    }
+    var keys = new Set();
+    var sums = {};
+    numericKeys.forEach(function (key) { sums[key] = 0; });
+    row.index.forEach(function (entry) {
+      if (!plainObject(entry) || entry.index != null || entry.overflow === true) {
+        throw new TypeError('Invalid aggregate index entry');
+      }
+      bodyValidator(entry, false);
+      var key = dimensionKey(entry.dimensions);
+      if (keys.has(key)) throw new TypeError('Duplicate aggregate index entry');
+      keys.add(key);
+      numericKeys.forEach(function (field) { sums[field] += Number(entry[field]) || 0; });
+    });
+    numericKeys.forEach(function (key) {
+      if (!closeAggregateNumber(sums[key], Number(row[key]) || 0)) {
+        throw new TypeError('Aggregate index total mismatch');
+      }
+    });
+  }
+  function validateImportedAggregates(document) {
+    if (document.rollups.length > MAX_AGGREGATE_INDEX_ENTRIES) {
+      throw new TypeError('Too many aggregate rows');
+    }
+    var indexesByDay = new Map();
+    document.rollups.forEach(function (row) {
+      if (!plainObject(row) || !UUID_RE.test(String(row.uuid || ''))) {
+        throw new TypeError('Invalid aggregate record');
+      }
+      if (row.schema === 'FlipAggregateV1') {
+        if (typeof row.version !== 'number' || [1, 2, 3].indexOf(row.version) < 0) {
+          throw new TypeError('Unsupported FlipAggregateV1 version');
+        }
+        validateFlipAggregateBody(row, true);
+        validateAggregateIndex(row, validateFlipAggregateBody, [
+          'flips','makes','caps','perfect','upright','eventObserved','eventSuccesses','onFireRuns',
+          'flightMsTotal','flightMsCount','settleMsTotal','settleMsCount',
+        ]);
+      } else if (row.schema === 'MatchAggregateV1') {
+        if (typeof row.version !== 'number' || [1, 2].indexOf(row.version) < 0) {
+          throw new TypeError('Unsupported MatchAggregateV1 version');
+        }
+        validateMatchAggregateBody(row, true);
+        validateAggregateIndex(row, validateMatchAggregateBody,
+          ['matches','cups','teamMatches','teamWins']);
+      } else {
+        throw new TypeError('Unsupported aggregate schema');
+      }
+      if (Array.isArray(row.index)) {
+        var day = String((row.dimensions || {}).day);
+        var indexCount = (indexesByDay.get(day) || 0) + row.index.length;
+        if (indexCount > MAX_AGGREGATE_INDEX_ENTRIES) throw new TypeError('Aggregate index capacity exceeded');
+        indexesByDay.set(day, indexCount);
+      }
+    });
+  }
   function parseImportJSON(input) {
     var document = typeof input === 'string' ? JSON.parse(input) : clone(input);
     assertSafeImportObject(document);
@@ -1546,6 +1867,7 @@
         !Array.isArray(document.flips) || !Array.isArray(document.matches) || !Array.isArray(document.rollups)) {
       throw new TypeError('Invalid .flipstats.json document');
     }
+    validateImportedAggregates(document);
     var hasLineage = document.sourceArchiveId != null || document.snapshotSequence != null || document.snapshotId != null;
     if (hasLineage) {
       if (!ROLLUP_ID_RE.test(String(document.sourceArchiveId || '')) ||
@@ -1606,8 +1928,8 @@
         .map(function (row) { return sanitizeNamesDeep(row); }),
       matches: (data.matches || []).filter(function (row) { return matchesRecord(row, filter); })
         .map(function (row) { return sanitizeNamesDeep(row); }),
-      rollups: (data.rollups || []).filter(function (row) { return matchesRollup(row, filter); })
-        .map(function (row) { return sanitizeNamesDeep(row); }),
+      rollups: (data.rollups || []).map(function (row) { return projectRollupCell(row, filter); })
+        .filter(Boolean).map(function (row) { return sanitizeNamesDeep(row); }),
     };
     var aliases = playerAliases(source);
     var showName = function (id, name) { return opts.includeNames === true ? safeName(name, 'Player') : (aliases.get(String(id)) || 'Player'); };
@@ -1690,6 +2012,10 @@
 
     function report(error) {
       errors.push(error);
+      if (error && error.code === 'stats-aggregate-capacity') {
+        warning = AGGREGATE_CAPACITY_WARNING;
+        publishWarning();
+      }
       if (typeof opts.onError === 'function') { try { opts.onError(error); } catch (_) {} }
     }
     function publishWarning() {
@@ -1797,7 +2123,15 @@
       var nextFlips = state.flips.concat([record]).sort(function (a, b) { return a.timestamp - b.timestamp || a.uuid.localeCompare(b.uuid); });
       var remove = nextFlips.length > maxRaw ? nextFlips.slice(0, nextFlips.length - maxRaw) : [];
       var keep = remove.length ? nextFlips.slice(remove.length) : nextFlips;
-      var rollups = remove.length ? aggregateRecords(remove, { prefix: 'retention', existing: state.rollups }) : state.rollups.slice();
+      var rollups;
+      try {
+        rollups = remove.length ? aggregateRecords(remove, { prefix: 'retention', existing: state.rollups }) : state.rollups.slice();
+      } catch (error) {
+        if (!error || error.code !== 'stats-aggregate-capacity') throw error;
+        // Keep the raw evidence and the last consistent aggregate snapshot. The
+        // warning tells the UI storage needs attention; no count is coarsened.
+        report(error); remove = []; keep = nextFlips; rollups = state.rollups.slice();
+      }
       var previousRollups = new Map(state.rollups.map(function (row) { return [row.uuid, JSON.stringify(row)]; }));
       var changedRollups = remove.length ? rollups.filter(function (row) {
         return row.schema === 'FlipAggregateV1' && previousRollups.get(row.uuid) !== JSON.stringify(row);
@@ -1844,7 +2178,8 @@
       var filter = normalizeFilters(source);
       return { flips: state.flips.filter(function (row) { return matchesRecord(row, filter); }).map(clone),
         matches: state.matches.filter(function (row) { return matchesRecord(row, filter); }).map(clone),
-        rollups: state.rollups.filter(function (row) { return matchesRollup(row, filter); }).map(clone) };
+        rollups: state.rollups.map(function (row) { return projectRollupCell(row, filter); })
+          .filter(Boolean).map(clone) };
     }
     function query(filters) { return queue.then(function () { return freeze(filteredData(filters)); }); }
     function datasets(filters) { return queue.then(function () { return buildDatasets(state, Object.assign({}, filters || {}, { currentSessionId: sessionId, currentDeviceId: deviceId })); }); }
@@ -1868,6 +2203,7 @@
           config.snapshotSequence = marker.value.snapshotSequence;
           config.snapshotId = marker.value.snapshotId;
           config.dictionaries = marker.value.dictionaries;
+          config.preserveSourceRollupIds = true;
         } else {
           config.sourceArchiveId = localArchiveId;
           config.snapshotSequence = contributionCount(selected);
@@ -1928,25 +2264,45 @@
         }).filter(function (row) { if (matchIds.has(row.uuid)) return false; matchIds.add(row.uuid); return true; });
         var addedRollups = document.rollups.map(function (row) {
           var copy = sanitizeNamesDeep(clone(row));
+          var sourceRollupId = copy.uuid;
           if (copy.schema === 'FlipAggregateV1' && Number(copy.version) >= 3) {
             copy.dimensions = boundedRollupDimensions(copy.dimensions || {}, dictionaries, false);
+            if (Array.isArray(copy.index)) copy.index = copy.index.map(function (entry) {
+              var slice = clone(entry);
+              slice.dimensions = boundedRollupDimensions(slice.dimensions || {}, dictionaries, false);
+              return slice;
+            });
             copy.key = dimensionKey(copy.dimensions);
           } else if (copy.schema === 'MatchAggregateV1' && Number(copy.version) >= 2) {
             var sourceDim = copy.dimensions || {};
-            var bounded = boundedRollupDimensions(sourceDim, dictionaries, false);
-            copy.dimensions = {
-              day: bounded.day, scope: bounded.scope, sessionId: bounded.sessionId, deviceId: bounded.deviceId,
-              mode: bounded.mode, online: bounded.online, testData: bounded.testData,
-              arenaId: bounded.arenaId, playerCount: bounded.playerCount, viewportBucket: bounded.viewportBucket,
-              participants: (sourceDim.participants || []).slice(0, 8).map(function (player) {
-                var participant = boundedRollupDimensions(player, dictionaries, false);
-                return { playerId: participant.playerId, seat: participant.seat, isAI: participant.isAI,
-                  teamId: participant.teamId, objectId: participant.objectId, variantId: participant.variantId,
-                  cosmeticId: participant.cosmeticId };
-              }),
-            };
+            function boundedMatchDimensions(dimensions) {
+              var matchBounded = boundedRollupDimensions(dimensions, dictionaries, false);
+              return {
+                day: matchBounded.day, scope: matchBounded.scope, sessionId: matchBounded.sessionId,
+                deviceId: matchBounded.deviceId, mode: matchBounded.mode, online: matchBounded.online,
+                testData: matchBounded.testData, arenaId: matchBounded.arenaId,
+                playerCount: matchBounded.playerCount, viewportBucket: matchBounded.viewportBucket,
+                eventIds: (Array.isArray(dimensions.eventIds) ? dimensions.eventIds : []).map(function (id) {
+                  return STATIC_ROLLUP_IDS.eventId.has(String(id)) ? String(id) : 'other';
+                }).filter(function (id, index, values) { return values.indexOf(id) === index; }).sort(),
+                participants: (Array.isArray(dimensions.participants) ? dimensions.participants : []).slice(0, 8).map(function (player) {
+                  var participant = boundedRollupDimensions(player, dictionaries, false);
+                  return { playerId: participant.playerId, seat: participant.seat, isAI: participant.isAI,
+                    teamId: participant.teamId, objectId: participant.objectId, variantId: participant.variantId,
+                    cosmeticId: participant.cosmeticId };
+                }),
+              };
+            }
+            copy.dimensions = boundedMatchDimensions(sourceDim);
+            if (Array.isArray(copy.index)) copy.index = copy.index.map(function (entry) {
+              var slice = clone(entry); slice.dimensions = boundedMatchDimensions(slice.dimensions || {}); return slice;
+            });
             copy.key = importId + '|' + dimensionKey(copy.dimensions);
           }
+          // Aggregate UUIDs are only unique within their source archive. Namespace
+          // them so two independent sources with identical categorical cells remain additive.
+          copy._sourceRollupId = sourceRollupId;
+          copy.uuid = stableUuid('import-rollup', importId + '|' + sourceRollupId);
           copy._importId = importId; return freeze(copy);
         }).filter(function (row) { if (!row.uuid || rollupIds.has(row.uuid)) return false; rollupIds.add(row.uuid); return true; });
         var combined = baseFlips.concat(addedFlips).sort(function (a, b) { return a.timestamp - b.timestamp || a.uuid.localeCompare(b.uuid); });
@@ -2039,10 +2395,10 @@
   var api = {
     schema: 'FlipgameStatsModuleV1', version: 1, DB_NAME: DB_NAME, DB_VERSION: DB_VERSION,
     EXPORT_SCHEMA: EXPORT_SCHEMA, FALLBACK_KEY: FALLBACK_KEY, DEVICE_KEY: DEVICE_KEY,
-    FALLBACK_WARNING: FALLBACK_WARNING,
+    FALLBACK_WARNING: FALLBACK_WARNING, AGGREGATE_CAPACITY_WARNING: AGGREGATE_CAPACITY_WARNING,
     FLIP_RECORD_FIELDS: FLIP_RECORD_FIELDS, MATCH_RECORD_FIELDS: MATCH_RECORD_FIELDS,
     FILTER_FIELDS: FILTER_FIELDS,
-    MAX_RAW_FLIPS: MAX_RAW_FLIPS,
+    MAX_RAW_FLIPS: MAX_RAW_FLIPS, MAX_AGGREGATE_INDEX_ENTRIES: MAX_AGGREGATE_INDEX_ENTRIES,
     stableUuid: stableUuid, normalizeFlipRecord: normalizeFlipRecord, normalizeMatchRecord: normalizeMatchRecord,
     normalizeFilters: normalizeFilters, aggregateRecords: aggregateRecords, aggregateMatches: aggregateMatches,
     buildDatasets: buildDatasets,
