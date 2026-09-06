@@ -55,5 +55,7 @@ assert.doesNotMatch(workflow, /git[^\n]*(?:push[^\n]*--force|add\s+-A|add\s+--al
   'deployment must not force-push or stage unrelated Lab files');
 assert.match(workflow, /rev-parse origin\/master/,
   'an obsolete workflow run must not publish after master advances');
+assert.doesNotMatch(workflow, /fetch origin master --depth=/,
+  'freshness checks must retain full history for the guarded Lab ancestry test');
 
 console.log('Dual GitHub Pages and mapzimus.com deployment tests passed.');

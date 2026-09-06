@@ -1002,3 +1002,16 @@ interface or behavior changes to the Program Integrator before proceeding.
   repository-owned `npm run check` directly with no invented dependency step.
 - Required tests: reject lockfile cache/`npm ci` assumptions and require the
   complete Lab check before publication.
+
+## Revision 52 - preserve release ancestry during freshness checks
+
+- Trigger: the guarded Lab sync rejected the qualified descendant because an
+  earlier depth-one refetch had replaced the complete source history with a
+  shallow boundary at the current commit.
+- Old behavior: every master freshness check fetched with `--depth=1`, while
+  the sync contract also required proof that the new source descends from the
+  deployed snapshot.
+- New behavior: checkouts remain full-history and freshness fetches update the
+  remote ref without truncation. Obsolete runs are still rejected by exact SHA.
+- Required tests: no shallow master freshness fetch, exact remote SHA checks,
+  and the existing non-fast-forward sync rejection suite.

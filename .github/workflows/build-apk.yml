@@ -152,7 +152,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git -C flipgame fetch origin master --depth=1
+          git -C flipgame fetch origin master
           test "$(git -C flipgame rev-parse origin/master)" = "$GITHUB_SHA"
           test "$(git -C flipgame rev-parse HEAD)" = "$GITHUB_SHA"
 
@@ -185,7 +185,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git -C flipgame fetch origin master --depth=1
+          git -C flipgame fetch origin master
           test "$(git -C flipgame rev-parse origin/master)" = "$GITHUB_SHA"
           test "$(git -C flipgame rev-parse HEAD)" = "$GITHUB_SHA"
           git -C lab fetch origin main
@@ -195,7 +195,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git -C flipgame fetch origin master --depth=1
+          git -C flipgame fetch origin master
           test "$(git -C flipgame rev-parse origin/master)" = "$GITHUB_SHA"
           git -C lab fetch origin main
           test "$(git -C lab rev-parse HEAD)" = "$(git -C lab rev-parse origin/main)"
@@ -207,7 +207,7 @@ jobs:
           git -C lab config user.name "flipgame-release-bot"
           git -C lab config user.email "flipgame-release-bot@users.noreply.github.com"
           git -C lab commit -m "chore: sync Flipgame ${GITHUB_SHA:0:12}"
-          git -C flipgame fetch origin master --depth=1
+          git -C flipgame fetch origin master
           test "$(git -C flipgame rev-parse origin/master)" = "$GITHUB_SHA"
           git -C lab fetch origin main
           test "$(git -C lab rev-parse HEAD^)" = "$(git -C lab rev-parse origin/main)"
@@ -266,7 +266,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin master --depth=1
+          git fetch origin master
           test "$(git rev-parse origin/master)" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir pages-site
@@ -288,7 +288,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin master --depth=1
+          git fetch origin master
           test "$(git rev-parse origin/master)" = "$GITHUB_SHA"
 
       - name: Deploy GitHub Pages
@@ -329,7 +329,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin master --depth=1
+          git fetch origin master
           test "$(git rev-parse origin/master)" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
