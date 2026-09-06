@@ -25,8 +25,11 @@ assert.match(gradle, /versionName\s+'1\.11'/);
 assert.match(workflow, /assembleRelease/);
 assert.match(workflow, /ANDROID_KEYSTORE_BASE64/);
 assert.match(workflow, /apksigner verify --verbose --print-certs/);
-assert.match(workflow, /git fetch --no-tags origin "refs\/tags\/v1\.11:refs\/tags\/v1\.11"/,
-  'immutable release reruns must fetch the shallow-checkout tag before verifying it');
+assert.match(workflow,
+  /git fetch --no-tags origin "refs\/tags\/\$\{RELEASE_VERSION\}:refs\/tags\/\$\{RELEASE_VERSION\}"/,
+  'immutable release reruns must fetch the metadata-selected tag before verifying it');
+assert.match(workflow, /gh release create "\$RELEASE_VERSION"/,
+  'the immutable tag must follow the public release metadata');
 assert.doesNotMatch(workflow, /assembleDebug/);
 
 for (const [file, html] of [['index.html', index], ['js/v111-boot.js', boot]]) {
