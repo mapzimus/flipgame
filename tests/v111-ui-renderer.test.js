@@ -87,6 +87,14 @@ test('responsive shell has 48px targets, twelve-column desktop, compact roster, 
   assert.match(css, /\.segment-group input\s*\{[^}]*inset:\s*-1px;[^}]*inline-size:\s*calc\(100% \+ 2px\);[^}]*block-size:\s*calc\(100% \+ 2px\)/s);
 });
 
+test('Practice meter stays in the bottom table HUD instead of covering the flight', () => {
+  assert.match(css, /#practice-meter\s*\{[^}]*inset-block-end:\s*calc\(clamp\(96px,\s*12vh,\s*132px\)/s);
+  assert.match(css, /#practice-meter\s*\{[^}]*inline-size:\s*min\(560px,\s*calc\(100vw - 24px\)\)/s);
+  assert.match(css, /\.practice-active #flip-hint\s*\{\s*display:\s*none/);
+  assert.match(main, /gameScreen\.classList\.toggle\('practice-active',\s*!!currentMatchOptions\.practice\)/);
+  assert.doesNotMatch(css, /#practice-meter\s*\{[^}]*inset-block-end:\s*calc\(190px/s);
+});
+
 test('locked content is lock-only and pressure timers are absent', () => {
   for (const forbidden of [
     /unlocks later/i, /alien required/i, /unlock alien/i, /win #\d+ on the ladder/i,

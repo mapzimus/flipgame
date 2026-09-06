@@ -1655,6 +1655,7 @@
       if (prepared.options && typeof prepared.options === 'object') opts = prepared.options;
     }
     currentMatchOptions = Object.assign({}, opts || {});
+    gameScreen.classList.toggle('practice-active', !!currentMatchOptions.practice);
     currentMatchDefs = defs.map((definition) => ({ ...definition }));
     const cupContinuation = currentMatchOptions.format === 'cup' &&
       currentMatchOptions.cupState?.phase === 'between-heats' && matchTelemetry;
