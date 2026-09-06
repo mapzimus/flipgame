@@ -129,12 +129,12 @@ function main() {
     assert.equal(Dynamics.paintUnderlay(two.ctx, id, options), true);
     assert.deepEqual(one.calls, two.calls, `${id} underlay is not deterministic`);
   }
+  // Bottle's sloshing contents are its reaction; it must never receive a
+  // generic face overlay under the explicit v1.11 allowlist.
   for (const emotion of ['scared', 'smile', 'frown']) {
-    const one = recordingContext();
-    const two = recordingContext();
-    assert.equal(Dynamics.paintOverlay(one.ctx, 'bottle', { ...options, emotion }), true);
-    assert.equal(Dynamics.paintOverlay(two.ctx, 'bottle', { ...options, emotion }), true);
-    assert.deepEqual(one.calls, two.calls, `bottle ${emotion} face is not deterministic`);
+    const bottleCtx = recordingContext();
+    assert.equal(Dynamics.paintOverlay(bottleCtx.ctx, 'bottle', { ...options, emotion }), false);
+    assert.deepEqual(bottleCtx.calls, []);
   }
 
   // The user's absolute protected invariant: neither dynamics nor emotion

@@ -19,8 +19,11 @@ const Renderer = (() => {
   let fxPlinko = null;   // plinko board geometry while a drop is live
   let trailAccumulator = 0;
   const rainbowTrailPoints = [];
+  let motionFlipKey = null, motionElapsed = 0;
   // Smooth camera for mobile open-arena: zoom out when the object leaves frame.
   let camZoom = 1, camX = 0, camY = 0;
+  const reactionFocus = typeof FlipReactionRendererV111 !== 'undefined'
+    ? FlipReactionRendererV111.createFocusController() : null;
   let shakeAmp = 0;   // brief impact / verdict screen shake (screen space)
   let seasonalAmbience = { spooky: false, snowy: false, hearts: false, newyr: false };
   let nextSeasonCheck = 0;
@@ -52,6 +55,8 @@ const Renderer = (() => {
     W = canvas.width;
     H = canvas.height;
     camZoom = 1; camX = W / 2; camY = H / 2;
+    motionFlipKey = null; motionElapsed = 0;
+    if (reactionFocus) reactionFocus.reset();
   }
 
   function resize(w, h) { W = w; H = h; }
@@ -616,7 +621,7 @@ const Renderer = (() => {
   // ── Bottle ─────────────────────────────────────────────────────────────────
   // Wide squat Gatorade bottle: 74px body, short neck, wide orange cap, blue fill.
   // Local coords centered at bottle.position (physics CG, ~40px above visual base).
-  function drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin, variantId) {
+  function drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin, variantId, renderState) {
     const { x, y } = projectBottleCenter(bottle, groundY);
     const angle  = bottle.angle;
     const fillCol = hexToRgba(liquidColor || '#0b86ff', 0.92);
@@ -662,22 +667,29 @@ const Renderer = (() => {
     // color re-bake from main.js carries the effect everywhere else).
     if (fxNinja) ctx.filter = 'brightness(0.3)';
 
+    const dynamics = typeof window !== 'undefined' && window.FlipLegacyDynamicsV111;
+    const artState = Object.assign({
+      color: liquidColor,
+      variantId: variantId || 'blue-steel',
+      reducedMotion: reduceMotion,
+      time: clock,
+      elapsed: clock,
+      slosh: liquid.slosh,
+      angle,
+    }, renderState || {});
+    if (dynamics && dynamics.paintUnderlay) dynamics.paintUnderlay(ctx, skin || 'bottle', artState);
+
     // Skin dispatch: a non-bottle edition paints the object in the same local
     // frame (origin = CG, ground plane ≈ +39) and we're done. See js/skins.js.
     if (skin && skin !== 'bottle' && window.Skins && window.Skins.hasDraw(skin)) {
       // Pass angle so vessel skins can keep liquid world-level and pour when open.
       // Hourglass also gets sandBottom/sandFlow from the physics sand sim.
-      window.Skins.draw(ctx, skin, {
-        color: liquidColor,
-        variantId: variantId || 'blue-steel',
-        reducedMotion: reduceMotion,
-        time: clock,
-        slosh: liquid.slosh,
-        angle,
+      window.Skins.draw(ctx, skin, Object.assign({}, artState, {
         pour: !!(window.Skins.liquidFor && (window.Skins.liquidFor(skin) || {}).mode === 'open'),
         sandBottom: liquid.sandBottom,
         sandFlow: liquid.sandFlow,
-      });
+      }));
+      if (dynamics && dynamics.paintOverlay) dynamics.paintOverlay(ctx, skin, artState);
       ctx.restore();
       // Open-top pour splash when really inverted + sloshing hard
       const liq = window.Skins.liquidFor && window.Skins.liquidFor(skin);
@@ -785,6 +797,8 @@ const Renderer = (() => {
     ctx.beginPath();
     ctx.roundRect(-21, -144, 12, 7, 2);
     ctx.fill();
+
+    if (dynamics && dynamics.paintOverlay) dynamics.paintOverlay(ctx, skin || 'bottle', artState);
 
     ctx.restore();
 
@@ -1292,7 +1306,8 @@ const Renderer = (() => {
     const ty = view && view.camY != null ? view.camY : H / 2;
     // Plinko needs a responsive follow-cam so a fast drop cannot outrun the
     // frame. Other arena zooms retain the gentler cinematic ease.
-    const k = reduceMotion ? 1 : (view && view.tracking === 'plinko' ? 0.30 : 0.14);
+    const k = reduceMotion ? 1 : (view && view.tracking === 'plinko' ? 0.30
+      : (view && view.tracking === 'reaction' ? 0.24 : 0.14));
     camZoom += (targetZoom - camZoom) * k;
     camX += (tx - camX) * k;
     camY += (ty - camY) * k;
@@ -1322,6 +1337,50 @@ const Renderer = (() => {
     // curled up small so it visually fits the peg gaps it's bouncing through.
     fxSize    = (state.sizeFx || 1) * (fxPlinko ? 0.6 : 1);
     clock += dt;
+    const nextMotionKey = state.flipSeed == null ? 'idle' : `flip:${String(state.flipSeed)}`;
+    if (nextMotionKey !== motionFlipKey) {
+      motionFlipKey = nextMotionKey;
+      motionElapsed = 0;
+    } else {
+      motionElapsed += Math.max(0, dt || 0);
+    }
+
+    const reactions = typeof window !== 'undefined' && window.FlipReactionRendererV111;
+    const lifecycle = state.landingLifecycle || null;
+    const velocity = bottle && bottle.velocity ? bottle.velocity : { x: 0, y: 0 };
+    const renderState = reactions ? reactions.artState({
+      objectId: skin || 'bottle',
+      variantId: state.variantId || 'blue-steel',
+      result: result,
+      lifecycle: lifecycle,
+      flipSeed: state.flipSeed,
+      time: motionElapsed,
+      reducedMotion: reduceMotion,
+      angle: bottle && bottle.angle,
+      slosh: liquid && liquid.slosh,
+      angularVelocity: bottle && bottle.angularVelocity,
+      velocity: velocity,
+    }) : null;
+    const face = reactions ? reactions.faceFor(window, skin || 'bottle', state.variantId) : null;
+    let activeView = view;
+    if (reactionFocus && face && bottle) {
+      const center = projectBottleCenter(bottle, groundY);
+      const drawScale = BOTTLE_DRAW_SCALE * (fxSize || 1);
+      const centerY = center.y + (BOTTLE_DRAW_SCALE - drawScale) * 43;
+      const cosine = Math.cos(bottle.angle || 0);
+      const sine = Math.sin(bottle.angle || 0);
+      const facePoint = {
+        x: center.x + (face.anchor.x * cosine - face.anchor.y * sine) * drawScale,
+        y: centerY + (face.anchor.x * sine + face.anchor.y * cosine) * drawScale,
+      };
+      activeView = reactionFocus.next({
+        view: view, width: W, height: H, dt: dt, result: result,
+        reducedMotion: reduceMotion, face: face, point: facePoint,
+        radius: face.focusRadius * drawScale, key: state.flipSeed,
+      });
+    } else if (reactionFocus) {
+      activeView = reactionFocus.next({ view: view, width: W, height: H, result: null });
+    }
     if (fxTrail && !reduceMotion && bottle && bottle.bounds.max.y < groundY - 10) {
       trailAccumulator += dt;
       const trailStep = 0.018;
@@ -1361,11 +1420,11 @@ const Renderer = (() => {
     }
 
     ctx.save();
-    applyCamera(view);
+    applyCamera(activeView);
     drawBackground(groundY, isOnFire, { tableOnly: true });
     drawVisualArena('table', groundY);
-    drawWalls(groundY, view ? view.sideWalls : true, view && view.worldW);
-    if (target) drawCeiling(view);
+    drawWalls(groundY, activeView ? activeView.sideWalls : true, activeView && activeView.worldW);
+    if (target) drawCeiling(activeView);
     const aimingPad = !!(target && drag && awaitingFlick);
     drawTargetPad(target, groundY, aimingPad);
     drawObstacles(obstacles);
@@ -1376,7 +1435,7 @@ const Renderer = (() => {
     drawModernEventWorld(fxEventState, bottle, groundY, state.eventBodies);
     drawSuccessfulShotGhost(state.successfulShotGhost);
     drawRainbowTail();
-    drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin, state.variantId);
+    drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin, state.variantId, renderState);
     drawPersonalFinish(bottle, groundY);
     drawRainbowAura(bottle, groundY);
     drawParticles();
@@ -1384,7 +1443,7 @@ const Renderer = (() => {
 
     // Alien (etc.) pulled-back courts: fill letterbox gutters so the phone
     // still feels full-screen instead of a floating postage-stamp arena.
-    drawCourtGutters(view, groundY);
+    drawCourtGutters(activeView, groundY);
 
     // HUD overlays stay screen-fixed (not affected by world zoom).
     drawStake(stake);

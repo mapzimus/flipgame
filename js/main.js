@@ -1920,6 +1920,8 @@
     const activeName = activePlayer && activePlayer.name;
     const eventRenderState = Physics.getEventRenderState
       ? Physics.getEventRenderState(reduceMotionActive()) : null;
+    const landingLifecycle = Physics.getLandingLifecycle ? Physics.getLandingLifecycle() : null;
+    const lastFlickInfo = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     if (eventStatusEl) {
       const label = eventRenderState && eventRenderState.metadata && eventRenderState.metadata.displayName;
       eventStatusEl.textContent = label ? `${label} active` : '';
@@ -1962,6 +1964,10 @@
       plinkoBoard: Physics.getPlinko ? Physics.getPlinko() : null,
       rareEvent:   rareEventActive,
       eventRenderState,
+      landingLifecycle,
+      // The renderer derives paint-only motion phases from this trajectory-bound
+      // seed. It never draws a replacement seed or feeds anything back to rules.
+      flipSeed: lastFlickInfo && lastFlickInfo.seed,
       eventBodies: Physics.getEventBodies ? Physics.getEventBodies() : [],
       alwaysMagnet: !!(activePlayer && activePlayer.alwaysMagnet),
       skin:        activePlayer && activePlayer.skin,

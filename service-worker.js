@@ -22,6 +22,8 @@ const PRECACHE_URLS = [
   './js/v111-art-pack-a.js',
   './js/v111-art-pack-b.js',
   './js/v111-art-pack-c.js',
+  './js/v111-legacy-object-dynamics.js',
+  './js/v111-reaction-renderer.js',
   './js/v111-bootstrap.js',
   './js/v111-content-catalog.js',
   './js/v111-cosmetic-catalog.js',

@@ -20,6 +20,8 @@
     'js/v111-art-pack-a.js?v=111',
     'js/v111-art-pack-b.js?v=111',
     'js/v111-art-pack-c.js?v=111',
+    'js/v111-legacy-object-dynamics.js?v=111',
+    'js/v111-reaction-renderer.js?v=111',
     'js/v111-bootstrap.js?v=111',
     'js/v111-content-catalog.js?v=111',
     'js/v111-cosmetic-catalog.js?v=111',
