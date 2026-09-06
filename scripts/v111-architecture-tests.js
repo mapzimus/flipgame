@@ -15,7 +15,7 @@ function noop() {}
 
 function testFrozenInterfaceCatalog() {
   assert.equal(Interfaces.CONTRACT_REVISION, 3);
-  assert.equal(Interfaces.RELEASE_VERSION, 'v111');
+  assert.equal(Interfaces.RELEASE_VERSION, 'v1.11');
   assert.equal(Interfaces.EVENT_IDS.length, 30);
   assert.equal(new Set(Interfaces.EVENT_IDS).size, 30);
   assert.deepEqual(Interfaces.EVENT_IDS.slice(0, 3), [

@@ -604,7 +604,7 @@
     schema: 'FlipgameObjectManifestV1',
     schemaVersion: 1,
     contractRevision: 3,
-    releaseVersion: 'v111',
+    releaseVersion: 'v1.11',
     collisionPolicy: 'all-non-alien-objects-share-standard-competitive-v1',
     unlockPolicy: 'all-12-variants-available-with-object',
     flavorOrder: FLAVORS.map((flavor) => ({ ...flavor })),

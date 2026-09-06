@@ -17,15 +17,15 @@ const gradle = read('android/app/build.gradle');
 const workflow = read('.github/workflows/build-apk.yml');
 const interfaces = require(path.join(root, 'js/v111-interfaces.js'));
 
-assert.equal(interfaces.RELEASE_VERSION, 'v111');
-assert.match(index, /id="version-badge"[^>]*aria-label="[^"]*version 111"[^>]*>v111</);
-assert.match(worker, /CACHE_NAME\s*=\s*'flipgame-v111'/);
+assert.equal(interfaces.RELEASE_VERSION, 'v1.11');
+assert.match(index, /id="version-badge"[^>]*aria-label="[^"]*version 1\.11"[^>]*>v1\.11</);
+assert.match(worker, /CACHE_NAME\s*=\s*'flipgame-v1-11'/);
 assert.match(gradle, /versionCode\s+111\b/);
-assert.match(gradle, /versionName\s+'1\.1\.1'/);
+assert.match(gradle, /versionName\s+'1\.11'/);
 assert.match(workflow, /assembleRelease/);
 assert.match(workflow, /ANDROID_KEYSTORE_BASE64/);
 assert.match(workflow, /apksigner verify --verbose --print-certs/);
-assert.match(workflow, /git fetch --no-tags origin "refs\/tags\/v111:refs\/tags\/v111"/,
+assert.match(workflow, /git fetch --no-tags origin "refs\/tags\/v1\.11:refs\/tags\/v1\.11"/,
   'immutable release reruns must fetch the shallow-checkout tag before verifying it');
 assert.doesNotMatch(workflow, /assembleDebug/);
 
@@ -85,4 +85,4 @@ const retiredRasterFiles = fs.existsSync(retiredRasterRoot)
   : [];
 assert.equal(retiredRasterFiles.length, 0, 'retired generated raster skins must not ship');
 
-console.log(`v111 release tests passed (${referenced.size} referenced assets, ${runtimeModules.length} runtime modules).`);
+console.log(`v1.11 release tests passed (${referenced.size} referenced assets, ${runtimeModules.length} runtime modules).`);

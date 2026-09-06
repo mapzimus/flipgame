@@ -117,7 +117,7 @@ function findBannedKey(value, path = 'manifest') {
 assert.equal(manifest.schema, 'FlipgameObjectManifestV1');
 assert.equal(manifest.schemaVersion, 1);
 assert.equal(manifest.contractRevision, 3);
-assert.equal(manifest.releaseVersion, 'v111');
+assert.equal(manifest.releaseVersion, 'v1.11');
 assert.equal(manifest.collisionPolicy, 'all-non-alien-objects-share-standard-competitive-v1');
 assert.equal(manifest.unlockPolicy, 'all-12-variants-available-with-object');
 

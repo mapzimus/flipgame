@@ -197,7 +197,7 @@ test('checksummed game-save controls use the data-owner API and preserve owned p
   }
   assert.match(html, /accept="\.flipgame-save,application\/octet-stream,application\/json"/);
   assert.match(main, /FlipgameV111SaveBackup/);
-  assert.match(main, /backup\.serialize\(gameSavePayload\(\), \{ releaseVersion: 'v111' \}\)/);
+  assert.match(main, /backup\.serialize\(gameSavePayload\(\), \{ releaseVersion: 'v1\.11' \}\)/);
   assert.match(main, /backup\.parse\(await file\.text\(\), \{ adapters: \[normalizeGameSavePayload\] \}\)/);
   assert.match(main, /FlipgameV111Progression\?\.reconcile/);
   assert.match(main, /Math\.max\(Number\(current\.qualifyingWins\)/);

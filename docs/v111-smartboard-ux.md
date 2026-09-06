@@ -1,4 +1,4 @@
-# Flipgame v111 smartboard UX specification
+# Flipgame v1.11 smartboard UX specification
 
 Status: implementation contract for v111  
 Depends on: `docs/v111-contract.md`, revision 1  

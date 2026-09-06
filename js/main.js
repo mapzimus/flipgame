@@ -2196,7 +2196,7 @@
     const definition = currentMatchDefs[index] || {};
     const eventId = canonicalEventId();
     const record = {
-      releaseVersion: v111Runtime?.releaseVersion || 'v111',
+      releaseVersion: v111Runtime?.releaseVersion || 'v1.11',
       matchId: currentMatchId,
       heat: Number(modeState.heatNumber ?? modeState.heatIndex ?? 0) || null,
       round: Number(modeState.roundNumber ?? modeState.tiebreakRound ?? 0) || null,
@@ -2813,7 +2813,7 @@
         playerIds: seats.map((seat) => participantRecords[seat]?.playerId).filter(Boolean),
       })) : [];
       const matchRecord = {
-        releaseVersion: v111Runtime?.releaseVersion || 'v111',
+        releaseVersion: v111Runtime?.releaseVersion || 'v1.11',
         matchId: currentMatchId,
         startedAt: currentMatchStartedAt,
         durationMs: Math.max(0, Date.now() - currentMatchStartedAt),
@@ -3704,8 +3704,8 @@
   document.getElementById('save-export')?.addEventListener('click', () => {
     const backup = window.FlipgameV111SaveBackup;
     if (!backup?.serialize) return announce('Game save backup is unavailable.', true);
-    const value = backup.serialize(gameSavePayload(), { releaseVersion: 'v111' });
-    downloadText('flipgame-v111.flipgame-save', value, 'application/octet-stream');
+    const value = backup.serialize(gameSavePayload(), { releaseVersion: 'v1.11' });
+    downloadText('flipgame-v1.11.flipgame-save', value, 'application/octet-stream');
   });
   document.getElementById('save-import')?.addEventListener('change', async (event) => {
     const file = event.target.files?.[0];

@@ -1,4 +1,4 @@
-# Flipgame v111 Integration Log
+# Flipgame v1.11 Integration Log
 
 ## Revision 1 - contract freeze
 
@@ -220,7 +220,8 @@ interface or behavior changes to the Program Integrator before proceeding.
   Actions secrets and decoded only in the ephemeral runner. The workflow builds
   `assembleRelease`, verifies its certificate, package version, embedded source
   commit, and SHA-256, then publishes immutable `v111` plus `apk-latest`.
-- Web: badge/query/cache/Android identifiers are unified at v111/111/1.1.1;
+- Web: public badge/release/Android identifiers are unified at v1.11/1.11;
+  internal query and Android build identifiers remain 111;
   critical PWA precaching is atomic and includes the complete runtime graph.
 - Cleanup: retired generated raster skins and the public threshold-leaking roster
   gallery are removed. Maintainer/install documentation now reflects v111.
@@ -646,8 +647,9 @@ interface or behavior changes to the Program Integrator before proceeding.
   absolute-deadline correction. It resolves at the intended six-second deadline
   but receives `upright-settle-limit` while almost motionless on an Ice bumper,
   with its bottom approximately 95px above the scoring ground. A four-viewport
-  Earthquake corpus found the same shared defect, including tablet seed `61`
-  making about 10px above the plane at its four-second deadline.
+  Earthquake corpus found the same shared defect. The production-valid tablet
+  seed `27` makes about 12px above the static scoring plane at its four-second
+  deadline (about 9px above the physically oscillating table).
 - Old behavior: the deadline check runs before the grounded check and awards a
   make from current tilt alone, so off-plane suspension can count as a landing.
 - New behavior: the deadline remains absolute from first scoring-plane contact,
@@ -658,7 +660,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   settle durations, then gate the deadline pose verdict on scoring-plane contact.
   Do not restore the earlier unbounded wait or make Ice an automatic miss.
 - Required tests: exact Ice seed `3668341011` resolves at frame 420 as MISS while
-  off-plane; Earthquake seed `61` at 768x1024 is also MISS; a deadline-bound
+  off-plane; Earthquake seed `27` at 768x1024 is also MISS; a deadline-bound
   grounded upright seed remains MAKE; settled cap, Wind, Moon, Bouncy,
   Trampoline return-landing, ceiling-plane, and ordinary timing regressions pass.
 - Integration commit: pending.
@@ -694,3 +696,58 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owner notified: State/Data/Safety; revision must be acknowledged and
   integrated with revisions 30-32 before merge.
+
+## Revision 35 - public release name is v1.11
+
+- Trigger: the product owner renamed the release from `v111` to `v1.11` during
+  the final correction wave.
+- Old behavior: the visible footer, boot messages, record metadata, Android
+  version name, install documentation, and immutable GitHub release used
+  `v111` (with Android version name `1.1.1`).
+- New behavior: every player-facing surface and release artifact uses `v1.11`.
+  Android uses `versionName 1.11`; the immutable GitHub release/tag is `v1.11`;
+  exports and embedded build metadata report `v1.11`.
+- Migration action: the Program Integrator updates version-owned surfaces,
+  cache identity, automated assertions, and release documentation together.
+  Stable internal module filenames/namespaces, `V111-*` defect IDs, query build
+  number `111`, and Android `versionCode 111` remain implementation identifiers
+  to avoid a risky namespace migration and preserve Android upgrade ordering.
+- Required tests: no player-facing surface, APK metadata, export, install guide,
+  live footer, boot/recovery message, or GitHub release title/tag says `v111` or
+  `1.1.1`; all report `v1.11`/`1.11`. Web and APK still embed one exact commit,
+  stale-cache upgrade remains atomic, and existing saved data is not re-keyed.
+- Integration commit: pending.
+- Affected owners notified: State/Data/Safety and Physics/Events acknowledged
+  the rename and will not make independent version edits. All independent QA
+  gates will verify the new public identity on the final exact commit.
+
+## Revision 36 - dual-origin automatic web release
+
+- Trigger: the product owner requires the release to remain on GitHub Pages and
+  also auto-deploy to `mapzimus.com/flipgame` through `mapzimus/lab`, with every
+  future approved update triggering the same downstream refresh.
+- Old behavior: Flipgame deployed only from its own `master` branch to GitHub
+  Pages. The lab repository carried an old manual snapshot at `/flip-game/` and
+  redirected `/flipgame` away from the newly requested canonical path.
+- New behavior: both public origins serve the exact approved v1.11 web tree.
+  `mapzimus/lab` builds the vendored app at `/flipgame/`; old hyphenated and
+  bottle-game aliases redirect forward. After the complete Flipgame release job
+  succeeds, a repository-scoped deploy key updates only the lab app snapshot,
+  records the upstream SHA/version, validates the full lab build, and pushes its
+  production branch for the existing Cloudflare Pages Git integration.
+- Migration action: add a deterministic allowlisted sync script to the lab
+  repository, install a write deploy key scoped only to that repository, store
+  its private half as a Flipgame Actions secret, and add an ordered downstream
+  publish job with concurrency/stale-SHA protection. Preserve all unrelated lab
+  content and never commit credentials or Android/signing material.
+- Required tests: hermetic sync rejects dirty, wrong-version, wrong-SHA, missing,
+  and path-escape sources; removes stale app files; copies every required runtime
+  asset and no release secrets; lab build maps to `/flipgame/`; legacy redirects
+  point forward. Release automation runs only after qualification/APK success
+  and only for current `master`. Independent post-release checks confirm both
+  origins show v1.11, embed the same source SHA, upgrade caches atomically, work
+  offline, and exercise equivalent core play.
+- Integration commits: pending in both repositories.
+- Affected owners notified: Network/Platform specialist owns isolated lab paths;
+  Program Integrator alone owns Flipgame workflow credentials, merges, pushes,
+  Cloudflare release observation, and dual-origin approval.

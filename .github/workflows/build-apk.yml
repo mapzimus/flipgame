@@ -39,7 +39,7 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Run v111 qualification suites
+      - name: Run v1.11 qualification suites
         shell: bash
         run: |
           set -euo pipefail
@@ -105,7 +105,7 @@ jobs:
           test -x "$aapt_bin"
           "$aapt_bin" dump badging flipgame-offline.apk | tee apk-badging.txt
           grep -q "versionCode='111'" apk-badging.txt
-          grep -q "versionName='1.1.1'" apk-badging.txt
+          grep -q "versionName='1.11'" apk-badging.txt
           sha256sum flipgame-offline.apk > flipgame-offline.apk.sha256
           rm -f "$RUNNER_TEMP/flipgame-release.keystore"
 
@@ -120,7 +120,7 @@ jobs:
             apk-signing-certificate.txt
             apk-badging.txt
 
-      - name: Publish immutable v111 and refresh apk-latest
+      - name: Publish immutable v1.11 and refresh apk-latest
         if: github.ref == 'refs/heads/master'
         shell: bash
         env:
@@ -128,20 +128,20 @@ jobs:
         run: |
           set -euo pipefail
           cat > release-notes.md <<'NOTES'
-          Self-contained, persistently signed Flipgame v111 APK. Game files are
+          Self-contained, persistently signed Flipgame v1.11 APK. Game files are
           bundled for offline play. Sideload it by enabling “Install unknown
           apps” and opening the APK. The legacy v110 APK used a disposable CI
-          key and must be uninstalled once before installing v111; later signed
-          releases can upgrade v111 in place.
+          key and must be uninstalled once before installing v1.11; later signed
+          releases can upgrade v1.11 in place.
           NOTES
           assets=(flipgame-offline.apk flipgame-offline.apk.sha256 apk-build-metadata.json apk-signing-certificate.txt apk-badging.txt)
-          if gh release view v111 >/dev/null 2>&1; then
-            git fetch --no-tags origin "refs/tags/v111:refs/tags/v111"
-            tag_sha="$(git rev-list -n 1 v111)"
+          if gh release view v1.11 >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/v1.11:refs/tags/v1.11"
+            tag_sha="$(git rev-list -n 1 v1.11)"
             test "$tag_sha" = "$GITHUB_SHA"
-            gh release upload v111 "${assets[@]}" --clobber
+            gh release upload v1.11 "${assets[@]}" --clobber
           else
-            gh release create v111 --target "$GITHUB_SHA" --title "Flip Game v111" --notes-file release-notes.md "${assets[@]}"
+            gh release create v1.11 --target "$GITHUB_SHA" --title "Flip Game v1.11" --notes-file release-notes.md "${assets[@]}"
           fi
           gh release delete apk-latest --cleanup-tag --yes >/dev/null 2>&1 || true
           gh release create apk-latest --target "$GITHUB_SHA" --title "Flip Game — offline APK (latest)" --notes-file release-notes.md "${assets[@]}"

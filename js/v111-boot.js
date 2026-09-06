@@ -44,7 +44,7 @@
   var started = false;
   var bootFailure = null;
 
-  window.__FLIPGAME_BOOT_VERSION__ = 'v111';
+  window.__FLIPGAME_BOOT_VERSION__ = 'v1.11';
   window.__FLIPGAME_BOOT_ASSETS__ = Object.freeze({
     styles: Object.freeze(STYLE_URLS.slice()),
     scripts: Object.freeze(SCRIPT_URLS.slice()),
@@ -93,7 +93,7 @@
     if (controlledByThisRelease()) return Promise.resolve();
     return new Promise(function (resolve, reject) {
       var settled = false;
-      var timer = setTimeout(function () { finish(new Error('The v111 offline update did not finish.')); }, 30000);
+      var timer = setTimeout(function () { finish(new Error('The v1.11 offline update did not finish.')); }, 30000);
       var workers = [registration.installing, registration.waiting, registration.active].filter(Boolean);
 
       function cleanup() {
@@ -111,7 +111,7 @@
         if (controlledByThisRelease()) finish();
         else if (workers.some(function (worker) {
           return versionOfWorker(worker) === VERSION && worker.state === 'redundant';
-        })) finish(new Error('The v111 offline update was rejected.'));
+        })) finish(new Error('The v1.11 offline update was rejected.'));
       }
 
       navigator.serviceWorker.addEventListener('controllerchange', check);
@@ -130,7 +130,7 @@
       scope: './', updateViaCache: 'none',
     });
     await waitForReleaseController(registration);
-    if (!controlledByThisRelease()) throw new Error('The v111 worker is not controlling this page.');
+    if (!controlledByThisRelease()) throw new Error('The v1.11 worker is not controlling this page.');
   }
 
   async function start() {
@@ -155,7 +155,7 @@
     }
     status.textContent = '';
     var title = document.createElement('strong');
-    title.textContent = 'Flipgame v111 update paused';
+    title.textContent = 'Flipgame v1.11 update paused';
     var message = document.createElement('p');
     message.textContent = 'Reconnect to the internet, then retry. Your local game data is safe.';
     var retry = document.createElement('button');
@@ -170,7 +170,7 @@
 
   window.addEventListener('error', function (event) {
     if (!document.body.classList.contains('flipgame-boot-ready')) {
-      bootFailure = event.error || new Error(event.message || 'A v111 runtime script could not execute.');
+      bootFailure = event.error || new Error(event.message || 'A v1.11 runtime script could not execute.');
       showFailure(bootFailure);
     }
   });

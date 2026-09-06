@@ -1,4 +1,4 @@
-# Flipgame v111 Defect Ledger
+# Flipgame v1.11 Defect Ledger
 
 | ID | Severity | Subsystem | Reproduction | Owner | Status | Verification |
 |---|---|---|---|---|---|---|
@@ -60,5 +60,5 @@
 | V111-056 | P2 | Unicode name evasions | Direct Greek, Cherokee, and Cyrillic lookalikes bypass the partial confusable map | State/Data/Safety | Open | Confusable probes reject while accented-name and QA-allowlist regressions pass |
 | V111-057 | P2 | Flight-time telemetry | `flightMs` aliases first-contact time and omits the settling interval from total-flight metrics | UI/Stats instrumentation | Open | 800ms contact plus 300ms settling records flight=1100, firstContact=800, settle=300 |
 | V111-058 | P2 | Fallback match filters | Reopened fallback match aggregates lose player, seat, online, and other categorical filter dimensions | Stats/Data | Open | A filtered Cup match summary is identical before and after fallback reload |
-| V111-059 | P2 | Off-plane deadline verdict | Ice and Earthquake hard deadlines award tilt-only makes while the bottle is suspended above the scoring plane | Physics/Events | Open | Ice seed 3668341011 and Earthquake seed 61 resolve by deadline but off-plane is MISS, never `upright-settle-limit` |
+| V111-059 | P2 | Off-plane deadline verdict | Ice and Earthquake hard deadlines award tilt-only makes while the bottle is suspended above the scoring plane | Physics/Events | Open | Ice seed 3668341011 and Earthquake seed 27 resolve by deadline but off-plane is MISS, never `upright-settle-limit` |
 | V111-060 | P1 | Rollup cardinality | Arbitrary valid-looking short categorical IDs create one permanent retention cell per flip | Stats/Data | Open | 500 hostile category tuples remain lossless but coalesce under documented finite dictionaries/cell budget |

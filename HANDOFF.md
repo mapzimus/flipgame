@@ -1,15 +1,15 @@
-# Flipgame v111 Maintainer Handoff
+# Flipgame v1.11 Maintainer Handoff
 
 Flipgame is a static HTML5 Canvas game built with vanilla JavaScript and a
 vendored Matter.js runtime. The public web build and self-contained Android APK
 are produced from the same `master` commit and visibly identify themselves as
-`v111`.
+`v1.11`.
 
 ## Release locations
 
 - Repository: <https://github.com/mapzimus/flipgame>
 - Live game: <https://mapzimus.github.io/flipgame/>
-- APK: the immutable `v111` GitHub release and moving `apk-latest` alias
+- APK: the immutable `v1.11` GitHub release and moving `apk-latest` alias
 
 ## Local verification
 
@@ -64,7 +64,7 @@ The authoritative product and interface contract is
 - The web build and APK must come from one approved commit.
 - Bump the visible badge, query-string assets, service-worker cache, Android
   version, and release metadata together.
-- Preserve the persistent Android release key. v111 establishes the signing
+- Preserve the persistent Android release key. v1.11 establishes the signing
   identity used for all future in-place APK upgrades.
 
 ## Deployment

@@ -1,8 +1,12 @@
-# Flipgame v111 Contract
+# Flipgame v1.11 Contract
 
-Contract revision: 29
+Contract revision: 36
 Baseline commit: `3a3ace0`
-Release version: `v111`
+Public release version: `v1.11`
+
+Internal module filenames, JavaScript namespaces, defect IDs, Android
+`versionCode 111`, and cache-query build number `111` remain stable implementation
+identifiers; none is presented as the public version name.
 
 This file is the implementation source of truth. Any behavior or interface
 change must be approved and broadcast by the Program Integrator before an
@@ -13,14 +17,24 @@ affected specialist continues.
 - Ordinary Classic physics and rules do not change except for the approved
   settling, ON FIRE, life-cap, sudden-death, resize, and Alien corrections.
 - The web build and offline APK are produced from the same commit and display
-  `v111` on every screen.
-- The v111 HTML loads only its version-unique boot script. On remote HTTP(S),
-  that boot script installs and verifies the v111 service worker as the current
+  `v1.11` on every screen.
+- The same approved web tree is published to both
+  `https://mapzimus.github.io/flipgame/` and the canonical
+  `https://mapzimus.com/flipgame/`. The latter is built by the separate
+  `mapzimus/lab` Cloudflare Pages repository; legacy `/flip-game/` aliases
+  redirect to `/flipgame/`.
+- A successful approved `master` release synchronizes an allowlisted web-runtime
+  snapshot into `mapzimus/lab` with its exact source SHA and public version.
+  The cross-repository credential is a write-enabled deploy key scoped only to
+  `mapzimus/lab` and stored solely as an encrypted Actions secret. A stale,
+  dirty, failed, mismatched, or unqualified source never updates the lab repo.
+- The v1.11 HTML loads only its version-unique boot script. On remote HTTP(S),
+  that boot script installs and verifies the v1.11 service worker as the current
   controller before loading any mutable application script. A v110 controller
-  can never satisfy a v111 runtime request through an ignore-search fallback;
+  can never satisfy a v1.11 runtime request through an ignore-search fallback;
   an interrupted upgrade shows a retryable update message instead of mixing
   release assets. Localhost and the bundled APK load directly.
-- A page already controlled by the matching v111 worker boots entirely from
+- A page already controlled by the matching v1.11 worker boots entirely from
   that release's cache while offline and never forces a network update check.
   The HTML itself contains a visible, dependency-free loading/retry surface so
   failure to fetch the sole boot script cannot leave a blank page.
@@ -38,13 +52,16 @@ affected specialist continues.
   at 1100px. Desktop Setup assigns Players seven columns and Match five.
 - Locked objects, cosmetics, achievements, Alien, Insane, and Physics Lab show
   only a lock symbol with accessible label `Locked`.
-- No public telemetry or third-party analytics ships in v111. Detailed stats
+- No public telemetry or third-party analytics ships in v1.11. Detailed stats
   are device-local and exportable.
 - Forced/test play never awards progression or achievements and is excluded
   from default statistics. Once any event is forced, Test Data status remains
   latched for the whole match/session and its MatchRecord.
-- Online remains inaccessible in v111 unless sender identity is authenticated
+- Online remains inaccessible in v1.11 unless sender identity is authenticated
   independently of fields asserted by the incoming envelope.
+- Post-release verification checks both public web origins independently for
+  `v1.11`, exact source metadata, atomic cache upgrade, offline reload, and core
+  gameplay parity before the release is complete.
 - `window.Settings` is the single shared settings instance used by setup,
   persistence, audio, gameplay, and the renderer. A visible setup control and
   its saved value must never diverge from the effective runtime preference.
@@ -267,7 +284,7 @@ cap-toss:5500, life-drain:6000`.
 - `NetworkEnvelopeV2`; reconnect convergence uses the opaque, JSON-safe match
   snapshot registered by `Net.bindMatchState({ capture, restore })`. A peer is
   blocked rather than resumed when authoritative state is unavailable.
-- Built-in v111 online transports do not establish independent sender identity
+- Built-in v1.11 online transports do not establish independent sender identity
   and therefore remain fail-closed/hidden. A future authenticated sender adapter
   is required before online exposure; envelope fields/checksums are not identity.
 - `FlipgameV111SaveBackup.serialize/parse/validate/migratePayload/sanitizeNames`
@@ -276,7 +293,7 @@ cap-toss:5500, life-drain:6000`.
 - Android file import/export uses the system Storage Access Framework through
   the local WebView. It accepts trusted page file inputs and bounded Blob
   downloads without broad storage permissions. The APK is release-signed by
-  one persistent protected key; v111 establishes the identity used for future
+  one persistent protected key; v1.11 establishes the identity used for future
   in-place upgrades. The legacy disposable-key v110 APK requires one uninstall.
 - `RenderVariant` is immutable
   `{ id, objectId, variantId, label, color, metrics, renderLocal }`; metrics use

@@ -75,7 +75,7 @@
       }
       emit('compatibility-failure', Object.freeze({
         code: reason || 'legacy-protocol',
-        message: 'This online match is not compatible with the secure v111 protocol.',
+        message: 'This online match is not compatible with the secure v1.11 protocol.',
       }));
     }
 
