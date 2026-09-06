@@ -87,6 +87,14 @@ function geometricSignature(calls) {
   ].includes(call[0])));
 }
 
+function roundedGeometrySignature(calls) {
+  return JSON.stringify(calls.filter((call) => [
+    'moveTo', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo', 'ellipse', 'arc',
+  ].includes(call[0])).map((call) => call.map((value) => (
+    typeof value === 'number' ? Math.round(value * 1000) / 1000 : value
+  ))));
+}
+
 function testCatalogAndManifestCompatibility() {
   assert.equal(Art.cacheInfo().variantsBuilt, 0,
     'loading the shard must register metadata without building painters');
@@ -219,6 +227,80 @@ function testDynamicArtAndReducedMotionFallbacks() {
   });
 }
 
+function testDeskGlobeGeographyRotationAndFaceContract() {
+  const contract = Pack.deskGlobe;
+  assert.ok(contract);
+  assert.equal(contract.projection, 'orthographic');
+  assert.equal(contract.geography.source, 'Natural Earth ne_110m_land');
+  assert.equal(contract.geography.license, 'public-domain');
+  assert.equal(contract.geography.ringCount, 65);
+  assert.equal(contract.face, null);
+  assert.equal(contract.supportsEmotion, false);
+  assert.ok(Object.isFrozen(contract));
+  assert.ok(Object.isFrozen(contract.geography));
+
+  const globe = Art.getRenderVariant('desk-globe', 'blue-steel');
+  const quarterViews = [0, 0.25, 0.5, 0.75].map((fraction) => {
+    const ctx = fakeContext();
+    globe.renderLocal(ctx, {
+      mode: 'gameplay',
+      time: contract.rotationPeriodSeconds * fraction,
+      angle: 0,
+      impact: 0,
+      reducedMotion: false,
+    });
+    return roundedGeometrySignature(ctx.calls);
+  });
+  assert.equal(new Set(quarterViews).size, 4,
+    'quarter rotations must expose four distinct geographic views');
+
+  const fullTurn = fakeContext();
+  globe.renderLocal(fullTurn, {
+    mode: 'gameplay', time: contract.rotationPeriodSeconds,
+    angle: 0, impact: 0, reducedMotion: false,
+  });
+  assert.equal(roundedGeometrySignature(fullTurn.calls), quarterViews[0],
+    'one deterministic period must return to the same geographic view');
+
+  const tipped = fakeContext();
+  globe.renderLocal(tipped, {
+    mode: 'gameplay', time: 0, angle: 1.1, impact: 0, reducedMotion: false,
+  });
+  assert.notEqual(roundedGeometrySignature(tipped.calls), quarterViews[0],
+    'sphere must counterspin in response to host-object rotation');
+
+  const reducedA = fakeContext();
+  const reducedB = fakeContext();
+  globe.renderLocal(reducedA, { mode: 'gameplay', time: 1, reducedMotion: true });
+  globe.renderLocal(reducedB, { mode: 'gameplay', time: 999, reducedMotion: true });
+  assert.equal(roundedGeometrySignature(reducedA.calls), roundedGeometrySignature(reducedB.calls),
+    'reduced-motion globe must hold a stable longitude');
+
+}
+
+function testDeskGlobePerformanceAndOfflineSource() {
+  const source = fs.readFileSync(path.join(root, 'js', 'v111-art-pack-b.js'), 'utf8');
+  const packed = source.match(/DESK_GLOBE_LAND_PACKED = '([^']+)'/);
+  assert.ok(packed && packed[1].length > 4500,
+    'desk globe must contain substantial embedded geographic linework');
+  assert.doesNotMatch(source, /\b(?:fetch|XMLHttpRequest|WebSocket)\s*\(/,
+    'desk globe cannot require a runtime network request');
+
+  const globe = Art.getRenderVariant('desk-globe', 'blue-steel');
+  const ctx = fakeContext();
+  const started = process.hrtime.bigint();
+  for (let frame = 0; frame < 240; frame += 1) {
+    ctx.calls.length = 0;
+    globe.renderLocal(ctx, {
+      mode: 'gameplay', time: frame / 60, angle: frame * 0.015,
+      impact: frame % 31 === 0 ? 0.6 : 0, reducedMotion: false,
+    });
+  }
+  const elapsedMilliseconds = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(elapsedMilliseconds < 2500,
+    `desk globe 240-frame paint budget exceeded: ${elapsedMilliseconds.toFixed(1)}ms`);
+}
+
 function testPaintOnlyVectorSource() {
   const source = fs.readFileSync(path.join(root, 'js', 'v111-art-pack-b.js'), 'utf8');
   const executable = source
@@ -262,6 +344,8 @@ testLazyPainterBuilds();
 testAllNinetySixVariantsPaint();
 testEveryCastHasDistinctGeometry();
 testDynamicArtAndReducedMotionFallbacks();
+testDeskGlobeGeographyRotationAndFaceContract();
+testDeskGlobePerformanceAndOfflineSource();
 testPaintOnlyVectorSource();
 testBrowserGlobals();
 

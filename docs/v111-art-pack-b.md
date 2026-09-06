@@ -8,7 +8,7 @@ rules, and declares no collision or body data.
 
 | Roster | Object ID | Display label | Main animated detail | Reduced-motion pose |
 | ---: | --- | --- | --- | --- |
-| 9 | `desk-globe` | Desk Globe | drifting map/cloud layers and axis bob | fixed clouds and axis |
+| 9 | `desk-globe` | Desk Globe | real orthographic Earth rotation and inertial counterspin | fixed variant longitude |
 | 10 | `microphone-stand` | Microphone on a Stand | sound-ring pulse and cable curl | compact static rings and cable |
 | 11 | `potted-plants` | Potted Plants | leaf, stem, frond, or tendril motion | fixed foliage |
 | 12 | `penguin` | Penguin | flipper sweep and soft body bob | neutral flippers and body |
@@ -31,6 +31,37 @@ the manifest cast index. Examples include a crescent-supported floating globe,
 a boom microphone, a heart-faced barn owl, a telescoping robot giraffe, and a
 shield trophy. Palette, material finish, silhouette description, cast label,
 and dynamic-art metadata are preserved in the immutable registry tokens.
+
+### Desk Globe geography
+
+Desk Globe renders a complete 360-degree, border-free physical Earth rather
+than sliding decorative blobs across the sphere. The painter projects compact
+longitude/latitude land rings onto an orthographic globe, culls the rear
+hemisphere, clips coastlines at the horizon, handles the antimeridian through
+spherical sine/cosine projection, draws a curved graticule, and deterministically
+rotates through every longitude. The sphere counterspins against the host
+object's angle/accessory lag when that render state is available. Reduced-motion
+mode selects a stable variant-specific longitude and removes continuous spin.
+Because the geographic sphere itself is the Desk Globe's animated focal
+surface, this object explicitly publishes `face: null` and
+`supportsEmotion: false`. The shared renderer therefore skips both character
+expressions and result face zoom for Desk Globe while keeping a stable nullable
+metadata contract.
+
+The embedded land rings are a half-degree-quantized, 1.2-degree simplified
+derivative of Natural Earth's `ne_110m_land` physical layer. Natural Earth
+declares its raster and vector map data public domain. The checked-in painter
+contains only the compact derived coordinates: it performs no tile, image,
+library, or other network request at runtime.
+
+- Source: `https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_110m_land.geojson`
+- Terms: `https://www.naturalearthdata.com/about/terms-of-use/`
+
+The downloaded `globe-maps` skill describes a full MapLibre GL v5 application
+stack. Its globe projection guidance informed this painter, but the game does
+not vendor MapLibre, WebGL workers, or online basemap tiles. Those dependencies
+would be disproportionate for a small animated object and would weaken offline
+PWA/APK behavior.
 
 Potted Plants has a fully distinct plant drawing for every variant:
 

@@ -206,8 +206,8 @@
       id: 'desk-globe', displayName: 'Desk Globe', emoji: '🌐', broadFamily: 'globes',
       material: { shell: 'painted-sphere-and-metal', contents: 'none', behavior: 'rigid-solid', transparency: 'opaque' },
       liquid: null,
-      dynamicArt: { ambient: 'cloud-drift', flight: 'sphere-counterspin', impact: 'axis-bounce', reducedMotion: 'fixed-clouds' },
-      safety: { brandFree: true, classroomSafe: true, note: 'Uses abstract land shapes without borders, flags, or political labels.' },
+      dynamicArt: { ambient: 'orthographic-earth-spin', flight: 'inertial-sphere-counterspin', impact: 'axis-flex', reducedMotion: 'fixed-longitude' },
+      safety: { brandFree: true, classroomSafe: true, note: 'Border-free physical land geometry is derived from public-domain Natural Earth 1:110m land data.' },
       casts: [
         cast('Classic', 'round globe in a half-meridian stand', 'painted paper globe'),
         cast('Tall Stand', 'small sphere on a long pedestal', 'wood and metal'),

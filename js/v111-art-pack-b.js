@@ -211,89 +211,271 @@
     ctx.globalAlpha = 1;
   }
 
+  // Natural Earth 1:110m land, simplified to half-degree coordinates for this
+  // 76px-radius globe. The source is public domain; see docs/v111-art-pack-b.md.
+  // Each ring is pipe-separated, points are comma-separated, and lon/lat are
+  // stored as signed base-36 integers at two units per degree. Keeping the
+  // geographic data packed makes the offline/APK payload smaller than GeoJSON.
+  var DESK_GLOBE_LAND_PACKED = '-2i.-4c,-2f.-4g,-30.-4h,-2i.-4c|-6q.-43,-6o.-43,-6l.-43,-6t.-43,-6q.-43|-6z.-43,-6w.-44,-73.-43,-71.-42,-6z.-43|-5i.-40,-5c.-41,-5p.-40,-5i.-40|-3t.-3y,-3y.-41,-46.-3z,-3x.-3u,-3t.-3y|-39.-3k,-3n.-3s,-3e.-43,-4a.-49,-43.-4c,-4c.-4e,-38.-4m,-1l.-4h,-20.-4d,-z.-46,-e.-3y,1i.-3x,1w.-3t,25.-3w,31.-3o,3u.-3s,3s.-40,3t.-40,3w.-41,4w.-3o,6o.-3r,7i.-3n,7n.-3q,9i.-3z,93.-48,9a.-4e,8w.-4i,a0.-4p,a0.-50,-a0.-50,-9y.-4o,-7y.-4q,-8j.-4n,-8i.-4k,-8q.-4i,-85.-4h,-8n.-4e,-8t.-4a,-8f.-4b,-7i.-45,-5k.-46,-5r.-41,-46.-44,-3r.-41,-3r.-3r,-36.-3j,-37.-3k,-39.-3k|-3r.-30,-3p.-31,-3m.-31,-3u.-33,-45.-2y,-3r.-30|83.-2a,89.-2a,88.-2e,84.-2f,83.-2a|9m.-2a,9o.-2b,9m.-2g,9f.-2l,99.-2k,9m.-2a|9p.-20,9x.-23,9q.-2b,9l.-1x,9p.-20|2s.-r,2m.-1e,2g.-1e,2h.-w,2q.-o,2s.-r|7z.-s,8i.-1g,8i.-1r,8c.-23,85.-26,7t.-24,7o.-1x,7n.-1y,7m.-1z,7o.-1u,7k.-1y,7b.-1r,6k.-1y,6e.-1w,6c.-18,6q.-13,6z.-s,77.-u,7d.-m,7l.-o,7j.-u,7s.-z,7x.-l,7z.-s|6p.-k,6p.-l,6m.-j,6p.-k|6k.-g,6m.-h,6h.-i,6k.-g|61.-e,6f.-h,5v.-e,61.-e|8g.-b,89.-b,8f.-8,8g.-b|7g.-2,7h.-6,7j.-7,7p.-3,81.-8,8d.-l,81.-f,7x.-j,7n.-h,7o.-b,7e.-8,7c.-6,7f.-4,79.-2,7g.-2|6y.3,6o.0,6o.-1,6q.-3,6r.-2,6v.-1,6r.-4,6u.-b,6q.-5,6n.-b,6o.1,6y.3|75.2,74.-2,74.4,75.2|5w.-c,5p.-8,5b.b,5s.0,5w.-c|6k.4,6m.2,6g.-8,64.-6,62.-1,63.4,6h.e,6m.b,6k.4|71.h,6z.b,6v.g,6s.e,6z.k,71.h|6l.j,6i.h,6n.n,6l.j|6z.o,6y.k,6x.p,6y.p,6z.o|6r.11,6r.t,6w.p,6o.u,6r.11|-41.14,-3t.11,-45.11,-41.14|65.11,61.13,66.14,65.11|-4f.1a,-44.15,-4c.14,-4k.19,-4q.18,-4f.1a|v.24,u.21,p.23,v.24|7u.22,7t.1y,7k.1v,7a.1w,78.1r,77.1v,7j.1z,7v.2b,7u.22|80.2g,83.2f,7s.2b,7w.2j,7y.2h,80.2g|-3j.2l,-3i.2l,-3g.2l,-3j.2l|-34.2t,-2z.2q,-2y.2l,-3b.2n,-34.2t|7z.2t,81.2q,7y.2r,7z.2k,7x.2l,7w.2k,7w.30,7z.2t|-e.2x,-h.2v,-k.2w,-i.2y,-j.30,-d.32,-e.2x|p.33,m.34,p.34,p.33|-6.39,-6.34,3.2v,-a.2s,-6.30,-c.36,-6.39|-4q.3n,-4g.3j,-4u.3j,-4q.3n|-t.3p,-t.3o,-r.3m,-11.3j,-1d.3n,-t.3p|-48.3q,-4a.3q,-4a.3r,-48.3q|-9q.3p,-9g.3o,-9m.3l,-9x.3o,-a0.3m,-a0.3u,-9q.3p|-9x.3y,-a0.3y,-a0.3z,-9x.3y|-51.3v,-4v.3q,-4r.3w,-4o.3w,-4l.3v,-4j.3r,-56.3g,-59.3a,-55.36,-4l.32,-4g.2u,-4e.2v,-4d.2x,-4e.30,-4g.31,-49.35,-4d.3a,-4c.3h,-44.3h,-3v.3e,-3r.38,-3l.3d,-33.2w,-3p.2s,-3y.2m,-3m.2q,-3l.2k,-3c.2k,-3n.2f,-3l.2j,-3o.2j,-3q.2i,-3x.2e,-3w.2b,-47.27,-48.22,-49.26,-47.1z,-4j.1r,-4h.1e,-4o.1o,-5d.1l,-5g.19,-5d.13,-54.11,-4u.17,-4y.w,-4n.v,-4o.m,-4j.i,-4a.h,-40.p,-3z.i,-3w.o,-3s.l,-3g.l,-36.c,-2v.8,-2t.0,-28.-6,-1x.-f,-25.-q,-2a.-18,-2n.-1e,-30.-1x,-39.-1w,-36.-22,-3m.-2a,-3j.-2d,-3r.-2j,-3o.-2o,-3y.-30,-46.-2x,-44.-2m,-47.-2l,-41.-2d,-45.-2e,-3w.-14,-48.-t,-4i.-c,-4g.-5,-4i.-2,-4a.8,-4c.h,-4i.e,-4r.k,-4v.r,-5r.11,-6e.1s,-63.1a,-68.1d,-6x.29,-6x.2o,-6t.2m,-6u.2q,-73.2u,-7g.38,-86.3e,-8f.3a,-8d.3f,-8t.34,-96.31,-8q.3a,-90.39,-98.3f,-8y.3m,-9c.3n,-8z.3o,-9a.3t,-8p.3z,-7l.3u,-74.3x,-62.3r,-5w.3u,-5c.3r,-58.3u,-5b.3v,-5d.3w,-5d.3y,-5a.40,-51.3v|-6c.42,-60.3z,-5z.40,-61.42,-5z.42,-5x.42,-5m.3v,-6b.3t,-6j.3w,-69.3x,-6n.3z,-6c.42|-5t.43,-5v.42,-5y.43,-5t.43|-4t.42,-40.3z,-3g.3q,-3g.3o,-3k.3m,-3s.3p,-3l.3j,-3u.3j,-3o.3g,-4b.3k,-44.3n,-42.3r,-50.3y,-50.40,-4z.42,-4t.42|-5l.44,-5i.43,-5f.44,-5d.3z,-5p.41,-5l.44|-56.42,-5c.43,-51.44,-54.42,-56.42|-6p.3z,-70.40,-6y.45,-6f.43,-6p.3z|-5h.49,-5g.46,-5p.47,-5h.49|-60.48,-5v.47,-6j.46,-60.48|37.3x,2v.40,33.46,3u.49,39.45,36.43,33.41,33.3z,37.3x|-59.4a,-4g.46,-50.45,-5e.4a,-5d.4a,-59.4a|5y.4a,6c.48,63.44,72.43,7b.3y,7t.42,9f.3t,9h.3w,9n.3w,9r.3w,9x.3v,a0.3u,a0.3m,9v.3l,9y.3h,93.3c,90.32,8q.2u,8o.36,95.3h,8w.3d,8v.3g,8p.3f,8k.3c,8m.3a,7w.3a,7q.36,7i.31,7s.30,7v.2y,7v.2w,7o.2l,73.28,76.1y,71.1x,6z.27,6q.26,6r.2a,6k.26,6m.23,6t.23,6m.1y,6s.1r,6r.1k,6g.1a,5w.14,63.r,5u.h,5k.r,5i.i,5s.3,5h.g,5e.y,58.w,53.1a,4u.17,4h.w,4g.l,4b.g,41.17,3y.16,3x.16,3p.1f,37.1f,2o.1o,2w.1c,35.1h,3c.19,33.y,2f.p,1y.1n,1w.1j,1t.1o,2d.n,2h.l,2u.o,2u.l,2n.8,26.-9,2a.-t,1y.-14,1z.-1b,1t.-1f,1s.-1m,1g.-1w,11.-1w,o.-10,r.-l,i.-2,j.7,9.d,-i.a,-x.o,-y.18,-c.20,j.23,m.22,l.1w,12.1p,17.1u,1w.1q,20.21,1j.21,1g.27,1v.2c,2b.2c,21.2i,26.2n,1w.2h,1p.2l,1j.2d,1m.2a,19.29,1c.23,19.21,13.2b,q.2j,p.2g,11.28,y.29,w.24,i.2h,6.2e,-4.21,-i.22,-j.2e,-3.2g,-2.2k,-9.2p,g.2z,h.36,l.37,m.30,13.31,17.37,1c.36,1b.3a,1m.3c,17.3d,17.3i,1f.3m,18.3n,10.3h,12.3c,w.34,q.33,l.3b,b.39,b.3b,a.3g,1d.3y,2a.3r,1u.3p,22.3k,2g.3o,2f.3t,2l.3t,2l.3p,2z.3u,3c.3t,3d.3w,3t.3s,3p.3y,41.42,41.3o,46.3s,42.3z,46.40,45.42,49.3y,4j.40,4h.41,4h.43,4u.46,5y.4a|2q.2b,2t.29,2q.23,30.22,2x.28,31.2a,2t.2h,2y.2j,2y.2k,2y.2m,2l.2h,2q.2b|-64.4b,-68.4b,-6b.4b,-64.4b|1d.4c,19.4b,15.4b,1d.4c|-63.4d,-66.4d,-69.4d,-63.4d|5u.4d,5j.4c,5n.4e,5o.4f,5u.4d|11.4f,17.4e,w.4a,l.4f,11.4f|1f.4h,1j.4g,z.4h,1f.4h|5k.4e,52.4h,58.4i,5c.4j,5k.4e|-4u.4f,-4s.4f,-52.4c,-5d.4g,-55.4j,-4u.4f|-3t.4m,-3g.4l,-4a.4f,-47.4d,-4h.48,-4z.49,-4q.4b,-4t.4c,-4w.4d,-4q.4f,-4t.4f,-4u.4h,-4k.4h,-53.4k,-3t.4m|-1i.4n,-16.4l,-1s.4k,-o.4j,-14.4g,-z.4g,-12.4f,-13.4e,-13.4b,-11.4a,-14.4a,-17.49,-13.45,-1e.41,-18.3x,-1h.3w,-1b.3w,-19.3w,-28.3n,-2f.3c,-2p.3e,-2v.3j,-30.3q,-2u.3w,-31.3v,-2v.3x,-34.3z,-31.41,-39.47,-43.4c,-3n.4f,-3n.4g,-3s.4g,-3h.4k,-1i.4n';
+  var DESK_GLOBE_DEGREES = Math.PI / 180;
+  var DESK_GLOBE_ROTATION_RADIANS_PER_SECOND = 0.34;
+  var deskGlobeLandCache = null;
+
+  function deskGlobeCoordinate(lon, lat) {
+    var longitude = lon * DESK_GLOBE_DEGREES;
+    var latitude = lat * DESK_GLOBE_DEGREES;
+    return {
+      cosLon: Math.cos(longitude),
+      sinLon: Math.sin(longitude),
+      cosLat: Math.cos(latitude),
+      sinLat: Math.sin(latitude),
+    };
+  }
+
+  function deskGlobeLand() {
+    if (deskGlobeLandCache) return deskGlobeLandCache;
+    deskGlobeLandCache = DESK_GLOBE_LAND_PACKED.split('|').map(function (ring) {
+      return ring.split(',').map(function (point) {
+        var pair = point.split('.');
+        return deskGlobeCoordinate(parseInt(pair[0], 36) / 2, parseInt(pair[1], 36) / 2);
+      });
+    });
+    return deskGlobeLandCache;
+  }
+
+  function deskGlobeProjection(centerLongitude, centerX, centerY, radius) {
+    var cosCenter = Math.cos(centerLongitude);
+    var sinCenter = Math.sin(centerLongitude);
+    var centerLatitude = 12 * DESK_GLOBE_DEGREES;
+    var cosLatitude = Math.cos(centerLatitude);
+    var sinLatitude = Math.sin(centerLatitude);
+    return function project(point) {
+      var cosDelta = point.cosLon * cosCenter + point.sinLon * sinCenter;
+      var sinDelta = point.sinLon * cosCenter - point.cosLon * sinCenter;
+      return {
+        x: centerX + radius * point.cosLat * sinDelta,
+        y: centerY - radius * (cosLatitude * point.sinLat - sinLatitude * point.cosLat * cosDelta),
+        z: sinLatitude * point.sinLat + cosLatitude * point.cosLat * cosDelta,
+      };
+    };
+  }
+
+  function deskGlobeHorizon(a, b, centerX, centerY, radius) {
+    var t = a.z / (a.z - b.z);
+    var x = a.x + (b.x - a.x) * t - centerX;
+    var y = a.y + (b.y - a.y) * t - centerY;
+    var length = Math.sqrt(x * x + y * y) || 1;
+    return { x: centerX + x / length * radius, y: centerY + y / length * radius, z: 0 };
+  }
+
+  function deskGlobeVisibleRuns(points, centerX, centerY, radius) {
+    var runs = [];
+    var run = null;
+    for (var i = 0; i < points.length - 1; i++) {
+      var a = points[i];
+      var b = points[i + 1];
+      if (a.z >= 0) {
+        if (!run) run = [a];
+        if (b.z >= 0) {
+          run.push(b);
+        } else {
+          run.push(deskGlobeHorizon(a, b, centerX, centerY, radius));
+          runs.push(run);
+          run = null;
+        }
+      } else if (b.z >= 0) {
+        run = [deskGlobeHorizon(a, b, centerX, centerY, radius), b];
+      }
+    }
+    if (run) runs.push(run);
+    if (runs.length > 1 && points[0].z >= 0) {
+      var tail = runs.pop();
+      runs[0] = tail.concat(runs[0].slice(1));
+    }
+    return runs;
+  }
+
+  function deskGlobeTraceRun(ctx, run, close) {
+    if (run.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(run[0].x, run[0].y);
+    for (var i = 1; i < run.length; i++) ctx.lineTo(run[i].x, run[i].y);
+    if (close) ctx.closePath();
+  }
+
+  function drawDeskGlobeGraticule(ctx, project, centerX, centerY, radius, palette) {
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = palette.white;
+    ctx.lineWidth = 1.5;
+    var lines = [];
+    [-60, -30, 0, 30, 60].forEach(function (latitude) {
+      var parallel = [];
+      for (var lon = -180; lon <= 180; lon += 10) parallel.push(deskGlobeCoordinate(lon, latitude));
+      lines.push(parallel);
+    });
+    for (var longitude = -150; longitude <= 180; longitude += 30) {
+      var meridian = [];
+      for (var lat = -80; lat <= 80; lat += 10) meridian.push(deskGlobeCoordinate(longitude, lat));
+      lines.push(meridian);
+    }
+    lines.forEach(function (linePoints) {
+      deskGlobeVisibleRuns(linePoints.map(project), centerX, centerY, radius).forEach(function (run) {
+        deskGlobeTraceRun(ctx, run, false);
+        ctx.stroke();
+      });
+    });
+    ctx.restore();
+  }
+
+  function drawDeskGlobeGeography(ctx, project, centerX, centerY, radius, palette) {
+    var landColors = [palette.leaf, '#7fbd63', palette.gold, '#d9a957'];
+    deskGlobeLand().forEach(function (ring, ringIndex) {
+      var projected = ring.map(project);
+      var entirelyVisible = projected.every(function (point) { return point.z >= 0; });
+      deskGlobeVisibleRuns(projected, centerX, centerY, radius).forEach(function (run) {
+        if (run.length < 3) return;
+        deskGlobeTraceRun(ctx, run, true);
+        paintPath(ctx, landColors[ringIndex % landColors.length], palette.deep, 1.25);
+      });
+      if (entirelyVisible && projected.length >= 3) {
+        // Closed rings already include their first coordinate. This branch is
+        // intentionally empty; the flag documents the exact full-ring case.
+      }
+    });
+  }
+
+  function drawDeskGlobeSphere(ctx, state, palette, index, centerX, centerY, radius) {
+    var renderState = state || {};
+    var dynamics = typeof Art.physicalDynamicsSnapshot === 'function'
+      ? Art.physicalDynamicsSnapshot('desk-globe', renderState)
+      : renderState;
+    var time = Number.isFinite(renderState.time) ? renderState.time : 0;
+    var objectAngle = Number.isFinite(dynamics.angle) ? dynamics.angle
+      : (Number.isFinite(renderState.angle) ? renderState.angle : 0);
+    var accessoryLag = Number.isFinite(dynamics.accessoryLag) ? dynamics.accessoryLag : 0;
+    var spin = renderState.reducedMotion ? 0
+      : time * DESK_GLOBE_ROTATION_RADIANS_PER_SECOND;
+    var centerLongitude = (-25 + index * 29) * DESK_GLOBE_DEGREES
+      + spin - objectAngle * 0.32 - accessoryLag * 0.16;
+    var project = deskGlobeProjection(centerLongitude, centerX, centerY, radius);
+
+    ellipsePath(ctx, centerX, centerY, radius, radius);
+    paintPath(ctx, gradient(ctx, centerX - radius, centerY - radius,
+      centerX + radius, centerY + radius, '#55c8ef', '#175187'), palette.deep, 5);
+    drawDeskGlobeGraticule(ctx, project, centerX, centerY, radius, palette);
+    drawDeskGlobeGeography(ctx, project, centerX, centerY, radius, palette);
+
+    // Atmospheric rim and a fixed specular highlight make the sphere read as
+    // a physical globe while the real geography rotates underneath it.
+    ctx.save();
+    ctx.globalAlpha = index === 6 ? 0.52 : 0.28;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius - 5, -1.34, 1.14);
+    ctx.strokeStyle = palette.white;
+    ctx.lineWidth = index === 6 ? 8 : 4;
+    ctx.stroke();
+    ellipsePath(ctx, centerX - radius * 0.32, centerY - radius * 0.34,
+      radius * 0.14, radius * 0.25, -0.55);
+    paintPath(ctx, palette.white);
+    ctx.restore();
+    ellipsePath(ctx, centerX, centerY, radius, radius);
+    paintPath(ctx, null, palette.deep, 5);
+
+    return centerLongitude;
+  }
+
   function drawDeskGlobe(variant) {
     var palette = makePalette(variant.color);
     var index = variant.order;
     return function paintDeskGlobe(ctx, state) {
-      var drift = motion(state, 0.85, 7, index * 0.4);
-      var bob = motion(state, 2.3, 2.5, index);
-      var centerY = index === 1 ? 145 : (index === 5 ? 169 : 176);
-      var radiusX = index === 1 ? 60 : (index === 5 ? 70 : 76);
-      var radiusY = index === 5 ? 84 : radiusX;
+      var centers = [166, 137, 165, 168, 164, 165, 166, 163, 181, 161, 171, 157];
+      var radii = [82, 63, 74, 76, 75, 73, 74, 71, 62, 67, 84, 69];
+      var centerY = centers[index];
+      var radius = radii[index];
+      var dynamics = typeof Art.physicalDynamicsSnapshot === 'function'
+        ? Art.physicalDynamicsSnapshot('desk-globe', state || {}) : (state || {});
+      var impact = Number.isFinite(dynamics.impact) ? dynamics.impact : 0;
+      var axisFlex = state && state.reducedMotion ? 0
+        : Math.max(-3, Math.min(3, impact * 2.4));
+      centerY += axisFlex;
 
-      // Stands and rings sit behind the planet.
+      // Rear stand geometry. Each cast keeps its own authored structure while
+      // every sphere uses the same true rotating geographic projection.
       if (index === 4) {
         ctx.beginPath();
-        ctx.arc(112, 196, 101, Math.PI * 0.55, Math.PI * 1.45);
+        ctx.arc(111, 191, 103, Math.PI * 0.55, Math.PI * 1.45);
         ctx.strokeStyle = palette.deep; ctx.lineWidth = 15; ctx.stroke();
         ctx.strokeStyle = palette.light; ctx.lineWidth = 7; ctx.stroke();
-      } else {
+      } else if (index !== 9) {
         ctx.beginPath();
-        ctx.ellipse(150, centerY, radiusX + 14, radiusY + 7, -0.38, -Math.PI * 0.55, Math.PI * 0.55);
+        ctx.ellipse(150, centerY, radius + 13, radius + 6, -0.38,
+          -Math.PI * 0.55, Math.PI * 0.55);
         ctx.strokeStyle = palette.deep; ctx.lineWidth = index === 10 ? 16 : 10; ctx.stroke();
         ctx.strokeStyle = palette.light; ctx.lineWidth = 4; ctx.stroke();
       }
 
-      if (index === 2 || index === 9) {
-        ctx.save(); ctx.translate(150, centerY); ctx.rotate(0.64 + bob * 0.01);
-        ellipsePath(ctx, 0, 0, radiusX + 20, radiusY * 0.38);
-        paintPath(ctx, null, palette.light, 7);
-        ctx.restore();
+      if (index === 2) {
+        ctx.save(); ctx.translate(150, centerY); ctx.rotate(0.64);
+        ellipsePath(ctx, 0, 0, radius + 18, radius * 0.38);
+        paintPath(ctx, null, palette.light, 7); ctx.restore();
       }
       if (index === 9) {
-        ctx.save(); ctx.translate(150, centerY); ctx.rotate(-0.68 - bob * 0.01);
-        ellipsePath(ctx, 0, 0, radiusX + 25, radiusY * 0.28);
-        paintPath(ctx, null, palette.gold, 6);
-        ctx.restore();
+        [-0.72, 0.05, 0.74].forEach(function (angle, ringIndex) {
+          ctx.save(); ctx.translate(150, centerY); ctx.rotate(angle);
+          ellipsePath(ctx, 0, 0, radius + 18 + ringIndex * 3, radius * (0.30 + ringIndex * 0.04));
+          paintPath(ctx, null, ringIndex === 1 ? palette.gold : palette.light, 6);
+          ctx.restore();
+        });
       }
 
-      if (index === 11) {
-        polygonPath(ctx, [[150, 84], [211, 112], [232, 180], [204, 237], [150, 262], [94, 235], [68, 176], [91, 112]]);
-      } else {
-        ellipsePath(ctx, 150, centerY + bob, radiusX, radiusY);
-      }
-      paintPath(ctx, gradient(ctx, 85, 85, 225, 250, palette.bright, palette.dark), palette.deep, 6);
+      var longitude = drawDeskGlobeSphere(ctx, state, palette, index, 150, centerY, radius);
+
       if (index === 6) {
         ctx.globalAlpha = 0.45;
-        ellipsePath(ctx, 150, centerY + bob, radiusX + 10, radiusY + 10);
+        ellipsePath(ctx, 150, centerY, radius + 10, radius + 10);
         paintPath(ctx, palette.glass, palette.bright, 5);
         ctx.globalAlpha = 1;
       }
 
-      // Painted seas, continents, cloud bands, and axis caps.
-      ctx.globalAlpha = 0.72;
-      polygonPath(ctx, [[98 + drift, 143], [121 + drift, 121], [146 + drift, 132], [139 + drift, 157], [117 + drift, 170], [104 + drift, 194], [88 + drift, 177]]);
-      paintPath(ctx, palette.leaf);
-      polygonPath(ctx, [[159 + drift, 177], [188 + drift, 148], [216 + drift, 163], [207 + drift, 190], [184 + drift, 204], [178 + drift, 234], [153 + drift, 214]]);
-      paintPath(ctx, palette.gold);
-      ctx.globalAlpha = 0.42;
-      ctx.beginPath();
-      ctx.bezierCurveTo(83, 171 + bob, 115, 153 + bob, 145, 170 + bob);
-      ctx.bezierCurveTo(174, 187 + bob, 208, 169 + bob, 224, 181 + bob);
-      ctx.strokeStyle = palette.white; ctx.lineWidth = index === 6 ? 13 : 7; ctx.stroke();
-      ctx.globalAlpha = 1;
-
       if (index === 7) {
         line(ctx, [[211, 117], [239, 83]], palette.deep, 6);
-        ellipsePath(ctx, 245 + bob, 77, 13, 13); paintPath(ctx, palette.silver, palette.deep, 4);
+        var moonX = 244 + Math.cos(longitude * 0.58) * 7;
+        var moonY = 79 + Math.sin(longitude * 0.58) * 5;
+        ellipsePath(ctx, moonX, moonY, 13, 13); paintPath(ctx, palette.silver, palette.deep, 4);
+        ellipsePath(ctx, moonX - 4, moonY - 3, 3, 2); paintPath(ctx, palette.dark);
       }
       if (index === 10) {
         ellipsePath(ctx, 69, centerY, 13, 18); paintPath(ctx, palette.gold, palette.deep, 4);
         ellipsePath(ctx, 231, centerY, 13, 18); paintPath(ctx, palette.gold, palette.deep, 4);
       }
 
-      var stemTop = centerY + radiusY - 2;
+      if (index === 11) {
+        ctx.globalAlpha = 0.48;
+        polygonPath(ctx, [[150, centerY - radius - 9], [207, centerY - 49],
+          [225, centerY + 15], [192, centerY + 65], [150, centerY + radius + 8],
+          [105, centerY + 63], [75, centerY + 12], [94, centerY - 50]]);
+        paintPath(ctx, null, palette.bright, 6);
+        ctx.globalAlpha = 1;
+      }
+
+      var stemTop = centerY + radius - 2;
       if (index === 8) {
         polygonPath(ctx, [[102, 342], [150, 270], [198, 342]]); paintPath(ctx, palette.dark, palette.deep, 6);
+        line(ctx, [[117, 342], [150, 294], [183, 342]], palette.light, 5);
       } else {
         roundedRect(ctx, index === 1 ? 137 : 130, stemTop, index === 1 ? 26 : 40, 350 - stemTop, 10);
         paintPath(ctx, gradient(ctx, 130, stemTop, 176, 350, palette.light, palette.deep), palette.deep, 5);
       }
       if (index === 3) {
         roundedRect(ctx, 87, 338, 126, 38, 7); paintPath(ctx, palette.dark, palette.deep, 6);
+        roundedRect(ctx, 99, 347, 102, 13, 4); paintPath(ctx, palette.base, palette.deep, 2);
       } else if (index === 11) {
         polygonPath(ctx, [[91, 376], [105, 332], [195, 332], [209, 376]]); paintPath(ctx, palette.deep, palette.ink, 6);
         roundedRect(ctx, 125, 343, 50, 13, 6); paintPath(ctx, palette.bright);
+      } else if (index === 5) {
+        ellipsePath(ctx, 150, 358, 77, 18); paintPath(ctx, '#8b6b3e', palette.deep, 6);
+        roundedRect(ctx, 74, 356, 152, 20, 10); paintPath(ctx, palette.gold, palette.deep, 5);
       } else {
         ellipsePath(ctx, 150, 358, index === 8 ? 70 : 78, 18); paintPath(ctx, palette.dark, palette.deep, 6);
         roundedRect(ctx, 74, 356, 152, 20, 10); paintPath(ctx, palette.base, palette.deep, 5);
@@ -1031,5 +1213,19 @@
     objectIds: Object.freeze(OBJECT_IDS.slice()),
     definitions: Object.freeze(definitions),
     variantIds: Object.freeze(canonicalVariantIds),
+    deskGlobe: Object.freeze({
+      face: null,
+      supportsEmotion: false,
+      projection: 'orthographic',
+      centerLatitudeDegrees: 12,
+      rotationPeriodSeconds: Math.PI * 2 / DESK_GLOBE_ROTATION_RADIANS_PER_SECOND,
+      geography: Object.freeze({
+        source: 'Natural Earth ne_110m_land',
+        license: 'public-domain',
+        ringCount: 65,
+        quantizationDegrees: 0.5,
+        simplificationDegrees: 1.2,
+      }),
+    }),
   });
 });
