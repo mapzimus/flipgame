@@ -1,6 +1,6 @@
 # Flipgame v1.11 Contract
 
-Contract revision: 36
+Contract revision: 38
 Baseline commit: `3a3ace0`
 Public release version: `v1.11`
 
@@ -274,6 +274,10 @@ cap-toss:5500, life-drain:6000`.
 - `LandingVerdict`
 - `ProgressionStateV3`
 - `StatsStore`, `FlipRecordV1`, and `MatchRecordV1`
+- Bounded `FlipAggregateV1` and `MatchAggregateV1` overflow cells preserve exact
+  categorical filter totals in a finite validated aggregate index. Chained
+  export/import/export operations are lossless; malformed or internally
+  inconsistent aggregate counts are rejected atomically.
 - `StatsStore.getWarning()` / `onWarning(listener)` expose a non-blocking
   `{ code, message }` storage warning; the same detail is dispatched as
   `flipgame:stats-warning`. Summary fields include sample/fraction, upright,
@@ -281,7 +285,11 @@ cap-toss:5500, life-drain:6000`.
   the existing `seat`/`seats` filter boundary. Test-event IDs are discoverable
   only with explicit internal `includeTestEventNames: true`.
 - `NamePolicy.validate()`
-- `NetworkEnvelopeV2`; reconnect convergence uses the opaque, JSON-safe match
+- `NetworkEnvelopeV2`; authoritative result payloads may carry one validated,
+  JSON-safe `eventResult` with event ID, final/replay marker, and event-owned
+  resolved metadata. Observers apply that final outcome without rerunning
+  stateful event physics or rewards; required metadata that is missing,
+  incomplete, or mismatched fails closed. Reconnect convergence uses the opaque, JSON-safe match
   snapshot registered by `Net.bindMatchState({ capture, restore })`. A peer is
   blocked rather than resumed when authoritative state is unavailable.
 - Built-in v1.11 online transports do not establish independent sender identity

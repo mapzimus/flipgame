@@ -756,3 +756,53 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Affected owners notified: Network/Platform specialist owns isolated lab paths;
   Program Integrator alone owns Flipgame workflow credentials, merges, pushes,
   Cloudflare release observation, and dual-origin approval.
+
+## Revision 37 - bounded statistics remain lossless and filter-exact
+
+- Trigger: independent State/Data QA chained two bounded 80-flip archives
+  through a hub and a leaf. Nineteen flips disappeared, while separate
+  high-cardinality fixtures retained unfiltered totals but lost object, event,
+  arena, and player-filtered samples. Adversarial imports also accepted negative
+  and impossible aggregate counts, three direct Unicode evasions remained, and
+  stats setup rows without seat markers retained blocked names.
+- Old behavior: overflow rows were keyed only by Test Data status after lineage
+  stripping and differing categorical dimensions collapsed to `__unknown__`.
+  That bounded top-level cells but could overwrite history and could not answer
+  exact filtered queries. Aggregate schema/counter relationships were trusted.
+- New behavior: a finite validated aggregate index within overflow cells keeps
+  exact categorical subtotals while top-level rollup cardinality remains
+  bounded. Chained exports remain lossless, every supported filter reconciles,
+  and malformed/inconsistent aggregates fail atomically. The shared name policy
+  covers the newly proven code points and every `startingSettings.rows[]` item is
+  treated as player context regardless of optional seat fields.
+- Required tests: A80+B80→hub160→leaf160, repeated/newer snapshot replacement,
+  >60-combination flip/match filter truth before and after fallback reopen,
+  hostile aggregate schemas/counts/counters with rollback, exact mixed-script
+  probes, and `{id,name}` setup-row sanitation at every stats boundary.
+- Integration commit: pending.
+- Affected owner: State/Data/Safety acknowledged. Public StatsStore methods stay
+  unchanged; aggregate overflow schema gains the bounded validated index.
+
+## Revision 38 - authoritative special-event results synchronize as final facts
+
+- Trigger: independent Simulation QA found a hidden-beta observer can intercept
+  an authoritative Rewind MISS as a local first attempt, obtain `null`, and
+  crash during resolution. Plinko deterministically loses its slot/prize, and
+  Roulette, Mitosis, Cap Toss, and other stateful event outcomes can diverge when
+  observers recompute them from local timing.
+- Old behavior: result packets carry only base MAKE/MISS and pose/tilt fields;
+  observers rerun event resolution against their own partial physical state.
+- New behavior: `NetworkEnvelopeV2` result payloads may carry one validated
+  JSON-safe `eventResult` containing the matching event ID, authoritative
+  final/replay state, and event-owned resolved metadata. An observer applies the
+  final authority result without rerunning stateful physics or rewards.
+  Stateful/automatic event results with missing, incomplete, or mismatched
+  metadata fail closed. Ordinary offline play and hidden/fail-closed public
+  online exposure do not change.
+- Required tests: authority/observer state equality for all 30 events, explicit
+  first-failure Rewind replay/finality, all nine Plinko slots, Roulette sector,
+  Mitosis landed count, Cap Toss bodies, malformed/mismatched/missing payloads,
+  and unchanged ordinary/legacy-safe verdict behavior.
+- Integration commit: pending.
+- Affected owners: UI/Network/Physics owner acknowledged; State/Data/Safety and
+  active QA were notified and reported no conflicting interface work.
