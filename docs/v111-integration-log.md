@@ -806,3 +806,82 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Integration commit: pending.
 - Affected owners: UI/Network/Physics owner acknowledged; State/Data/Safety and
   active QA were notified and reported no conflicting interface work.
+
+## Revision 39 - qualification-gated dual-origin publication
+
+- Trigger: adversarial release review proved legacy branch-mode GitHub Pages
+  could publish before APK, Lab, or Cloudflare qualification, while stale
+  branch checks and a reused version/cache identity could leave origins split.
+- New behavior: GitHub Pages is an Actions artifact deployed only after the
+  exact-SHA Cloudflare publication succeeds. Existing release tags at another
+  SHA fail the build; both production branches are refetched at every publish
+  boundary; a final job compares provenance and every allowlisted runtime byte
+  across both public origins.
+- Required tests: injected qualification failure advances neither origin;
+  same-version descendant rejects before publication; concurrent branch
+  advances fail closed; mismatched public bytes fail reconciliation.
+- Integration commit: `af33537`.
+
+## Revision 40 - internal dynamics render bridge
+
+- Trigger: the v1.11 art pipeline already computed angle/slosh state but the
+  skin adapter discarded it before authored object renderers could consume it.
+- New behavior: the adapter forwards existing paint-only motion fields without
+  changing physics, results, or the shared collision envelope.
+- Migration/tests: deterministic previews remain stable and every affected art
+  renderer receives equivalent state. Integration commit pending art merge.
+
+## Revision 41 - universal reaction faces and open-liquid spill
+
+- Trigger: product review requested expressive objects and visible coffee spill.
+- New behavior: all objects expose immutable local face anchors; renderer-owned
+  state maps airborne to scared and final make/miss to smile/frown. A brief
+  face-focus camera beat follows resolution without delaying gameplay. Open
+  liquids spill only under inversion/outward motion; sealed contents never do.
+- Required tests: 51-object anchor coverage, every emotion, reduced motion,
+  responsive camera framing, sealed/open boundaries, and unchanged verdicts.
+- Integration commits pending art and renderer merge.
+
+## Revision 42 - product-owner artwork review
+
+- Trigger: first 25-object gallery review identified insufficient silhouettes,
+  detail, scale, and internal behavior.
+- New behavior: Teapot steam responds physically; Milk Carton is tall with an
+  original cow illustration; Soup Can clearly reads as soup; Smoothie,
+  Microscope, Penguin, Owl, Giraffe, Red Panda, Rubber Duck, Action Figures,
+  Tall Buildings, and Box of Snacks receive major authored upgrades; Microphone
+  is tall; Trophy is large and dramatic; Snow Globe has moving snow around an
+  anchored house. Giraffe is tallest. Gumball Machine, Salt Shaker, and cactus
+  direction are retained. The original T-Rex is permanently excluded from art
+  and physics changes.
+- Required tests: refreshed 25-object/12-variant screenshot matrix, silhouette
+  bounds, internal dynamics, brand-free details, and T-Rex invariance.
+
+## Revision 43 - isolated legacy-object dynamics
+
+- Trigger: applicable dynamics were requested for old objects without creating
+  concurrent ownership conflicts in the shared skin/renderer files.
+- New interface: `v111-legacy-object-dynamics.js` exposes immutable
+  `profileFor`, `faceFor`, `normalizeState`, `paintUnderlay`, and `paintOverlay`.
+  Existing object art consumes paint-only dynamics while T-Rex remains passive.
+- Required tests: all 26 legacy IDs, deterministic/reduced-motion state,
+  applicable loose/internal behavior, and protected T-Rex hash/invariance.
+
+## Revision 44 - restore locked broad-family cast matrices
+
+- Trigger: integrated Potted Plants, Action Figures, and Tall Buildings names
+  drifted from the product-owner-approved 12-cast matrices.
+- New behavior: names/order and geometry remapping return to the frozen matrices;
+  missing Orchid/Flytrap and required family detail are authored without any
+  ID, unlock, physics, or scoring change.
+- Required tests: exact manifest names/order, all 36 renders, stable IDs, and
+  unchanged progression. Integration commit pending art merge.
+
+## Revision 45 - deterministic per-flip Smoothie color
+
+- Trigger: product review requested a random Smoothie liquid color every flip.
+- New interface: renderer forwards the already-bound trajectory seed as
+  paint-only `flipSeed`; art hashes it into a fixed 12-color palette. The color
+  remains stable throughout that flip/replay and preview seed zero is fixed.
+- Required tests: same-seed stability, different-seed palette coverage, replay
+  parity, no RNG consumption, and unchanged game outcomes.

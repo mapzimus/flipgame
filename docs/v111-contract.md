@@ -1,6 +1,6 @@
 # Flipgame v1.11 Contract
 
-Contract revision: 38
+Contract revision: 45
 Baseline commit: `3a3ace0`
 Public release version: `v1.11`
 
@@ -28,6 +28,12 @@ affected specialist continues.
   The cross-repository credential is a write-enabled deploy key scoped only to
   `mapzimus/lab` and stored solely as an encrypted Actions secret. A stale,
   dirty, failed, mismatched, or unqualified source never updates the lab repo.
+- GitHub Pages publishes through its Actions deployment only after the complete
+  qualification/APK job and the exact-SHA Cloudflare publication succeed. The
+  release then reconciles provenance and every allowlisted runtime byte at both
+  public origins. A runtime-changing commit may not reuse an existing public
+  version/tag/cache/build identity, and stale production-branch checks are
+  repeated immediately before no-op, push, and Pages publication boundaries.
 - The v1.11 HTML loads only its version-unique boot script. On remote HTTP(S),
   that boot script installs and verifies the v1.11 service worker as the current
   controller before loading any mutable application script. A v110 controller
@@ -190,6 +196,30 @@ cap-toss:5500, life-drain:6000`.
   and one personal cosmetic. A global non-physical arena is separate.
 - All non-Alien objects share the standard competitive collision envelope.
   Variant silhouettes and moving parts do not alter physics.
+- Applicable internal contents are paint-only deterministic simulations driven
+  by existing flip state: open liquids may spill under inversion/outward motion;
+  sealed liquids slosh but never spill; snow, sand, granules, steam, foliage,
+  and loose parts respond where physically appropriate; rigid objects remain
+  rigid. Reduced motion retains a stable representative state. These visuals
+  never change mass, collider, landing tolerance, RNG outcome, or scoring.
+- Every object exposes a stable face anchor. Airborne objects show a scared
+  reaction, resolved makes a smile, and resolved misses a frown. The renderer
+  owns the outcome-to-emotion mapping and a brief responsive face-focus camera
+  beat; art never infers results, and the beat never delays or changes physics,
+  resolution, scoring, or turn order.
+- The original T-Rex/dinosaur artwork and style are a protected invariant and
+  must not be redrawn, restyled, or physically altered by the v1.11 art pass.
+- The Desk Globe is a detailed, offline, full-360-degree rotating sphere with
+  embedded original geography and no runtime network dependency. Smoothie
+  liquid color is selected deterministically from a fixed palette by the bound
+  per-flip trajectory seed and remains stable throughout that flip and replay.
+- Object-specific review requirements include responsive Teapot steam; a tall
+  Milk Carton with an original cow illustration; a clearly readable Soup Can;
+  upgraded Smoothie, Microscope with flat base, Penguin, Owl, Giraffe, Red
+  Panda, Huge Rubber Duck, Action Figures, Tall Buildings, and Box of Snacks;
+  a tall Microphone on a Stand; a dramatic large championship-style Trophy;
+  and moving snow with an anchored interior house in the Snow Globe. Giraffe is
+  the tallest roster object. All artwork remains brand-free.
 - Canonical art mapping is fixed to the existing cast pipeline: SVG viewBox
   `300 x 420`, SVG ground `y=376`, art scale `0.74`, and local physics contact
   `y=+39`. Therefore the shared SVG-space rotation pivot is
@@ -304,8 +334,12 @@ cap-toss:5500, life-drain:6000`.
   one persistent protected key; v1.11 establishes the identity used for future
   in-place upgrades. The legacy disposable-key v110 APK requires one uninstall.
 - `RenderVariant` is immutable
-  `{ id, objectId, variantId, label, color, metrics, renderLocal }`; metrics use
-  the canonical viewBox, pivot, baseline, and collision mapping above.
+  `{ id, objectId, variantId, label, color, metrics, face, renderLocal }`; metrics
+  use the canonical viewBox, pivot, baseline, and collision mapping above.
+  `face` contains an immutable local anchor, scale/focus radius, and emotion
+  capability. Paint state adds only `emotion: idle|scared|smile|frown`, existing
+  angle/slosh/motion fields, and the already-bound `flipSeed`. Legacy artwork
+  receives safe face/dynamics fallbacks; no art module reads game rules.
 - Versioned outcome events consumed by achievements and statistics
 - `bridge.flipResolved({ record })` and `bridge.matchResolved({ record })`
   preserve an opaque, detached statistics payload alongside the canonical game,
