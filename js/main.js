@@ -2195,6 +2195,11 @@
     const player = game.players[index] || game.currentPlayer();
     const definition = currentMatchDefs[index] || {};
     const eventId = canonicalEventId();
+    const firstContactMs = lifecycle.firstContactMs ?? landing?.firstContactMs ?? null;
+    const settleMs = landing?.settleMs ?? lifecycle.settleMs ?? null;
+    const measuredFlightMs = flipTelemetry?.startedAt == null ? null : Math.max(0, Date.now() - flipTelemetry.startedAt);
+    const flightMs = firstContactMs != null && settleMs != null
+      ? Math.max(0, Number(firstContactMs) + Number(settleMs)) : measuredFlightMs;
     const record = {
       releaseVersion: v111Runtime?.releaseVersion || 'v1.11',
       matchId: currentMatchId,
@@ -2231,9 +2236,9 @@
       contacts: landing?.contacts ?? lifecycle.contacts ?? 0,
       bounces: landing?.bounces ?? lifecycle.bounces ?? 0,
       banks: landing?.bankHits ?? lifecycle.banks ?? 0,
-      flightMs: lifecycle.firstContactMs ?? landing?.firstContactMs ?? null,
-      firstContactMs: lifecycle.firstContactMs ?? landing?.firstContactMs ?? null,
-      settleMs: landing?.settleMs ?? lifecycle.settleMs ?? null,
+      flightMs,
+      firstContactMs,
+      settleMs,
       tilt: landing?.tilt ?? lifecycle.tilt ?? null,
       stakeBefore: flipTelemetry?.stakeBefore ?? null,
       stakeAfter: Number(game.pointCount) || 0,
@@ -3652,7 +3657,10 @@
     return merged;
   }
   function applyGameSavePayload(payload) {
-    const normalized = normalizeGameSavePayload(payload);
+    const normalizedInput = normalizeGameSavePayload(payload);
+    const normalized = window.FlipgameV111SaveBackup?.sanitizeNames
+      ? window.FlipgameV111SaveBackup.sanitizeNames(normalizedInput, { invalidReplacement: '' })
+      : normalizedInput;
     if (normalized.schema !== 'FlipgameLocalSaveV1' || !normalized.storage || typeof normalized.storage !== 'object') {
       throw new TypeError('Unsupported game save');
     }

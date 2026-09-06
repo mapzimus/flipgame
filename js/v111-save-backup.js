@@ -60,7 +60,7 @@
       if (Array.isArray(node)) return node.map(function (entry) { return visit(entry, contextKey); });
       if (!node || typeof node !== 'object') return node;
       var output = {};
-      var playerContext = /^(player|players|participants|winner|winners|roster|members|savedSetup)$/i.test(contextKey || '') ||
+      var playerContext = /^(player|players|participants|winner|winners|roster|members|savedSetup|rows)$/i.test(contextKey || '') ||
         node.playerId != null || node.netId != null || node.seat != null || node.playerIndex != null || node.isAI != null;
       Object.keys(node).forEach(function (key) {
         if (/^(displayName|playerName)$/i.test(key) || (key === 'name' && playerContext)) {
