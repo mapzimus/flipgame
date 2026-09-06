@@ -153,6 +153,44 @@ function testFaceMetadataAndExplicitAllowlist() {
   assert.deepEqual(baby.anchor, { x: 151, y: 115 });
 }
 
+function testGenericReactionPaintIsAllowlistedOnly() {
+  const artSources = [
+    'v111-art-reference.js', 'v111-art-pack-a.js',
+    'v111-art-pack-b.js', 'v111-art-pack-c.js',
+  ].map((file) => fs.readFileSync(path.join(root, 'js', file), 'utf8'));
+  for (const source of artSources) {
+    assert.doesNotMatch(source, /\bcommonFace\s*\(/,
+      'base painters must not bake the retired generic commonFace into any variant');
+  }
+
+  for (const object of Manifest.objects) {
+    for (const variant of object.variants) {
+      const baseState = {
+        angle: 0.31, slosh: 0.2, angularVelocity: 1.4,
+        velocity: { x: 12, y: -8 }, airborne: false,
+        time: 1.25, flipSeed: 'face-regression', motionSeed: variant.id,
+      };
+      const idle = fakeContext();
+      const expressive = fakeContext();
+      Art.renderGameplay(idle, {
+        objectId: object.id, variantId: variant.variantId,
+        x: 150, y: 323, ...baseState, emotion: 'idle',
+      });
+      Art.renderGameplay(expressive, {
+        objectId: object.id, variantId: variant.variantId,
+        x: 150, y: 323, ...baseState, emotion: 'scared',
+      });
+      if (EMOTION_IDS.has(object.id)) {
+        assert.notDeepEqual(expressive.calls, idle.calls,
+          `${variant.id} must receive the allowlisted generic reaction layer`);
+      } else {
+        assert.deepEqual(expressive.calls, idle.calls,
+          `${variant.id} must ignore generic reaction emotion`);
+      }
+    }
+  }
+}
+
 function testAllVariantsAndPhysicalStatesPaint() {
   const states = [
     { angle: 0, slosh: 0, time: 0.5, emotion: 'idle' },
@@ -210,6 +248,7 @@ testContentsMoveButSolidsHaveNoFakeContents();
 testOpenSpillAndSealedProtection();
 testDeterminismReducedMotionAndSeededSmoothie();
 testFaceMetadataAndExplicitAllowlist();
+testGenericReactionPaintIsAllowlistedOnly();
 testAllVariantsAndPhysicalStatesPaint();
 testBridgeAndReviewCriteriaInstrumentation();
 

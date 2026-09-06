@@ -162,23 +162,6 @@
       ? variant.tokens.castIndex : 0;
   }
 
-  function commonFace(ctx, x, y, scale) {
-    var s = scale || 1;
-    ctx.save();
-    ctx.fillStyle = PAPER;
-    ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = 4 * s;
-    ctx.beginPath(); ctx.ellipse(x - 18 * s, y, 9 * s, 12 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(x + 18 * s, y, 9 * s, 12 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = OUTLINE;
-    ctx.beginPath(); ctx.arc(x - 16 * s, y + 2 * s, 3.5 * s, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 20 * s, y + 2 * s, 3.5 * s, 0, Math.PI * 2); ctx.fill();
-    ctx.lineCap = 'round';
-    ctx.lineWidth = 4 * s;
-    ctx.beginPath(); ctx.arc(x + 1 * s, y + 16 * s, 14 * s, 0.15, Math.PI - 0.15); ctx.stroke();
-    ctx.restore();
-  }
-
   function drawCarton(builderVariant) {
     var p = palette(builderVariant.color);
     var index = variantIndex(builderVariant);
@@ -302,7 +285,6 @@
       }
       ctx.globalAlpha = 1;
       highlight(ctx, left + 17, top + 59, Math.min(155, 330 - top));
-      commonFace(ctx, 150, 324, 0.8);
       ctx.restore();
     };
   }
@@ -424,7 +406,6 @@
       }
       ctx.restore();
       highlight(ctx, c[0] - c[2] * 0.48, c[1] - c[3] * 0.55, c[3] * 0.75);
-      commonFace(ctx, 151, 289, 0.78);
       ctx.restore();
     };
   }
@@ -528,7 +509,6 @@
         ctx.beginPath(); ctx.ellipse(150, 220, 55, 10, 0, 0, Math.PI * 2); ctx.stroke();
       }
       highlight(ctx, 103, 145, 120);
-      commonFace(ctx, 150, 223, 0.75);
       ctx.restore();
     };
   }
@@ -630,7 +610,6 @@
         [left + 79 + shimmer * 42, labelTop + 113], [left + 52 + shimmer * 42, labelTop + 113]]);
       ctx.fill();
       ctx.restore();
-      commonFace(ctx, 150, Math.min(329, labelTop + 118), 0.72);
       ctx.restore();
     };
   }
@@ -723,8 +702,6 @@
         for (var rib = 0; rib < 5; rib++) {
           ctx.beginPath(); ctx.bezierCurveTo(left + 17 + rib * 25, 190, left + 2 + rib * 29, 286, left + 25 + rib * 23, 351); ctx.stroke();
         }
-      } else if (index === 8) {
-        commonFace(ctx, 150, 265, 1.05);
       } else if (index === 9) {
         ctx.fillStyle = p.dark;
         polygon(ctx, [[119, 337], [78, 371], [126, 360]]); ctx.fill();
@@ -758,7 +735,6 @@
       }
       ctx.restore();
       highlight(ctx, left + 20, 178, 113);
-      if (index !== 8) commonFace(ctx, 150, 304, 0.76);
       ctx.restore();
     };
   }
@@ -856,7 +832,6 @@
       ctx.strokeStyle = p.deep; ctx.lineWidth = 7; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(31, 0); ctx.stroke(); ctx.restore();
       roundRect(ctx, 128, baseTop + 78, 44, 25, 7); ctx.fillStyle = p.deep; ctx.fill();
-      if (index === 5) commonFace(ctx, 150, baseTop + 28, 0.58);
       highlight(ctx, 105, globeTop + 26, Math.min(90, globeRy));
       ctx.restore();
     };
