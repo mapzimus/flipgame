@@ -1,6 +1,6 @@
 # Flipgame v1.11 Contract
 
-Contract revision: 47
+Contract revision: 48
 Baseline commit: `3a3ace0`
 Public release version: `v1.11`
 

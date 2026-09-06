@@ -920,6 +920,18 @@ interface or behavior changes to the Program Integrator before proceeding.
   protected T-Rex invariance, and unchanged gameplay.
 - Integration commits: `d6db565`, `ff863b5`.
 
+## Revision 48 - narrow Customize containment
+
+- Trigger: independent Browser/Release QA measured 427px min-content width at
+  the required 360×740 viewport, clipping header, tabs, tiles, and Next control.
+- New behavior: Customize grid tracks and direct children are explicitly
+  shrinkable; the narrow layout uses contained two-column tabs, 48px seat
+  controls, and bounded panel/footer spacing. At 360px the screen/main are 360px
+  and the panel is 344px with no hidden horizontal content.
+- Required tests: exact 360×740 DOM geometry and touch targets, visual browser
+  recheck, plus unchanged 768/1100 bands and 1280×720 444px gallery height.
+- Integration commit: `d7f9263`.
+
 ## Revision 46 - compatible paint-state superset
 
 - Trigger: art owners used different names for elapsed time, seed, and resolved
