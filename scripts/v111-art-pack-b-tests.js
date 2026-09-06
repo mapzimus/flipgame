@@ -138,8 +138,8 @@ function testCatalogAndManifestCompatibility() {
   const plants = Art.getObject('potted-plants');
   assert.deepEqual(
     plants.variants.map((variant) => variant.tokens.castLabel),
-    ['Cactus', 'Fern', 'Snake Plant', 'Succulent', 'Monstera', 'Bonsai',
-      'Hanging Vine', 'Sunflower', 'Mushroom Garden', 'Air Plant', 'Palm', 'Alien Plant'],
+    ['Succulent', 'Cactus', 'Fern', 'Sunflower', 'Orchid', 'Bonsai',
+      'Snake Plant', 'Monstera', 'Aloe', 'Flytrap', 'Palm', 'Flowering Vine'],
     'all twelve potted-plant casts must remain distinct and in manifest order',
   );
 }
