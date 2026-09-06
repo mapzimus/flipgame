@@ -1995,11 +1995,25 @@ ${crown}
       if (c && c.v111Art && typeof window !== 'undefined' && window.FlipArtV111) {
         const variantId = (opts && opts.variantId) || 'blue-steel';
         const variant = FlipArtV111.getRenderVariant(id, variantId);
+        const artState = {
+          mode: 'gameplay',
+          time: (opts && opts.time) || 0,
+          reducedMotion: !!(opts && opts.reducedMotion),
+          angle: opts && opts.angle,
+          slosh: opts && opts.slosh,
+          angularVelocity: opts && opts.angularVelocity,
+          velocity: opts && opts.velocity,
+          airborne: opts && opts.airborne,
+          contact: opts && opts.contact,
+          impact: opts && opts.impact,
+          emotion: opts && opts.emotion,
+          flipSeed: opts && opts.flipSeed,
+          motionSeed: opts && opts.motionSeed,
+        };
         ctx.save();
         ctx.scale(0.74, 0.74);
         ctx.translate(-variant.metrics.pivot.x, -variant.metrics.pivot.y);
-        variant.renderLocal(ctx, { mode: 'gameplay', time: (opts && opts.time) || 0,
-          reducedMotion: !!(opts && opts.reducedMotion) });
+        variant.renderLocal(ctx, artState);
         ctx.restore();
         return;
       }

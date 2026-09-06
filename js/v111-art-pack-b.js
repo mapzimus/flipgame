@@ -401,7 +401,10 @@
 
   function drawPottedPlant(variant) {
     var palette = makePalette(variant.color);
-    var index = variant.order;
+    // The public order is the locked succulent→flowering-vine matrix. Reuse
+    // proven authored silhouettes where possible while keeping color/IDs in
+    // manifest order; Orchid and Flytrap are new dedicated drawings.
+    var index = [3, 0, 1, 7, 12, 5, 2, 4, 9, 13, 10, 6][variant.order];
     return function paintPottedPlant(ctx, state) {
       var sway = motion(state, 1.65, 0.11, index * 0.6);
       var flutter = motion(state, 2.7, 5, index);
@@ -492,6 +495,46 @@
           var palmAngle = -1.35 + palm * 0.30 + sway;
           drawLeaf(ctx, 150, 176, 115 - (palm % 3) * 10, 17, palmAngle, palette);
         }
+      } else if (index === 12) {
+        // Orchid: broad grounded leaves plus two arched stems carrying
+        // unmistakable five-petal flowers.
+        [-0.9, -0.45, 0.45, 0.9].forEach(function (leafAngle, leafIndex) {
+          drawLeaf(ctx, 150 + (leafIndex - 1.5) * 7, 291, 82 - leafIndex * 4,
+            21, leafAngle + sway, palette);
+        });
+        [-1, 1].forEach(function (side) {
+          ctx.beginPath();
+          ctx.moveTo(150, 306);
+          ctx.bezierCurveTo(150 + side * 7, 235, 151 + side * (52 + flutter), 174,
+            150 + side * 45, 111);
+          ctx.strokeStyle = palette.leafDark; ctx.lineWidth = 7; ctx.stroke();
+          [0, 1, 2].forEach(function (flower) {
+            var fx = 150 + side * (30 + flower * 8) + flutter * 0.16;
+            var fy = 208 - flower * 48;
+            for (var petal = 0; petal < 5; petal++) {
+              var pa = petal * Math.PI * 2 / 5;
+              rotatedEllipse(ctx, fx + Math.cos(pa) * 12, fy + Math.sin(pa) * 12,
+                8, 15, pa, palette.bright, palette.deep, 2.5);
+            }
+            ellipsePath(ctx, fx, fy, 6, 6); paintPath(ctx, palette.gold, palette.deep, 2);
+          });
+        });
+      } else if (index === 13) {
+        // Flytrap: hinged paired lobes remain friendly and toy-like; their lag
+        // makes the loose heads visibly react to rotation.
+        [-1, 0, 1].forEach(function (side, trapIndex) {
+          var tx = 150 + side * 48 + flutter * (0.10 + trapIndex * 0.04);
+          var ty = 142 + Math.abs(side) * 48;
+          ctx.beginPath(); ctx.moveTo(150, 306); ctx.quadraticCurveTo(tx - side * 18, 230, tx, ty + 22);
+          ctx.strokeStyle = palette.leafDark; ctx.lineWidth = 9; ctx.stroke();
+          ctx.save(); ctx.translate(tx, ty); ctx.rotate(side * 0.28 + sway);
+          rotatedEllipse(ctx, -10, 0, 25, 13, -0.18, palette.leaf, palette.leafDark, 3);
+          rotatedEllipse(ctx, 10, 0, 25, 13, 0.18, palette.light, palette.leafDark, 3);
+          for (var tooth = -2; tooth <= 2; tooth++) {
+            line(ctx, [[tooth * 7, -6], [tooth * 7, 6]], palette.white, 2);
+          }
+          ctx.restore();
+        });
       } else {
         for (var alien = 0; alien < 7; alien++) {
           var ax = 84 + alien * 22;
@@ -877,6 +920,15 @@
         ctx.restore();
       }
 
+      // Original championship treatment: a broad medallion and two pedestal
+      // tiers make the cup feel large and ceremonial without copying any real
+      // trophy silhouette or trademark.
+      starPath(ctx, 150, 169, 28, 13, 8, -Math.PI / 2);
+      paintPath(ctx, palette.gold, palette.deep, 4);
+      ellipsePath(ctx, 150, 169, 12, 12); paintPath(ctx, palette.bright, palette.deep, 3);
+      roundedRect(ctx, 116, 286, 68, 22, 7); paintPath(ctx, metal, palette.deep, 4);
+      roundedRect(ctx, 103, 305, 94, 19, 6); paintPath(ctx, palette.gold, palette.deep, 4);
+
       if (index === 1) {
         roundedRect(ctx, 112, 319, 76, 25, 7); paintPath(ctx, palette.dark, palette.deep, 5);
       } else {
@@ -916,6 +968,19 @@
     };
   }
 
+  function faceOverride(objectId, index) {
+    if (objectId === 'owl' && index === 8) {
+      return { anchor: { x: 150, y: 184 }, scale: 0.78, focusRadius: 70, supportsEmotion: true };
+    }
+    if (objectId === 'giraffe' && index === 1) {
+      return { anchor: { x: 151, y: 115 }, scale: 0.70, focusRadius: 64, supportsEmotion: true };
+    }
+    if (objectId === 'microphone-stand' && index === 10) {
+      return { anchor: { x: 150, y: 159 }, scale: 0.68, focusRadius: 66, supportsEmotion: true };
+    }
+    return null;
+  }
+
   var definitions = OBJECT_IDS.map(function (objectId) {
     var source = manifestObject(objectId);
     var current = Art.getObject(objectId);
@@ -929,6 +994,7 @@
           id: sourceVariant.variantId,
           label: sourceVariant.displayName,
           color: sourceVariant.color,
+          face: faceOverride(objectId, index),
           tokens: {
             castIndex: index,
             castLabel: sourceVariant.castLabel,
@@ -939,7 +1005,18 @@
           },
         };
       }),
-      buildVariant: BUILDERS[objectId],
+      buildVariant: function (variant) {
+        var basePainter = BUILDERS[objectId](variant);
+        return function paintWithPhysicalDetails(ctx, state) {
+          basePainter(ctx, state);
+          // Desk Globe owns its detailed 360-degree motion in a separate art
+          // shard; the shared profile remains available as an interface hook.
+          if (objectId !== 'desk-globe') {
+            Art.paintPhysicalDynamics(ctx, objectId, state, variant.color);
+          }
+          Art.paintReactionFace(ctx, variant.face, state);
+        };
+      },
     });
   });
 

@@ -110,6 +110,16 @@
     ctx.closePath();
   }
 
+  function starPath(ctx, x, y, outerRadius, innerRadius, pointCount, rotation) {
+    var points = [];
+    for (var i = 0; i < pointCount * 2; i++) {
+      var radius = i % 2 ? innerRadius : outerRadius;
+      var angle = (rotation == null ? -Math.PI / 2 : rotation) + i * Math.PI / pointCount;
+      points.push([x + Math.cos(angle) * radius, y + Math.sin(angle) * radius]);
+    }
+    polygon(ctx, points);
+  }
+
   function fillStroke(ctx, fill, stroke, width) {
     if (fill) { ctx.fillStyle = fill; ctx.fill(); }
     if (stroke && width > 0) { ctx.strokeStyle = stroke; ctx.lineWidth = width; ctx.stroke(); }
@@ -280,6 +290,12 @@
     }
     ctx.restore();
     drawSnowGlobeScene(ctx,index,p);
+    // The miniature is bolted to an interior plinth, so it never appears to
+    // drift with the flakes when the water mass rotates around it.
+    roundedRect(ctx, 91, 292, 118, 15, 6); fillStroke(ctx, p.silver, p.outline, 3);
+    line(ctx, [[119, 292], [119, 277], [181, 277], [181, 292]], p.silverDark, 4);
+    circle(ctx, 108, 299, 3, p.yellow, p.outline, 1.5);
+    circle(ctx, 192, 299, 3, p.yellow, p.outline, 1.5);
     drawFlakes(ctx,state,p,11);
     ctx.save(); ctx.globalAlpha=0.48;
     ctx.beginPath(); ctx.arc(122,142,54,3.45,4.72); ctx.strokeStyle=p.white; ctx.lineWidth=11; ctx.lineCap='round'; ctx.stroke();
@@ -501,6 +517,12 @@
     duckBase(ctx,145,by,brx,bry,hx,hy,hr,p);
     var flap=clock(state,2.7,index)*12;
     ctx.save();ctx.translate(0,flap);ellipse(ctx,123,280,53,26,p.dark,p.outline,5,-.35);line(ctx,[[100,279],[138,289]],p.light,4);ctx.restore();
+    // Matching far wing, curled tail, nostril and cheek highlight make the
+    // oversized duck read as one connected vinyl character from either side.
+    ctx.save();ctx.translate(0,-flap*.55);ellipse(ctx,194,276,42,22,p.light,p.outline,4,.30);line(ctx,[[177,282],[210,271]],p.shine,3);ctx.restore();
+    polygon(ctx,[[48,278],[22,251],[58,248],[74,269]]);fillStroke(ctx,p.light,p.outline,5);
+    circle(ctx,hx+hr*.97,hy+4,2.5,p.ink);
+    ctx.save();ctx.globalAlpha=.40;ellipse(ctx,hx-14,hy-22,13,7,p.white,null,0,-.35);ctx.restore();
     if(index===3){polygon(ctx,[[151,153],[191,102],[237,120],[224,149]]);fillStroke(ctx,p.white,p.outline,4);line(ctx,[[160,225],[207,237]],p.veryCherry||p.dark,9);}
     else if(index===4){ellipse(ctx,197,171,59,32,p.silver,p.outline,6);circle(ctx,178,170,17,p.glass,p.ink,3);circle(ctx,215,170,17,p.glass,p.ink,3);roundedRect(ctx,77,250,33,68,9);fillStroke(ctx,p.dark,p.outline,4);}
     else if(index===5){polygon(ctx,[[183,126],[193,81],[207,126]]);fillStroke(ctx,p.silver,p.outline,4);line(ctx,[[85,285],[205,305]],p.silverDark,7);roundedRect(ctx,92,242,44,35,6);fillStroke(ctx,p.silver,p.ink,3);}
@@ -528,6 +550,8 @@
   }
 
   function drawActionFigure(ctx,state,index,p) {
+    var roleIndex=index;
+    index=[0,3,6,11,2,5,8,1,10,4,7,9][roleIndex];
     var pose=clock(state,1.35,index)*5;
     figureBody(ctx,150,103,p,pose);
     if(index===0){ctx.beginPath();ctx.arc(150,103,52,Math.PI,0);fillStroke(ctx,p.glass,p.silverDark,6);roundedRect(ctx,105,158,30,88,8);fillStroke(ctx,p.silver,p.outline,4);line(ctx,[[111,184],[82,211]],p.light,5);}
@@ -542,6 +566,20 @@
     else if(index===9){ctx.beginPath();ctx.arc(150,103,55,Math.PI,0);fillStroke(ctx,p.white,p.outline,6);roundedRect(ctx,101,154,31,92,7);fillStroke(ctx,p.silver,p.outline,4);line(ctx,[[113,180],[88,196]],p.light,4);line(ctx,[[108,205],[83,219]],p.light,4);}
     else if(index===10){var wave=clock(state,1.8,index)*9;ctx.beginPath();ctx.moveTo(111,147);ctx.quadraticCurveTo(61,196+wave,91,322);ctx.quadraticCurveTo(150,279-wave,209,322);ctx.quadraticCurveTo(239,195-wave,189,147);ctx.closePath();fillStroke(ctx,p.light,p.outline,5);ellipse(ctx,150,155,35,21,p.white,p.outline,3);}
     else{polygon(ctx,[[150,44],[162,71],[191,74],[169,94],[176,123],[150,108],[124,123],[131,94],[109,74],[138,71]]);fillStroke(ctx,p.yellow,p.outline,4);var cape=clock(state,1.9,index)*10;ctx.beginPath();ctx.moveTo(113,146);ctx.bezierCurveTo(73,196+cape,73,281-cape,99,325);ctx.lineTo(145,224);ctx.closePath();fillStroke(ctx,p.light,p.outline,5);}
+    // Original role emblems keep all twelve locked characters immediately
+    // distinguishable even at small roster size.
+    if(roleIndex===0){line(ctx,[[113,196],[187,196]],p.silver,5);circle(ctx,150,196,12,p.glass,p.outline,3);}
+    else if(roleIndex===1){line(ctx,[[150,58],[150,39]],p.silverDark,4);circle(ctx,150,35,5,p.yellow,p.outline,2);}
+    else if(roleIndex===2){polygon(ctx,[[150,167],[177,183],[169,218],[150,231],[131,218],[123,183]]);fillStroke(ctx,p.silver,p.outline,4);}
+    else if(roleIndex===3){[119,181].forEach(function(x){starPath(ctx,x,183,10,4,5);fillStroke(ctx,p.yellow,p.outline,2);});}
+    else if(roleIndex===4){circle(ctx,150,196,18,p.cream,p.outline,3);line(ctx,[[150,196],[159,184]],p.ink,2);}
+    else if(roleIndex===5){circle(ctx,150,195,19,p.white,p.outline,3);[0,1,2].forEach(function(n){ctx.beginPath();ctx.arc(150,195,8+n*6,n*.7,n*.7+2.3);ctx.strokeStyle=p.light;ctx.lineWidth=2;ctx.stroke();});}
+    else if(roleIndex===6){line(ctx,[[114,180],[186,212]],p.white,9);line(ctx,[[114,199],[186,231]],p.dark,7);}
+    else if(roleIndex===7){[109,191].forEach(function(x){circle(ctx,x,206,6,p.glass,p.outline,2);circle(ctx,x,224,4,p.glass,p.outline,1);});}
+    else if(roleIndex===8){circle(ctx,174,204,14,p.glass,p.outline,3);line(ctx,[[184,214],[199,231]],p.outline,5);}
+    else if(roleIndex===9){polygon(ctx,[[118,190],[150,174],[182,190],[150,205]]);fillStroke(ctx,p.silver,p.outline,3);}
+    else if(roleIndex===10){for(var gear=0;gear<8;gear++){var ga=gear*Math.PI/4;circle(ctx,150+Math.cos(ga)*17,201+Math.sin(ga)*17,4,p.yellow,p.outline,1);}circle(ctx,150,201,12,p.silver,p.outline,3);}
+    else{starPath(ctx,150,198,22,9,5);fillStroke(ctx,p.yellow,p.outline,3);}
     ellipse(ctx,150,370,92,6,p.shadow,null,0);
   }
 
@@ -555,6 +593,8 @@
   }
 
   function drawBuilding(ctx,state,index,p) {
+    var buildingIndex=index;
+    index=[0,1,3,2,9,8,7,10,11,6,5,4][buildingIndex];
     var sway=clock(state,1.6,index)*4;
     if(index===0){roundedRect(ctx,91,74,118,302,5);fillStroke(ctx,bodyGradient(ctx,p,91,74,118,302),p.outline,7);polygon(ctx,[[106,74],[106,52],[194,52],[194,74]]);fillStroke(ctx,p.light,p.outline,5);windows(ctx,100,97,100,248,p,state,index,4,8);}
     else if(index===1){roundedRect(ctx,72,54,156,322,3);fillStroke(ctx,p.dark,p.outline,7);for(var n=0;n<8;n++)line(ctx,[[78,94+n*35],[222,94+n*35]],p.brown,5);windows(ctx,86,70,128,275,p,state,index,3,8);}
@@ -568,6 +608,11 @@
     else if(index===9){line(ctx,[[92,376],[117,155],[183,155],[208,376]],p.silverDark,12);ellipse(ctx,150,129,72,70,p.base,p.outline,7);roundedRect(ctx,121,187,58,189,4);fillStroke(ctx,p.light,p.outline,5);windows(ctx,130,206,40,140,p,state,index,2,5);}
     else if(index===10){[[92,282,104,94],[67,207,123,77],[105,133,128,76],[76,64,116,70]].forEach(function(v,n){roundedRect(ctx,v[0]+(n%2?sway:0),v[1],v[2],v[3],5);fillStroke(ctx,n%2?p.light:p.base,p.outline,6);windows(ctx,v[0]+10+(n%2?sway:0),v[1]+8,v[2]-20,v[3]-16,p,state,index+n,3,2);});}
     else{polygon(ctx,[[84,376],[84,101],[109,75],[109,55],[191,55],[191,75],[216,101],[216,376]]);fillStroke(ctx,bodyGradient(ctx,p,84,55,132,321),p.outline,7);polygon(ctx,[[109,55],[123,34],[177,34],[191,55]]);fillStroke(ctx,p.yellow,p.outline,5);ctx.save();ctx.globalAlpha=.48;roundedRect(ctx,120,46,60,75,17);fillStroke(ctx,p.white,null,0);ctx.restore();windows(ctx,103,139,94,199,p,state,index,3,6);}
+    // Missing tower-specific architectural cues for the locked matrix.
+    if(buildingIndex===4){ellipse(ctx,150,129,84,18,p.glass,p.outline,4);line(ctx,[[150,104],[150,51+sway]],p.silverDark,5);}
+    else if(buildingIndex===8){ctx.save();ctx.globalAlpha=.24;polygon(ctx,[[150,83],[277,132],[150,154]]);fillStroke(ctx,p.yellow,null,0);ctx.restore();}
+    else if(buildingIndex===9){roundedRect(ctx,63,307,174,27,8);fillStroke(ctx,p.cream,p.outline,4);line(ctx,[[82,335],[82,365],[218,365],[218,335]],p.silverDark,5);}
+    else if(buildingIndex===11){ctx.save();ctx.globalAlpha=.46;[0,1,2,3].forEach(function(n){polygon(ctx,[[150,45+n*68],[112+n*3,104+n*68],[188-n*3,104+n*68]]);fillStroke(ctx,n%2?p.glass:p.white,p.outline,2);});ctx.restore();}
     ellipse(ctx,150,370,108,6,p.shadow,null,0);
   }
 
@@ -595,6 +640,24 @@
     else{polygon(ctx,[[150,151],[166,184],[202,189],[176,215],[182,251],[150,234],[118,251],[124,215],[98,189],[134,184]]);fillStroke(ctx,p.yellow,p.outline,4);ctx.save();ctx.globalAlpha=.35;line(ctx,[[87,118],[209,322]],p.white,13);ctx.restore();}
   }
 
+  function drawSnackAssortment(ctx,state,index,p) {
+    var lag=clock(state,1.6,index)*3;
+    roundedRect(ctx,82,183,136,127,14);fillStroke(ctx,p.cream,p.outline,5);
+    // Popcorn tub.
+    polygon(ctx,[[91,215],[124,215],[120,286],[96,286]]);fillStroke(ctx,p.white,p.outline,3);
+    [0,1,2,3,4].forEach(function(n){circle(ctx,97+(n%3)*11+lag*.12,211-Math.floor(n/3)*8,8,p.yellow,p.outline,2);});
+    // Cracker packet with sealed crimp lines.
+    roundedRect(ctx,128+lag*.18,205,37,81,7);fillStroke(ctx,p.light,p.outline,3);
+    line(ctx,[[133+lag*.18,216],[160+lag*.18,216]],p.white,3);
+    [0,1,2].forEach(function(n){roundedRect(ctx,137+lag*.18,229+n*15,19,10,2);fillStroke(ctx,p.cream,p.brown,1.5);});
+    // Fruit bites and a looped pretzel are unmistakably separate snacks.
+    roundedRect(ctx,170-lag*.14,222,38,64,7);fillStroke(ctx,p.dark,p.outline,3);
+    [0,1,2].forEach(function(n){circle(ctx,180+(n%2)*16-lag*.14,242+n*12,6,n%2?p.green:p.pink,p.outline,1.5);});
+    ctx.beginPath();ctx.arc(182,199,12,.2,5.9);ctx.arc(202,199,12,-2.9,2.7);
+    ctx.strokeStyle=p.brown;ctx.lineWidth=6;ctx.stroke();
+    line(ctx,[[91,296],[209,296]],p.base,5);
+  }
+
   function drawSnackBox(ctx,state,index,p) {
     var flap=clock(state,1.9,index)*7;
     if(index===0){carton(ctx,[[79,100],[112,76+flap],[132,99],[221,99],[221,376],[79,376]],p);polygon(ctx,[[112,77+flap],[137,63],[162,77+flap],[188,61],[221,99],[79,99]]);fillStroke(ctx,p.light,p.outline,5);}
@@ -610,6 +673,7 @@
     else if(index===10){carton(ctx,[[49,122],[251,122],[226,376],[74,376]],p);polygon(ctx,[[49,122],[73,81+flap],[98,117],[125,80-flap],[151,117],[178,80+flap],[204,117],[229,81-flap],[251,122]]);fillStroke(ctx,p.light,p.outline,5);}
     else{carton(ctx,[[75,84],[225,84],[213,376],[87,376]],p);polygon(ctx,[[75,84],[112,53+flap],[150,75],[189,51-flap],[225,84]]);fillStroke(ctx,p.light,p.outline,5);}
     packageMarks(ctx,index,p);
+    drawSnackAssortment(ctx,state,index,p);
     if(index!==5)shine(ctx,index===10?73:92,index===10?157:123,12,172,5,p);
     ellipse(ctx,150,370,index===10?96:76,6,p.shadow,null,0);
   }
@@ -644,6 +708,14 @@
     };
   }
 
+  function faceOverride(id, index) {
+    if (id === 'huge-rubber-duck') {
+      if (index === 1) return { anchor: { x: 154, y: 132 }, scale: 0.72, focusRadius: 72, supportsEmotion: true };
+      if (index === 8) return { anchor: { x: 180, y: 184 }, scale: 0.72, focusRadius: 72, supportsEmotion: true };
+    }
+    return null;
+  }
+
   function register(id) {
     var existing = Art.getObject(id);
     if (existing) return existing;
@@ -658,6 +730,7 @@
           id: variant.variantId,
           label: variant.label,
           color: variant.color,
+          face: faceOverride(id, index),
           tokens: {
             castIndex: index,
             castLabel: variant.castLabel,
@@ -675,6 +748,8 @@
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
             painter(ctx, state || {}, castIndex, p);
+            Art.paintPhysicalDynamics(ctx, id, state, variant.color);
+            Art.paintReactionFace(ctx, variant.face, state);
           } finally {
             ctx.restore();
           }

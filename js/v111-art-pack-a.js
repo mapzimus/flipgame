@@ -182,8 +182,9 @@
   function drawCarton(builderVariant) {
     var p = palette(builderVariant.color);
     var index = variantIndex(builderVariant);
-    var widths = [148, 112, 150, 146, 164, 184, 152, 170, 148, 128, 158, 182];
-    var tops = [145, 96, 132, 126, 178, 130, 128, 138, 128, 110, 144, 152];
+    // Every cast is a full-size, tall carton rather than a juice-box shape.
+    var widths = [148, 132, 150, 146, 160, 168, 152, 158, 148, 138, 158, 166];
+    var tops = [78, 58, 72, 66, 82, 70, 64, 75, 68, 55, 73, 80];
     var width = widths[index];
     var top = tops[index];
     var left = 150 - width / 2;
@@ -242,6 +243,30 @@
       ctx.bezierCurveTo(173, Math.max(top + 135, 271), 177, Math.max(top + 105, 241),
         150, Math.max(top + 89, 225));
       ctx.fill();
+
+      // Original brand-free cow illustration: rounded ears, patch, muzzle, and
+      // tiny horns form a clear dairy cue without text, logos, or trademarks.
+      var cowY = Math.max(top + 104, 213);
+      ctx.save();
+      ctx.fillStyle = p.paper; ctx.strokeStyle = p.deep; ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.ellipse(150, cowY, 31, 27, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      [-1, 1].forEach(function (side) {
+        ctx.beginPath(); ctx.ellipse(150 + side * 34, cowY - 12, 14, 8,
+          side * 0.25, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(150 + side * 18, cowY - 22);
+        ctx.lineTo(150 + side * 25, cowY - 37); ctx.lineTo(150 + side * 9, cowY - 25);
+        ctx.stroke();
+      });
+      ctx.fillStyle = p.deep;
+      ctx.beginPath(); ctx.ellipse(139, cowY - 5, 9, 12, -0.25, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(140, cowY - 6, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(160, cowY - 6, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f3b2bd';
+      ctx.beginPath(); ctx.ellipse(150, cowY + 13, 20, 11, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = p.deep;
+      ctx.beginPath(); ctx.arc(143, cowY + 13, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(157, cowY + 13, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
 
       if (index === 2) {
         ctx.strokeStyle = p.deep; ctx.lineWidth = 9; ctx.lineCap = 'round';
@@ -380,6 +405,11 @@
       ctx.beginPath(); ctx.arc(150, c[1] - c[3] - 20, index === 7 ? 13 : 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.restore();
 
+      ctx.save();
+      ctx.translate(266, 184);
+      // Steam rises in world space rather than remaining glued to the rotating
+      // teapot. Slosh gives the plume a small inertial hook during flight.
+      ctx.rotate(-(state.angle || 0) + (state.slosh || 0) * 0.08);
       ctx.globalAlpha = 0.65;
       ctx.strokeStyle = p.paper;
       ctx.lineWidth = 7;
@@ -387,11 +417,12 @@
       for (var i = 0; i < 2; i++) {
         var sway = Math.sin(time * 1.7 + i * 1.9) * 6;
         ctx.beginPath();
-        ctx.moveTo(266 - i * 9, 184);
-        ctx.bezierCurveTo(250 + sway, 156 - i * 5, 283 - sway, 131, 264 + sway, 104 - i * 9);
+        ctx.moveTo(-i * 9, 0);
+        ctx.bezierCurveTo(-16 + sway, -28 - i * 5, 17 - sway, -53,
+          -2 + sway, -80 - i * 9);
         ctx.stroke();
       }
-      ctx.globalAlpha = 1;
+      ctx.restore();
       highlight(ctx, c[0] - c[2] * 0.48, c[1] - c[3] * 0.55, c[3] * 0.75);
       commonFace(ctx, 151, 289, 0.78);
       ctx.restore();
@@ -543,8 +574,24 @@
       ctx.strokeStyle = p.deep; ctx.lineWidth = 4; ctx.stroke();
       ctx.fillStyle = p.base;
       ctx.beginPath(); ctx.ellipse(150, labelTop + 57, Math.max(29, width * 0.24), 24, 0, 0, Math.PI * 2); ctx.fill();
+      // A steaming bowl with visible peas/noodles/carrots makes this read as
+      // soup immediately while remaining completely original and brand-free.
+      ctx.fillStyle = '#ef9b3d';
+      ctx.beginPath(); ctx.ellipse(150, labelTop + 57, Math.max(24, width * 0.20), 15, 0, 0, Math.PI * 2); ctx.fill();
+      [132, 149, 167].forEach(function (ingredientX, ingredientIndex) {
+        ctx.beginPath(); ctx.arc(ingredientX, labelTop + 54 + (ingredientIndex % 2) * 5,
+          4.5, 0, Math.PI * 2);
+        ctx.fillStyle = ingredientIndex === 1 ? '#e94c4c' : '#5caa4f'; ctx.fill();
+      });
       ctx.strokeStyle = p.deep; ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.arc(150, labelTop + 47, Math.max(20, width * 0.18), 0.12, Math.PI - 0.12); ctx.stroke();
+      ctx.beginPath(); ctx.arc(150, labelTop + 55, Math.max(31, width * 0.25), 0.06, Math.PI - 0.06); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(120, labelTop + 62); ctx.quadraticCurveTo(150, labelTop + 79, 180, labelTop + 62); ctx.stroke();
+      ctx.lineWidth = 3.5;
+      [-13, 12].forEach(function (steamX) {
+        ctx.beginPath(); ctx.moveTo(150 + steamX, labelTop + 38);
+        ctx.bezierCurveTo(141 + steamX, labelTop + 29, 159 + steamX, labelTop + 20,
+          150 + steamX, labelTop + 10); ctx.stroke();
+      });
 
       ctx.save();
       ctx.translate(150, top - 1);
@@ -598,6 +645,7 @@
     var left = 150 - width / 2;
     return function paintSmoothie(ctx, state) {
       var time = animatedTime(state);
+      var liquidColor = Art.smoothieLiquidColor(state, p.base);
       var whip = Math.sin(time * 3.6 + index) * 9;
       var wobble = Math.sin(time * 4.2 + index * 0.5) * 2;
       groundShadow(ctx, 150, width + 14);
@@ -630,12 +678,12 @@
       ctx.save();
       ctx.globalAlpha = 0.78;
       if (index === 5) {
-        [p.dark, p.base, p.pale].forEach(function (color, layer) {
+        [shade(liquidColor, -0.22), liquidColor, shade(liquidColor, 0.25)].forEach(function (color, layer) {
           ctx.fillStyle = color;
           ctx.fillRect(left + 10, 226 + layer * 43, width - 20 - layer * 3, 43);
         });
       } else {
-        ctx.fillStyle = p.base;
+        ctx.fillStyle = liquidColor;
         ctx.beginPath();
         ctx.moveTo(left + 8, 212 + wobble);
         ctx.quadraticCurveTo(150, 197 - wobble, left + width - 8, 212 + wobble);
@@ -696,6 +744,19 @@
         ctx.fill();
       }
       ctx.globalAlpha = 1;
+      // Fruit wheel + chunky ingredient highlights give the cup a richer,
+      // unmistakable smoothie silhouette at roster and gameplay sizes.
+      ctx.save();
+      ctx.translate(left + width - 26, top + 13);
+      ctx.rotate(0.42);
+      ctx.fillStyle = '#ffcf45'; ctx.strokeStyle = p.deep; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(0, 0, 23, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      for (var wedge = 0; wedge < 6; wedge++) {
+        ctx.beginPath(); ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(wedge * Math.PI / 3) * 20, Math.sin(wedge * Math.PI / 3) * 20);
+        ctx.strokeStyle = '#fff5b2'; ctx.lineWidth = 2; ctx.stroke();
+      }
+      ctx.restore();
       highlight(ctx, left + 20, 178, 113);
       if (index !== 8) commonFace(ctx, 150, 304, 0.76);
       ctx.restore();
@@ -824,6 +885,12 @@
         roundRect(ctx, index === 9 ? 88 : 45, 337, index === 9 ? 124 : 210, 39, 15);
       }
       ctx.fill(); ctx.stroke();
+      // Secondary flat foot guarantees the illustration looks planted even for
+      // the arched and faceted cast variants (visual only; collider is shared).
+      roundRect(ctx, 50, 356, 200, 20, 8);
+      ctx.fillStyle = p.deep; ctx.fill();
+      roundRect(ctx, 61, 358, 178, 11, 5);
+      ctx.fillStyle = p.light; ctx.fill();
 
       ctx.strokeStyle = p.deep;
       ctx.lineWidth = index === 3 || index === 7 ? 25 : 34;
@@ -893,6 +960,22 @@
         ctx.save(); ctx.translate(181, 204); ctx.rotate(-0.5 + lens * 0.5);
         ctx.fillStyle = p.dark; roundRect(ctx, -8, 13, 16, 54, 6); ctx.fill(); ctx.restore();
       }
+
+      // Fine/coarse focus controls, stage clips, condenser and light cone add
+      // the missing authored detail while keeping the original silhouette.
+      [0, 1].forEach(function (knob) {
+        ctx.beginPath(); ctx.arc(211, 184 + knob * 35, 10 - knob * 2, 0, Math.PI * 2);
+        ctx.fillStyle = knob ? p.dark : p.light; ctx.fill();
+        ctx.strokeStyle = p.deep; ctx.lineWidth = 3; ctx.stroke();
+      });
+      ctx.strokeStyle = p.deep; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(104, 256); ctx.lineTo(125, 256);
+      ctx.moveTo(200, 256); ctx.lineTo(221, 256); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(166, 260); ctx.lineTo(166, 291);
+      ctx.quadraticCurveTo(181, 301, 197, 291); ctx.lineTo(197, 260); ctx.stroke();
+      ctx.globalAlpha = 0.32; ctx.fillStyle = '#bdf5ff';
+      polygon(ctx, [[174, 227], [190, 227], [211, 252], [153, 252]]); ctx.fill();
+      ctx.globalAlpha = 1;
 
       if (index === 10) {
         ctx.strokeStyle = '#a87943'; ctx.lineWidth = 10; ctx.setLineDash && ctx.setLineDash([4, 5]);
@@ -980,7 +1063,14 @@
           },
         };
       }),
-      buildVariant: builder,
+      buildVariant: function (variant) {
+        var basePainter = builder(variant);
+        return function paintWithPhysicalDetails(ctx, state) {
+          basePainter(ctx, state);
+          Art.paintPhysicalDynamics(ctx, record.id, state, variant.color);
+          Art.paintReactionFace(ctx, variant.face, state);
+        };
+      },
     });
     assertVariantParity(definition, record);
     return definition;

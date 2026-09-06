@@ -76,7 +76,7 @@
 
   return Object.freeze({
     schema: 'FlipgameArtCatalogV1',
-    contractRevision: 3,
+    contractRevision: 4,
     objectIds: Object.freeze(manifestObjectIds.slice()),
     variantIds: Object.freeze(variantIds.slice()),
     packs: Object.freeze(packs.slice()),
@@ -86,6 +86,12 @@
     variant: variant,
     getRenderVariant: function (objectId, variantId) {
       return platform.getRenderVariant(objectId, variantId);
+    },
+    face: function (objectId, variantId) {
+      return platform.getRenderVariant(objectId, variantId).face;
+    },
+    physicalDynamics: function (objectId, state) {
+      return platform.physicalDynamicsSnapshot(objectId, state);
     },
     renderPreview: function (ctx, options) { return platform.renderPreview(ctx, options); },
     renderGameplay: function (ctx, options) { return platform.renderGameplay(ctx, options); },

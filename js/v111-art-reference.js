@@ -144,30 +144,10 @@
       ctx.stroke();
       ctx.restore();
 
-      // Friendly face: intentionally identical geometry for all variants.
-      ctx.save();
-      ctx.fillStyle = palette.cream;
-      ctx.strokeStyle = palette.ink;
-      ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.ellipse(113, 235, 15, 19, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(170, 235, 15, 19, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = palette.ink;
-      ctx.beginPath(); ctx.arc(116, 240, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(173, 240, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = palette.ink;
-      ctx.lineWidth = 6;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.bezierCurveTo(119, 278, 141, 298, 166, 278);
-      ctx.stroke();
-      ctx.globalAlpha = 0.66;
-      ctx.fillStyle = palette.blush;
-      ctx.beginPath(); ctx.ellipse(93, 270, 13, 7, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(189, 270, 13, 7, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-
       // Steam is render-state animation only; reduced motion freezes it.
       ctx.save();
+      ctx.translate(141, 118);
+      ctx.rotate(-(state.angle || 0) + (state.slosh || 0) * 0.07);
       ctx.globalAlpha = 0.68;
       ctx.strokeStyle = palette.cream;
       ctx.lineWidth = 8;
@@ -175,12 +155,15 @@
       [-29, 17, 55].forEach(function (offset, index) {
         var sway = state.reducedMotion ? 0 : Math.sin(time * 1.8 + index * 1.7) * 7;
         ctx.beginPath();
-        ctx.moveTo(141 + offset, 118);
-        ctx.bezierCurveTo(125 + offset + sway, 99 - steamLift,
-          159 + offset - sway, 86 - steamLift, 141 + offset + sway, 68 - steamLift);
+        ctx.moveTo(offset, 0);
+        ctx.bezierCurveTo(-16 + offset + sway, -19 - steamLift,
+          18 + offset - sway, -32 - steamLift, offset + sway, -50 - steamLift);
         ctx.stroke();
       });
       ctx.restore();
+
+      Art.paintPhysicalDynamics(ctx, 'coffee-mug', state, variant.color);
+      Art.paintReactionFace(ctx, variant.face, state);
     };
   }
 
