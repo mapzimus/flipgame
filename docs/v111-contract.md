@@ -1,6 +1,6 @@
 # Flipgame v1.11 Contract
 
-Contract revision: 45
+Contract revision: 47
 Baseline commit: `3a3ace0`
 Public release version: `v1.11`
 
@@ -202,11 +202,21 @@ cap-toss:5500, life-drain:6000`.
   and loose parts respond where physically appropriate; rigid objects remain
   rigid. Reduced motion retains a stable representative state. These visuals
   never change mass, collider, landing tolerance, RNG outcome, or scoring.
-- Every object exposes a stable face anchor. Airborne objects show a scared
-  reaction, resolved makes a smile, and resolved misses a frown. The renderer
-  owns the outcome-to-emotion mapping and a brief responsive face-focus camera
-  beat; art never infers results, and the beat never delays or changes physics,
-  resolution, scoring, or turn order.
+- Only an explicit allowlist of silly/character-like objects that lack a more
+  distinctive physical mover exposes an active face anchor. Objects whose
+  personality is already conveyed by liquid, lava, sand/granules, snow, steam,
+  foliage, globe rotation, or comparable dynamics do not receive a generic
+  pasted-on face. Eligible objects show scared while airborne and smile/frown
+  after a resolved make/miss. Renderer owns this mapping and a brief responsive
+  face-focus camera beat; safe default is `supportsEmotion:false`. Art never
+  infers results, and the beat never delays or changes physics, resolution,
+  scoring, or turn order.
+- The original Bottle explicitly has `supportsEmotion:false`; its water/slosh
+  remains its only character motion and it never receives face-focus treatment.
+- The new-object emotion allowlist is Penguin, Owl, Giraffe, Red Panda,
+  Eyeball Monster, Huge Rubber Duck, and Action Figures. The legacy allowlist is
+  Bowling Pin, Traffic Cone, Chess Pawn, Whipped Cream, Lawn Chair, and Alien.
+  Every other object, including Desk Globe and T-Rex, is explicitly unsupported.
 - The original T-Rex/dinosaur artwork and style are a protected invariant and
   must not be redrawn, restyled, or physically altered by the v1.11 art pass.
 - The Desk Globe is a detailed, offline, full-360-degree rotating sphere with
@@ -336,8 +346,9 @@ cap-toss:5500, life-drain:6000`.
 - `RenderVariant` is immutable
   `{ id, objectId, variantId, label, color, metrics, face, renderLocal }`; metrics
   use the canonical viewBox, pivot, baseline, and collision mapping above.
-  `face` contains an immutable local anchor, scale/focus radius, and emotion
-  capability. Paint state adds only `emotion: idle|scared|smile|frown`, existing
+  Optional `face` contains an immutable local anchor, scale/focus radius, and
+  explicit emotion capability. Paint state adds only
+  `emotion: idle|scared|smile|frown`, existing
   angle/slosh/motion fields, and the already-bound `flipSeed`. Legacy artwork
   receives safe face/dynamics fallbacks; no art module reads game rules.
 - Versioned outcome events consumed by achievements and statistics

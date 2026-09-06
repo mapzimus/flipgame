@@ -885,3 +885,63 @@ interface or behavior changes to the Program Integrator before proceeding.
   remains stable throughout that flip/replay and preview seed zero is fixed.
 - Required tests: same-seed stability, different-seed palette coverage, replay
   parity, no RNG consumption, and unchanged game outcomes.
+
+## Revision 46 - compatible paint-state superset
+
+- Trigger: art owners used different names for elapsed time, seed, and resolved
+  emotions while the camera/renderer integration began.
+- New interface: skin paint opts consistently expose `time`, `motionSeed`, bound
+  `flipSeed`, angle/slosh/angular velocity/velocity/airborne/contact/impact, and
+  renderer-owned `emotion: idle|scared|smile|frown`. Optional immutable face
+  metadata is `{anchor, scale, focusRadius, supportsEmotion}` and is
+  feature-detected without mutating art.
+- Required tests: deterministic forwarding, replay parity, immutable metadata,
+  no gameplay mutation, and compatibility across new/legacy art packs.
+
+## Revision 47 - reaction faces are selective, not universal
+
+- Trigger: product review clarified that faces belong only on silly objects
+  without another compelling physical mover.
+- Old behavior: revision 41 required anchors/reactions for every object except
+  the protected T-Rex.
+- New behavior: art declares an explicit `supportsEmotion` allowlist. Liquid,
+  lava, sand/granule, snow, steam, foliage, globe, and similarly dynamic objects
+  use physical motion instead of a generic face. Renderer default is false;
+  only declared eligible objects receive scared/smile/frown or face zoom. The
+  new-object allowlist is Penguin, Owl, Giraffe, Red Panda, Eyeball Monster,
+  Huge Rubber Duck, and Action Figures. The legacy allowlist is Bowling Pin,
+  Traffic Cone, Chess Pawn, Whipped Cream, Lawn Chair, and Alien. The original
+  Bottle and T-Rex are explicitly false; Bottle keeps water motion and T-Rex
+  remains untouched.
+- Required tests: exact approved allowlists, no overlay/zoom on unsupported
+  objects, correct lifecycle on supported objects, original Bottle exclusion,
+  protected T-Rex invariance, and unchanged gameplay.
+
+## Revision 46 - compatible paint-state superset
+
+- Trigger: art owners used different names for elapsed time, seed, and resolved
+  emotions while the camera/renderer integration began.
+- New interface: skin paint opts consistently expose `time`, `motionSeed`, bound
+  `flipSeed`, angle/slosh/angular velocity/velocity/airborne/contact/impact, and
+  renderer-owned `emotion: idle|scared|smile|frown`. Optional immutable face
+  metadata is `{anchor, scale, focusRadius, supportsEmotion}` and is
+  feature-detected without mutating art.
+- Required tests: deterministic forwarding, replay parity, immutable metadata,
+  no gameplay mutation, and compatibility across new/legacy art packs.
+
+## Revision 47 - reaction faces are selective, not universal
+
+- Trigger: product review clarified that faces belong only on silly objects
+  without another compelling physical mover.
+- Old behavior: revision 41 required anchors/reactions for every object except
+  the protected T-Rex.
+- New behavior: art declares an explicit `supportsEmotion` allowlist. Liquid,
+  lava, sand/granule, snow, steam, foliage, globe, and similarly dynamic objects
+  use physical motion instead of a generic face. Renderer default is false;
+  only declared eligible objects receive scared/smile/frown or face zoom. The
+  new-object allowlist is Penguin, Owl, Giraffe, Red Panda, Eyeball Monster,
+  Huge Rubber Duck, and Action Figures. The original Bottle and T-Rex are
+  explicitly false; Bottle keeps water motion and T-Rex remains untouched.
+- Required tests: exact approved allowlist, no overlay/zoom on unsupported
+  objects, correct lifecycle on supported objects, original Bottle exclusion,
+  protected T-Rex invariance, and unchanged gameplay.
