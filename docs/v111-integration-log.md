@@ -779,7 +779,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   >60-combination flip/match filter truth before and after fallback reopen,
   hostile aggregate schemas/counts/counters with rollback, exact mixed-script
   probes, and `{id,name}` setup-row sanitation at every stats boundary.
-- Integration commit: pending.
+- Integration commit: `148963f`.
 - Affected owner: State/Data/Safety acknowledged. Public StatsStore methods stay
   unchanged; aggregate overflow schema gains the bounded validated index.
 
@@ -803,7 +803,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   first-failure Rewind replay/finality, all nine Plinko slots, Roulette sector,
   Mitosis landed count, Cap Toss bodies, malformed/mismatched/missing payloads,
   and unchanged ordinary/legacy-safe verdict behavior.
-- Integration commit: pending.
+- Integration commit: `898e4c3`.
 - Affected owners: UI/Network/Physics owner acknowledged; State/Data/Safety and
   active QA were notified and reported no conflicting interface work.
 
@@ -829,7 +829,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - New behavior: the adapter forwards existing paint-only motion fields without
   changing physics, results, or the shared collision envelope.
 - Migration/tests: deterministic previews remain stable and every affected art
-  renderer receives equivalent state. Integration commit pending art merge.
+  renderer receives equivalent state. Integration commits: `6d5b38a`, `d6db565`.
 
 ## Revision 41 - universal reaction faces and open-liquid spill
 
@@ -840,7 +840,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   liquids spill only under inversion/outward motion; sealed contents never do.
 - Required tests: 51-object anchor coverage, every emotion, reduced motion,
   responsive camera framing, sealed/open boundaries, and unchanged verdicts.
-- Integration commits pending art and renderer merge.
+- Integration commits: `6d5b38a`, `d6db565`.
 
 ## Revision 42 - product-owner artwork review
 
@@ -875,7 +875,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   missing Orchid/Flytrap and required family detail are authored without any
   ID, unlock, physics, or scoring change.
 - Required tests: exact manifest names/order, all 36 renders, stable IDs, and
-  unchanged progression. Integration commit pending art merge.
+  unchanged progression. Integration commit: `6d5b38a`.
 
 ## Revision 45 - deterministic per-flip Smoothie color
 
@@ -885,6 +885,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   remains stable throughout that flip/replay and preview seed zero is fixed.
 - Required tests: same-seed stability, different-seed palette coverage, replay
   parity, no RNG consumption, and unchanged game outcomes.
+- Integration commits: `6d5b38a`, `d6db565`.
 
 ## Revision 46 - compatible paint-state superset
 
@@ -897,6 +898,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   feature-detected without mutating art.
 - Required tests: deterministic forwarding, replay parity, immutable metadata,
   no gameplay mutation, and compatibility across new/legacy art packs.
+- Integration commit: `d6db565`.
 
 ## Revision 47 - reaction faces are selective, not universal
 
@@ -916,6 +918,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: exact approved allowlists, no overlay/zoom on unsupported
   objects, correct lifecycle on supported objects, original Bottle exclusion,
   protected T-Rex invariance, and unchanged gameplay.
+- Integration commits: `d6db565`, `ff863b5`.
 
 ## Revision 46 - compatible paint-state superset
 
