@@ -1558,6 +1558,8 @@
       };
     }
     const eventResult = (Physics.getEventResultMetadata && Physics.getEventResultMetadata()) || {};
+    const eventReward = eventResult.eventReward && typeof eventResult.eventReward === 'object'
+      ? eventResult.eventReward : {};
     return Object.assign({}, eventResult, {
       perfect: !!(landingInfo && landingInfo.perfect),
       onCap:   !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
@@ -1565,11 +1567,11 @@
       plinko:  eventResult.plinko || eventResult.prize || (landingInfo && landingInfo.plinko) || null,
       rareEvent: rareEventActive,
       eventId: canonicalEventId(),
-      landedCount: eventResult.landedCount,
-      rouletteMultiplier: eventResult.rouletteMultiplier || eventResult.multiplier,
-      rouletteSlot: eventResult.rouletteSlot,
+      landedCount: eventResult.landedCount ?? eventReward.landedCount,
+      rouletteMultiplier: eventResult.rouletteMultiplier || eventResult.multiplier || eventReward.multiplier,
+      rouletteSlot: eventResult.rouletteSlot ?? eventReward.slotIndex,
       automaticOutcome: eventResult.automaticOutcome,
-      eventReward: eventResult,
+      eventReward,
     });
   }
 
@@ -1581,8 +1583,8 @@
     return rareEventActive === 'rainbow-trail' ? 'rainbow-corkscrew' : rareEventActive;
   }
 
-  function resolveGameFlip(result, landingInfo) {
-    const meta = landingMeta(landingInfo);
+  function resolveGameFlip(result, landingInfo, authoritativeMeta = null) {
+    const meta = authoritativeMeta || landingMeta(landingInfo);
     bridgeLandingInfo = landingInfo || null;
     const handled = v111Bridge('resolveFlip', {
       game,
@@ -1825,13 +1827,21 @@
       if (evaluating) {
         // Remote peers may receive the authoritative verdict before local settle.
         if (pendingNetResult) {
-          const forced = Physics.forceLanding
-            ? Physics.forceLanding(pendingNetResult.result, pendingNetResult.info)
-            : pendingNetResult.result;
+          const authority = pendingNetResult;
           pendingNetResult = null;
+          // Event verdicts already contain the authority's final attempt and
+          // event-owned resolution. Never run them through local event physics:
+          // Rewind would consume a final MISS as its first local failure and
+          // Plinko/Roulette/split bodies could choose different local metadata.
+          const forced = authority.eventResult ? authority.result
+            : (Physics.forceLanding
+              ? Physics.forceLanding(authority.result, authority.landingInfo)
+              : authority.result);
           evaluating = false;
           showGlow = forced === 'MAKE';
-          resolveGameFlip(forced, Physics.getLastLandingInfo());
+          resolveGameFlip(forced,
+            authority.eventResult ? authority.landingInfo : Physics.getLastLandingInfo(),
+            authority.meta);
           break;
         }
         // Online non-authority: display-only sim — wait for the flicker's result
@@ -1843,7 +1853,8 @@
           showGlow   = result === 'MAKE';
           const landingInfo = Physics.getLastLandingInfo();
           if (onlineMode && netAuthority && window.Net) {
-            Net.sendResult({
+            const eventId = canonicalEventId();
+            const packet = {
               result,
               info: {
                 tilt: landingInfo && landingInfo.tilt,
@@ -1855,7 +1866,24 @@
                 bankHits: landingInfo && landingInfo.bankHits,
               },
               playerId: Net.selfId,
-            });
+            };
+            let authoritativeMeta = null;
+            if (eventId) {
+              const localMeta = landingMeta(landingInfo);
+              packet.eventId = eventId;
+              packet.eventResult = window.FlipgameNetworkProtocolV2.createEventResult({
+                eventId,
+                result,
+                meta: localMeta,
+              });
+              const resolved = window.FlipgameNetworkProtocolV2.resolveAuthoritativeResult(packet, eventId);
+              if (!resolved.ok) throw new Error(`Invalid local event result: ${resolved.code}`);
+              authoritativeMeta = resolved.value.meta;
+            }
+            Net.sendResult(packet);
+            netAuthority = false;
+            resolveGameFlip(result, landingInfo, authoritativeMeta);
+            break;
           }
           netAuthority = false;
           resolveGameFlip(result, landingInfo);
@@ -2188,7 +2216,13 @@
 
   function flipStatsRecord(landing, flick) {
     const lifecycle = Physics.getLandingLifecycle ? Physics.getLandingLifecycle() : {};
-    const eventResult = Physics.getEventResultMetadata ? (Physics.getEventResultMetadata() || {}) : {};
+    const localEventResult = Physics.getEventResultMetadata ? (Physics.getEventResultMetadata() || {}) : {};
+    const eventResult = landing?.eventReward ? {
+      eventId: landing.eventId || canonicalEventId(),
+      eventReward: landing.eventReward,
+      meta: landing.meta || {},
+      automaticOutcome: landing.automaticOutcome || null,
+    } : localEventResult;
     const eventMeta = Physics.getEventMetadata ? (Physics.getEventMetadata() || {}) : {};
     const modeState = v111Runtime?.modes?.snapshot({ game, online: onlineMode }) || {};
     const index = flipTelemetry?.playerIndex ?? game.currentPlayerIndex;
@@ -4067,7 +4101,9 @@
     Net.on('result', (msg) => {
       if (!onlineMode || !gameStarted) return;
       if (msg.playerId === Net.selfId) return;
-      pendingNetResult = { result: msg.result, info: msg.info || {} };
+      const accepted = Net.acceptResult(msg, canonicalEventId());
+      if (!accepted) { evaluating = false; Input.disable(); return; }
+      pendingNetResult = accepted;
     });
     Net.on('leave', (peerId) => {
       if (!onlineMode || !gameStarted || !peerId) return;

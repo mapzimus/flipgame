@@ -731,6 +731,20 @@
       return true;
     }
 
+    // The protocol validates the payload shape at the envelope boundary. The
+    // renderer supplies its deterministic local event id here as the second,
+    // independent binding before any authoritative outcome reaches game rules.
+    function acceptResult(payload, expectedEventId) {
+      requireProtocol();
+      var accepted = Protocol.resolveAuthoritativeResult(payload, expectedEventId);
+      if (!accepted.ok) {
+        emit('protocol-reject', Object.freeze({ code: accepted.code, senderId: payload && payload.playerId || null }));
+        hideOnline(accepted.code);
+        return null;
+      }
+      return accepted.value;
+    }
+
     async function leave() {
       clearTimeout(reconnectTimer);
       stopMqttPing();
@@ -762,6 +776,7 @@
       bindMatchState: bindMatchState,
       sendFlick: sendFlick,
       sendResult: sendResult,
+      acceptResult: acceptResult,
       get roomCode() { return roomCode; },
       get selfId() { return selfId; },
       get isHost() { return isHost; },

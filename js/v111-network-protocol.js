@@ -17,6 +17,25 @@
   var VERSION = 2;
   var PROTOCOL = 'flipgame-net/2';
   var GAME_TYPES = Object.freeze(['flick', 'result']);
+  var EVENT_RESULT_SCHEMA = 'FlipgameEventResultV1';
+  var EVENT_RESULT_VERSION = 1;
+  var EVENT_IDS = Object.freeze([
+    'rainbow-corkscrew', 'half-full', 'power-launch', 'fizz-jet', 'golden-flip',
+    'bouncy-bottle', 'earthquake', 'moon-gravity', 'ice-slide', 'alien-invasion',
+    'gravity-slam', 'trampoline', 'wind-tunnel', 'shrink-ray', 'portal-pair',
+    'tether-swing', 'mitosis', 'double-flip', 'ceiling-flip', 'meteor-shower',
+    'magnet', 'heart-rush', 'black-hole', 'boomerang', 'roulette-table',
+    'rewind', 'plinko', 'mirror-match', 'cap-toss', 'life-drain',
+  ]);
+  var EVENT_ID_SET = new Set(EVENT_IDS);
+  var PLINKO_PRIZES = Object.freeze(['double', 'halve', 'magnet', 'lose', 'win']);
+  var PLINKO_SLOTS = Object.freeze([
+    'double', 'halve', 'magnet', 'lose', 'win', 'lose', 'magnet', 'halve', 'double',
+  ]);
+  var PLINKO_CANONICAL = Object.freeze({
+    double: 'lives-doubled', halve: 'everyone-else-halved', magnet: 'always-magnet',
+    lose: 'automatic-loss', win: 'automatic-win',
+  });
   var CONTROL_TYPES = Object.freeze([
     'hello', 'welcome', 'join', 'leave', 'roster', 'start', 'ping', 'pong',
     'resume', 'resume-state', 'rename-required',
@@ -64,6 +83,277 @@
           !safeData(value[keys[i]], level + 1, remaining)) return false;
     }
     return true;
+  }
+
+  function record(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function exactKeys(value, allowed) {
+    return Object.keys(value).every(function (key) { return allowed.indexOf(key) >= 0; });
+  }
+
+  function boundedString(value, maximum, nullable) {
+    if (value == null) return nullable ? null : undefined;
+    if (typeof value !== 'string' || value.length > maximum) return undefined;
+    return value;
+  }
+
+  function normalizeReward(value) {
+    if (!record(value)) return null;
+    var allowed = [
+      'additiveLives', 'capped', 'stakeMultiplier', 'landedCount', 'multiplier',
+      'slotIndex', 'bypassAdditiveCap', 'plinkoPrize', 'legacyPrize',
+      'flipperLivesMultiplier', 'opponentsLivesMultiplier', 'opponentRounding',
+      'activeOpponentsOnly', 'grantAlwaysMagnet', 'automaticOutcome', 'opponentsSetLives',
+    ];
+    if (!exactKeys(value, allowed)) return null;
+    var output = {};
+    for (var i = 0; i < allowed.length; i++) {
+      var key = allowed[i];
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      var item = value[key];
+      if (key === 'capped' || key === 'bypassAdditiveCap' || key === 'activeOpponentsOnly' ||
+          key === 'grantAlwaysMagnet') {
+        if (typeof item !== 'boolean') return null;
+      } else if (key === 'opponentRounding') {
+        if (item !== 'max(1,ceil)') return null;
+      } else if (key === 'plinkoPrize') {
+        if (Object.values(PLINKO_CANONICAL).indexOf(item) < 0) return null;
+      } else if (key === 'legacyPrize') {
+        if (PLINKO_PRIZES.indexOf(item) < 0) return null;
+      } else if (key === 'automaticOutcome') {
+        if (item !== 'MAKE' && item !== 'MISS') return null;
+      } else {
+        if (!Number.isFinite(item)) return null;
+        if (key === 'landedCount' && (!integer(item, 0) || item > 2)) return null;
+        if (key === 'slotIndex' && (!integer(item, 0) || item > 8)) return null;
+      }
+      output[key] = item;
+    }
+    return output;
+  }
+
+  function normalizeCopyOutcome(value) {
+    if (!record(value) || !exactKeys(value, ['copy', 'made', 'onCap', 'tilt', 'reason']) ||
+        !integer(value.copy, 1) || value.copy > 2 || typeof value.made !== 'boolean' ||
+        typeof value.onCap !== 'boolean' || (value.tilt != null && !finite(value.tilt))) return null;
+    var reason = boundedString(value.reason, 128, true);
+    if (reason === undefined) return null;
+    return {
+      copy: value.copy, made: value.made, onCap: value.onCap,
+      tilt: value.tilt == null ? null : Number(value.tilt), reason: reason,
+    };
+  }
+
+  function normalizePhysicsMetadata(value) {
+    if (!record(value)) return null;
+    var allowed = [
+      'onCap', 'pose', 'contacts', 'bounces', 'banks', 'rewind', 'copies',
+      'massConservationError', 'angularMomentumError', 'capToss', 'roulette', 'meteorHits',
+    ];
+    if (!exactKeys(value, allowed)) return null;
+    if (typeof value.onCap !== 'boolean' || ['upright', 'cap', 'other'].indexOf(value.pose) < 0 ||
+        !integer(value.contacts, 0) || !integer(value.bounces, 0) || !integer(value.banks, 0)) return null;
+    var output = {
+      onCap: value.onCap, pose: value.pose, contacts: value.contacts,
+      bounces: value.bounces, banks: value.banks,
+    };
+    if (Object.prototype.hasOwnProperty.call(value, 'rewind')) {
+      var rewind = value.rewind;
+      if (!record(rewind) || !exactKeys(rewind, ['replayed', 'firstFailureReason', 'replaySucceeded']) ||
+          typeof rewind.replayed !== 'boolean' || typeof rewind.replaySucceeded !== 'boolean') return null;
+      var failure = boundedString(rewind.firstFailureReason, 128, true);
+      if (failure === undefined) return null;
+      output.rewind = { replayed: rewind.replayed, firstFailureReason: failure,
+        replaySucceeded: rewind.replaySucceeded };
+    }
+    if (Object.prototype.hasOwnProperty.call(value, 'copies')) {
+      if (!Array.isArray(value.copies) || value.copies.length !== 2) return null;
+      output.copies = value.copies.map(normalizeCopyOutcome);
+      if (output.copies.some(function (item) { return !item; })) return null;
+    }
+    for (var n = 0; n < 2; n++) {
+      var numberKey = n === 0 ? 'massConservationError' : 'angularMomentumError';
+      if (Object.prototype.hasOwnProperty.call(value, numberKey)) {
+        if (!finite(value[numberKey])) return null;
+        output[numberKey] = Number(value[numberKey]);
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(value, 'capToss')) {
+      var capToss = value.capToss;
+      if (!record(capToss) || !exactKeys(capToss, ['bodyLanded', 'capLanded', 'bothRequired']) ||
+          typeof capToss.bodyLanded !== 'boolean' || typeof capToss.capLanded !== 'boolean' ||
+          capToss.bothRequired !== true) return null;
+      output.capToss = { bodyLanded: capToss.bodyLanded, capLanded: capToss.capLanded, bothRequired: true };
+    }
+    if (Object.prototype.hasOwnProperty.call(value, 'roulette')) {
+      var roulette = value.roulette;
+      if (!record(roulette) || !exactKeys(roulette, ['wheelAngle', 'slotIndex']) ||
+          !finite(roulette.wheelAngle) || !integer(roulette.slotIndex, 0) || roulette.slotIndex > 7) return null;
+      output.roulette = { wheelAngle: Number(roulette.wheelAngle), slotIndex: roulette.slotIndex };
+    }
+    if (Object.prototype.hasOwnProperty.call(value, 'meteorHits')) {
+      if (!integer(value.meteorHits, 0)) return null;
+      output.meteorHits = value.meteorHits;
+    }
+    return output;
+  }
+
+  function normalizeEventMetadata(value) {
+    if (!record(value) || !exactKeys(value,
+      ['perfect', 'onCap', 'golden', 'plinko', 'automaticOutcome', 'reward', 'physics'])) return null;
+    if (typeof value.perfect !== 'boolean' || typeof value.onCap !== 'boolean' ||
+        typeof value.golden !== 'boolean') return null;
+    if (value.plinko !== null && PLINKO_PRIZES.indexOf(value.plinko) < 0) return null;
+    if (value.automaticOutcome !== null && value.automaticOutcome !== 'MAKE' &&
+        value.automaticOutcome !== 'MISS') return null;
+    var reward = normalizeReward(value.reward);
+    var physics = normalizePhysicsMetadata(value.physics);
+    if (!reward || !physics) return null;
+    return {
+      perfect: value.perfect, onCap: value.onCap, golden: value.golden,
+      plinko: value.plinko, automaticOutcome: value.automaticOutcome,
+      reward: reward, physics: physics,
+    };
+  }
+
+  function validateEventSemantics(eventResult, resultValue) {
+    var id = eventResult.eventId;
+    var metadata = eventResult.metadata;
+    var reward = metadata.reward;
+    var physics = metadata.physics;
+    var attempt = eventResult.attempt;
+    if (attempt.final !== true || attempt.index !== (attempt.replayed ? 2 : 1)) return 'invalid-event-attempt';
+    if (id === 'rewind') {
+      if (!physics.rewind || physics.rewind.replayed !== attempt.replayed ||
+          physics.rewind.replaySucceeded !== (resultValue === 'MAKE')) return 'invalid-rewind-result';
+      if (resultValue === 'MISS' && !attempt.replayed) return 'nonfinal-rewind-result';
+    }
+    if (id === 'mitosis') {
+      if (!integer(reward.landedCount, 0) || reward.landedCount > 2 || !physics.copies ||
+          physics.copies.filter(function (item) { return item.made; }).length !== reward.landedCount ||
+          (resultValue === 'MAKE') !== (reward.landedCount > 0)) return 'invalid-mitosis-result';
+    }
+    if (id === 'cap-toss') {
+      var cap = physics.capToss;
+      if (!cap || (resultValue === 'MAKE') !== (cap.bodyLanded && cap.capLanded)) return 'invalid-cap-toss-result';
+    }
+    if (id === 'roulette-table') {
+      var multipliers = [1, 2, 3, 4, 4, 3, 2, 1];
+      if (!integer(reward.slotIndex, 0) || reward.slotIndex > 7 ||
+          reward.multiplier !== multipliers[reward.slotIndex] || !physics.roulette ||
+          physics.roulette.slotIndex !== reward.slotIndex) return 'invalid-roulette-result';
+    }
+    if (id === 'plinko') {
+      var slot = reward.slotIndex;
+      var prize = metadata.plinko;
+      if (!integer(slot, 0) || slot > 8 || prize !== PLINKO_SLOTS[slot] ||
+          reward.legacyPrize !== prize || reward.plinkoPrize !== PLINKO_CANONICAL[prize] ||
+          metadata.automaticOutcome !== resultValue ||
+          resultValue !== (prize === 'lose' ? 'MISS' : 'MAKE')) return 'invalid-plinko-result';
+    } else if (metadata.plinko !== null || metadata.automaticOutcome !== null) {
+      return 'unexpected-automatic-result';
+    }
+    return null;
+  }
+
+  function parseEventResult(value, resultValue) {
+    if (!record(value) || !exactKeys(value, ['schema', 'version', 'eventId', 'attempt', 'metadata']) ||
+        value.schema !== EVENT_RESULT_SCHEMA || value.version !== EVENT_RESULT_VERSION ||
+        !EVENT_ID_SET.has(value.eventId) || !record(value.attempt) ||
+        !exactKeys(value.attempt, ['index', 'replayed', 'final']) ||
+        !integer(value.attempt.index, 1) || value.attempt.index > 2 ||
+        typeof value.attempt.replayed !== 'boolean' || value.attempt.final !== true) {
+      return { ok: false, code: 'invalid-event-result' };
+    }
+    var metadata = normalizeEventMetadata(value.metadata);
+    if (!metadata) return { ok: false, code: 'invalid-event-metadata' };
+    var normalized = {
+      schema: EVENT_RESULT_SCHEMA, version: EVENT_RESULT_VERSION, eventId: value.eventId,
+      attempt: { index: value.attempt.index, replayed: value.attempt.replayed, final: true },
+      metadata: metadata,
+    };
+    var semanticError = validateEventSemantics(normalized, resultValue);
+    return semanticError ? { ok: false, code: semanticError } : { ok: true, value: immutable(normalized) };
+  }
+
+  function createEventResult(input) {
+    var source = input || {};
+    if ((source.result !== 'MAKE' && source.result !== 'MISS') || !EVENT_ID_SET.has(source.eventId)) {
+      throw new TypeError('A valid event id and final MAKE/MISS are required');
+    }
+    var meta = source.meta || {};
+    var eventContainer = record(meta.eventResult) ? meta.eventResult :
+      (record(meta.eventReward) && record(meta.eventReward.eventReward) ? meta.eventReward : null);
+    var rewardSource = eventContainer ? eventContainer.eventReward : meta.eventReward;
+    var physicsSource = eventContainer ? eventContainer.meta : meta.meta;
+    var replayed = !!(physicsSource && physicsSource.rewind && physicsSource.rewind.replayed);
+    var candidate = {
+      schema: EVENT_RESULT_SCHEMA,
+      version: EVENT_RESULT_VERSION,
+      eventId: source.eventId,
+      attempt: { index: replayed ? 2 : 1, replayed: replayed, final: true },
+      metadata: {
+        perfect: !!meta.perfect,
+        onCap: !!meta.onCap,
+        golden: !!meta.golden,
+        plinko: meta.plinko == null ? null : meta.plinko,
+        automaticOutcome: meta.automaticOutcome == null ? null : meta.automaticOutcome,
+        reward: rewardSource || {},
+        physics: physicsSource || { onCap: !!meta.onCap, pose: meta.onCap ? 'cap' :
+          (source.result === 'MAKE' ? 'upright' : 'other'), contacts: 0, bounces: 0, banks: 0 },
+      },
+    };
+    var parsed = parseEventResult(candidate, source.result);
+    if (!parsed.ok) throw new TypeError('Invalid authoritative event result: ' + parsed.code);
+    return parsed.value;
+  }
+
+  function eventResultToGameMeta(eventResult) {
+    var metadata = eventResult.metadata;
+    var reward = metadata.reward;
+    return immutable({
+      perfect: metadata.perfect,
+      onCap: metadata.onCap,
+      golden: metadata.golden,
+      plinko: metadata.plinko,
+      rareEvent: eventResult.eventId,
+      eventId: eventResult.eventId,
+      landedCount: reward.landedCount,
+      rouletteMultiplier: reward.multiplier,
+      rouletteSlot: reward.slotIndex,
+      automaticOutcome: metadata.automaticOutcome,
+      eventReward: reward,
+      meta: metadata.physics,
+    });
+  }
+
+  function resolveAuthoritativeResult(payload, expectedEventId) {
+    var source = payload || {};
+    if (source.result !== 'MAKE' && source.result !== 'MISS') return { ok: false, code: 'invalid-result' };
+    var packetEventId = source.eventId == null ? null : source.eventId;
+    if (packetEventId !== null && !EVENT_ID_SET.has(packetEventId)) return { ok: false, code: 'invalid-event-id' };
+    var expected = expectedEventId == null ? null : expectedEventId;
+    if (expected !== null && !EVENT_ID_SET.has(expected)) return { ok: false, code: 'invalid-expected-event' };
+    if (source.eventResult == null) {
+      if (packetEventId !== null || expected !== null) return { ok: false, code: 'missing-event-result' };
+      return { ok: true, value: immutable({ result: source.result, eventId: null,
+        eventResult: null, meta: null, landingInfo: record(source.info) ? source.info : {} }) };
+    }
+    var parsed = parseEventResult(source.eventResult, source.result);
+    if (!parsed.ok) return parsed;
+    if (packetEventId !== parsed.value.eventId || (expected !== null && expected !== parsed.value.eventId) ||
+        (expected === null && parsed.value.eventId !== null)) return { ok: false, code: 'event-result-mismatch' };
+    var gameMeta = eventResultToGameMeta(parsed.value);
+    var landing = Object.assign({}, record(source.info) ? source.info : {}, {
+      eventId: parsed.value.eventId,
+      meta: parsed.value.metadata.physics,
+      eventReward: parsed.value.metadata.reward,
+      automaticOutcome: parsed.value.metadata.automaticOutcome,
+    });
+    return { ok: true, value: immutable({ result: source.result, eventId: parsed.value.eventId,
+      eventResult: parsed.value, meta: gameMeta, landingInfo: landing }) };
   }
 
   function normalizeNumber(value) {
@@ -220,6 +510,8 @@
       if (envelope.flipId !== activeFlick.flipId || payload.flickSeed !== activeFlick.seed ||
           payload.flickBinding !== activeFlick.binding) return 'result-binding-mismatch';
       if (payload.result !== 'MAKE' && payload.result !== 'MISS') return 'invalid-result';
+      var authoritative = resolveAuthoritativeResult(payload, payload.eventId == null ? null : payload.eventId);
+      if (!authoritative.ok) return authoritative.code;
       return null;
     }
 
@@ -305,6 +597,8 @@
         throw new Error('Only the flicking player may report its result');
       }
       if (source.result !== 'MAKE' && source.result !== 'MISS') throw new TypeError('Invalid result');
+      var authoritative = resolveAuthoritativeResult(source, source.eventId == null ? null : source.eventId);
+      if (!authoritative.ok) throw new TypeError('Invalid result payload: ' + authoritative.code);
       var payloadCopy = Object.assign({}, source, {
         playerId: selfId,
         flickSeed: activeFlick.seed,
@@ -427,9 +721,14 @@
     SCHEMA: SCHEMA,
     VERSION: VERSION,
     PROTOCOL: PROTOCOL,
+    EVENT_RESULT_SCHEMA: EVENT_RESULT_SCHEMA,
+    EVENT_RESULT_VERSION: EVENT_RESULT_VERSION,
+    EVENT_IDS: EVENT_IDS,
     CONTROL_TYPES: CONTROL_TYPES,
     GAME_TYPES: GAME_TYPES,
     ProtocolSession: ProtocolSession,
     flickBinding: flickBinding,
+    createEventResult: createEventResult,
+    resolveAuthoritativeResult: resolveAuthoritativeResult,
   });
 });
