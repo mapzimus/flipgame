@@ -22,6 +22,8 @@ assert.match(workflow,
   /node lab\/scripts\/sync-flipgame\.mjs --source flipgame --source-commit "\$GITHUB_SHA"/,
   'Lab must receive the exact qualified checkout through its guarded sync command');
 assert.match(workflow, /npm run check/, 'the complete Lab site must pass before publication');
+assert.doesNotMatch(workflow, /cache-dependency-path:\s*lab\/package-lock\.json|\bnpm ci\b/,
+  'the dependency-free Lab checkout must not require a nonexistent lockfile');
 assert.match(workflow, /RELEASE_VERSION: \$\{\{ needs\.build\.outputs\.release_version \}\}/,
   'immutable release publication must follow the game release metadata');
 assert.doesNotMatch(workflow, /gh release (?:view|create|upload) v1\.11/,

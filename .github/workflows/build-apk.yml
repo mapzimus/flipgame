@@ -169,8 +169,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: lab/package-lock.json
 
       - name: Sync the exact web runtime into /flipgame/
         shell: bash
@@ -181,7 +179,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci
           npm run check
 
       - name: Revalidate both production branches

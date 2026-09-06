@@ -990,3 +990,15 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: portable Android tool discovery, canonical-root index fetch,
   byte mismatch rejection, custom-domain provenance, no injected beacon, and
   successful signed APK identity verification.
+
+## Revision 51 - dependency-free Lab deployment bootstrap
+
+- Trigger: the protected release reached the Mapzimus publication job and
+  `setup-node` rejected a cache path for a lockfile the Lab intentionally does
+  not track.
+- Old behavior: deployment requested npm caching and `npm ci` despite Lab
+  having no package dependencies or lockfile.
+- New behavior: Node 22 is still pinned, but Lab qualification invokes its
+  repository-owned `npm run check` directly with no invented dependency step.
+- Required tests: reject lockfile cache/`npm ci` assumptions and require the
+  complete Lab check before publication.
