@@ -304,7 +304,7 @@
     var record = Object.assign({}, recordBase, {
       schema: 'FlipRecordV1', version: 1,
       releaseVersion: text(firstValue(payload.releaseVersion, recordBase.releaseVersion),
-        Interfaces && Interfaces.RELEASE_VERSION || 'v111'),
+        Interfaces && Interfaces.RELEASE_VERSION || 'v1.11'),
       uuid: recordUuid('flip', recordIdentity, opts),
       timestamp: timestamp(firstValue(source.timestamp, payload.timestamp, recordBase.timestamp), opts.now ? opts.now() : Date.now()),
       sessionId: text(firstValue(payload.sessionId, recordBase.sessionId), opts.sessionId),
@@ -443,7 +443,7 @@
     var record = Object.assign({}, recordBase, {
       schema: 'MatchRecordV1', version: 1,
       releaseVersion: text(firstValue(payload.releaseVersion, recordBase.releaseVersion),
-        Interfaces && Interfaces.RELEASE_VERSION || 'v111'),
+        Interfaces && Interfaces.RELEASE_VERSION || 'v1.11'),
       uuid: recordUuid('match', recordIdentity, opts), timestamp: endedAt, startedAt: startedAt,
       durationMs: durationMs,
       sessionId: text(firstValue(payload.sessionId, recordBase.sessionId), opts.sessionId),

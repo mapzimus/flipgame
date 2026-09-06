@@ -4,17 +4,10 @@ on:
   workflow_dispatch:        # lets you build it on demand from the Actions tab
   push:
     branches: [master]
-    paths:
-      - 'index.html'
-      - 'service-worker.js'
-      - 'css/**'
-      - 'js/**'
-      - 'icons/**'
-      - 'manifest.json'
-      - 'android/**'
-      - '.github/workflows/build-apk.yml'
-      - 'scripts/**'
-      - 'tests/**'
+
+concurrency:
+  group: flipgame-production-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write           # needed to publish the APK as a Release asset
@@ -120,28 +113,95 @@ jobs:
             apk-signing-certificate.txt
             apk-badging.txt
 
-      - name: Publish immutable v1.11 and refresh apk-latest
+      - name: Publish immutable release and refresh apk-latest
         if: github.ref == 'refs/heads/master'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.build_metadata.outputs.release_version }}
         run: |
           set -euo pipefail
-          cat > release-notes.md <<'NOTES'
-          Self-contained, persistently signed Flipgame v1.11 APK. Game files are
+          cat > release-notes.md <<NOTES
+          Self-contained, persistently signed Flipgame ${RELEASE_VERSION} APK. Game files are
           bundled for offline play. Sideload it by enabling “Install unknown
           apps” and opening the APK. The legacy v110 APK used a disposable CI
-          key and must be uninstalled once before installing v1.11; later signed
-          releases can upgrade v1.11 in place.
+          key and must be uninstalled once; signed releases from v1.11 onward
+          can upgrade in place.
           NOTES
           assets=(flipgame-offline.apk flipgame-offline.apk.sha256 apk-build-metadata.json apk-signing-certificate.txt apk-badging.txt)
-          if gh release view v1.11 >/dev/null 2>&1; then
-            git fetch --no-tags origin "refs/tags/v1.11:refs/tags/v1.11"
-            tag_sha="$(git rev-list -n 1 v1.11)"
+          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/${RELEASE_VERSION}:refs/tags/${RELEASE_VERSION}"
+            tag_sha="$(git rev-list -n 1 "$RELEASE_VERSION")"
             test "$tag_sha" = "$GITHUB_SHA"
-            gh release upload v1.11 "${assets[@]}" --clobber
+            gh release upload "$RELEASE_VERSION" "${assets[@]}" --clobber
           else
-            gh release create v1.11 --target "$GITHUB_SHA" --title "Flip Game v1.11" --notes-file release-notes.md "${assets[@]}"
+            gh release create "$RELEASE_VERSION" --target "$GITHUB_SHA" --title "Flip Game ${RELEASE_VERSION}" --notes-file release-notes.md "${assets[@]}"
           fi
           gh release delete apk-latest --cleanup-tag --yes >/dev/null 2>&1 || true
           gh release create apk-latest --target "$GITHUB_SHA" --title "Flip Game — offline APK (latest)" --notes-file release-notes.md "${assets[@]}"
+
+  publish_mapzimus:
+    name: Publish mapzimus.com/flipgame
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact qualified Flipgame commit
+        uses: actions/checkout@v4
+        with:
+          path: flipgame
+          fetch-depth: 0
+
+      - name: Refuse an obsolete production run
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C flipgame fetch origin master --depth=1
+          test "$(git -C flipgame rev-parse origin/master)" = "$GITHUB_SHA"
+          test "$(git -C flipgame rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Check out the Lab production repository
+        uses: actions/checkout@v4
+        with:
+          repository: mapzimus/lab
+          ref: main
+          path: lab
+          fetch-depth: 0
+          ssh-key: ${{ secrets.LAB_DEPLOY_KEY }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: lab/package-lock.json
+
+      - name: Sync the exact web runtime into /flipgame/
+        shell: bash
+        run: node lab/scripts/sync-flipgame.mjs --source flipgame --source-commit "$GITHUB_SHA"
+
+      - name: Qualify the complete Lab site
+        working-directory: lab
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run check
+
+      - name: Commit and push only the Flipgame snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C lab add -- vendor/apps/flip-game
+          if git -C lab diff --cached --quiet; then
+            echo "Lab already contains Flipgame $GITHUB_SHA."
+            exit 0
+          fi
+          git -C lab config user.name "flipgame-release-bot"
+          git -C lab config user.email "flipgame-release-bot@users.noreply.github.com"
+          git -C lab commit -m "chore: sync Flipgame ${GITHUB_SHA:0:12}"
+          git -C lab fetch origin main
+          test "$(git -C lab rev-parse HEAD^)" = "$(git -C lab rev-parse origin/main)"
+          git -C lab push origin HEAD:main
