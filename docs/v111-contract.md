@@ -202,6 +202,14 @@ cap-toss:5500, life-drain:6000`.
   online, and Test Data. Display names, per-flip/match IDs, seeds, precise
   timestamps/timings, trajectories, lives, stake, and mutable game state never
   become rollup keys.
+- Rollup dimensions are cardinality-bounded, not merely length-checked.
+  Catalog-backed values use the frozen mode/object/variant/cosmetic/arena/event
+  and viewport allowlists. Open-ended device, session, player, and team values
+  use a finite trusted-local identity dictionary per source lineage; imported
+  values cannot expand that dictionary and overflow maps to fixed `other`
+  buckets. A fixed per-day/per-lineage cell budget merges excess combinations
+  into lossless aggregate overflow cells. No valid-looking arbitrary short-ID
+  corpus may create one permanent cell per observation.
 - Match rollups written by the local-storage fallback preserve the same
   filterable match dimensions and participant aliases needed by Stats Lab,
   including mode, online/Test Data, player/seat/type/team, object, variant,
