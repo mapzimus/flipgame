@@ -49,7 +49,7 @@ function listen(server) {
     if ((origin !== 'a' && origin !== 'b') || !relative) {
       response.writeHead(404).end(); return;
     }
-    if (relative === '.upstream.json') {
+    if (relative === 'release-provenance.json') {
       response.setHeader('content-type', 'application/json');
       response.end(JSON.stringify(metadata)); return;
     }

@@ -932,6 +932,20 @@ interface or behavior changes to the Program Integrator before proceeding.
   recheck, plus unchanged 768/1100 bands and 1280×720 444px gallery height.
 - Integration commit: `d7f9263`.
 
+## Revision 49 - host-safe public provenance path
+
+- Trigger: the successful Cloudflare production build returned HTTP 403 for
+  `/flipgame/.upstream.json` because the host blocks dot-prefixed public files.
+- Old behavior: the release workflow polled that blocked path and therefore
+  could never authorize the otherwise successful dual-origin release.
+- New behavior: Lab and GitHub Pages publish identical metadata at the normal
+  `/flipgame/release-provenance.json` path; publication polling and byte
+  reconciliation consume that path. The internal snapshot remains deterministic.
+- Required tests: public Cloudflare 200 response with exact SHA/version/digest,
+  local dual-origin reconciliation, and an assertion that no production poll
+  depends on `.upstream.json`.
+- Integration commits pending Flipgame/Lab correction.
+
 ## Revision 46 - compatible paint-state superset
 
 - Trigger: art owners used different names for elapsed time, seed, and resolved

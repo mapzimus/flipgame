@@ -220,7 +220,7 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 60); do
             if curl --fail --silent --show-error --max-time 15 \
-              "https://mapzimus.com/flipgame/.upstream.json?commit=${GITHUB_SHA}" \
+              "https://mapzimus.com/flipgame/release-provenance.json?commit=${GITHUB_SHA}" \
               --output lab-upstream.json && \
               EXPECTED_SHA="$GITHUB_SHA" node -e \
                 "const m=require('./lab-upstream.json');if(m?.upstream?.sourceSha!==process.env.EXPECTED_SHA)process.exit(1)"; then
@@ -273,9 +273,9 @@ jobs:
           mkdir pages-site
           cp -R index.html service-worker.js manifest.json css js icons pages-site/
           if [ -f .nojekyll ]; then cp .nojekyll pages-site/; fi
-          cp web-provenance/lab-upstream.json pages-site/.upstream.json
+          cp web-provenance/lab-upstream.json pages-site/release-provenance.json
           EXPECTED_SHA="$GITHUB_SHA" node -e \
-            "const m=require('./pages-site/.upstream.json');if(m?.upstream?.sourceSha!==process.env.EXPECTED_SHA)process.exit(1)"
+            "const m=require('./pages-site/release-provenance.json');if(m?.upstream?.sourceSha!==process.env.EXPECTED_SHA)process.exit(1)"
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

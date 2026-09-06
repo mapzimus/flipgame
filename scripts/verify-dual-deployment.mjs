@@ -82,7 +82,7 @@ export async function verifyDualDeployment({ sha, origins, retries = 36, retryMs
       const snapshots = [];
       for (const origin of origins) {
         const nonce = `verify=${encodeURIComponent(sha)}-${attempt}`;
-        const metadataBytes = await fetchBytes(new URL(`.upstream.json?${nonce}`, origin));
+        const metadataBytes = await fetchBytes(new URL(`release-provenance.json?${nonce}`, origin));
         const metadata = JSON.parse(metadataBytes.toString("utf8"));
         validateMetadata(metadata, sha, expectedVersion, origin.href);
         const bytesByPath = new Map();

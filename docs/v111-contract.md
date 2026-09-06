@@ -1,6 +1,6 @@
 # Flipgame v1.11 Contract
 
-Contract revision: 48
+Contract revision: 49
 Baseline commit: `3a3ace0`
 Public release version: `v1.11`
 
@@ -34,6 +34,8 @@ affected specialist continues.
   public origins. A runtime-changing commit may not reuse an existing public
   version/tag/cache/build identity, and stale production-branch checks are
   repeated immediately before no-op, push, and Pages publication boundaries.
+  Public provenance is served as `/flipgame/release-provenance.json`; production
+  checks never rely on dot-prefixed paths that a host may block.
 - The v1.11 HTML loads only its version-unique boot script. On remote HTTP(S),
   that boot script installs and verifies the v1.11 service worker as the current
   controller before loading any mutable application script. A v110 controller

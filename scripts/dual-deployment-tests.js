@@ -35,6 +35,10 @@ assert.match(workflow, /deploy_github_pages:[\s\S]*needs: publish_mapzimus/,
   'GitHub Pages must wait for the verified Cloudflare publication');
 assert.match(workflow, /verify_dual_origins:[\s\S]*verify-dual-deployment\.mjs/,
   'a final job must reconcile provenance and bytes at both public origins');
+assert.match(workflow, /mapzimus\.com\/flipgame\/release-provenance\.json/,
+  'Cloudflare publication polling must use a public non-dotfile path');
+assert.doesNotMatch(workflow, /mapzimus\.com\/flipgame\/\.upstream\.json/,
+  'Cloudflare blocks dot-prefixed public provenance files');
 assert.match(workflow, /publish_release:[\s\S]*needs: \[build, verify_dual_origins\]/,
   'the public APK release must wait for both qualified web origins');
 const buildSection = workflow.split(/\n  publish_mapzimus:/)[0];
