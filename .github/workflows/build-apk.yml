@@ -112,7 +112,9 @@ jobs:
           SOURCE_COMMIT="${{ steps.build_metadata.outputs.source_commit }}" \
             RELEASE_VERSION="${{ steps.build_metadata.outputs.release_version }}" \
             node -e "const m=require('./apk-build-metadata.json'); if(m.sourceCommit!==process.env.SOURCE_COMMIT||m.releaseVersion!==process.env.RELEASE_VERSION) process.exit(1)"
-          apksigner verify --verbose --print-certs flipgame-offline.apk | tee apk-signing-certificate.txt
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          test -x "$apksigner_bin"
+          "$apksigner_bin" verify --verbose --print-certs flipgame-offline.apk | tee apk-signing-certificate.txt
           aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
           test -x "$aapt_bin"
           "$aapt_bin" dump badging flipgame-offline.apk | tee apk-badging.txt

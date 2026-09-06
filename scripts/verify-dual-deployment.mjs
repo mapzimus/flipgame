@@ -6,7 +6,10 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const SHA_RE = /^[0-9a-f]{40}$/i;
 const DEFAULT_ORIGINS = [
   "https://mapzimus.github.io/flipgame/",
-  "https://mapzimus.com/flipgame/",
+  // The custom domain is polled separately for exact provenance. Compare
+  // bytes against the same Cloudflare Pages production deployment directly:
+  // zone-level services are allowed to transform custom-domain HTML.
+  "https://mapzimus-lab.pages.dev/flipgame/",
 ];
 
 function fail(message) {
@@ -87,7 +90,10 @@ export async function verifyDualDeployment({ sha, origins, retries = 36, retryMs
         validateMetadata(metadata, sha, expectedVersion, origin.href);
         const bytesByPath = new Map();
         for (const relative of metadata.runtimeFiles) {
-          bytesByPath.set(relative, await fetchBytes(new URL(`${relative}?${nonce}`, origin)));
+          // Pages canonicalizes /index.html to the route root. Fetching the
+          // canonical URL also makes redirect handling remain strict.
+          const publicPath = relative === "index.html" ? `?${nonce}` : `${relative}?${nonce}`;
+          bytesByPath.set(relative, await fetchBytes(new URL(publicPath, origin)));
         }
         const actualDigest = digest(metadata.runtimeFiles, bytesByPath);
         if (actualDigest !== metadata.contentSha256) fail(`${origin.href} runtime digest mismatch`);

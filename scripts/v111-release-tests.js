@@ -24,7 +24,9 @@ assert.match(gradle, /versionCode\s+111\b/);
 assert.match(gradle, /versionName\s+'1\.11'/);
 assert.match(workflow, /assembleRelease/);
 assert.match(workflow, /ANDROID_KEYSTORE_BASE64/);
-assert.match(workflow, /apksigner verify --verbose --print-certs/);
+assert.match(workflow, /apksigner_bin="\$\(find "\$ANDROID_HOME\/build-tools"/,
+  'APK verification must discover the installed Android build-tools binary');
+assert.match(workflow, /"\$apksigner_bin" verify --verbose --print-certs/);
 assert.match(workflow,
   /git(?: -C \.\.)? fetch --no-tags origin "refs\/tags\/\$\{RELEASE_VERSION\}:refs\/tags\/\$\{RELEASE_VERSION\}"/,
   'immutable release reruns must fetch the metadata-selected tag before verifying it');

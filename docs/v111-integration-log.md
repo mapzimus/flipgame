@@ -974,3 +974,19 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: exact approved allowlist, no overlay/zoom on unsupported
   objects, correct lifecycle on supported objects, original Bottle exclusion,
   protected T-Rex invariance, and unchanged gameplay.
+
+## Revision 50 - release runner and Cloudflare response integrity
+
+- Trigger: the first protected production run qualified the full game and built
+  the signed APK, then exposed two environment-bound release defects.
+- Old behavior: APK verification assumed `apksigner` was on `PATH`; dual-origin
+  verification requested redirected `/index.html` URLs and treated a
+  zone-injected Web Analytics beacon as game content.
+- New behavior: Android verification locates both tools in the installed SDK.
+  Lab marks `/flipgame/*` `no-transform`, preserving the v1.11 local-only,
+  no-telemetry contract. The custom domain remains gated by exact public
+  provenance; byte reconciliation compares GitHub Pages with the untransformed
+  Cloudflare Pages production origin and fetches each canonical route root.
+- Required tests: portable Android tool discovery, canonical-root index fetch,
+  byte mismatch rejection, custom-domain provenance, no injected beacon, and
+  successful signed APK identity verification.

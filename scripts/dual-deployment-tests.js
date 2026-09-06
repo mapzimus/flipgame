@@ -37,6 +37,11 @@ assert.match(workflow, /verify_dual_origins:[\s\S]*verify-dual-deployment\.mjs/,
   'a final job must reconcile provenance and bytes at both public origins');
 assert.match(workflow, /mapzimus\.com\/flipgame\/release-provenance\.json/,
   'Cloudflare publication polling must use a public non-dotfile path');
+assert.match(workflow, /verify-dual-deployment\.mjs --sha "\$GITHUB_SHA"/,
+  'byte reconciliation must run after both publication jobs');
+assert.match(fs.readFileSync(path.join(root, 'scripts', 'verify-dual-deployment.mjs'), 'utf8'),
+  /mapzimus-lab\.pages\.dev\/flipgame/,
+  'exact byte reconciliation must use the untransformed Cloudflare Pages production origin');
 assert.doesNotMatch(workflow, /mapzimus\.com\/flipgame\/\.upstream\.json/,
   'Cloudflare blocks dot-prefixed public provenance files');
 assert.match(workflow, /publish_release:[\s\S]*needs: \[build, verify_dual_origins\]/,

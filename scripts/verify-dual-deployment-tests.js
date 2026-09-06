@@ -41,13 +41,24 @@ function listen(server) {
     runtimeFiles, contentSha256: runtimeDigest(runtimeFiles, canonical),
   };
   let corruptSecondOrigin = false;
+  let injectBeaconSecondOrigin = false;
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
     const segments = url.pathname.split('/').filter(Boolean);
     const origin = segments.shift();
     const relative = segments.join('/');
-    if ((origin !== 'a' && origin !== 'b') || !relative) {
+    if (origin !== 'a' && origin !== 'b') {
       response.writeHead(404).end(); return;
+    }
+    if (!relative) {
+      if (origin === 'b' && injectBeaconSecondOrigin) {
+        response.end(Buffer.from('<div id="version-badge">v1.11</div><script src="https://static.cloudflareinsights.com/beacon.min.js"></script>'));
+        return;
+      }
+      response.end(canonical.get('index.html')); return;
+    }
+    if (relative === 'index.html') {
+      response.writeHead(308, { location: `/${origin}/` }).end(); return;
     }
     if (relative === 'release-provenance.json') {
       response.setHeader('content-type', 'application/json');
@@ -65,6 +76,12 @@ function listen(server) {
     const snapshots = await verifyDualDeployment({ sha, origins, retries: 1, retryMs: 0 });
     assert.equal(snapshots.length, 2);
     assert.equal(snapshots[0].actualDigest, metadata.contentSha256);
+    injectBeaconSecondOrigin = true;
+    await assert.rejects(
+      verifyDualDeployment({ sha, origins, retries: 1, retryMs: 0 }),
+      /runtime digest mismatch/,
+    );
+    injectBeaconSecondOrigin = false;
     corruptSecondOrigin = true;
     await assert.rejects(
       verifyDualDeployment({ sha, origins, retries: 1, retryMs: 0 }),
