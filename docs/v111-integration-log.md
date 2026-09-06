@@ -596,7 +596,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   `fu\u03f2k`, `f\u13ccck`, and `\u0455\u04bb\u0456t` while retaining ordinary
   accented names, innocent substrings, exact `Mr. Howe`, and every event QA
   name.
-- Integration commit: pending.
+- Integration commit: `ab3e270` (revisions 30-32 and 34).
 - Affected owner notified: State/Data/Safety. Exact candidate `17b16e1` is
   rejected and deployment remains frozen until correction and all three
   independent gates restart on one new commit.
@@ -616,7 +616,7 @@ interface or behavior changes to the Program Integrator before proceeding.
 - Required tests: an exact synthetic 800+300ms lifecycle produces 1100/800/300,
   zero-contact and timeout paths remain finite/non-negative, and Stats summary
   averages consume full-flight values.
-- Integration commit: pending.
+- Integration commit: `ab3e270`.
 - Affected owners notified: UI/Stats instrumentation and State/Data QA.
 
 ## Revision 32 - fallback match rollups preserve Stats Lab filters
@@ -637,7 +637,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   player, seat, mode, online, type/team, object, variant, cosmetic, arena,
   player count, and viewport; reopen the same local store and obtain identical
   totals for every individual and representative combined filter.
-- Integration commit: pending.
+- Integration commit: `ab3e270`.
 - Affected owner notified: State/Data/Safety; revision must be acknowledged and
   included in its active isolated correction before merge.
 
@@ -663,7 +663,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   off-plane; Earthquake seed `27` at 768x1024 is also MISS; a deadline-bound
   grounded upright seed remains MAKE; settled cap, Wind, Moon, Bouncy,
   Trampoline return-landing, ceiling-plane, and ordinary timing regressions pass.
-- Integration commit: pending.
+- Integration commit: `6488066`.
 - Affected owner: Physics/Events. Exact candidate remains rejected and physics
   may not merge until it acknowledges this revision and supplies both negative
   and positive scoring-plane fixtures.
@@ -693,7 +693,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   distinguishable; unknown imported values group as `other`; representative
   combined filters, fallback reload, snapshot replacement, and v1/v2/v3 rollup
   migrations remain lossless.
-- Integration commit: pending.
+- Integration commit: `ab3e270`.
 - Affected owner notified: State/Data/Safety; revision must be acknowledged and
   integrated with revisions 30-32 before merge.
 
@@ -716,7 +716,7 @@ interface or behavior changes to the Program Integrator before proceeding.
   live footer, boot/recovery message, or GitHub release title/tag says `v111` or
   `1.1.1`; all report `v1.11`/`1.11`. Web and APK still embed one exact commit,
   stale-cache upgrade remains atomic, and existing saved data is not re-keyed.
-- Integration commit: pending.
+- Integration commits: `d7730d6`, `0196606`, and `ee5799f`.
 - Affected owners notified: State/Data/Safety and Physics/Events acknowledged
   the rename and will not make independent version edits. All independent QA
   gates will verify the new public identity on the final exact commit.
@@ -747,7 +747,12 @@ interface or behavior changes to the Program Integrator before proceeding.
   and only for current `master`. Independent post-release checks confirm both
   origins show v1.11, embed the same source SHA, upgrade caches atomically, work
   offline, and exercise equivalent core play.
-- Integration commits: pending in both repositories.
+- Flipgame integration commits: `0196606` and `ee5799f`; the Lab integration
+  commit remains pending until the exact release candidate is approved and
+  snapshotted.
+- Credential state: write deploy key `flipgame-production-sync-v1` is installed
+  only on `mapzimus/lab`; its private key exists only as the encrypted
+  `LAB_DEPLOY_KEY` secret in `mapzimus/flipgame` Actions.
 - Affected owners notified: Network/Platform specialist owns isolated lab paths;
   Program Integrator alone owns Flipgame workflow credentials, merges, pushes,
   Cloudflare release observation, and dual-origin approval.
