@@ -75,15 +75,25 @@
     });
   }
 
-  function validateActivityFormat(activityId, formatId, physicsModeId) {
+  function validateActivityFormat(activityId, formatId, physicsModeId, activityContext) {
+    var context = object(activityContext);
     if ((activityId === 'story' || activityId === 'rival-board') && formatId !== 'classic') {
       throw new TypeError(activityId + ' requires classic format');
     }
-    if (activityId === 'tutorial' && formatId !== 'classic') {
-      throw new TypeError('tutorial requires classic format');
+    if (activityId === 'story' || activityId === 'rival-board') {
+      var nativeAlien = context.nativeAlien === true || context.rivalId === 'visitor-zero';
+      if (physicsModeId !== (nativeAlien ? 'alien' : 'normal')) {
+        throw new TypeError(activityId + ' requires its prescribed Story physics mode');
+      }
+    }
+    if (activityId === 'tutorial' && (formatId !== 'classic' || physicsModeId !== 'normal')) {
+      throw new TypeError('tutorial requires classic format and normal physics');
     }
     if (formatId === 'battle' && physicsModeId === 'alien') {
       throw new TypeError('battle does not support native alien physics');
+    }
+    if (formatId === 'battle' && activityId !== 'free-play') {
+      throw new TypeError('battle is a free-play format');
     }
   }
 
@@ -92,7 +102,8 @@
     var activityId = oneOf(source.activityId || 'free-play', ACTIVITY_IDS, 'activityId');
     var formatId = oneOf(source.formatId || 'classic', FORMAT_IDS, 'formatId');
     var physicsModeId = oneOf(source.physicsModeId || 'normal', PHYSICS_MODE_IDS, 'physicsModeId');
-    validateActivityFormat(activityId, formatId, physicsModeId);
+    var activityContext = clone(object(source.activityContext));
+    validateActivityFormat(activityId, formatId, physicsModeId, activityContext);
     var record = {
       schema: 'MatchRequestV2',
       matchId: nonEmpty(source.matchId, 'matchId'),
@@ -101,7 +112,7 @@
       physicsModeId: physicsModeId,
       roster: validateRoster(source.roster),
       rulesOptions: clone(object(source.rulesOptions)),
-      activityContext: clone(object(source.activityContext)),
+      activityContext: activityContext,
       seed: finiteInteger(source.seed, 1) >>> 0,
       createdAt: source.createdAt == null ? null : String(source.createdAt),
     };
@@ -119,7 +130,7 @@
       matchId: nonEmpty(source.matchId, 'matchId'),
       status: status,
       completed: status === 'completed',
-      winnerIds: Array.isArray(source.winnerIds) ? source.winnerIds.map(String) : [],
+      winnerIds: Array.from(new Set(Array.isArray(source.winnerIds) ? source.winnerIds.map(String) : [])),
       participantResults: clone(Array.isArray(source.participantResults) ? source.participantResults : []),
       rulesState: clone(object(source.rulesState)),
       activityState: clone(object(source.activityState)),
@@ -202,6 +213,8 @@
         status: 'active',
         finalPromise: null,
         resolution: null,
+        outcome: null,
+        activityResolution: null,
       };
       sessions.set(request.matchId, session);
       return deepFreeze({
@@ -217,13 +230,39 @@
       var outcome = MatchOutcomeV2(input);
       var session = sessions.get(outcome.matchId);
       if (!session) return Promise.reject(new Error('Unknown match: ' + outcome.matchId));
+      if (session.status !== 'active' && session.status !== 'finalizing') {
+        return Promise.reject(new Error('Match is not active: ' + outcome.matchId));
+      }
+      var allowedWinnerIds = new Set();
+      session.request.roster.forEach(function (entry) {
+        allowedWinnerIds.add(entry.id);
+        if (entry.teamId != null) allowedWinnerIds.add(String(entry.teamId));
+      });
+      if (outcome.winnerIds.some(function (id) { return !allowedWinnerIds.has(id); })) {
+        return Promise.reject(new TypeError('Outcome contains a winner outside the match roster'));
+      }
+      if (outcome.participantResults.some(function (entry) {
+        var source = object(entry);
+        var id = source.playerId == null ? source.id : source.playerId;
+        return id != null && !allowedWinnerIds.has(String(id));
+      })) {
+        return Promise.reject(new TypeError('Outcome contains a participant outside the match roster'));
+      }
+      if (session.outcome && JSON.stringify(session.outcome) !== JSON.stringify(outcome)) {
+        return Promise.reject(new Error('Conflicting final outcome for match: ' + outcome.matchId));
+      }
       if (session.finalPromise) return session.finalPromise;
+      session.outcome = outcome;
+      session.status = 'finalizing';
       session.finalPromise = Promise.resolve().then(function () {
-        var activityResolution = registry.resolve(session.request.activityId, {
-          request: session.request,
-          prepared: session.prepared,
-          outcome: outcome,
-        }) || {};
+        if (!session.activityResolution) {
+          session.activityResolution = deepFreeze(clone(registry.resolve(session.request.activityId, {
+            request: session.request,
+            prepared: session.prepared,
+            outcome: outcome,
+          }) || {}));
+        }
+        var activityResolution = session.activityResolution;
         return Promise.resolve(transaction({
           schema: 'MatchFinalizationCommandV1',
           idempotencyKey: 'match:' + outcome.matchId,
@@ -250,6 +289,11 @@
           }).catch(function () {});
           return session.resolution;
         });
+      });
+      session.finalPromise = session.finalPromise.catch(function (error) {
+        session.finalPromise = null;
+        session.status = 'active';
+        throw error;
       });
       return session.finalPromise;
     }

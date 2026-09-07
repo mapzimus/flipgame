@@ -23,6 +23,14 @@ function testContractsAndValidation() {
   })), /Duplicate/);
   assert.throws(() => Activity.MatchRequestV2(request({ formatId: 'battle', physicsModeId: 'alien' })),
     /does not support/);
+  assert.throws(() => Activity.MatchRequestV2(request({ activityId: 'story', physicsModeId: 'insane' })),
+    /prescribed Story physics/);
+  assert.equal(Activity.MatchRequestV2(request({ activityId: 'story', physicsModeId: 'alien',
+    activityContext: { rivalId: 'visitor-zero', nativeAlien: true } })).physicsModeId, 'alien');
+  assert.throws(() => Activity.MatchRequestV2(request({ activityId: 'tutorial', physicsModeId: 'alien' })),
+    /normal physics/);
+  assert.throws(() => Activity.MatchRequestV2(request({ activityId: 'practice', formatId: 'battle' })),
+    /free-play format/);
 }
 
 async function testCoordinatorExactlyOnceAndStatsFailure() {
@@ -53,6 +61,33 @@ async function testCoordinatorExactlyOnceAndStatsFailure() {
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(stats, 1, 'stats failure is attempted but must not reject finalization');
   assert.equal(coordinator.snapshot('match-1').status, 'finalized');
+}
+
+async function testCoordinatorValidationAndSafeRetry() {
+  let resolved = 0, transactions = 0;
+  const registry = Activity.createActivityRegistry([{
+    id: 'free-play', resolve() { resolved += 1; return { stable: true }; },
+  }]);
+  const coordinator = Activity.createMatchSessionCoordinator({
+    registry,
+    transaction() {
+      transactions += 1;
+      if (transactions === 1) throw new Error('temporary storage failure');
+      return { duplicate: false };
+    },
+  });
+  coordinator.start(request({ matchId: 'retry-match' }));
+  await assert.rejects(() => coordinator.finalize({ matchId: 'retry-match', winnerIds: ['outsider'] }),
+    /outside the match roster/);
+  const outcome = { matchId: 'retry-match', status: 'completed', winnerIds: ['p1'] };
+  await assert.rejects(() => coordinator.finalize(outcome), /temporary storage failure/);
+  assert.equal(coordinator.snapshot('retry-match').status, 'active');
+  const result = await coordinator.finalize(outcome);
+  assert.equal(result.status, 'completed');
+  assert.equal(resolved, 1, 'activity resolution remains pure and is reused across transaction retry');
+  assert.equal(transactions, 2);
+  await assert.rejects(() => coordinator.finalize(Object.assign({}, outcome, { winnerIds: ['p2'] })),
+    /not active|Conflicting/);
 }
 
 function testAbandon() {
@@ -94,6 +129,7 @@ function testLaneIsolationAndTransitions() {
 async function run() {
   testContractsAndValidation();
   await testCoordinatorExactlyOnceAndStatsFailure();
+  await testCoordinatorValidationAndSafeRetry();
   testAbandon();
   testLaneIsolationAndTransitions();
   console.log('v1.12 activity/session tests passed.');
