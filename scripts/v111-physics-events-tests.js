@@ -194,6 +194,8 @@ function testEveryEventHasPhysicalRuntime() {
     }
     if (definition.id === 'meteor-shower') assert.equal(physics.getEventBodies().length, 3);
     if (definition.id === 'alien-invasion') {
+      assert.equal(definition.metadata.physics.kind, 'alien');
+      assert.equal(definition.metadata.physics.gravity, 0.10);
       assert.equal(physics.getTarget().style, 'portal');
       assert.equal(flick.gravityScale, 0.10);
       assert.equal(flick.gravityY, 0.10);
