@@ -114,7 +114,12 @@
         source.arenaDraft === true || source.formatId === 'battle' ||
         physicsModeId === 'alien') return null;
     if (!Number.isFinite(Number(source.seed))) throw new TypeError('event selection seed is required');
-    var forced = forcedId(source.forceName, activityId);
+    var tutorialForced = activityId === 'tutorial' && source.tutorialEventId != null
+      ? get(source.tutorialEventId) : null;
+    if (activityId === 'tutorial' && source.tutorialEventId != null && !tutorialForced) {
+      throw new TypeError('Unknown tutorial event ID');
+    }
+    var forced = tutorialForced ? tutorialForced.id : forcedId(source.forceName, activityId);
     if ((activityId === 'practice' || activityId === 'physics-lab') &&
         source.forceName != null && String(source.forceName) && !forced) {
       throw new TypeError('Unknown forced event display name');
@@ -132,8 +137,8 @@
       schema: 'EventSelectionV2', eventId: id, displayName: definition.displayName,
       eventClass: definition.eventClass, turnSeed: Number(source.seed) >>> 0,
       eventSeed: eventSeed(source.seed, definition), oddsProfile:
-        forced ? 'forced-test' : (physicsModeId === 'insane' ? 'insane'
-          : (source.playerName === 'Mr. Howe' ? 'mr-howe' : 'normal')),
+        tutorialForced ? 'tutorial-test' : (forced ? 'forced-test' : (physicsModeId === 'insane' ? 'insane'
+          : (source.playerName === 'Mr. Howe' ? 'mr-howe' : 'normal'))),
       forced: !!forced, testData: !!forced, consumed: false,
       telegraph: { glyph: definition.glyph, title: definition.displayName,
         instruction: definition.instruction, durationMs: definition.telegraphMs },
