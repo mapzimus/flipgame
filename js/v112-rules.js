@@ -1,0 +1,1454 @@
+// v112-rules.js -- deterministic, renderer-free rules for Classic, Cup and
+// Team Clash. Physics reports a settled verdict; this module alone mutates the
+// match economy and emits versioned outcomes.
+(function (root, factory) {
+  'use strict';
+  var api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) root.FlipgameV112Rules = api;
+})(typeof globalThis !== 'undefined' ? globalThis
+  : (typeof self !== 'undefined' ? self
+  : (typeof window !== 'undefined' ? window : this)), function () {
+  'use strict';
+
+  var VERSION = 1;
+  var OUTCOME_SCHEMA = 'RulesOutcomeV1';
+  var STARTING_LIFE_PRESETS = Object.freeze([3, 5, 10, 20, 100]);
+  var CUP_FORMATS = Object.freeze({
+    short: Object.freeze({ id: 'short', maxPlayers: 12, startingLives: 3,
+      suddenDeathRotations: 3, bestOf: 3, winsNeeded: 2 }),
+    full: Object.freeze({ id: 'full', maxPlayers: 8, startingLives: 10,
+      suddenDeathRotations: 5, bestOf: 3, winsNeeded: 2 }),
+  });
+  var REMATCH_STRATEGIES = Object.freeze([
+    'same-setup', 'rotate-first-player', 'shuffle-order', 'swap-teams',
+  ]);
+  var DEFAULT_CLASSIC_SUDDEN_DEATH_TURNS = 70;
+  var DEFAULT_SUDDEN_DEATH_STEP_TURNS = 20;
+
+  function clone(value) {
+    if (value == null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map(clone);
+    var result = {};
+    Object.keys(value).forEach(function (key) { result[key] = clone(value[key]); });
+    return result;
+  }
+
+  function freeze(value) {
+    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+    Object.keys(value).forEach(function (key) { freeze(value[key]); });
+    return Object.freeze(value);
+  }
+
+  function snapshot(value) { return freeze(clone(value)); }
+  function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+  function modulo(value, length) { return ((value % length) + length) % length; }
+  function otherTeam(index) { return index === 0 ? 1 : 0; }
+
+  function required(value, label) {
+    var text = String(value == null ? '' : value).trim();
+    if (!text) throw new TypeError(label + ' is required');
+    return text;
+  }
+
+  function integer(value, fallback, minimum) {
+    var number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    number = Math.floor(number);
+    if (minimum != null && number < minimum) return fallback;
+    return number;
+  }
+
+  function finite(value, fallback) {
+    var number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  function stableHash(value) {
+    var text = String(value);
+    var hash = 2166136261;
+    for (var index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function alignToRotation(turns, playerCount) {
+    var count = Math.max(1, integer(playerCount, 1, 1));
+    var requested = Math.max(0, integer(turns, 0, 0));
+    return requested === 0 ? 0 : Math.ceil(requested / count) * count;
+  }
+
+  function additiveLifeCap(startingLives) {
+    return Math.ceil(Math.max(1, integer(startingLives, 1, 1)) * 1.5);
+  }
+
+  function addLivesCapped(lives, amount, startingLives) {
+    var before = Math.max(0, integer(lives, 0, 0));
+    var requested = Math.max(0, integer(amount, 0, 0));
+    var cap = additiveLifeCap(startingLives);
+    var after = before >= cap ? before : Math.min(cap, before + requested);
+    return freeze({ lives: after, gained: after - before, cap: cap,
+      requested: requested });
+  }
+
+  function multiplyLives(lives, multiplier) {
+    var before = Math.max(0, integer(lives, 0, 0));
+    var factor = finite(multiplier, NaN);
+    if (!Number.isFinite(factor) || factor < 0) {
+      throw new RangeError('Life multiplier must be a non-negative number');
+    }
+    return Math.max(0, Math.ceil(before * factor));
+  }
+
+  function halveLives(lives) {
+    return Math.max(1, Math.ceil(Math.max(0, integer(lives, 0, 0)) / 2));
+  }
+
+  function normalizeRequest(input) {
+    var source = object(input);
+    if (source.schema !== 'MatchRequestV2') return source;
+    return Object.assign({}, clone(object(source.rulesOptions)), {
+      matchId: source.matchId,
+      formatId: source.formatId,
+      physicsModeId: source.physicsModeId,
+      players: clone(source.roster),
+      seed: source.seed,
+    });
+  }
+
+  function normalizePlayers(value, limits) {
+    var options = object(limits);
+    var list = Array.isArray(value) ? value : [];
+    var minimum = integer(options.minimum, 2, 1);
+    var maximum = integer(options.maximum, 16, minimum);
+    if (list.length < minimum || list.length > maximum) {
+      throw new RangeError('Player count must be between ' + minimum + ' and ' + maximum);
+    }
+    var ids = new Set();
+    return list.map(function (entry, seat) {
+      var source = object(entry);
+      var id = required(source.id != null ? source.id : source.playerId, 'player id');
+      if (ids.has(id)) throw new TypeError('Duplicate player id: ' + id);
+      ids.add(id);
+      return {
+        id: id,
+        seat: seat,
+        name: source.name == null ? null : String(source.name),
+        isAI: source.isAI === true || source.ai === true || source.cpu === true ||
+          source.isCpu === true || String(source.type || '').toLowerCase() === 'cpu' ||
+          String(source.type || '').toLowerCase() === 'ai',
+        teamId: source.teamId == null ? null : String(source.teamId),
+        flipperId: source.flipperId || source.objectId || source.skin || null,
+        variantId: source.variantId || null,
+        cosmeticId: source.cosmeticId || null,
+        lives: 0,
+        streak: 0,
+        bestStreak: 0,
+        onFire: false,
+        heatingUp: false,
+        eliminated: false,
+        alwaysMagnet: source.alwaysMagnet === true,
+      };
+    });
+  }
+
+  function rosterFromSource(source) {
+    if (Array.isArray(source.players)) return source.players;
+    if (Array.isArray(source.roster)) return source.roster;
+    if (Array.isArray(source.defs)) return source.defs;
+    if (Array.isArray(source.playerIds)) {
+      return source.playerIds.map(function (id) { return { id: id }; });
+    }
+    var count = integer(source.playerCount, 0, 0);
+    return Array.from({ length: count }, function (_, index) {
+      return { id: 'seat-' + (index + 1) };
+    });
+  }
+
+  function normalizeLanding(input) {
+    var source = object(input);
+    var rawResult = source.result == null ? null : String(source.result).toUpperCase();
+    var pose = String(source.pose || (source.onCap ? 'cap' : '')).toLowerCase();
+    if (!rawResult) rawResult = pose === 'upright' || pose === 'cap' ? 'MAKE' : 'MISS';
+    if (rawResult !== 'MAKE' && rawResult !== 'MISS') {
+      throw new RangeError('Flip result must be MAKE or MISS');
+    }
+    if (rawResult === 'MISS') pose = 'miss';
+    else if (pose !== 'cap') pose = 'upright';
+    var golden = source.golden === true;
+    return freeze({ result: rawResult, pose: pose, made: rawResult === 'MAKE',
+      onCap: pose === 'cap', golden: golden,
+      worth: rawResult === 'MAKE' && (pose === 'cap' || golden) ? 2 : (rawResult === 'MAKE' ? 1 : 0),
+      reason: source.reason == null ? null : String(source.reason) });
+  }
+
+  function normalizeEffects(input) {
+    var source = object(input);
+    var multiplier = source.lifeMultiplier == null ? null : finite(source.lifeMultiplier, NaN);
+    if (multiplier != null && (!Number.isFinite(multiplier) || multiplier < 0)) {
+      throw new RangeError('lifeMultiplier must be a non-negative number');
+    }
+    var setOpponentsTo = source.setOpponentsTo == null ? null
+      : Math.max(0, integer(source.setOpponentsTo, 0, 0));
+    return freeze({
+      additiveLives: Math.max(0, integer(source.additiveLives, 0, 0)),
+      lifeMultiplier: multiplier,
+      halveOpponents: source.halveOpponents === true,
+      setOpponentsTo: setOpponentsTo,
+      excludedTargetIds: Array.from(new Set(Array.isArray(source.excludedTargetIds)
+        ? source.excludedTargetIds.map(String) : [])),
+      forceEliminateActor: source.forceEliminateActor === true,
+      forceEliminateIds: Array.from(new Set(Array.isArray(source.forceEliminateIds)
+        ? source.forceEliminateIds.map(String) : [])),
+      grantAlwaysMagnet: source.grantAlwaysMagnet === true,
+      metadata: clone(object(source.metadata)),
+    });
+  }
+
+  function playerById(state, playerId) {
+    return state.players.find(function (player) { return player.id === playerId; }) || null;
+  }
+
+  function activePlayers(state) {
+    return state.players.filter(function (player) { return !player.eliminated; });
+  }
+
+  function activeOrder(state, startIndex) {
+    var result = [];
+    if (!state.players.length) return result;
+    for (var offset = 0; offset < state.players.length; offset += 1) {
+      var index = modulo(startIndex + offset * state.config.direction, state.players.length);
+      if (!state.players[index].eliminated) result.push(state.players[index]);
+    }
+    return result;
+  }
+
+  function nextActiveIndex(state, fromIndex) {
+    for (var offset = 1; offset <= state.players.length; offset += 1) {
+      var index = modulo(fromIndex + offset * state.config.direction, state.players.length);
+      if (!state.players[index].eliminated) return index;
+    }
+    return fromIndex;
+  }
+
+  function eliminatePlayer(state, playerId) {
+    var player = playerById(state, playerId);
+    if (!player || player.eliminated) return false;
+    player.lives = 0;
+    player.eliminated = true;
+    player.onFire = false;
+    player.heatingUp = false;
+    player.streak = 0;
+    if (state.onFirePlayerId === player.id) state.onFirePlayerId = null;
+    return true;
+  }
+
+  function makeSuddenDeathBand(state, level, startIndex) {
+    var ordered = activeOrder(state, startIndex == null ? state.currentPlayerIndex : startIndex);
+    var targetPerPlayer = ordered.length
+      ? Math.max(1, Math.ceil(state.config.suddenDeathStepTurns / ordered.length)) : 0;
+    var counts = {};
+    ordered.forEach(function (player) { counts[player.id] = 0; });
+    return {
+      id: 'sd-' + level + '-' + state.rulesTurnCounter,
+      level: level,
+      rosterIds: ordered.map(function (player) { return player.id; }),
+      targetTurnsPerPlayer: targetPerPlayer,
+      targetTurns: targetPerPlayer * ordered.length,
+      countedTurns: 0,
+      turnsByPlayer: counts,
+    };
+  }
+
+  function suddenDeathBandComplete(state) {
+    var band = state.suddenDeath.band;
+    if (!band) return false;
+    return band.rosterIds.every(function (id) {
+      var player = playerById(state, id);
+      return !player || player.eliminated || band.turnsByPlayer[id] >= band.targetTurnsPerPlayer;
+    });
+  }
+
+  function recordCompetitiveTurn(state, playerId) {
+    var sudden = state.suddenDeath;
+    state.rulesTurnCounter += 1;
+    sudden.countedTurns += 1;
+    if (!sudden.enabled) return;
+    if (sudden.phase === 'regulation') {
+      if (sudden.countedTurns >= sudden.activationTurn) {
+        sudden.phase = 'sudden-death';
+        sudden.level = 1;
+        sudden.band = makeSuddenDeathBand(state, sudden.level,
+          nextActiveIndex(state, state.currentPlayerIndex));
+      }
+      return;
+    }
+    var band = sudden.band;
+    if (band && Object.prototype.hasOwnProperty.call(band.turnsByPlayer, playerId)) {
+      band.turnsByPlayer[playerId] += 1;
+      band.countedTurns += 1;
+    }
+    if (activePlayers(state).length > 1 && suddenDeathBandComplete(state)) {
+      sudden.level += 1;
+      sudden.band = makeSuddenDeathBand(state, sudden.level,
+        nextActiveIndex(state, state.currentPlayerIndex));
+    }
+  }
+
+  function currentSuddenDeathPenalty(state, player) {
+    if (!state.suddenDeath.enabled || state.suddenDeath.phase !== 'sudden-death') return 0;
+    if (player && player.onFire) return 0;
+    return state.suddenDeath.level;
+  }
+
+  function classicTurnMetadata(state) {
+    if (state.phase === 'complete') {
+      return freeze({ current: null, onDeck: null, afterThat: null, signals: [] });
+    }
+    var order = activeOrder(state, state.currentPlayerIndex);
+    if (!order.length) return freeze({ current: null, onDeck: null, afterThat: null, signals: [] });
+    var current = order[0];
+    var onDeck = order.length > 1 ? order[1] : order[0];
+    var afterThat = order.length > 2 ? order[2] : order[0];
+    var penalty = current.onFire ? 0 : state.stake + currentSuddenDeathPenalty(state, current);
+    var signals = [];
+    if (current.onFire) signals.push('on-fire');
+    if (state.suddenDeath.phase === 'sudden-death') signals.push('sudden-death-' + state.suddenDeath.level);
+    if (!current.onFire && penalty > 0 && current.lives - penalty <= 0 && order.length === 2) {
+      signals.push('heat-point');
+    }
+    return freeze({ current: current.id, onDeck: onDeck.id, afterThat: afterThat.id,
+      missPenalty: penalty, missWouldEliminate: penalty > 0 && current.lives - penalty <= 0,
+      signals: signals });
+  }
+
+  function normalizeClassicConfig(input) {
+    var source = normalizeRequest(input);
+    var players = normalizePlayers(rosterFromSource(source), { minimum: 2, maximum: 16 });
+    var startingLives = Math.max(1, integer(source.startingLives, 10, 1));
+    var direction = source.direction === -1 ? -1 : 1;
+    var startIndex = modulo(integer(source.startIndex != null ? source.startIndex : source.openingIndex, 0), players.length);
+    var requestedThreshold;
+    if (source.suddenDeathAfterRotations != null) {
+      requestedThreshold = Math.max(0, integer(source.suddenDeathAfterRotations, 0, 0)) * players.length;
+    } else {
+      requestedThreshold = Math.max(0, integer(source.suddenDeathAfterTurns != null
+        ? source.suddenDeathAfterTurns : source.suddenDeathFlipThreshold,
+      DEFAULT_CLASSIC_SUDDEN_DEATH_TURNS, 0));
+    }
+    return freeze({
+      schema: 'ClassicRulesConfigV1',
+      matchId: required(source.matchId || 'local-classic', 'matchId'),
+      formatId: 'classic',
+      physicsModeId: String(source.physicsModeId || 'normal'),
+      players: players,
+      startingLives: startingLives,
+      additiveLifeCap: additiveLifeCap(startingLives),
+      direction: direction,
+      startIndex: startIndex,
+      suddenDeathEnabled: source.suddenDeathEnabled !== false,
+      requestedSuddenDeathTurns: requestedThreshold,
+      suddenDeathActivationTurn: alignToRotation(requestedThreshold, players.length),
+      suddenDeathStepTurns: Math.max(1, integer(source.suddenDeathStepTurns,
+        DEFAULT_SUDDEN_DEATH_STEP_TURNS, 1)),
+      seed: integer(source.seed, 1) >>> 0,
+      rematchNumber: Math.max(0, integer(source.rematchNumber, 0, 0)),
+    });
+  }
+
+  function createClassicState(input) {
+    var config = input && input.schema === 'ClassicRulesConfigV1' ? input : normalizeClassicConfig(input);
+    var players = config.players.map(function (definition) {
+      var player = clone(definition);
+      player.lives = config.startingLives;
+      player.streak = 0;
+      player.bestStreak = 0;
+      player.onFire = false;
+      player.heatingUp = false;
+      player.eliminated = false;
+      return player;
+    });
+    var state = {
+      schema: 'ClassicRulesStateV1',
+      version: VERSION,
+      config: clone(config),
+      matchId: config.matchId,
+      formatId: 'classic',
+      phase: 'active',
+      players: players,
+      currentPlayerIndex: config.startIndex,
+      attemptCounter: 0,
+      rulesTurnCounter: 0,
+      sequence: 0,
+      stake: 0,
+      onFirePlayerId: null,
+      onFireEarned: 0,
+      lastFireRun: null,
+      winnerIds: [],
+      completionReason: null,
+      suddenDeath: {
+        enabled: config.suddenDeathEnabled,
+        phase: config.suddenDeathEnabled && config.suddenDeathActivationTurn === 0
+          ? 'sudden-death' : 'regulation',
+        configuredTurn: config.requestedSuddenDeathTurns,
+        activationTurn: config.suddenDeathActivationTurn,
+        countedTurns: 0,
+        level: config.suddenDeathEnabled && config.suddenDeathActivationTurn === 0 ? 1 : 0,
+        band: null,
+      },
+      turn: null,
+      lastOutcomeId: null,
+    };
+    if (state.suddenDeath.phase === 'sudden-death') {
+      state.suddenDeath.band = makeSuddenDeathBand(state, 1);
+    }
+    state.turn = classicTurnMetadata(state);
+    return freeze(state);
+  }
+
+  function applyAdditive(player, requested, startingLives) {
+    var applied = addLivesCapped(player.lives, requested, startingLives);
+    player.lives = applied.lives;
+    return applied.gained;
+  }
+
+  function applySuccessfulEffects(state, actor, effects, onFireReward) {
+    var summary = {
+      onFireRequested: Math.max(0, integer(onFireReward, 0, 0)),
+      onFireApplied: 0,
+      additiveRequested: effects.additiveLives,
+      additiveApplied: 0,
+      multiplier: effects.lifeMultiplier,
+      multipliedDelta: 0,
+      halvedOpponentIds: [],
+      setOpponentIds: [],
+      forcedEliminatedIds: [],
+      alwaysMagnetGranted: false,
+      metadata: clone(effects.metadata),
+    };
+    if (summary.onFireRequested) {
+      summary.onFireApplied = applyAdditive(actor, summary.onFireRequested, state.config.startingLives);
+    }
+    if (effects.additiveLives) {
+      summary.additiveApplied = applyAdditive(actor, effects.additiveLives, state.config.startingLives);
+    }
+    if (effects.lifeMultiplier != null) {
+      var beforeMultiply = actor.lives;
+      actor.lives = multiplyLives(actor.lives, effects.lifeMultiplier);
+      summary.multipliedDelta = actor.lives - beforeMultiply;
+    }
+    if (effects.grantAlwaysMagnet) {
+      actor.alwaysMagnet = true;
+      summary.alwaysMagnetGranted = true;
+    }
+    state.players.forEach(function (opponent) {
+      if (opponent.id === actor.id || opponent.eliminated ||
+          effects.excludedTargetIds.indexOf(opponent.id) >= 0) return;
+      if (effects.halveOpponents) {
+        opponent.lives = halveLives(opponent.lives);
+        summary.halvedOpponentIds.push(opponent.id);
+      }
+      if (effects.setOpponentsTo != null) {
+        opponent.lives = Math.max(1, effects.setOpponentsTo);
+        summary.setOpponentIds.push(opponent.id);
+      }
+    });
+    var forced = effects.forceEliminateIds.slice();
+    if (effects.forceEliminateActor) forced.push(actor.id);
+    Array.from(new Set(forced)).forEach(function (id) {
+      if (eliminatePlayer(state, id)) summary.forcedEliminatedIds.push(id);
+    });
+    if (actor.lives <= 0 && eliminatePlayer(state, actor.id)) {
+      summary.forcedEliminatedIds.push(actor.id);
+    }
+    return summary;
+  }
+
+  function positiveClassicCues(landing, facts) {
+    var cues = [];
+    if (landing.made) cues.push('make');
+    if (landing.onCap) cues.push('cap-landing');
+    if (facts.justIgnited) cues.push('on-fire');
+    if (facts.onFireApplied > 0) cues.push('life-earned');
+    if (facts.fireCapped) cues.push('on-fire-cap');
+    if (facts.streakAfter >= 5) cues.push('hot-streak');
+    if (facts.completed && facts.winnerIds.length) cues.push('match-win');
+    return cues;
+  }
+
+  function resolveClassicFlip(state, input) {
+    if (!state || state.schema !== 'ClassicRulesStateV1') throw new TypeError('ClassicRulesStateV1 is required');
+    if (state.phase !== 'active') throw new Error('Classic match is complete');
+    var source = object(input);
+    var next = clone(state);
+    var actor = next.players[next.currentPlayerIndex];
+    var requestedActorId = source.playerId == null ? actor.id : String(source.playerId);
+    if (requestedActorId !== actor.id) throw new Error('Flip is out of turn: ' + requestedActorId);
+    var landing = normalizeLanding(source);
+    var effects = normalizeEffects(source.effects);
+    var sequence = next.sequence + 1;
+    var outcomeId = String(source.flipId || (next.matchId + ':rules:' + sequence));
+    var livesBefore = actor.lives;
+    var stakeBefore = next.stake;
+    var streakBefore = actor.streak;
+    var fireBefore = actor.onFire && next.onFirePlayerId === actor.id;
+    var suddenLevelBefore = next.suddenDeath.level;
+    var penalty = 0;
+    var countedForSuddenDeath = false;
+    var justIgnited = false;
+    var fireEnded = false;
+    var fireCapped = false;
+    var protectedFireMiss = false;
+    var retainTurn = false;
+    var effectSummary = applySuccessfulEffects(next, actor, normalizeEffects({}), 0);
+
+    next.sequence = sequence;
+    next.attemptCounter += 1;
+
+    if (fireBefore) {
+      if (landing.made) {
+        actor.streak += 1;
+        actor.bestStreak = Math.max(actor.bestStreak, actor.streak);
+        effectSummary = applySuccessfulEffects(next, actor, effects, landing.worth);
+        next.onFireEarned += effectSummary.onFireApplied;
+        if (actor.eliminated || actor.lives >= next.config.additiveLifeCap) {
+          fireCapped = !actor.eliminated;
+          fireEnded = true;
+          actor.onFire = false;
+          actor.heatingUp = false;
+          next.lastFireRun = { playerId: actor.id, earned: next.onFireEarned,
+            peakStreak: actor.streak, reason: actor.eliminated ? 'eliminated' : 'life-cap' };
+          actor.streak = 0;
+          next.onFirePlayerId = null;
+          next.onFireEarned = 0;
+        } else {
+          retainTurn = true;
+        }
+      } else {
+        protectedFireMiss = true;
+        fireEnded = true;
+        actor.onFire = false;
+        actor.heatingUp = false;
+        next.lastFireRun = { playerId: actor.id, earned: next.onFireEarned,
+          peakStreak: actor.streak, reason: 'miss' };
+        actor.streak = 0;
+        next.onFirePlayerId = null;
+        next.onFireEarned = 0;
+      }
+    } else {
+      countedForSuddenDeath = true;
+      if (landing.made) {
+        actor.streak += 1;
+        actor.bestStreak = Math.max(actor.bestStreak, actor.streak);
+        actor.heatingUp = actor.streak === 2;
+        next.stake += landing.worth;
+        effectSummary = applySuccessfulEffects(next, actor, effects, 0);
+        if (!actor.eliminated && actor.streak >= 3 && actor.lives < next.config.additiveLifeCap) {
+          actor.onFire = true;
+          actor.heatingUp = false;
+          next.onFirePlayerId = actor.id;
+          next.onFireEarned = 0;
+          justIgnited = true;
+          retainTurn = true;
+        }
+      } else {
+        penalty = next.stake + currentSuddenDeathPenalty(next, actor);
+        actor.lives = Math.max(0, actor.lives - penalty);
+        actor.streak = 0;
+        actor.heatingUp = false;
+        actor.onFire = false;
+        next.stake = 0;
+        if (actor.lives <= 0) eliminatePlayer(next, actor.id);
+      }
+      recordCompetitiveTurn(next, actor.id);
+    }
+
+    var eliminatedIds = state.players.filter(function (beforePlayer) {
+      var afterPlayer = playerById(next, beforePlayer.id);
+      return !beforePlayer.eliminated && afterPlayer && afterPlayer.eliminated;
+    }).map(function (player) { return player.id; });
+    var survivors = activePlayers(next);
+    if (survivors.length <= 1) {
+      next.phase = 'complete';
+      next.winnerIds = survivors.map(function (player) { return player.id; });
+      next.completionReason = survivors.length ? 'last-player-standing' : 'no-survivors';
+      retainTurn = false;
+    } else if (!retainTurn) {
+      next.currentPlayerIndex = nextActiveIndex(next, state.currentPlayerIndex);
+    }
+    next.lastOutcomeId = outcomeId;
+    next.turn = classicTurnMetadata(next);
+
+    var facts = {
+      justIgnited: justIgnited,
+      fireEnded: fireEnded,
+      fireCapped: fireCapped,
+      protectedFireMiss: protectedFireMiss,
+      onFireApplied: effectSummary.onFireApplied,
+      streakAfter: actor.streak,
+      completed: next.phase === 'complete',
+      winnerIds: next.winnerIds,
+    };
+    var outcome = freeze({
+      schema: OUTCOME_SCHEMA,
+      version: VERSION,
+      type: 'rules.classic-flip-resolved.v1',
+      outcomeId: outcomeId,
+      matchId: next.matchId,
+      sequence: sequence,
+      formatId: 'classic',
+      playerId: actor.id,
+      landing: landing,
+      lives: { before: livesBefore, after: actor.lives, delta: actor.lives - livesBefore,
+        additiveCap: next.config.additiveLifeCap },
+      stake: { before: stakeBefore, after: next.stake },
+      streak: { before: streakBefore, after: actor.streak, best: actor.bestStreak },
+      onFire: { before: fireBefore, after: actor.onFire, justIgnited: justIgnited,
+        ended: fireEnded, capped: fireCapped, protectedMiss: protectedFireMiss,
+        rewardApplied: effectSummary.onFireApplied },
+      suddenDeath: { levelBefore: suddenLevelBefore, levelAfter: next.suddenDeath.level,
+        counted: countedForSuddenDeath, penalty: fireBefore ? 0 : Math.max(0, penalty),
+        configuredActivationTurn: state.suddenDeath.configuredTurn,
+        paddedActivationTurn: state.suddenDeath.activationTurn,
+        minimumBandTurns: state.config.suddenDeathStepTurns,
+        paddedBandTurnsBefore: state.suddenDeath.band ? state.suddenDeath.band.targetTurns : 0,
+        paddedBandTurnsAfter: next.suddenDeath.band ? next.suddenDeath.band.targetTurns : 0,
+        turnsPerActiveSeatBefore: state.suddenDeath.band
+          ? state.suddenDeath.band.targetTurnsPerPlayer : 0,
+        turnsPerActiveSeatAfter: next.suddenDeath.band
+          ? next.suddenDeath.band.targetTurnsPerPlayer : 0,
+        bandProgressBefore: state.suddenDeath.band ? state.suddenDeath.band.countedTurns : 0,
+        bandProgressAfter: next.suddenDeath.band ? next.suddenDeath.band.countedTurns : 0 },
+      effects: freeze(effectSummary),
+      eliminatedIds: eliminatedIds,
+      completed: next.phase === 'complete',
+      winnerIds: next.winnerIds.slice(),
+      completionReason: next.completionReason,
+      turn: next.turn,
+      presentation: { positiveOnly: true, cues: positiveClassicCues(landing, facts) },
+    });
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: outcome });
+  }
+
+  function classicMissWouldEliminate(state) {
+    if (!state || state.schema !== 'ClassicRulesStateV1' || state.phase !== 'active') return false;
+    var player = state.players[state.currentPlayerIndex];
+    if (!player || player.eliminated || player.onFire) return false;
+    var penalty = state.stake + currentSuddenDeathPenalty(state, player);
+    return penalty > 0 && player.lives - penalty <= 0;
+  }
+
+  function forceEliminate(state, playerIds, reason) {
+    if (!state || state.schema !== 'ClassicRulesStateV1') throw new TypeError('ClassicRulesStateV1 is required');
+    var next = clone(state);
+    var ids = Array.isArray(playerIds) ? playerIds.map(String) : [String(playerIds)];
+    var removed = [];
+    ids.forEach(function (id) { if (eliminatePlayer(next, id)) removed.push(id); });
+    var survivors = activePlayers(next);
+    if (survivors.length <= 1) {
+      next.phase = 'complete';
+      next.winnerIds = survivors.map(function (player) { return player.id; });
+      next.completionReason = reason || 'forced-elimination';
+    } else if (next.players[next.currentPlayerIndex].eliminated) {
+      next.currentPlayerIndex = nextActiveIndex(next, next.currentPlayerIndex);
+    }
+    next.turn = classicTurnMetadata(next);
+    return freeze({ state: freeze(next), eliminatedIds: freeze(removed) });
+  }
+
+  function cupFormat(value) {
+    var id = String(value || 'short').toLowerCase().replace('-cup', '');
+    var format = CUP_FORMATS[id];
+    if (!format) throw new RangeError('Cup length must be short or full');
+    return format;
+  }
+
+  function normalizeCupConfig(input) {
+    var source = normalizeRequest(input);
+    var definition = cupFormat(source.cupLength || source.length || source.cupFormat);
+    var players = normalizePlayers(rosterFromSource(source),
+      { minimum: 2, maximum: definition.maxPlayers });
+    return freeze({
+      schema: 'CupRulesConfigV1',
+      matchId: required(source.matchId || 'local-cup', 'matchId'),
+      formatId: 'cup',
+      cupLength: definition.id,
+      players: players,
+      startingLives: definition.startingLives,
+      suddenDeathRotations: definition.suddenDeathRotations,
+      bestOf: definition.bestOf,
+      winsNeeded: definition.winsNeeded,
+      direction: source.direction === -1 ? -1 : 1,
+      startIndex: modulo(integer(source.startIndex != null ? source.startIndex : source.openingIndex, 0), players.length),
+      seed: integer(source.seed, 1) >>> 0,
+      rematchNumber: Math.max(0, integer(source.rematchNumber, 0, 0)),
+    });
+  }
+
+  function cupHeatState(config, heatNumber, persistentMagnetIds) {
+    var starter = modulo(config.startIndex + (heatNumber - 1) * config.direction, config.players.length);
+    var players = config.players.map(function (player) {
+      var next = clone(player);
+      next.alwaysMagnet = persistentMagnetIds.indexOf(player.id) >= 0 || player.alwaysMagnet;
+      return next;
+    });
+    return createClassicState({
+      matchId: config.matchId + ':heat:' + heatNumber,
+      players: players,
+      startingLives: config.startingLives,
+      direction: config.direction,
+      startIndex: starter,
+      suddenDeathAfterRotations: config.suddenDeathRotations,
+      seed: config.seed ^ heatNumber,
+    });
+  }
+
+  function cupWinsMap(players) {
+    var result = {};
+    players.forEach(function (player) { result[player.id] = 0; });
+    return result;
+  }
+
+  function createCupState(input) {
+    var config = input && input.schema === 'CupRulesConfigV1' ? input : normalizeCupConfig(input);
+    var persistent = config.players.filter(function (player) { return player.alwaysMagnet; })
+      .map(function (player) { return player.id; });
+    var state = {
+      schema: 'CupRulesStateV1', version: VERSION, config: clone(config),
+      matchId: config.matchId, formatId: 'cup', cupLength: config.cupLength,
+      phase: 'heat', sequence: 0, heatNumber: 1,
+      heatWins: cupWinsMap(config.players), heatResults: [],
+      persistentMagnetIds: persistent, currentHeat: cupHeatState(config, 1, persistent),
+      shootout: null, winnerIds: [], completionReason: null,
+      turn: null, lastOutcomeId: null,
+    };
+    state.turn = cupTurnMetadata(state);
+    return freeze(state);
+  }
+
+  function orderedIdsFromSeat(players, startIndex, direction, allowedIds) {
+    var allowed = allowedIds ? new Set(allowedIds) : null;
+    var result = [];
+    for (var offset = 0; offset < players.length; offset += 1) {
+      var index = modulo(startIndex + offset * direction, players.length);
+      if (!allowed || allowed.has(players[index].id)) result.push(players[index].id);
+    }
+    return result;
+  }
+
+  function buildCupShootout(state, participants, round, openerSeat) {
+    var config = state.config;
+    var order = orderedIdsFromSeat(config.players, openerSeat, config.direction, participants);
+    return {
+      round: round,
+      participantIds: participants.slice(),
+      openerSeat: openerSeat,
+      queue: order,
+      queuePosition: 0,
+      results: [],
+      eventsDisabled: true,
+    };
+  }
+
+  function cupTurnMetadata(state) {
+    if (state.phase === 'complete' || state.phase === 'between-heats') {
+      return freeze({ current: null, onDeck: null, afterThat: null, signals: [] });
+    }
+    if (state.phase === 'shootout') {
+      var shootout = state.shootout;
+      var remaining = shootout.queue.slice(shootout.queuePosition);
+      return freeze({ current: remaining[0] || null, onDeck: remaining[1] || null,
+        afterThat: remaining[2] || null, signals: ['shootout'], eventsDisabled: true });
+    }
+    var base = clone(state.currentHeat.turn);
+    var signals = base.signals ? base.signals.slice() : [];
+    if (signals.indexOf('heat-point') >= 0) {
+      var threatened = base.current;
+      var likelyWinner = state.currentHeat.players.find(function (player) {
+        return !player.eliminated && player.id !== threatened;
+      });
+      if (likelyWinner && state.heatWins[likelyWinner.id] === state.config.winsNeeded - 1) {
+        signals.push('match-point');
+      }
+    }
+    base.signals = signals;
+    base.heatNumber = state.heatNumber;
+    return freeze(base);
+  }
+
+  function beginNextCupHeat(state) {
+    if (!state || state.schema !== 'CupRulesStateV1') throw new TypeError('CupRulesStateV1 is required');
+    if (state.phase !== 'between-heats') throw new Error('Cup is not between heats');
+    var next = clone(state);
+    next.phase = 'heat';
+    next.currentHeat = cupHeatState(next.config, next.heatNumber, next.persistentMagnetIds);
+    next.turn = cupTurnMetadata(next);
+    return freeze(next);
+  }
+
+  function closeCupHeat(next, heatWinnerId, innerOutcome) {
+    next.heatWins[heatWinnerId] += 1;
+    next.heatResults.push({
+      heatNumber: next.heatNumber,
+      winnerId: heatWinnerId,
+      starterId: next.config.players[next.currentHeat.config.startIndex].id,
+      rulesTurns: next.currentHeat.rulesTurnCounter,
+      attempts: next.currentHeat.attemptCounter,
+      completionReason: next.currentHeat.completionReason,
+      outcomeId: innerOutcome.outcomeId,
+    });
+    if (next.heatWins[heatWinnerId] >= next.config.winsNeeded) {
+      next.phase = 'complete';
+      next.winnerIds = [heatWinnerId];
+      next.completionReason = 'cup-won';
+      next.currentHeat = null;
+      return { heatResolved: true, matchResolved: true, shootoutStarted: false };
+    }
+    if (next.heatNumber < next.config.bestOf) {
+      next.phase = 'between-heats';
+      next.heatNumber += 1;
+      next.currentHeat = null;
+      return { heatResolved: true, matchResolved: false, shootoutStarted: false };
+    }
+    var high = Math.max.apply(Math, Object.keys(next.heatWins).map(function (id) { return next.heatWins[id]; }));
+    var leaders = next.config.players.filter(function (player) { return next.heatWins[player.id] === high; })
+      .map(function (player) { return player.id; });
+    if (leaders.length === 1) {
+      next.phase = 'complete';
+      next.winnerIds = [leaders[0]];
+      next.completionReason = 'cup-won';
+      next.currentHeat = null;
+      return { heatResolved: true, matchResolved: true, shootoutStarted: false };
+    }
+    next.phase = 'shootout';
+    next.currentHeat = null;
+    var nextSeat = modulo(next.config.startIndex + next.heatNumber * next.config.direction,
+      next.config.players.length);
+    next.shootout = buildCupShootout(next, leaders, 1, nextSeat);
+    return { heatResolved: true, matchResolved: false, shootoutStarted: true };
+  }
+
+  function resolveCupShootoutFlip(state, input) {
+    var source = object(input);
+    var next = clone(state);
+    var shootout = next.shootout;
+    var expected = shootout.queue[shootout.queuePosition];
+    var playerId = source.playerId == null ? expected : String(source.playerId);
+    if (!expected || playerId !== expected) throw new Error('Cup shootout flip is out of turn');
+    var landing = normalizeLanding(source);
+    next.sequence += 1;
+    var outcomeId = String(source.flipId || (next.matchId + ':rules:' + next.sequence));
+    shootout.results.push({ playerId: playerId, result: landing.result, pose: landing.pose });
+    shootout.queuePosition += 1;
+    var roundResolved = false;
+    var repeated = false;
+    if (shootout.queuePosition >= shootout.queue.length) {
+      roundResolved = true;
+      var makers = shootout.results.filter(function (entry) { return entry.result === 'MAKE'; });
+      if (makers.length === 1) {
+        next.phase = 'complete';
+        next.winnerIds = [makers[0].playerId];
+        next.completionReason = 'cup-shootout';
+      } else {
+        repeated = true;
+        var currentOpenerIndex = next.config.players.findIndex(function (player) {
+          return player.id === shootout.queue[0];
+        });
+        var nextOpener = currentOpenerIndex;
+        do {
+          nextOpener = modulo(nextOpener + next.config.direction, next.config.players.length);
+        } while (shootout.participantIds.indexOf(next.config.players[nextOpener].id) < 0);
+        next.shootout = buildCupShootout(next, shootout.participantIds,
+          shootout.round + 1, nextOpener);
+      }
+    }
+    next.lastOutcomeId = outcomeId;
+    next.turn = cupTurnMetadata(next);
+    var cues = landing.made ? ['make'] : [];
+    if (landing.onCap) cues.push('cap-landing');
+    if (next.phase === 'complete') cues.push('match-win');
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: freeze({
+      schema: OUTCOME_SCHEMA, version: VERSION,
+      type: 'rules.cup-shootout-flip-resolved.v1', outcomeId: outcomeId,
+      matchId: next.matchId, sequence: next.sequence, formatId: 'cup',
+      playerId: playerId, landing: landing, heatNumber: next.heatNumber,
+      shootoutRound: shootout.round, roundResolved: roundResolved, repeated: repeated,
+      completed: next.phase === 'complete', winnerIds: next.winnerIds.slice(),
+      completionReason: next.completionReason, turn: next.turn,
+      presentation: { positiveOnly: true, cues: cues },
+    }) });
+  }
+
+  function resolveCupFlip(state, input) {
+    if (!state || state.schema !== 'CupRulesStateV1') throw new TypeError('CupRulesStateV1 is required');
+    if (state.phase === 'shootout') return resolveCupShootoutFlip(state, input);
+    if (state.phase !== 'heat') throw new Error('Cup is not accepting a flip');
+    var next = clone(state);
+    var inner = resolveClassicFlip(next.currentHeat, input);
+    next.currentHeat = clone(inner.state);
+    next.sequence += 1;
+    next.lastOutcomeId = next.matchId + ':rules:' + next.sequence;
+    next.currentHeat.players.forEach(function (player) {
+      if (player.alwaysMagnet && next.persistentMagnetIds.indexOf(player.id) < 0) {
+        next.persistentMagnetIds.push(player.id);
+      }
+    });
+    var close = { heatResolved: false, matchResolved: false, shootoutStarted: false };
+    var heatWinnerId = null;
+    if (next.currentHeat.phase === 'complete' && next.currentHeat.winnerIds.length === 1) {
+      heatWinnerId = next.currentHeat.winnerIds[0];
+      close = closeCupHeat(next, heatWinnerId, inner.outcome);
+    }
+    next.turn = cupTurnMetadata(next);
+    var cues = inner.outcome.presentation.cues.slice();
+    if (close.heatResolved) cues.push('heat-win');
+    if (close.matchResolved) cues.push('match-win');
+    if (close.shootoutStarted) cues.push('shootout');
+    var outcome = freeze({
+      schema: OUTCOME_SCHEMA, version: VERSION,
+      type: 'rules.cup-flip-resolved.v1', outcomeId: next.lastOutcomeId,
+      matchId: next.matchId, sequence: next.sequence, formatId: 'cup',
+      playerId: inner.outcome.playerId, landing: inner.outcome.landing,
+      heatNumber: state.heatNumber, heatResolved: close.heatResolved,
+      heatWinnerId: heatWinnerId, matchResolved: close.matchResolved,
+      shootoutStarted: close.shootoutStarted, innerOutcome: inner.outcome,
+      completed: next.phase === 'complete', winnerIds: next.winnerIds.slice(),
+      completionReason: next.completionReason, turn: next.turn,
+      presentation: { positiveOnly: true, cues: Array.from(new Set(cues)) },
+    });
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: outcome });
+  }
+
+  function seededOrder(ids, seed, salt) {
+    return ids.slice().map(function (id, index) {
+      return { id: id, index: index, score: stableHash(seed + '|' + salt + '|' + id) };
+    }).sort(function (left, right) {
+      return left.score - right.score || left.index - right.index;
+    }).map(function (entry) { return entry.id; });
+  }
+
+  function cupRematchOptions(state, seed) {
+    if (!state || state.schema !== 'CupRulesStateV1') throw new TypeError('CupRulesStateV1 is required');
+    var ids = state.config.players.map(function (player) { return player.id; });
+    var fairStarter = modulo(state.config.startIndex + state.config.direction, ids.length);
+    var base = {
+      matchId: state.matchId + ':rematch:' + (state.config.rematchNumber + 1),
+      cupLength: state.cupLength,
+      players: clone(state.config.players),
+      direction: state.config.direction,
+      startIndex: fairStarter,
+      seed: state.config.seed,
+      rematchNumber: state.config.rematchNumber + 1,
+    };
+    var rotatedPlayers = ids.slice(fairStarter).concat(ids.slice(0, fairStarter)).map(function (id) {
+      return clone(state.config.players.find(function (player) { return player.id === id; }));
+    });
+    var shuffleIds = seededOrder(ids, seed == null ? state.config.seed : seed,
+      'cup-rematch-' + (state.config.rematchNumber + 1));
+    var shuffledPlayers = shuffleIds.map(function (id) {
+      return clone(state.config.players.find(function (player) { return player.id === id; }));
+    });
+    return freeze({
+      sameSetup: clone(base),
+      rotateFirstPlayer: Object.assign({}, clone(base), { players: rotatedPlayers, startIndex: 0 }),
+      shuffleOrder: Object.assign({}, clone(base), { players: shuffledPlayers,
+        startIndex: Math.max(0, shuffleIds.indexOf(ids[fairStarter])) }),
+    });
+  }
+
+  function defaultTeams(players) {
+    var result = [[], []];
+    players.forEach(function (player, index) { result[index % 2].push(player.id); });
+    return result;
+  }
+
+  function normalizeTeams(value, players) {
+    var ids = new Set(players.map(function (player) { return player.id; }));
+    var teams = Array.isArray(value) ? clone(value) : defaultTeams(players);
+    if (teams.length !== 2 || !Array.isArray(teams[0]) || !Array.isArray(teams[1])) {
+      throw new TypeError('Team Clash requires two teams');
+    }
+    teams = teams.map(function (team) {
+      return team.map(function (entry) {
+        if (Number.isInteger(entry)) {
+          if (!players[entry]) throw new RangeError('Unknown Team Clash seat: ' + entry);
+          return players[entry].id;
+        }
+        return String(entry);
+      });
+    });
+    var flat = teams[0].concat(teams[1]);
+    if (teams[0].length !== teams[1].length || flat.length !== players.length ||
+        new Set(flat).size !== players.length || flat.some(function (id) { return !ids.has(id); })) {
+      throw new TypeError('Team Clash teams must be equal and contain every player exactly once');
+    }
+    return teams;
+  }
+
+  function normalizeTeamConfig(input) {
+    var source = normalizeRequest(input);
+    var players = normalizePlayers(rosterFromSource(source), { minimum: 2, maximum: 16 });
+    if (players.length % 2) throw new RangeError('Team Clash requires an even 2–16 players');
+    var rosterTeamIds = Array.from(new Set(players.filter(function (player) {
+      return player.teamId != null;
+    }).map(function (player) { return player.teamId; })));
+    var derivedTeams = null;
+    if (!source.teams && rosterTeamIds.length) {
+      if (rosterTeamIds.length !== 2 || players.some(function (player) { return player.teamId == null; })) {
+        throw new TypeError('Team Clash roster teamId values must define exactly two complete teams');
+      }
+      derivedTeams = rosterTeamIds.map(function (teamId) {
+        return players.filter(function (player) { return player.teamId === teamId; })
+          .map(function (player) { return player.id; });
+      });
+    }
+    var teams = normalizeTeams(source.teams || derivedTeams, players);
+    var teamIds = Array.isArray(source.teamIds) && source.teamIds.length === 2
+      ? source.teamIds.map(String) : (derivedTeams ? rosterTeamIds : ['team-a', 'team-b']);
+    if (teamIds[0] === teamIds[1]) throw new TypeError('Team Clash team IDs must be unique');
+    return freeze({
+      schema: 'TeamClashRulesConfigV1',
+      matchId: required(source.matchId || 'local-team-clash', 'matchId'),
+      formatId: 'team-clash', players: players, teams: teams,
+      teamIds: teamIds,
+      teamNames: Array.isArray(source.teamNames) && source.teamNames.length === 2
+        ? source.teamNames.map(String) : ['A', 'B'],
+      targetScore: 11, flipsPerTeam: 3,
+      startingTeamIndex: source.startingTeamIndex === 1 || source.startingTeam === 1 ? 1 : 0,
+      teammateOffsets: [0, 1].map(function (index) {
+        var values = Array.isArray(source.teammateOffsets) ? source.teammateOffsets : [];
+        return modulo(integer(values[index], 0), teams[index].length);
+      }),
+      seed: integer(source.seed, 1) >>> 0,
+      rematchNumber: Math.max(0, integer(source.rematchNumber, 0, 0)),
+    });
+  }
+
+  function blankPlayerTeamStats(players) {
+    var stats = {};
+    players.forEach(function (player) {
+      stats[player.id] = { flips: 0, makes: 0, caps: 0, streak: 0, bestStreak: 0 };
+    });
+    return stats;
+  }
+
+  function buildTeamQueue(state) {
+    var queue = [];
+    for (var flip = 0; flip < state.config.flipsPerTeam; flip += 1) {
+      for (var side = 0; side < 2; side += 1) {
+        var teamIndex = side === 0 ? state.roundStartingTeamIndex : otherTeam(state.roundStartingTeamIndex);
+        var roster = state.config.teams[teamIndex];
+        var playerId = roster[modulo(state.teammateOffsets[teamIndex] + flip, roster.length)];
+        queue.push({ position: queue.length, round: state.roundNumber,
+          teamIndex: teamIndex, teamId: state.config.teamIds[teamIndex],
+          teamFlip: flip + 1, playerId: playerId });
+      }
+    }
+    return queue;
+  }
+
+  function teamTurnMetadata(state) {
+    if (state.phase === 'complete') {
+      return freeze({ current: null, onDeck: null, afterThat: null, signals: [] });
+    }
+    var queue = state.queue;
+    var position = state.queuePosition;
+    var current = queue[position] || null;
+    var onDeck = queue[position + 1] || null;
+    var afterThat = queue[position + 2] || null;
+    var signals = [];
+    if (current && position === queue.length - 1) {
+      var opponent = otherTeam(current.teamIndex);
+      var projected = state.scores[current.teamIndex] +
+        Math.max(0, state.roundRaw[current.teamIndex] + 1 - state.roundRaw[opponent]);
+      if (projected >= state.config.targetScore) signals.push('match-point');
+    }
+    return freeze({ current: current ? current.playerId : null,
+      onDeck: onDeck ? onDeck.playerId : null,
+      afterThat: afterThat ? afterThat.playerId : null,
+      currentEntry: current, onDeckEntry: onDeck, afterThatEntry: afterThat,
+      signals: signals });
+  }
+
+  function createTeamClashState(input) {
+    var config = input && input.schema === 'TeamClashRulesConfigV1' ? input : normalizeTeamConfig(input);
+    var state = {
+      schema: 'TeamClashRulesStateV1', version: VERSION,
+      config: clone(config), matchId: config.matchId, formatId: 'team-clash',
+      phase: 'active', sequence: 0, scores: [0, 0], roundNumber: 1,
+      roundStartScores: [0, 0],
+      roundStartingTeamIndex: config.startingTeamIndex,
+      matchStartingTeamIndex: config.startingTeamIndex,
+      teammateOffsets: config.teammateOffsets.slice(),
+      matchOpeningOffsets: config.teammateOffsets.slice(),
+      roundRaw: [0, 0], flipsTaken: [0, 0], queue: [], queuePosition: 0,
+      playerStats: blankPlayerTeamStats(config.players),
+      persistentMagnetIds: config.players.filter(function (player) { return player.alwaysMagnet; })
+        .map(function (player) { return player.id; }),
+      roundHistory: [], winnerTeamIndex: null, winnerIds: [], completionReason: null,
+      lastOutcomeId: null, turn: null,
+    };
+    state.queue = buildTeamQueue(state);
+    state.turn = teamTurnMetadata(state);
+    return freeze(state);
+  }
+
+  function normalizeTeamScoring(input, landing) {
+    var source = object(input);
+    var effects = object(source.effects);
+    if (source.disallowed === true || effects.disallowed === true) {
+      throw new Error('This result is not eligible in Team Clash');
+    }
+    var raw = source.rawPoints == null
+      ? (landing.made ? (landing.golden ? 2 : 1) : 0)
+      : Math.max(0, integer(source.rawPoints, 0, 0));
+    var multiplier = effects.scoreMultiplier == null ? 1
+      : Math.max(0, finite(effects.scoreMultiplier, 1));
+    raw = landing.made ? Math.max(0, Math.round(raw * multiplier)) : 0;
+    if (landing.made) raw += Math.max(0, integer(effects.additivePoints, 0, 0));
+    var automaticWinner = effects.automaticWinner == null ? null : String(effects.automaticWinner);
+    if (automaticWinner != null && automaticWinner !== 'current' && automaticWinner !== 'opponent') {
+      throw new RangeError('automaticWinner must be current or opponent');
+    }
+    return freeze({ rawPoints: raw,
+      halveOpponentRound: landing.made && effects.halveOpponentRound === true,
+      halveOpponentScore: landing.made && effects.halveOpponentScore === true,
+      grantAlwaysMagnet: landing.made && effects.grantAlwaysMagnet === true,
+      automaticWinner: automaticWinner,
+      metadata: clone(object(effects.metadata)) });
+  }
+
+  function positiveTeamCues(landing, stats, roundSummary, completed) {
+    var cues = [];
+    if (landing.made) cues.push('make');
+    if (landing.onCap) cues.push('cap-landing');
+    if (stats.streak >= 3) cues.push('hot-streak');
+    if (roundSummary) {
+      if (roundSummary.cancelled > 0) cues.push('cancellation');
+      if (roundSummary.comeback) cues.push('comeback-shot');
+      if (completed && roundSummary.cancelled > 0) cues.push('cancel-for-win');
+      if (completed) cues.push('match-win');
+    }
+    return cues;
+  }
+
+  var POSITIVE_CUE_PRIORITY = Object.freeze({
+    'match-win': 100,
+    'cancel-for-win': 95,
+    'comeback-shot': 90,
+    'heat-win': 85,
+    'on-fire-cap': 80,
+    'on-fire': 75,
+    'hot-streak': 70,
+    'cap-landing': 60,
+    'life-earned': 55,
+    'cancellation': 50,
+    'make': 10,
+    'shootout': 5,
+  });
+
+  function collectPositiveHighlights(outcomes, limit) {
+    var maximum = Math.max(0, integer(limit, 5, 0));
+    var rows = [];
+    (Array.isArray(outcomes) ? outcomes : []).forEach(function (outcome, outcomeIndex) {
+      if (!outcome || outcome.schema !== OUTCOME_SCHEMA || !outcome.presentation ||
+          outcome.presentation.positiveOnly !== true) return;
+      (Array.isArray(outcome.presentation.cues) ? outcome.presentation.cues : [])
+        .forEach(function (cue, cueIndex) {
+          if (!Object.prototype.hasOwnProperty.call(POSITIVE_CUE_PRIORITY, cue)) return;
+          rows.push({ kind: cue, playerId: outcome.playerId || null,
+            teamId: outcome.teamId || null, outcomeId: outcome.outcomeId,
+            sequence: integer(outcome.sequence, outcomeIndex, 0),
+            priority: POSITIVE_CUE_PRIORITY[cue], cueIndex: cueIndex,
+            outcomeIndex: outcomeIndex });
+        });
+    });
+    rows.sort(function (left, right) {
+      return right.priority - left.priority || left.sequence - right.sequence ||
+        left.outcomeIndex - right.outcomeIndex || left.cueIndex - right.cueIndex;
+    });
+    return freeze(rows.slice(0, maximum).map(function (row) {
+      return { kind: row.kind, playerId: row.playerId, teamId: row.teamId,
+        outcomeId: row.outcomeId, sequence: row.sequence };
+    }));
+  }
+
+  function resolveTeamFlip(state, input) {
+    if (!state || state.schema !== 'TeamClashRulesStateV1') {
+      throw new TypeError('TeamClashRulesStateV1 is required');
+    }
+    if (state.phase !== 'active') throw new Error('Team Clash match is complete');
+    var source = object(input);
+    var next = clone(state);
+    var expected = next.queue[next.queuePosition];
+    var playerId = source.playerId == null ? expected.playerId : String(source.playerId);
+    if (!expected || expected.playerId !== playerId) throw new Error('Team Clash flip is out of turn');
+    var landing = normalizeLanding(source);
+    var scoring = normalizeTeamScoring(source, landing);
+    var teamIndex = expected.teamIndex;
+    var opponentIndex = otherTeam(teamIndex);
+    var roundStartScores = next.roundStartScores.slice();
+    var stats = next.playerStats[playerId];
+    stats.flips += 1;
+    if (landing.made) {
+      stats.makes += 1;
+      stats.streak += 1;
+      if (landing.onCap) stats.caps += 1;
+      stats.bestStreak = Math.max(stats.bestStreak, stats.streak);
+    } else stats.streak = 0;
+
+    if (scoring.halveOpponentRound) next.roundRaw[opponentIndex] = Math.ceil(next.roundRaw[opponentIndex] / 2);
+    if (scoring.halveOpponentScore) next.scores[opponentIndex] = Math.ceil(next.scores[opponentIndex] / 2);
+    if (scoring.grantAlwaysMagnet && next.persistentMagnetIds.indexOf(playerId) < 0) {
+      next.persistentMagnetIds.push(playerId);
+    }
+    next.roundRaw[teamIndex] += scoring.rawPoints;
+    next.flipsTaken[teamIndex] += 1;
+    next.queuePosition += 1;
+    next.sequence += 1;
+    var outcomeId = String(source.flipId || (next.matchId + ':rules:' + next.sequence));
+    var roundSummary = null;
+
+    if (scoring.automaticWinner) {
+      var winningIndex = scoring.automaticWinner === 'opponent' ? opponentIndex : teamIndex;
+      next.phase = 'complete';
+      next.winnerTeamIndex = winningIndex;
+      next.winnerIds = next.config.teams[winningIndex].slice();
+      next.completionReason = 'automatic-team-result';
+    } else if (next.queuePosition >= next.queue.length) {
+      var raw = next.roundRaw.slice();
+      var difference = raw[0] - raw[1];
+      var awardedTeamIndex = difference === 0 ? null : (difference > 0 ? 0 : 1);
+      var awardedPoints = Math.abs(difference);
+      var cancelled = Math.min(raw[0], raw[1]);
+      if (awardedTeamIndex != null) next.scores[awardedTeamIndex] += awardedPoints;
+      var comeback = awardedTeamIndex != null &&
+        roundStartScores[awardedTeamIndex] < roundStartScores[otherTeam(awardedTeamIndex)] &&
+        next.scores[awardedTeamIndex] >= next.scores[otherTeam(awardedTeamIndex)];
+      roundSummary = {
+        round: next.roundNumber, raw: raw, cancelled: cancelled,
+        awardedTeamIndex: awardedTeamIndex, awardedPoints: awardedPoints,
+        scoresBefore: roundStartScores, scoresAfter: next.scores.slice(), comeback: comeback,
+      };
+      next.roundHistory.push(clone(roundSummary));
+      if (next.scores[0] >= next.config.targetScore || next.scores[1] >= next.config.targetScore) {
+        next.winnerTeamIndex = next.scores[0] >= next.config.targetScore ? 0 : 1;
+        next.winnerIds = next.config.teams[next.winnerTeamIndex].slice();
+        next.phase = 'complete';
+        next.completionReason = 'target-score';
+      } else {
+        next.roundNumber += 1;
+        next.roundStartingTeamIndex = otherTeam(next.roundStartingTeamIndex);
+        next.teammateOffsets = next.teammateOffsets.map(function (offset, index) {
+          return modulo(offset + next.config.flipsPerTeam, next.config.teams[index].length);
+        });
+        next.roundRaw = [0, 0];
+        next.flipsTaken = [0, 0];
+        next.roundStartScores = next.scores.slice();
+        next.queuePosition = 0;
+        next.queue = buildTeamQueue(next);
+      }
+    }
+    next.lastOutcomeId = outcomeId;
+    next.turn = teamTurnMetadata(next);
+    var cues = positiveTeamCues(landing, stats, roundSummary, next.phase === 'complete');
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: freeze({
+      schema: OUTCOME_SCHEMA, version: VERSION,
+      type: 'rules.team-flip-resolved.v1', outcomeId: outcomeId,
+      matchId: next.matchId, sequence: next.sequence, formatId: 'team-clash',
+      playerId: playerId, teamId: next.config.teamIds[teamIndex], teamIndex: teamIndex,
+      landing: landing, rawPoints: scoring.rawPoints, effects: scoring,
+      roundNumber: state.roundNumber, roundResolved: !!roundSummary,
+      round: roundSummary, scores: next.scores.slice(),
+      completed: next.phase === 'complete', winnerIds: next.winnerIds.slice(),
+      winnerTeamId: next.winnerTeamIndex == null ? null : next.config.teamIds[next.winnerTeamIndex],
+      completionReason: next.completionReason, turn: next.turn,
+      presentation: { positiveOnly: true, cues: cues },
+    }) });
+  }
+
+  function teamRematchOptions(state, seed) {
+    if (!state || state.schema !== 'TeamClashRulesStateV1') {
+      throw new TypeError('TeamClashRulesStateV1 is required');
+    }
+    var nextStartingTeam = otherTeam(state.matchStartingTeamIndex);
+    var nextOffsets = state.matchOpeningOffsets.map(function (offset, index) {
+      return modulo(offset + 1, state.config.teams[index].length);
+    });
+    var base = {
+      matchId: state.matchId + ':rematch:' + (state.config.rematchNumber + 1),
+      players: clone(state.config.players), teams: clone(state.config.teams),
+      teamIds: state.config.teamIds.slice(), teamNames: state.config.teamNames.slice(),
+      startingTeamIndex: nextStartingTeam, teammateOffsets: nextOffsets,
+      seed: state.config.seed, rematchNumber: state.config.rematchNumber + 1,
+    };
+    var rotatedTeams = state.config.teams.map(function (team, index) {
+      var offset = nextOffsets[index];
+      return team.slice(offset).concat(team.slice(0, offset));
+    });
+    var shuffledTeams = state.config.teams.map(function (team, index) {
+      return seededOrder(team, seed == null ? state.config.seed : seed,
+        'team-' + index + '-rematch-' + (state.config.rematchNumber + 1));
+    });
+    return freeze({
+      sameSetup: clone(base),
+      rotateFirstPlayer: Object.assign({}, clone(base), { teams: rotatedTeams,
+        teammateOffsets: [0, 0] }),
+      shuffleOrder: Object.assign({}, clone(base), { teams: shuffledTeams,
+        teammateOffsets: [0, 0] }),
+      swapTeams: Object.assign({}, clone(base), {
+        teams: [clone(state.config.teams[1]), clone(state.config.teams[0])],
+        teamIds: [state.config.teamIds[1], state.config.teamIds[0]],
+        teamNames: [state.config.teamNames[1], state.config.teamNames[0]],
+        // Team identities change sides, so invert the index again to preserve
+        // the same fair next starter as the other rematch paths.
+        startingTeamIndex: otherTeam(nextStartingTeam),
+        teammateOffsets: [nextOffsets[1], nextOffsets[0]],
+      }),
+    });
+  }
+
+  function createMatchState(input) {
+    var source = normalizeRequest(input);
+    var formatId = String(source.formatId || 'classic');
+    if (formatId === 'classic') return createClassicState(source);
+    if (formatId === 'cup') return createCupState(source);
+    if (formatId === 'team-clash' || formatId === 'team') return createTeamClashState(source);
+    throw new RangeError('Unsupported rules format: ' + formatId);
+  }
+
+  function resolveMatchFlip(state, input) {
+    if (!state || typeof state !== 'object') throw new TypeError('Rules state is required');
+    if (state.schema === 'ClassicRulesStateV1') return resolveClassicFlip(state, input);
+    if (state.schema === 'CupRulesStateV1') return resolveCupFlip(state, input);
+    if (state.schema === 'TeamClashRulesStateV1') return resolveTeamFlip(state, input);
+    throw new TypeError('Unsupported rules state: ' + state.schema);
+  }
+
+  function participantResults(state) {
+    if (state.schema === 'ClassicRulesStateV1') {
+      return state.players.map(function (player) {
+        return { playerId: player.id, lives: player.lives, eliminated: player.eliminated,
+          streak: player.streak, bestStreak: player.bestStreak };
+      });
+    }
+    if (state.schema === 'CupRulesStateV1') {
+      return state.config.players.map(function (player) {
+        return { playerId: player.id, heatWins: state.heatWins[player.id] || 0 };
+      });
+    }
+    return state.config.players.map(function (player) {
+      var teamIndex = state.config.teams[0].indexOf(player.id) >= 0 ? 0 : 1;
+      return { playerId: player.id, teamId: state.config.teamIds[teamIndex],
+        teamScore: state.scores[teamIndex], stats: clone(state.playerStats[player.id]) };
+    });
+  }
+
+  function toMatchOutcomeV2(state, options) {
+    var source = object(options);
+    var completed = state.phase === 'complete';
+    var status = source.status || (completed ? 'completed' : 'abandoned');
+    if (['completed', 'abandoned', 'cancelled'].indexOf(status) < 0) {
+      throw new TypeError('Unsupported outcome status: ' + status);
+    }
+    return freeze({
+      schema: 'MatchOutcomeV2', matchId: state.matchId, status: status,
+      completed: status === 'completed', winnerIds: completed ? state.winnerIds.slice() : [],
+      participantResults: participantResults(state), rulesState: clone(state),
+      activityState: clone(object(source.activityState)), telemetry: clone(object(source.telemetry)),
+      completionReason: source.completionReason || state.completionReason || status,
+      endedAt: source.endedAt == null ? null : String(source.endedAt),
+    });
+  }
+
+  function legacyClassicOptions(input) {
+    var config = input && input.schema === 'ClassicRulesStateV1' ? input.config
+      : (input && input.schema === 'ClassicRulesConfigV1' ? input : normalizeClassicConfig(input));
+    return freeze({
+      format: 'classic', startingLives: config.startingLives,
+      startIndex: config.startIndex,
+      suddenDeathFlipThreshold: config.suddenDeathActivationTurn,
+    });
+  }
+
+  function legacyClassicSnapshot(state) {
+    if (!state || state.schema !== 'ClassicRulesStateV1') throw new TypeError('ClassicRulesStateV1 is required');
+    return freeze({
+      format: 'classic', state: state.phase === 'complete' ? 'GAME_OVER' : 'TURN_START',
+      players: state.players.map(function (player) {
+        return { name: player.name, lives: player.lives, streak: player.streak,
+          isHeatingUp: player.heatingUp, isOnFire: player.onFire,
+          alwaysMagnet: player.alwaysMagnet, eliminated: player.eliminated };
+      }),
+      currentPlayerIndex: state.currentPlayerIndex,
+      pointCount: state.stake,
+      turnCounter: state.attemptCounter,
+      suddenDeathFlipThreshold: state.suddenDeath.activationTurn,
+      onFirePlayerIndex: state.onFirePlayerId == null ? null
+        : state.players.findIndex(function (player) { return player.id === state.onFirePlayerId; }),
+      onFireBonus: state.onFireEarned,
+      winnerIndex: state.winnerIds.length
+        ? state.players.findIndex(function (player) { return player.id === state.winnerIds[0]; }) : 0,
+    });
+  }
+
+  function createRulesAdapter(input) {
+    var state = createMatchState(input);
+    function update(transition) { state = transition.state; return transition; }
+    return Object.freeze({
+      snapshot: function () { return snapshot(state); },
+      resolveFlip: function (value) { return update(resolveMatchFlip(state, value)); },
+      beginNextHeat: function () {
+        if (state.schema !== 'CupRulesStateV1') throw new Error('Only Cup has heats');
+        state = beginNextCupHeat(state);
+        return snapshot(state);
+      },
+      rematchOptions: function (seed) {
+        if (state.schema === 'CupRulesStateV1') return cupRematchOptions(state, seed);
+        if (state.schema === 'TeamClashRulesStateV1') return teamRematchOptions(state, seed);
+        throw new Error('This format has no structured rematch options');
+      },
+      toMatchOutcome: function (options) { return toMatchOutcomeV2(state, options); },
+    });
+  }
+
+  return freeze({
+    schema: 'FlipgameV112RulesV1', version: VERSION,
+    OUTCOME_SCHEMA: OUTCOME_SCHEMA,
+    STARTING_LIFE_PRESETS: STARTING_LIFE_PRESETS,
+    CUP_FORMATS: CUP_FORMATS,
+    REMATCH_STRATEGIES: REMATCH_STRATEGIES,
+    DEFAULT_CLASSIC_SUDDEN_DEATH_TURNS: DEFAULT_CLASSIC_SUDDEN_DEATH_TURNS,
+    DEFAULT_SUDDEN_DEATH_STEP_TURNS: DEFAULT_SUDDEN_DEATH_STEP_TURNS,
+    alignToRotation: alignToRotation,
+    additiveLifeCap: additiveLifeCap,
+    addLivesCapped: addLivesCapped,
+    multiplyLives: multiplyLives,
+    halveLives: halveLives,
+    normalizeLanding: normalizeLanding,
+    normalizeEffects: normalizeEffects,
+    normalizeClassicConfig: normalizeClassicConfig,
+    createClassicState: createClassicState,
+    resolveClassicFlip: resolveClassicFlip,
+    classicMissWouldEliminate: classicMissWouldEliminate,
+    forceEliminate: forceEliminate,
+    normalizeCupConfig: normalizeCupConfig,
+    createCupState: createCupState,
+    beginNextCupHeat: beginNextCupHeat,
+    resolveCupFlip: resolveCupFlip,
+    cupRematchOptions: cupRematchOptions,
+    normalizeTeamConfig: normalizeTeamConfig,
+    createTeamClashState: createTeamClashState,
+    resolveTeamFlip: resolveTeamFlip,
+    teamRematchOptions: teamRematchOptions,
+    collectPositiveHighlights: collectPositiveHighlights,
+    createMatchState: createMatchState,
+    resolveMatchFlip: resolveMatchFlip,
+    toMatchOutcomeV2: toMatchOutcomeV2,
+    legacyClassicOptions: legacyClassicOptions,
+    legacyClassicSnapshot: legacyClassicSnapshot,
+    createRulesAdapter: createRulesAdapter,
+  });
+});
