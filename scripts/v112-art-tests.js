@@ -49,6 +49,9 @@ function fakeContext(width = 300, height = 420) {
     stroke() { calls.push(['stroke']); },
     clip() { calls.push(['clip']); },
     fillRect() { calls.push(['fillRect']); },
+    drawImage(image, x, y, drawWidth, drawHeight) {
+      calls.push(['drawImage', image, x, y, drawWidth, drawHeight]);
+    },
     fillText(text, x, y) { calls.push(['fillText', text, x, y]); },
     strokeText(text, x, y) { calls.push(['strokeText', text, x, y]); },
     createLinearGradient() { calls.push(['createLinearGradient']); return fakeGradient(calls); },
@@ -306,6 +309,116 @@ function testWebGLReadyMesh() {
   assert.equal(Math.max(...mesh.uvs), 1);
 }
 
+function testSharedGlobeSurfaceIntegrationAndFallback() {
+  let contextCreations = 0;
+  let rendererCalls = 0;
+  let destroyCalls = 0;
+  const surfaceCanvas = {
+    width: 512,
+    height: 512,
+    getContext() { contextCreations += 1; throw new Error('must not create during paint'); },
+  };
+  const renderer = {
+    kind: 'webgl',
+    render(request) {
+      rendererCalls += 1;
+      assert.ok(Number.isFinite(request.centerLon));
+      assert.ok(Number.isFinite(request.centerLat));
+      return { renderer: 'webgl', sequence: rendererCalls };
+    },
+    destroy() { destroyCalls += 1; },
+  };
+  const shared = Globe.createSharedSurface(surfaceCanvas, { renderer });
+  assert.equal(shared.schema, 'SharedGlobeSurfaceV1');
+  assert.equal(shared.shared, true);
+  assert.equal(shared.rendererKind, 'webgl');
+  assert.equal(contextCreations, 0, 'injected renderer must not reacquire a context');
+
+  const compositeEvents = [];
+  const preview = fakeContext(280, 360);
+  Art.renderPreview(preview, {
+    objectId: 'desk-globe',
+    variantId: 'blue-steel',
+    state: { time: 2.5, angle: 0, flipSeed: 'shared-preview' },
+    geography,
+    globeSurface: shared,
+    onGlobeComposite(event) { compositeEvents.push(event); },
+  });
+  assert.equal(rendererCalls, 1, 'the shared renderer must be reachable from preview');
+  assert.equal(preview.calls.filter((call) => call[0] === 'drawImage').length, 1,
+    'preview must composite the offscreen WebGL canvas exactly once');
+  assert.equal(preview.calls.some((call) => call[0] === 'clip'), false,
+    'successful shared rendering must not also run the vector fallback');
+  assert.deepEqual(compositeEvents[0], { path: 'shared-surface', rendererKind: 'webgl' });
+
+  const gameplay = fakeContext(900, 650);
+  Art.renderGameplay(gameplay, {
+    objectId: 'desk-globe',
+    variantId: 'red-letter',
+    state: { time: 3.5, angle: 0.4, flipSeed: 'shared-gameplay' },
+    geography,
+    x: 450,
+    y: 390,
+    renderResources: { globeSurface: shared },
+  });
+  assert.equal(rendererCalls, 2, 'gameplay and preview must reuse the same surface');
+  assert.equal(gameplay.calls.filter((call) => call[0] === 'drawImage').length, 1);
+  assert.equal(contextCreations, 0,
+    'repeated paints must never create per-tile or per-player globe contexts');
+  assert.deepEqual(shared.info(), {
+    rendererKind: 'webgl', attempts: 2, successes: 2, destroyed: false,
+    lastSnapshot: { renderer: 'webgl', sequence: 2 },
+  });
+
+  const missingSurface = fakeContext(280, 360);
+  const missingPaths = [];
+  Art.renderPreview(missingSurface, {
+    objectId: 'desk-globe', variantId: 'blue-steel', geography,
+    onGlobeComposite(event) { missingPaths.push(event.path); },
+  });
+  assert.equal(missingSurface.calls.some((call) => call[0] === 'drawImage'), false);
+  assert.equal(missingSurface.calls.some((call) => call[0] === 'clip'), true);
+  assert.deepEqual(missingPaths, ['canvas-fallback']);
+
+  let failureAttempts = 0;
+  const failedSurface = Globe.createSharedSurface({ width: 256, height: 256 }, {
+    renderer: {
+      kind: 'webgl',
+      render() { failureAttempts += 1; throw new Error('simulated context loss'); },
+      destroy() {},
+    },
+  });
+  const failedContext = fakeContext(280, 360);
+  const fallbackErrors = [];
+  const failedPaths = [];
+  assert.doesNotThrow(() => Art.renderPreview(failedContext, {
+    objectId: 'desk-globe', variantId: 'blue-steel', geography,
+    globeSurface: failedSurface,
+    onGlobeFallback(error) { fallbackErrors.push(error.message); },
+    onGlobeComposite(event) { failedPaths.push(event.path); },
+  }));
+  assert.equal(failureAttempts, 1);
+  assert.deepEqual(fallbackErrors, ['simulated context loss']);
+  assert.deepEqual(failedPaths, ['canvas-fallback']);
+  assert.equal(failedContext.calls.some((call) => call[0] === 'drawImage'), false);
+  assert.equal(failedContext.calls.some((call) => call[0] === 'clip'), true,
+    'context failure must deterministically render the vector globe');
+  assert.equal(failedSurface.info().attempts, 1);
+  assert.equal(failedSurface.info().successes, 0);
+
+  shared.destroy();
+  shared.destroy();
+  assert.equal(destroyCalls, 1, 'shared renderer cleanup must be idempotent');
+  assert.equal(shared.info().destroyed, true);
+  assert.throws(() => shared.render({}), /destroyed/);
+
+  const artSource = fs.readFileSync(path.join(root, 'js', 'v112-art-system.js'), 'utf8');
+  assert.doesNotMatch(artSource, /\.getContext\s*\(/,
+    'the art paint path must only consume an injected surface/context');
+  assert.doesNotMatch(Art.paintGlobeCommand.toString(), /create(?:WebGL)?Renderer|createSharedSurface/,
+    'painting must never allocate a globe renderer or surface');
+}
+
 function testVisibleHemisphereFocusAndOdds() {
   assert.equal(Globe.focusDecision({ seed: 'never', made: false, physical: true }).triggered, false);
   assert.equal(Globe.focusDecision({ seed: 'never', made: true, physical: false }).triggered, false);
@@ -386,6 +499,7 @@ testAuthoredReactionPolicy();
 testAllVariantsBuildCanvasAndSvg();
 testNaturalEarthGeographyAndProjection();
 testWebGLReadyMesh();
+testSharedGlobeSurfaceIntegrationAndFallback();
 testVisibleHemisphereFocusAndOdds();
 testBrowserGlobalsAndNoPhysicsImports();
 

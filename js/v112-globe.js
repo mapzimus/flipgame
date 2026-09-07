@@ -503,7 +503,8 @@
     }
     var source = input && typeof input === 'object' ? input : {};
     var gl = canvas.getContext('webgl', { alpha: true, antialias: true,
-      premultipliedAlpha: true }) || canvas.getContext('experimental-webgl');
+      premultipliedAlpha: true, preserveDrawingBuffer: true }) ||
+      canvas.getContext('experimental-webgl');
     if (!gl) throw new Error('WebGL is unavailable');
     var mesh = buildSphereMesh(source.latitudeSegments, source.longitudeSegments);
     if (mesh.indices instanceof Uint32Array && !gl.getExtension('OES_element_index_uint')) {
@@ -649,6 +650,63 @@
     });
   }
 
+  // Construct this once per application/render worker and inject the returned
+  // surface into every preview/gameplay paint. A shared surface renders into
+  // one offscreen canvas, which callers composite immediately; it intentionally
+  // owns no player, tile, lane, object, or match state.
+  function createSharedSurface(canvas, input) {
+    if (!canvas || typeof canvas !== 'object') {
+      throw new TypeError('A shared globe surface requires an offscreen canvas');
+    }
+    var source = input && typeof input === 'object' ? input : {};
+    var renderer = source.renderer || createRenderer(canvas, source);
+    if (!renderer || typeof renderer.render !== 'function') {
+      throw new TypeError('A shared globe surface requires a renderer');
+    }
+    var destroyed = false;
+    var attempts = 0;
+    var successes = 0;
+    var lastSnapshot = null;
+
+    function render(request) {
+      if (destroyed) throw new Error('Shared globe surface has been destroyed');
+      attempts += 1;
+      lastSnapshot = renderer.render(request || {});
+      successes += 1;
+      return Object.freeze({
+        canvas: canvas,
+        rendererKind: renderer.kind || 'injected',
+        snapshot: lastSnapshot,
+      });
+    }
+
+    function info() {
+      return Object.freeze({
+        rendererKind: renderer.kind || 'injected',
+        attempts: attempts,
+        successes: successes,
+        destroyed: destroyed,
+        lastSnapshot: lastSnapshot,
+      });
+    }
+
+    function destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      if (typeof renderer.destroy === 'function') renderer.destroy();
+    }
+
+    return Object.freeze({
+      schema: 'SharedGlobeSurfaceV1',
+      shared: true,
+      canvas: canvas,
+      rendererKind: renderer.kind || 'injected',
+      render: render,
+      info: info,
+      destroy: destroy,
+    });
+  }
+
   function selectVisiblePoint(seed, input) {
     var source = input && typeof input === 'object' ? input : {};
     var basis = basisFor(source);
@@ -743,6 +801,7 @@
     buildSphereMesh: buildSphereMesh,
     createWebGLRenderer: createWebGLRenderer,
     createRenderer: createRenderer,
+    createSharedSurface: createSharedSurface,
     selectVisiblePoint: selectVisiblePoint,
     focusCameraPath: focusCameraPath,
     focusDecision: focusDecision,

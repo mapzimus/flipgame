@@ -1438,6 +1438,59 @@
     ctx.globalAlpha = previousAlpha;
   }
 
+  function injectedGlobeSurface(source) {
+    if (source.globeSurface) return source.globeSurface;
+    if (source.renderResources && source.renderResources.globeSurface) {
+      return source.renderResources.globeSurface;
+    }
+    return null;
+  }
+
+  function paintGlobeCommand(ctx, command, source) {
+    var surface = injectedGlobeSurface(source);
+    var renderRequest = {
+      centerLon: command.centerLon,
+      centerLat: command.centerLat,
+      palette: command.palette,
+      geography: source.geography,
+    };
+    if (surface && surface.shared === true && typeof surface.render === 'function' &&
+      typeof ctx.drawImage === 'function') {
+      try {
+        var rendered = surface.render(renderRequest);
+        var surfaceCanvas = rendered && rendered.canvas ? rendered.canvas : surface.canvas;
+        if (!surfaceCanvas || surfaceCanvas === ctx.canvas) {
+          throw new Error('Shared globe surface did not provide a separate compositing canvas');
+        }
+        ctx.drawImage(surfaceCanvas, command.cx - command.radius, command.cy - command.radius,
+          command.radius * 2, command.radius * 2);
+        if (typeof source.onGlobeComposite === 'function') {
+          source.onGlobeComposite(Object.freeze({ path: 'shared-surface',
+            rendererKind: rendered && rendered.rendererKind
+              ? rendered.rendererKind : surface.rendererKind || 'injected' }));
+        }
+        return 'shared-surface';
+      } catch (error) {
+        if (typeof source.onGlobeFallback === 'function') source.onGlobeFallback(error);
+      }
+    }
+    // Deterministic vector projection is the safe path for absent, failed or
+    // incompatible surfaces. Rendering never creates a replacement context.
+    Globe.renderCanvasGlobe(ctx, {
+      centerX: command.cx,
+      centerY: command.cy,
+      radius: command.radius,
+      centerLon: command.centerLon,
+      centerLat: command.centerLat,
+      palette: command.palette,
+      geography: source.geography,
+    });
+    if (typeof source.onGlobeComposite === 'function') {
+      source.onGlobeComposite(Object.freeze({ path: 'canvas-fallback', rendererKind: 'canvas' }));
+    }
+    return 'canvas-fallback';
+  }
+
   function paintScene(ctx, scene, input) {
     if (!ctx || typeof ctx.save !== 'function') throw new TypeError('A canvas 2D context is required');
     var source = input && typeof input === 'object' ? input : {};
@@ -1447,15 +1500,7 @@
     ctx.lineCap = 'round';
     scene.commands.forEach(function (command) {
       if (command.kind === 'globe') {
-        Globe.renderCanvasGlobe(ctx, {
-          centerX: command.cx,
-          centerY: command.cy,
-          radius: command.radius,
-          centerLon: command.centerLon,
-          centerLat: command.centerLat,
-          palette: command.palette,
-          geography: source.geography,
-        });
+        paintGlobeCommand(ctx, command, source);
         return;
       }
       if (command.kind === 'text') {
@@ -1749,6 +1794,7 @@
     renderGameplay: renderGameplay,
     renderSvg: renderSvg,
     sceneToSvg: sceneToSvg,
+    paintGlobeCommand: paintGlobeCommand,
     validateCalibration: validateCalibration,
   });
 });
