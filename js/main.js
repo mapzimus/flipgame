@@ -3256,9 +3256,10 @@
       if (powerBand) { powerBand.style.left = '19.2%'; powerBand.style.width = '46.2%'; }
       if (powerLabel) powerLabel.textContent = 'launch power — green keeps the bank airborne';
     } else {
-      // Flip scale 1000..3600; green 2100..2900 around the 2500 sweet spot
-      if (powerBand) { powerBand.style.left = '42.3%'; powerBand.style.width = '30.8%'; }
-      if (powerLabel) powerLabel.textContent = 'flick strength — green ≈ one clean flip';
+      // Flip scale 1000..3600; green 2300..3300 covers the calibrated
+      // controlled-flip window without teaching the old quarter-bar launch.
+      if (powerBand) { powerBand.style.left = '50%'; powerBand.style.width = '38.5%'; }
+      if (powerLabel) powerLabel.textContent = 'flick strength — green = controlled flip';
     }
 
     const sideBand = document.getElementById('pm-side-band');
@@ -3291,12 +3292,9 @@
   }
 
   // Sideways aim: map gesture/flick horizontal onto the arena (0=left wall).
-  function sideAimPct(vx, liveDx) {
-    if (liveDx != null) {
-      const span = Math.max(160, window.innerWidth * 0.42);
-      return Math.max(0, Math.min(100, 50 + (liveDx / span) * 50));
-    }
-    // Post-flick: vx px/s → same track (±2400 ≈ full width)
+  function sideAimPct(vx) {
+    // Live and post-flick markers share the canonical launch velocity.
+    // ±2400 lane-relative px/s maps to the full practice aim track.
     return Math.max(0, Math.min(100, 50 + (vx / 2400) * 50));
   }
 
@@ -3311,7 +3309,7 @@
       pm.classList.toggle('pm-live', !!live);
     }
     if (sm && bank) {
-      sm.style.left = sideAimPct(info.vx || 0, info.liveDx) + '%';
+      sm.style.left = sideAimPct(info.vx || 0) + '%';
       sm.classList.toggle('pm-live', !!live);
     }
   }
@@ -3320,26 +3318,20 @@
     if (!drag) return null;
     const dx = drag.curX - drag.startX;
     const dy = drag.curY - drag.startY;
-    if (Math.hypot(dx, dy) < 18) return null;
-    // Distance→speed proxy matches Input's fallback (dx*10); a bit hotter so
-    // the live needle reaches the green band before you release.
-    let vx = dx * 12, vy = dy * 12;
-    // Same equalizer as onFlick so the live needle matches the real throw.
-    if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
-      vx *= 1.32; vy *= 1.32;
-    } else {
-      vx *= 0.92; vy *= 0.92;
-    }
-    return { upSpeed: Math.max(0, -vy), vx, vy, liveDx: dx };
+    if (Math.hypot(dx, dy) < 22) return null;
+    // Input owns sampling, coalescing, and lane-relative normalization. Feed
+    // its exact release signal through Physics' prelaunch Feel transfer so the
+    // live needle and the eventual launch can never disagree.
+    const rawVx = Number(drag.launchVx);
+    const rawVy = Number(drag.launchVy);
+    if (!Number.isFinite(rawVx) || !Number.isFinite(rawVy)) return null;
+    const signal = Physics.previewInput
+      ? Physics.previewInput(rawVx, rawVy)
+      : { vx: rawVx, vy: rawVy };
+    return { upSpeed: Math.max(0, -signal.vy), vx: signal.vx, vy: signal.vy };
   }
 
-  function onFlick(vx, vy, ptrType) {
-    // Flick-feel equalizer: a thumb flick on glass reports far fewer px/s than
-    // a mouse sweep for the same intent, so touch gets a boost and mouse/pen a
-    // small trim. AI flicks pass no pointer type and stay untouched (their
-    // aim is tuned to raw speeds).
-    if (ptrType === 'touch') { vx *= 1.32; vy *= 1.32; }
-    else if (ptrType) { vx *= 0.92; vy *= 0.92; }
+  function onFlick(vx, vy) {
     // Online: only the current player may flick, and only on their device.
     if (onlineMode && window.Net) {
       const cur = game.currentPlayer();

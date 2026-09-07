@@ -195,7 +195,8 @@ function testEveryEventHasPhysicalRuntime() {
     if (definition.id === 'meteor-shower') assert.equal(physics.getEventBodies().length, 3);
     if (definition.id === 'alien-invasion') {
       assert.equal(physics.getTarget().style, 'portal');
-      assert.equal(flick.gravityScale, 0.08);
+      assert.equal(flick.gravityScale, 0.10);
+      assert.equal(flick.gravityY, 0.10);
     }
     if (definition.id === 'moon-gravity') assert.equal(flick.gravityScale, 0.28);
     if (definition.id === 'gravity-slam') assert.equal(flick.gravityScale, 2.55);
@@ -479,6 +480,7 @@ function testDeepPhysicalSemantics() {
   const alien = forcedPhysics('alien-invasion', 6124, 900);
   assert.equal(alien.getTarget().style, 'portal');
   assert.equal(alien.getTarget().armed, false);
+  assert.equal(alien.getLastFlickInfo().gravityY, 0.10);
 
   const slam = forcedPhysics('gravity-slam', 6125);
   assert.equal(slam.getLastFlickInfo().gravityScale, 2.55);
