@@ -3316,9 +3316,8 @@
 
   function practiceMeterFromDrag(drag) {
     if (!drag) return null;
-    const dx = drag.curX - drag.startX;
-    const dy = drag.curY - drag.startY;
-    if (Math.hypot(dx, dy) < 22) return null;
+    const canonicalDistance = Number(drag.canonicalDistance);
+    if (!Number.isFinite(canonicalDistance) || canonicalDistance + 1e-6 < 22) return null;
     // Input owns sampling, coalescing, and lane-relative normalization. Feed
     // its exact release signal through Physics' prelaunch Feel transfer so the
     // live needle and the eventual launch can never disagree.

@@ -80,7 +80,10 @@
     teamwork: { bonus: 5, minimumHumans: 2, requiresEveryHumanOrdinaryMake: true },
     maximum: 25,
   });
-  var EXPECTED_MAKE_RATE = freeze({ forgiving: 0.60, standard: 0.50, pro: 0.40 });
+  // Standard and Pro currently share the same raw prelaunch transfer and all
+  // postlaunch physics. Their neutral performance baseline must therefore be
+  // identical; selecting a label cannot change progression rewards.
+  var EXPECTED_MAKE_RATE = freeze({ forgiving: 0.60, standard: 0.50, pro: 0.50 });
   var ACHIEVEMENT_REWARDS = freeze({
     common: { fxp: 15, fc: 10 },
     notable: { fxp: 30, fc: 20 },

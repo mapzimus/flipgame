@@ -44,6 +44,16 @@ const Input = (() => {
     // A few browser/driver combinations can repeat a stale coalesced sample.
     // Do not turn a backwards timestamp into a one-millisecond velocity spike.
     if (now < lastT) return;
+    if (now === lastT) {
+      // Some privacy/touch stacks quantize several samples to one timestamp.
+      // Preserve the path endpoint but do not manufacture a one-millisecond
+      // velocity spike; the canonical distance fallback remains available.
+      curX = nextX;
+      curY = nextY;
+      lastX = nextX;
+      lastY = nextY;
+      return;
+    }
     const dt = Math.max((now - lastT) / 1000, 0.001);
     const delta = normalizedDelta(nextX - lastX, nextY - lastY);
     const ivx = delta.x / dt;
@@ -135,11 +145,12 @@ const Input = (() => {
     sampleEvent(e);
     const signal = currentSignal();
     const dx = curX - startX, dy = curY - startY;
-    const dist = Math.hypot(dx, dy);
+    const canonicalDrag = normalizedDelta(dx, dy);
+    const dist = Math.hypot(canonicalDrag.x, canonicalDrag.y);
     dragging = false;
     activePointerId = null;
     rect = null;
-    if (dist < MIN_DRAG) return;
+    if (dist + 1e-6 < MIN_DRAG) return;
     onFlick(signal.vx, signal.vy, ptrType);
   }
 
@@ -167,11 +178,15 @@ const Input = (() => {
     // Distance alone badly under-reports a short, fast flick and made a
     // full-power throw look like roughly 25% on the feedback meter.
     const signal = currentSignal();
+    const canonicalDrag = normalizedDelta(curX - startX, curY - startY);
     return {
       startX, startY, curX, curY,
       peakVx, peakVy, peakSpeed,
       launchVx: signal.vx,
       launchVy: signal.vy,
+      canonicalDx: canonicalDrag.x,
+      canonicalDy: canonicalDrag.y,
+      canonicalDistance: Math.hypot(canonicalDrag.x, canonicalDrag.y),
       pointerType: ptrType,
     };
   }

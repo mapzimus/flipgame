@@ -127,6 +127,27 @@ function testThresholdAndCancellation() {
     up: { clientX: 122, clientY: 100, timeStamp: 10 },
   }), '22px must qualify');
 
+  for (const [width, height] of [[360, 640], [1280, 720], [3840, 2160]]) {
+    const x = width * 0.5;
+    const y = height * 0.5;
+    assert.equal(runGesture({ width, height,
+      start: { clientX: x, clientY: y, timeStamp: 0 },
+      up: { clientX: x, clientY: y - 21 * height / 720, timeStamp: 20 },
+    }), null, `canonical 21px threshold drifted at ${width}x${height}`);
+    assert.ok(runGesture({ width, height,
+      start: { clientX: x, clientY: y, timeStamp: 0 },
+      up: { clientX: x, clientY: y - 22 * height / 720, timeStamp: 20 },
+    }), `canonical 22px threshold drifted at ${width}x${height}`);
+  }
+
+  const quantized = runGesture({ width: 1280, height: 720,
+    start: { clientX: 300, clientY: 500, timeStamp: 10 },
+    samples: [{ clientX: 300, clientY: 420, timeStamp: 10 }],
+    up: { clientX: 300, clientY: 380, timeStamp: 20 },
+  });
+  assert.ok(Math.abs(quantized.vy) <= 5000,
+    'equal timestamps manufactured an extreme velocity spike');
+
   for (const cancellation of ['pointercancel', 'lostpointercapture']) {
     const input = loadInput();
     const canvas = new FakeCanvas(1280, 720);
@@ -217,7 +238,7 @@ function testPracticeConsumerUsesReleaseSignal() {
   const start = source.indexOf('function practiceMeterFromDrag');
   const end = source.indexOf('\n  function onFlick', start);
   const meter = source.slice(start, end);
-  assert.match(meter, /Math\.hypot\(dx, dy\) < 22/);
+  assert.match(meter, /canonicalDistance \+ 1e-6 < 22/);
   assert.match(meter, /drag\.launchVx/);
   assert.match(meter, /drag\.launchVy/);
   assert.match(meter, /Physics\.previewInput/);

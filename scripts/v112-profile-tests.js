@@ -105,7 +105,7 @@ function testSetupAndPerformanceMath() {
   assert.equal(Economy.calculateSetupBonus({ setupBonus: 999 }).total, 25);
   assert.equal(Economy.expectedMakeRate('forgiving', 1), 0.60);
   assert.equal(Economy.expectedMakeRate('standard', 2), 0.47);
-  assert.equal(Economy.expectedMakeRate('pro', 4), 0.35);
+  assert.equal(Economy.expectedMakeRate('pro', 4), 0.45);
   assert.equal(Economy.performanceMultiplier({ eligibleShots: 3, adjustedMake: 1,
     landingQuality: 1, ordinaryStreak: 1, clutch: 1, teamContribution: 1 }).multiplier, 1);
   assert.equal(Economy.performanceMultiplier({ eligibleShots: 12, adjustedMake: 1,
