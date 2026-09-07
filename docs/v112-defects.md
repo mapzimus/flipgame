@@ -38,6 +38,7 @@ is part of v1.12 and is not yet eligible for release.
 | V112-031 | P1 | Battle/Input | A Rush player can hold an aim across 15-second rotation boundaries, launch after losing the seat, and starve later teammates | Routed to Battle owner | Unlaunched aim cancellation/reassignment at every rotation boundary with power restoration |
 | V112-032 | P2 | Battle/Clock | Horn eligibility depends on delayed `tick()` ordering instead of the pointer release timestamp, allowing late releases or rejecting timely ones | Routed to Battle owner | Absolute heat deadline and pre-/post-horn release races under delayed event-loop delivery |
 | V112-033 | P2 | Battle/CPU | Runtime recognizes `cpu`/`isCpu` but not the current setup model's `ai` flag | Routed to Battle owner | Mixed human/CPU normalization and launch routing from legacy/current setup shapes |
+| V112-034 | P1 | Battle/Relay | One-touch 1v1 Timed Rush marks both duelists active while only the first has a physical lane, so the second cannot flip | Routed to Battle owner | Alternating one-lane duel assignments, equal clock exposure and complete runtime heat |
 
 Art directions listed in `docs/v112-plan.md` are product-approval tasks rather
 than defects until an implementation violates a frozen invariant. The original
