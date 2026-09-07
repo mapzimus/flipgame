@@ -253,8 +253,9 @@
     var p = clamp(finite(source.performanceMultiplier, 1), 0.85, 1.25);
     var baseWinBonus = roundHalfAwayFromZero(0.30 * (completionFXP + variableBase));
     var outcome = String(source.outcome || 'loss');
-    var winBonus = outcome === 'human-win' ? baseWinBonus
-      : (outcome === 'draw' ? roundHalfAwayFromZero(baseWinBonus / 2) : 0);
+    // The frozen equation defines a win bonus, not a draw bonus. Draws still
+    // receive completion, participation, setup, and performance credit.
+    var winBonus = outcome === 'human-win' ? baseWinBonus : 0;
     var completionFC = roundHalfAwayFromZero(8 * activityScale);
     var variableFC = Math.max(1, roundHalfAwayFromZero(variableBase / 4));
     var performanceFCAdjustment = roundHalfAwayFromZero(variableFC * (p - 1));

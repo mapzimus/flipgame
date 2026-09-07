@@ -138,8 +138,9 @@ function testExactMatchRewards() {
   assert.equal(win.fc, 16);
   assert.equal(win.breakdown.winBonus, 14);
   const draw = Economy.calculateMatchReward(rewardInput({ draw: true }));
-  assert.equal(draw.fxp, 53);
-  assert.equal(draw.fc, 14);
+  assert.equal(draw.fxp, loss.fxp);
+  assert.equal(draw.fc, loss.fc);
+  assert.equal(draw.breakdown.winBonus, 0);
   const precomputed = Economy.calculateMatchReward(rewardInput({ setupComponents: {
     mode: 4, humanRoster: 8, lives: 3, cpuChallenge: 2, teamwork: 5,
   } }));
