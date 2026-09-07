@@ -122,7 +122,7 @@
     });
   }
 
-  function selectActive(config, rotationIndex) {
+  function selectRushActive(config, rotationIndex) {
     var limit = config.hardware.activeLaneLimit;
     if (limit === 1) return [config.players[rotationIndex % config.players.length].id];
     if (config.formatId === 'duel') return config.players.map(function (player) { return player.id; });
@@ -141,6 +141,47 @@
     return ids.slice(0, limit);
   }
 
+  function selectVolleyParticipants(config, rotationIndex) {
+    if (config.formatId === 'duel') {
+      return config.players.map(function (player) { return player.id; });
+    }
+    if (config.formatId === 'four-way') {
+      return config.players.map(function (_, index) {
+        return config.players[(rotationIndex + index) % config.players.length].id;
+      });
+    }
+    var teamIds = competitors(config);
+    var perTeam = config.hardware.activeLaneLimit >= 4 ? 2 : 1;
+    var selected = teamIds.map(function (teamId) {
+      var team = members(config, teamId);
+      var entries = [];
+      for (var i = 0; i < perTeam; i++) {
+        entries.push(team[(rotationIndex + i) % team.length].id);
+      }
+      return entries;
+    });
+    var interleaved = [];
+    for (var seat = 0; seat < perTeam; seat++) {
+      selected.forEach(function (team) { interleaved.push(team[seat]); });
+    }
+    return interleaved;
+  }
+
+  function prepareVolley(next) {
+    next.volleyPlayerIds = [];
+    next.volleyParticipantIds = selectVolleyParticipants(next.config, next.rotationIndex);
+    next.activePlayerIds = next.volleyParticipantIds.slice(0, next.config.hardware.activeLaneLimit);
+  }
+
+  function advanceVolleyBatch(next) {
+    var remaining = next.volleyParticipantIds.filter(function (id) {
+      return next.volleyPlayerIds.indexOf(id) < 0;
+    });
+    if (!remaining.length) return false;
+    next.activePlayerIds = remaining.slice(0, next.config.hardware.activeLaneLimit);
+    return true;
+  }
+
   function scoreForPose(pose) {
     return pose === 'cap' ? 2 : (pose === 'upright' ? 1 : 0);
   }
@@ -154,12 +195,17 @@
   function createState(input) {
     var config = input && input.schema === 'BattleConfigV1' ? input : normalizeConfig(input);
     var ids = competitors(config);
+    var initialParticipants = selectVolleyParticipants(config, 0);
+    var initialActive = config.paceId === 'volley'
+      ? initialParticipants.slice(0, config.hardware.activeLaneLimit)
+      : selectRushActive(config, 0);
     return freeze({ schema: 'BattleStateV1', config: config, phase: 'ready',
       heatNumber: 1, heatWins: blankMap(ids, 0), scores: blankMap(ids, 0),
       charges: blankMap(ids, 0), powerOffers: blankMap(ids, null), storedPowers: blankMap(ids, null),
-      activePlayerIds: selectActive(config, 0), rotationIndex: 0, volleyIndex: 0,
+      activePlayerIds: initialActive, rotationIndex: 0, heatStarterIndex: 0, volleyIndex: 0,
       suddenDeath: false, elapsedMs: 0, clockExpired: false,
-      resolvedAttemptIds: [], volleyPlayerIds: [], winnerId: null,
+      resolvedAttemptIds: [], volleyPlayerIds: [], volleyParticipantIds: initialParticipants,
+      winnerId: null,
       pendingLaunchIds: [] });
   }
 
@@ -198,7 +244,9 @@
     next.clockExpired = false;
     next.volleyPlayerIds = [];
     next.pendingLaunchIds = [];
-    next.activePlayerIds = selectActive(next.config, next.rotationIndex);
+    next.rotationIndex = next.heatStarterIndex;
+    if (next.config.paceId === 'volley') prepareVolley(next);
+    else next.activePlayerIds = selectRushActive(next.config, next.rotationIndex);
     return freeze(next);
   }
 
@@ -211,19 +259,26 @@
     }
     next.phase = 'between-heats';
     next.heatNumber += 1;
-    next.rotationIndex += 1;
-    next.activePlayerIds = selectActive(next.config, next.rotationIndex);
+    next.heatStarterIndex += 1;
+    next.rotationIndex = next.heatStarterIndex;
+    next.activePlayerIds = next.config.paceId === 'rush'
+      ? selectRushActive(next.config, next.rotationIndex) : [];
   }
 
   function closeVolley(next) {
     next.volleyIndex += 1;
     next.volleyPlayerIds = [];
     next.rotationIndex += 1;
-    next.activePlayerIds = selectActive(next.config, next.rotationIndex);
-    if (next.volleyIndex < next.config.volleyCount && !next.suddenDeath) return;
+    if (next.volleyIndex < next.config.volleyCount && !next.suddenDeath) {
+      prepareVolley(next);
+      return;
+    }
     var leaders = rankedLeaders(next.scores);
     if (leaders.length === 1) finishHeat(next, leaders[0]);
-    else next.suddenDeath = true;
+    else {
+      next.suddenDeath = true;
+      prepareVolley(next);
+    }
   }
 
   function recordAttempt(state, input) {
@@ -246,13 +301,19 @@
         next.charges[key] = 0;
       }
     }
-    if (next.config.paceId === 'volley') {
+    if (next.config.paceId === 'volley' || next.suddenDeath) {
       if (next.volleyPlayerIds.indexOf(playerId) < 0) next.volleyPlayerIds.push(playerId);
-      if (next.activePlayerIds.every(function (id) { return next.volleyPlayerIds.indexOf(id) >= 0; })) closeVolley(next);
+      if (next.activePlayerIds.every(function (id) { return next.volleyPlayerIds.indexOf(id) >= 0; })) {
+        if (!advanceVolleyBatch(next)) closeVolley(next);
+      }
     } else if (next.clockExpired && next.pendingLaunchIds.length === 0) {
       var leaders = rankedLeaders(next.scores);
       if (leaders.length === 1) finishHeat(next, leaders[0]);
-      else next.suddenDeath = true;
+      else {
+        next.suddenDeath = true;
+        next.rotationIndex += 1;
+        prepareVolley(next);
+      }
     }
     return freeze(next);
   }
@@ -260,14 +321,16 @@
   function markLaunch(state, attemptId) {
     var next = clone(state);
     var id = required(attemptId, 'attemptId');
-    if (next.phase !== 'active' || next.clockExpired) throw new Error('Launch is not allowed');
+    if (next.phase !== 'active' || (next.clockExpired && !next.suddenDeath)) {
+      throw new Error('Launch is not allowed');
+    }
     if (next.pendingLaunchIds.indexOf(id) < 0) next.pendingLaunchIds.push(id);
     return freeze(next);
   }
 
   function advanceClock(state, deltaMs) {
     var next = clone(state);
-    if (next.phase !== 'active' || next.config.paceId !== 'rush') return freeze(next);
+    if (next.phase !== 'active' || next.config.paceId !== 'rush' || next.suddenDeath) return freeze(next);
     var beforeBucket = Math.floor(next.elapsedMs / next.config.rotationIntervalMs);
     next.elapsedMs = Math.min(next.config.rushDurationMs,
       next.elapsedMs + Math.max(0, Number(deltaMs) || 0));
@@ -275,14 +338,18 @@
       next.config.rotationIntervalMs);
     if (afterBucket > beforeBucket) {
       next.rotationIndex += afterBucket - beforeBucket;
-      next.activePlayerIds = selectActive(next.config, next.rotationIndex);
+      next.activePlayerIds = selectRushActive(next.config, next.rotationIndex);
     }
     if (next.elapsedMs >= next.config.rushDurationMs) {
       next.clockExpired = true;
       if (next.pendingLaunchIds.length === 0) {
         var leaders = rankedLeaders(next.scores);
         if (leaders.length === 1) finishHeat(next, leaders[0]);
-        else next.suddenDeath = true;
+        else {
+          next.suddenDeath = true;
+          next.rotationIndex += 1;
+          prepareVolley(next);
+        }
       }
     }
     return freeze(next);

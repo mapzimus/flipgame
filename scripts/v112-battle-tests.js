@@ -99,6 +99,45 @@ function testTeamRotationAndSharedScore() {
   assert.deepEqual(state.activePlayerIds, ['p2', 'p3', 'p6', 'p7']);
 }
 
+function testVolleyFallbackCompletesEqualOpportunityBeforeClosing() {
+  let state = Battle.startHeat(Battle.createState({ formatId: 'four-way', paceId: 'volley',
+    players: players(4), hardware: { width: 600, verifiedContacts: 1 } }));
+  assert.deepEqual(state.activePlayerIds, ['p1']);
+  state = Battle.recordAttempt(state, { attemptId: 'relay-1', playerId: 'p1', pose: 'upright' });
+  assert.equal(state.volleyIndex, 0);
+  assert.deepEqual(state.activePlayerIds, ['p2']);
+  state = Battle.recordAttempt(state, { attemptId: 'relay-2', playerId: 'p2', pose: 'upright' });
+  state = Battle.recordAttempt(state, { attemptId: 'relay-3', playerId: 'p3', pose: 'miss' });
+  state = Battle.recordAttempt(state, { attemptId: 'relay-4', playerId: 'p4', pose: 'miss' });
+  assert.equal(state.volleyIndex, 1, 'one volley closes only after all four competitors flip');
+  assert.deepEqual(state.scores, { p1: 1, p2: 1, p3: 0, p4: 0 });
+
+  let teams = Battle.startHeat(Battle.createState({ formatId: 'team', paceId: 'volley',
+    players: players(8, true), hardware: { width: 600, verifiedContacts: 1 } }));
+  assert.deepEqual(teams.activePlayerIds, ['p1']);
+  teams = Battle.recordAttempt(teams, { attemptId: 'team-relay-a', playerId: 'p1', pose: 'cap' });
+  assert.deepEqual(teams.activePlayerIds, ['p5']);
+  teams = Battle.recordAttempt(teams, { attemptId: 'team-relay-b', playerId: 'p5', pose: 'upright' });
+  assert.equal(teams.volleyIndex, 1);
+  assert.deepEqual(teams.activePlayerIds, ['p2'], 'larger-team representative rotates next volley');
+}
+
+function testRushTieEntersPairedSuddenDeath() {
+  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+    players: players(2), hardware: { width: 1280, verifiedContacts: 2 } }));
+  state = Battle.advanceClock(state, 60000);
+  assert.equal(state.suddenDeath, true);
+  assert.equal(state.clockExpired, true);
+  assert.deepEqual(state.activePlayerIds.slice().sort(), ['p1', 'p2']);
+  state = Battle.markLaunch(state, 'rush-sd-a');
+  state = Battle.markLaunch(state, 'rush-sd-b');
+  state = Battle.recordAttempt(state, { attemptId: 'rush-sd-a', playerId: 'p1', pose: 'cap' });
+  assert.equal(state.phase, 'active');
+  state = Battle.recordAttempt(state, { attemptId: 'rush-sd-b', playerId: 'p2', pose: 'miss' });
+  assert.equal(state.phase, 'between-heats');
+  assert.equal(state.heatWins.p1, 1);
+}
+
 function run() {
   testConfigurationAndHardware();
   testVolleyScoringTieAndHeat();
@@ -106,6 +145,8 @@ function run() {
   testPowerChargeAndMayhemTarget();
   testRushHornAndPendingLaunch();
   testTeamRotationAndSharedScore();
+  testVolleyFallbackCompletesEqualOpportunityBeforeClosing();
+  testRushTieEntersPairedSuddenDeath();
   console.log('v1.12 Battle rules tests passed.');
 }
 
