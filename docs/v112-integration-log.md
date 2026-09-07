@@ -482,3 +482,27 @@ log, and defect ledger remain release history and are not rewritten.
 - Test action: replace obsolete exact-seed/every-event-makes fixtures with the
   final rate, parity, fallibility and Story/Battle qualification gates without
   dropping their underlying landing/deadline invariants.
+
+## Revision 34 — Wave 1 contracts integrated
+
+- Integrated the versioned activity/session contracts in commit `e3d21f3`.
+  Activity, format, and physics-mode identity are now independent; match
+  finalization has an exactly-once transaction boundary and statistics remain
+  asynchronous and non-authoritative.
+- Integrated the Story/Urth domain core in commit `dc9a1c7`. The twelve-chapter
+  catalog, shared Rival Board clears, early Alien victory banking, solo/co-op
+  requests, authored Urth lexicon, first-clear rewards, and final feature gate
+  are covered by deterministic tests.
+- Integrated the Battle rules core in commit `deaeb24`. Equal Volley, Timed
+  Rush, 1v1/2v2/four-way/larger-team rotation, hardware lane limits, charges,
+  deterministic Sport/Mayhem offers, horn handling, and terminal-event
+  exclusion are covered by deterministic tests.
+- Alien calibration retains the frozen tractor-ring size. The first qualifying
+  bank preserves full energy; later sidewall/deflector/UFO contacts receive
+  progressive linear and angular damping. This is an input/trajectory cleanup,
+  not a smaller scoring target.
+- Migration action: the pending V4 profile store will consume the activity and
+  Story result contracts by immutable match ID. UI/runtime integration must not
+  bypass that transaction boundary.
+- Test action: keep the Story, Battle, and activity suites mandatory after every
+  subsequent integration merge.

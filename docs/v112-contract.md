@@ -1,8 +1,8 @@
 # Flipgame v1.12 authoritative contract — Pressure Signal
 
-Status: implementation authority  
-Baseline: public v1.11 commit `947133360d3487a646e04be2b313c577474f54a5`  
-Release: `v1.12`; Android `versionName 1.12`, `versionCode 112`  
+Status: implementation authority
+Baseline: public v1.11 commit `947133360d3487a646e04be2b313c577474f54a5`
+Release: `v1.12`; Android `versionName 1.12`, `versionCode 112`
 Approval: no deployment before explicit product-owner approval of one candidate SHA
 
 This document supersedes every earlier `v112-*` planning draft where they
@@ -327,4 +327,3 @@ leaving discards it.
   and >=45 FPS heaviest four-lane scene; zero open P0/P1/P2; owner phone/desktop/
   board acceptance; reproducible matching web/APK build; independent live,
   stale-cache, offline and APK verification.
-

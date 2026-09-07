@@ -3,9 +3,9 @@
 > **Reference only:** where this draft conflicts with `docs/v112-contract.md`,
 > the authoritative contract wins.
 
-**Status:** proposed frozen contract for owner review  
-**Prepared:** 2026-09-06  
-**Scope:** current arena audit; dedicated post-character Arena Select; visual-stage catalog/rendering; local modes; Flip Experience Points/Flip Level migration and arena milestones; web/PWA/APK parity  
+**Status:** proposed frozen contract for owner review
+**Prepared:** 2026-09-06
+**Scope:** current arena audit; dedicated post-character Arena Select; visual-stage catalog/rendering; local modes; Flip Experience Points/Flip Level migration and arena milestones; web/PWA/APK parity
 **Out of scope:** implementation, Arena Draft physics tuning, event physics, and the exact non-arena reward sequence
 
 ## 1. Decision summary

@@ -3,9 +3,9 @@
 > **Superseded:** `docs/v112-contract.md` is the implementation authority. This
 > document is retained only as planning history and must not drive behavior.
 
-Status: draft and active implementation contract  
-Baseline: immutable public v1.11 commit `947133360d3487a646e04be2b313c577474f54a5`  
-Release name: `v1.12`  
+Status: draft and active implementation contract
+Baseline: immutable public v1.11 commit `947133360d3487a646e04be2b313c577474f54a5`
+Release name: `v1.12`
 Future `v2.0`: reserved until the product owner explicitly declares a build satisfactory
 
 ## 1. Release intent and invariants
