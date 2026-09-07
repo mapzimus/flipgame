@@ -558,3 +558,26 @@ log, and defect ledger remain release history and are not rewritten.
   power, horn and input-parity tests; all inherited Node tests remain 49/49.
   Actual smartboard contact hardware, full UI wiring, complete 51-Flipper art,
   owner art approval and independent QA remain open release gates.
+
+## Revision 37 — Battle relay fairness contract
+
+- Affected interfaces: `BattleStateV1`, `BattleRuntimeV1`, Timed Rush clock,
+  one-lane Equal Volley scheduling, and pending Battle power delivery.
+- Old behavior: a one-lane shot could remain airborne across a relay boundary
+  while the incoming side's clock continued; a batched tick could cycle past a
+  side before it received an interactive frame; one-lane Volley always exposed
+  the same first mover's newly earned card before its opponent acted; multiple
+  physical modifiers could stack on one next launch.
+- New behavior: the Rush 60 seconds are controllable gameplay-clock time.
+  Cross-boundary flight pauses at the handoff until the incoming player owns a
+  ready/aiming lane, and a batched update cannot skip that player. One-lane
+  Volley rotates its opener and releases newly earned offers only after the
+  complete paired volley. Each next launch accepts at most one pending physical
+  modifier; conflicts reject atomically and preserve the stored card.
+- Migration action: Battle state is match-ephemeral, so no persisted profile or
+  save migration is required. Any future resumable Battle snapshot must carry
+  opportunity-clock, handoff, paired-volley, and pending-recipient state.
+- Required tests: long cross-boundary flights, multi-boundary delayed ticks,
+  exact per-side opportunity totals, absolute horn/CPU cutoffs, rotating Volley
+  openers, delayed offer visibility, atomic power conflicts, stale callbacks,
+  destruction, and two-/four-lane parity.

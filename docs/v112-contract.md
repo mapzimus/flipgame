@@ -135,18 +135,28 @@ twelve signature encounters:
   equal rotating teams 3v3–8v8, with at most four active lanes.
 - Equal Volley: best of three heats, five synchronized volleys per heat;
   upright=1, cap=2, miss=0; ties use paired sudden-death volleys.
-- Timed Rush: best of three 60s heats; lanes re-arm independently; launches
-  released before the horn finish; ties use a paired sudden-death volley.
+- Timed Rush: best of three 60-second gameplay-clock heats; lanes re-arm
+  independently; launches released before the horn finish; ties use a paired
+  sudden-death volley. Horn eligibility uses the monotonic input timestamp and
+  absolute deadline rather than depending on animation-frame delivery.
 - Larger Volley teams rotate after each volley; Rush teams every 15 seconds.
   Verified four-touch displays may run two representatives/team, two-touch
   displays one/team, and unsupported or <768px layouts announce a fair
-  alternating relay.
+  alternating relay. Relay time advances only while the assigned participant
+  has a ready/aiming lane. An outgoing cross-boundary flight may finish, but it
+  pauses the gameplay clock and cannot consume the incoming side's allocation.
+  Batched timer delivery stops at the first handoff so every assigned side gets
+  an interactive frame before it can rotate away.
 - Each qualified manual launch grants one charge. At three charges offer two
   deterministic compatible cards; one may be stored without pausing play.
 - Sport cards: Magnet Pulse, Heartbeat Brace, Power Launch, Moon Round, Bouncy
   Round, Wind Round, Trampoline Round. Mayhem adds manually targeted Ice Patch,
   Crosswind, Earthquake, Gravity Slam and Fizz Jet. No automatic leader target.
 - Powers are visible, physical, fallible and affect only not-yet-armed launches.
+  A recipient may have at most one pending physical modifier; conflicting
+  deployment rejects atomically without consuming the stored card. In a
+  one-lane Equal Volley the opener rotates and offers earned during a logical
+  paired volley cannot be deployed until both sides have resolved that volley.
   Ordinary rare-event rolls are disabled. Plinko, Roulette, Life Drain, Mirror
   Match, Cap Toss, Double Flip and other terminal/long events do not run.
 - Pointer, physics, camera, reaction and audio state are lane-local. Cross-lane
