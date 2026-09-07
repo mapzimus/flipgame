@@ -173,14 +173,22 @@
     }
     rects = rects.slice(0, physicalLaneCount);
     var rectByLane = new Map(rects.map(function (rect) { return [rect.laneId, rect]; }));
-    var now = typeof opts.now === 'function' ? opts.now : function () { return Date.now(); };
+    var now = typeof opts.now === 'function' ? opts.now
+      : (typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? function () { return performance.now(); } : function () { return Date.now(); });
+    // inputNow must share the DOM PointerEvent.timeStamp clock domain. Keeping
+    // it distinct from render/telemetry time makes the horn classification
+    // independent of a delayed animation tick.
+    var inputNow = typeof opts.inputNow === 'function' ? opts.inputNow : now;
     var qualifier = typeof opts.qualifyGesture === 'function' ? opts.qualifyGesture : defaultQualifier;
     var adapterFactory = opts.laneAdapterFactory;
     if (typeof adapterFactory !== 'function') throw new TypeError('laneAdapterFactory is required');
     var onAssignment = typeof opts.onAssignment === 'function' ? opts.onAssignment : function () {};
     var onPowerOffer = typeof opts.onPowerOffer === 'function' ? opts.onPowerOffer : function () {};
     var onRelay = typeof opts.onRelay === 'function' ? opts.onRelay : function () {};
-    var onError = typeof opts.onError === 'function' ? opts.onError : function (error) { throw error; };
+    var onError = typeof opts.onError === 'function' ? opts.onError : function () {};
+    var inputDeliveryGraceMs = Math.max(16, Math.min(250,
+      finite(opts.inputDeliveryGraceMs, 120)));
 
     var battleState = Battle.createState(config);
     var lanes = [];
@@ -190,7 +198,33 @@
     var gateSequence = 0;
     var wallElapsedMs = 0;
     var hornExpired = false;
+    var heatStartedAt = null;
+    var heatDeadlineAt = null;
+    var hornGraceDeadlineAt = null;
+    var runtimeErrors = [];
     var destroyed = false;
+
+    function errorRecord(error, context) {
+      var source = object(context);
+      return freeze({ phase: String(source.phase || 'runtime'),
+        laneId: source.laneId == null ? null : String(source.laneId),
+        attemptId: source.attemptId == null ? null : String(source.attemptId),
+        message: String(error && error.message || error || 'Unknown Battle runtime error') });
+    }
+
+    function reportError(error, context) {
+      var record = errorRecord(error, context);
+      runtimeErrors.push(record);
+      try { onError(error, record); } catch (callbackError) {
+        runtimeErrors.push(errorRecord(callbackError, { phase: 'onError-callback',
+          laneId: record.laneId, attemptId: record.attemptId }));
+      }
+      return record;
+    }
+
+    function flushErrors(values) {
+      (values || []).forEach(function (entry) { reportError(entry.error, entry.context); });
+    }
 
     function createResources(laneId) {
       var resources = Object.freeze({
@@ -238,7 +272,8 @@
 
     function isCpu(playerId) {
       var entry = player(playerId);
-      return !!(entry && (entry.cpu === true || entry.isCpu === true || entry.type === 'cpu'));
+      return !!(entry && (entry.cpu === true || entry.isCpu === true || entry.ai === true ||
+        String(entry.type || '').toLowerCase() === 'cpu'));
     }
 
     function laneForId(laneId) {
@@ -264,9 +299,14 @@
       var payload = freeze({ laneId: lane.id, previousPlayerId: previousId,
         playerId: lane.playerId, cpu: lane.playerId ? isCpu(lane.playerId) : false,
         relay: config.hardware.fallback === 'alternating-relay' });
-      if (lane.adapter.onAssignment) lane.adapter.onAssignment(payload);
-      onAssignment(payload);
-      if (payload.relay && payload.playerId && previousId !== payload.playerId) onRelay(payload);
+      try { if (lane.adapter.onAssignment) lane.adapter.onAssignment(payload); }
+      catch (error) { reportError(error, { phase: 'adapter-onAssignment', laneId: lane.id }); }
+      try { onAssignment(payload); }
+      catch (error) { reportError(error, { phase: 'onAssignment', laneId: lane.id }); }
+      if (payload.relay && payload.playerId && previousId !== payload.playerId) {
+        try { onRelay(payload); }
+        catch (error) { reportError(error, { phase: 'onRelay', laneId: lane.id }); }
+      }
     }
 
     function resetControl(lane, playerId) {
@@ -278,7 +318,9 @@
       lane.prepared = null;
       lane.inflight = null;
       lane.lockedPowers = [];
-      if (lane.adapter.reset) lane.adapter.reset(freeze({ laneId: lane.id, playerId: lane.playerId }));
+      try {
+        if (lane.adapter.reset) lane.adapter.reset(freeze({ laneId: lane.id, playerId: lane.playerId }));
+      } catch (error) { reportError(error, { phase: 'adapter-reset', laneId: lane.id }); }
       if (previousId !== lane.playerId) announceAssignment(lane, previousId);
     }
 
@@ -300,21 +342,20 @@
       pointerRouter.setEnabledLaneIds(enabled);
     }
 
-    function pendingFor(key) {
-      var id = String(key);
+    function pendingFor(playerId) {
+      var id = String(playerId);
       if (!pendingPowers.has(id)) pendingPowers.set(id, []);
       return pendingPowers.get(id);
     }
 
     function takePowers(playerId) {
-      var key = competitorKey(playerId);
-      var values = pendingFor(key).splice(0);
+      var values = pendingFor(playerId).splice(0);
       return values;
     }
 
     function restorePowers(playerId, values) {
       if (!values || !values.length) return;
-      var pending = pendingFor(competitorKey(playerId));
+      var pending = pendingFor(playerId);
       Array.prototype.unshift.apply(pending, values);
     }
 
@@ -325,15 +366,25 @@
       if (!lane.playerId || isCpu(lane.playerId) || lane.control.snapshot().state !== 'ready') return false;
       if (!lane.control.claimPointer(payload.pointerId)) return false;
       lane.lockedPowers = takePowers(lane.playerId);
-      if (lane.adapter.beginAim) lane.adapter.beginAim(freeze({ laneId: lane.id,
-        playerId: lane.playerId, pointerId: payload.pointerId, geometry: payload.geometry,
-        powerEffects: clone(lane.lockedPowers) }));
+      try {
+        if (lane.adapter.beginAim) lane.adapter.beginAim(freeze({ laneId: lane.id,
+          playerId: lane.playerId, pointerId: payload.pointerId, geometry: payload.geometry,
+          powerEffects: clone(lane.lockedPowers) }));
+      } catch (error) {
+        lane.control.releasePointer(payload.pointerId);
+        if (lane.control.snapshot().state === 'aiming') lane.control.transition('ready');
+        restorePowers(lane.playerId, lane.lockedPowers);
+        lane.lockedPowers = [];
+        reportError(error, { phase: 'adapter-beginAim', laneId: lane.id });
+        return false;
+      }
       return true;
     }
 
     function sampleAim(payload) {
       var lane = laneForId(payload.laneId);
-      if (lane.adapter.sampleAim) lane.adapter.sampleAim(payload);
+      try { if (lane.adapter.sampleAim) lane.adapter.sampleAim(payload); }
+      catch (error) { reportError(error, { phase: 'adapter-sampleAim', laneId: lane.id }); }
     }
 
     function cancelAim(lane, gesture, reason) {
@@ -342,9 +393,12 @@
       if (lane.control.snapshot().state === 'aiming') lane.control.transition('ready');
       restorePowers(lane.playerId, lane.lockedPowers);
       lane.lockedPowers = [];
-      if (lane.adapter.cancelAim) lane.adapter.cancelAim(freeze({ laneId: lane.id,
-        playerId: lane.playerId, reason: reason || 'cancelled' }));
+      try {
+        if (lane.adapter.cancelAim) lane.adapter.cancelAim(freeze({ laneId: lane.id,
+          playerId: lane.playerId, reason: reason || 'cancelled' }));
+      } catch (error) { reportError(error, { phase: 'adapter-cancelAim', laneId: lane.id }); }
       configureAssignments();
+      finalizeHornIfReady();
     }
 
     function cancelGesture(gesture) {
@@ -375,9 +429,52 @@
       else launchPrepared([lane], null);
     }
 
+    function activeGestureCount() {
+      if (!pointerRouter) return 0;
+      return pointerRouter.snapshot().activeGestures.length;
+    }
+
+    function advanceBattleToHorn(deferForGestures) {
+      if (battleState.phase !== 'active' || config.paceId !== 'rush' || battleState.suddenDeath ||
+          battleState.clockExpired) return;
+      var target = deferForGestures ? Math.max(0, config.rushDurationMs - 0.001)
+        : config.rushDurationMs;
+      var remaining = Math.max(0, target - battleState.elapsedMs);
+      if (remaining > 0) battleState = Battle.advanceClock(battleState, remaining);
+    }
+
+    function finalizeHornIfReady() {
+      if (!hornExpired || activeGestureCount() > 0 || battleState.clockExpired) return;
+      advanceBattleToHorn(false);
+      configureAssignments();
+    }
+
+    function markHornFromInput() {
+      hornExpired = true;
+      wallElapsedMs = config.rushDurationMs;
+      advanceBattleToHorn(activeGestureCount() > 0);
+    }
+
     function releaseGesture(gesture) {
       var lane = laneForId(gesture.laneId);
-      if (config.paceId === 'rush' && hornExpired && !battleState.suddenDeath) {
+      var timedRush = config.paceId === 'rush' && !battleState.suddenDeath;
+      var deliveryGraceExpired = timedRush && hornGraceDeadlineAt != null &&
+        finite(inputNow(), heatDeadlineAt) > hornGraceDeadlineAt;
+      if (deliveryGraceExpired &&
+          finite(gesture.endedAt, Number.POSITIVE_INFINITY) <= heatDeadlineAt) {
+        markHornFromInput();
+        cancelAim(lane, gesture, 'horn-delivery-timeout');
+        return;
+      }
+      if (timedRush && heatDeadlineAt != null &&
+          finite(gesture.endedAt, Number.POSITIVE_INFINITY) > heatDeadlineAt) {
+        // PointerEvent.timeStamp is authoritative. A delayed rAF/tick cannot
+        // turn a post-horn release into a qualified pre-horn launch.
+        markHornFromInput();
+        cancelAim(lane, gesture, 'horn');
+        return;
+      }
+      if (timedRush && battleState.clockExpired) {
         cancelAim(lane, gesture, 'horn');
         return;
       }
@@ -387,7 +484,7 @@
           playerId: lane.playerId, paceId: config.paceId, geometry: gesture.geometry })));
       } catch (error) {
         cancelAim(lane, gesture, 'qualifier-error');
-        onError(error);
+        reportError(error, { phase: 'qualifier', laneId: lane.id });
         return;
       }
       if (qualified.qualified !== true) {
@@ -395,6 +492,10 @@
         return;
       }
       prepareLane(lane, gesture, qualified);
+      // A release timestamped before the deadline is admitted even if the
+      // visual horn tick ran first. Only after it is marked pending may the
+      // rules clock close the heat.
+      finalizeHornIfReady();
     }
 
     var pointerRouter = MultiPointer.createMultiPointerRouter({
@@ -447,19 +548,57 @@
         // Physics state is intentionally mutable, but only inside this lane.
         var context = Object.freeze(Object.assign({}, immutableContext,
           { resources: lane.resources }));
-        var returned = lane.adapter.launch(context);
+        var returned;
+        try { returned = lane.adapter.launch(context); }
+        catch (error) {
+          immediate.push({ laneId: lane.id, attemptId: prepared.attemptId, error: error,
+            phase: 'adapter-launch' });
+          return;
+        }
         if (returned && typeof returned.then === 'function') {
           returned.then(function (outcome) {
-            if (outcome) resolveAttempt(lane.id, prepared.attemptId, outcome);
-          }).catch(onError);
+            if (destroyed || !lane.inflight ||
+                lane.inflight.attemptId !== prepared.attemptId) return;
+            if (!outcome) return;
+            try { resolveAttempt(lane.id, prepared.attemptId, outcome); }
+            catch (error) {
+              recoverLaunchFailure(lane.id, prepared.attemptId, error, 'adapter-outcome');
+            }
+          }, function (error) {
+            if (destroyed || !lane.inflight ||
+                lane.inflight.attemptId !== prepared.attemptId) return;
+            recoverLaunchFailure(lane.id, prepared.attemptId, error, 'adapter-launch-promise');
+          });
         } else if (returned && typeof returned === 'object' && returned.pose) {
           immediate.push({ laneId: lane.id, attemptId: prepared.attemptId, outcome: returned });
         }
       });
       configureAssignments();
       immediate.forEach(function (entry) {
-        resolveAttempt(entry.laneId, entry.attemptId, entry.outcome);
+        if (entry.error) {
+          recoverLaunchFailure(entry.laneId, entry.attemptId, entry.error, entry.phase);
+          return;
+        }
+        try { resolveAttempt(entry.laneId, entry.attemptId, entry.outcome); }
+        catch (error) { recoverLaunchFailure(entry.laneId, entry.attemptId, error, 'adapter-outcome'); }
       });
+    }
+
+    function recoverLaunchFailure(laneId, attemptId, error, phase) {
+      if (destroyed) return;
+      var lane = laneForId(laneId);
+      if (!lane.inflight || lane.inflight.attemptId !== String(attemptId)) return;
+      try {
+        resolveAttempt(lane.id, attemptId, { pose: 'miss', reason: phase || 'adapter-error',
+          runtimeFailure: true });
+      } catch (recoveryError) {
+        reportError(recoveryError, { phase: 'attempt-recovery', laneId: lane.id,
+          attemptId: attemptId });
+      }
+      // Recovery is attempted before notification, so a consumer throwing from
+      // onError cannot strand the lane or synchronized gate.
+      reportError(error, { phase: phase || 'adapter-error', laneId: lane.id,
+        attemptId: attemptId });
     }
 
     function leasedRecord(state, input) {
@@ -478,32 +617,46 @@
       return updated;
     }
 
-    function applyOutcome(lane, outcome) {
+    function applyOutcome(lane, outcome, notifications, errors) {
       var offersBefore = clone(battleState.powerOffers);
       var input = { attemptId: lane.inflight.attemptId, playerId: lane.inflight.playerId,
         pose: String(outcome.pose || 'miss'), qualifiedManual:
           lane.inflight.gesture.qualifiedManual !== false };
       battleState = leasedRecord(battleState, input);
       Object.keys(battleState.powerOffers).forEach(function (key) {
-        if (!offersBefore[key] && battleState.powerOffers[key]) onPowerOffer(freeze({ competitorId: key,
-          cards: clone(battleState.powerOffers[key]) }));
+        if (!offersBefore[key] && battleState.powerOffers[key]) notifications.push(freeze({
+          competitorId: key, cards: clone(battleState.powerOffers[key]) }));
       });
       lane.lastResult = clone(outcome);
       lane.inflight = null;
       lane.control.transition('ready');
-      if (lane.adapter.reset) lane.adapter.reset(freeze({ laneId: lane.id,
-        playerId: lane.playerId, reason: 'resolved' }));
+      try {
+        if (lane.adapter.reset) lane.adapter.reset(freeze({ laneId: lane.id,
+          playerId: lane.playerId, reason: 'resolved' }));
+      } catch (error) { errors.push({ error: error, context: { phase: 'adapter-reset',
+        laneId: lane.id, attemptId: input.attemptId } }); }
     }
 
-    function finishVolleyGate(gate) {
+    function dispatchRecovered(notifications, errors) {
+      (notifications || []).forEach(function (payload) {
+        try { onPowerOffer(payload); }
+        catch (error) { reportError(error, { phase: 'onPowerOffer' }); }
+      });
+      flushErrors(errors);
+    }
+
+    function finishVolleyGate(gate, priorErrors) {
+      var notifications = [];
+      var errors = (priorErrors || []).slice();
       gate.attempts.slice().sort(function (a, b) {
         return laneForId(a.laneId).index - laneForId(b.laneId).index;
       }).forEach(function (attempt) {
         var lane = laneForId(attempt.laneId);
-        applyOutcome(lane, gate.outcomes.get(attempt.attemptId));
+        applyOutcome(lane, gate.outcomes.get(attempt.attemptId), notifications, errors);
       });
       gates.delete(gate.id);
       configureAssignments();
+      dispatchRecovered(notifications, errors);
     }
 
     function resolveAttempt(laneId, attemptId, value) {
@@ -517,17 +670,24 @@
           ? String(value.pose) : 'miss',
       }));
       lane.control.resolveAttempt(outcome);
-      if (lane.adapter.onResolve) lane.adapter.onResolve(freeze({ laneId: lane.id,
-        playerId: lane.playerId, attemptId: id, outcome: outcome }));
+      var errors = [];
+      try {
+        if (lane.adapter.onResolve) lane.adapter.onResolve(freeze({ laneId: lane.id,
+          playerId: lane.playerId, attemptId: id, outcome: outcome }));
+      } catch (error) { errors.push({ error: error, context: { phase: 'adapter-onResolve',
+        laneId: lane.id, attemptId: id } }); }
       var gateId = lane.inflight.gateId;
       if (gateId) {
         var gate = gates.get(gateId);
         if (!gate) throw new Error('Unknown synchronized gate: ' + gateId);
         gate.outcomes.set(id, outcome);
-        if (gate.outcomes.size === gate.attempts.length) finishVolleyGate(gate);
+        if (gate.outcomes.size === gate.attempts.length) finishVolleyGate(gate, errors);
+        else flushErrors(errors);
       } else {
-        applyOutcome(lane, outcome);
+        var notifications = [];
+        applyOutcome(lane, outcome, notifications, errors);
         configureAssignments();
+        dispatchRecovered(notifications, errors);
       }
       return snapshot();
     }
@@ -601,12 +761,23 @@
       var index = Math.floor(Number(source.index));
       var card = offer[index];
       if (!card) throw new RangeError('Power index must be 0 or 1');
-      if (card.scope === 'target') {
-        var targetId = required(source.targetId, 'targetId');
-        if (ownerLocked(targetId)) throw new Error('Power target must be chosen before pointerdown');
-      }
+      // Choosing/storing does not affect physics and may happen while a target
+      // aims. Deployment is the atomic cutoff that must precede pointerdown.
       battleState = Battle.choosePower(battleState, source);
       return snapshot();
+    }
+
+    function roundPlayerIds() {
+      if (!phaseIsVolley() && typeof Battle.powerRoundPlayerIds === 'function') {
+        return Battle.powerRoundPlayerIds(battleState).slice();
+      }
+      return (phaseIsVolley() ? battleState.volleyParticipantIds : battleState.activePlayerIds).slice();
+    }
+
+    function playersForDestination(destination) {
+      return roundPlayerIds().filter(function (playerId) {
+        return competitorKey(playerId) === destination;
+      });
     }
 
     function deployPower(playerId) {
@@ -626,14 +797,32 @@
       if (destinations.some(ownerLocked)) {
         throw new Error('Power must be deployed before the affected pointerdown');
       }
+      var recipients = [];
+      if (stored.scope === 'symmetric') {
+        // A Round card is one physical modifier for every representative in
+        // this synchronized round, including teammates assigned to later
+        // relay batches. Each player consumes only their own delivery.
+        destinations.forEach(function (destination) {
+          recipients = recipients.concat(playersForDestination(destination));
+        });
+      } else {
+        var destination = destinations[0];
+        var candidates = playersForDestination(destination);
+        if (stored.scope === 'self' && candidates.indexOf(id) >= 0) recipients = [id];
+        else if (candidates.length) recipients = [candidates[0]];
+      }
+      recipients = unique(recipients);
+      if (!recipients.length) throw new Error('Power has no eligible not-yet-armed recipient');
       var consumed = Battle.consumePower(battleState, id);
       battleState = consumed.state;
-      destinations.forEach(function (destination) {
-        pendingFor(destination).push(freeze({ cardId: consumed.card.id,
+      recipients.forEach(function (recipientId) {
+        var targetKey = competitorKey(recipientId);
+        pendingFor(recipientId).push(freeze({ cardId: consumed.card.id,
           eventAdapterId: consumed.card.eventAdapterId, scope: consumed.card.scope,
-          sourceId: key, targetId: destination }));
+          sourceId: key, targetId: targetKey, recipientPlayerId: recipientId }));
       });
-      return freeze({ card: clone(consumed.card), destinations: destinations.slice() });
+      return freeze({ card: clone(consumed.card), destinations: destinations.slice(),
+        recipientPlayerIds: recipients.slice() });
     }
 
     function startHeat() {
@@ -641,8 +830,34 @@
       battleState = Battle.startHeat(battleState);
       wallElapsedMs = 0;
       hornExpired = false;
+      heatStartedAt = finite(inputNow(), 0);
+      heatDeadlineAt = config.paceId === 'rush'
+        ? heatStartedAt + config.rushDurationMs : null;
+      hornGraceDeadlineAt = heatDeadlineAt == null ? null
+        : heatDeadlineAt + inputDeliveryGraceMs;
       configureAssignments();
       return snapshot();
+    }
+
+    function cancelRotatedAims() {
+      var desired = battleState.phase === 'active' ? battleState.activePlayerIds : [];
+      var pointerIds = [];
+      lanes.forEach(function (lane, index) {
+        var control = lane.control.snapshot();
+        if (control.state === 'aiming' && control.pointerId != null &&
+            lane.playerId !== (desired[index] || null)) pointerIds.push(control.pointerId);
+      });
+      pointerIds.forEach(function (pointerId) {
+        pointerRouter.cancelPointer(pointerId, 'rotation');
+      });
+    }
+
+    function cancelExpiredHornAims() {
+      if (!hornExpired || hornGraceDeadlineAt == null ||
+          finite(inputNow(), heatDeadlineAt) <= hornGraceDeadlineAt) return;
+      pointerRouter.snapshot().activeGestures.slice().forEach(function (gesture) {
+        pointerRouter.cancelPointer(gesture.pointerId, 'horn-delivery-timeout');
+      });
     }
 
     function tick(deltaMs) {
@@ -651,18 +866,22 @@
       if (battleState.phase !== 'active' || config.paceId !== 'rush' || battleState.suddenDeath) {
         return snapshot();
       }
+      var beforeWall = wallElapsedMs;
       wallElapsedMs = Math.min(config.rushDurationMs, wallElapsedMs + delta);
-      battleState = Battle.advanceClock(battleState, delta);
-      if (wallElapsedMs >= config.rushDurationMs) {
-        hornExpired = true;
-        lanes.forEach(function (lane) {
-          var laneState = lane.control.snapshot();
-          if (laneState.state === 'aiming' && laneState.pointerId != null) {
-            pointerRouter.cancelPointer(laneState.pointerId, 'horn');
-          }
-        });
+      var reachesHorn = beforeWall < config.rushDurationMs &&
+        wallElapsedMs >= config.rushDurationMs;
+      if (reachesHorn) hornExpired = true;
+      var stateDelta = delta;
+      if (hornExpired && activeGestureCount() > 0) {
+        stateDelta = Math.max(0, config.rushDurationMs - 0.001 - battleState.elapsedMs);
       }
+      battleState = Battle.advanceClock(battleState, stateDelta);
+      // An aim is not a launch lease. When a 15-second owner window changes,
+      // cancel it, restore its locked power, and assign the new representative.
+      cancelRotatedAims();
+      cancelExpiredHornAims();
       configureAssignments();
+      finalizeHornIfReady();
       return snapshot();
     }
 
@@ -685,8 +904,14 @@
       destroyed = true;
       pointerRouter.detach();
       lanes.forEach(function (lane) {
-        if (lane.adapter.destroy) lane.adapter.destroy(freeze({ laneId: lane.id }));
+        try { if (lane.adapter.destroy) lane.adapter.destroy(freeze({ laneId: lane.id })); }
+        catch (error) { reportError(error, { phase: 'adapter-destroy', laneId: lane.id }); }
       });
+    }
+
+    function drainErrors() {
+      var values = runtimeErrors.splice(0);
+      return freeze(values);
     }
 
     function snapshot() {
@@ -694,7 +919,10 @@
       pendingPowers.forEach(function (values, key) { pending[key] = clone(values); });
       return freeze({ schema: 'BattleRuntimeV1', matchId: matchId,
         battle: battleState, wallElapsedMs: wallElapsedMs, hornExpired: hornExpired,
+        heatStartedAt: heatStartedAt, heatDeadlineAt: heatDeadlineAt,
+        hornGraceDeadlineAt: hornGraceDeadlineAt,
         adapterContract: ADAPTER_CONTRACT, pendingPowers: pending,
+        errors: clone(runtimeErrors),
         lanes: lanes.map(function (lane) {
           var control = lane.control.snapshot();
           return { laneId: lane.id, laneIndex: lane.index, playerId: lane.playerId,
@@ -712,7 +940,7 @@
 
     return freeze({ startHeat: startHeat, tick: tick, updateLaneRects: updateLaneRects,
       attach: attach, destroy: destroy, snapshot: snapshot, choosePower: choosePower,
-      deployPower: deployPower, prepareCpuLaunch: prepareCpuLaunch,
+      deployPower: deployPower, prepareCpuLaunch: prepareCpuLaunch, drainErrors: drainErrors,
       resolveAttempt: resolveAttempt, reportContact: reportContact,
       reportAirborne: reportAirborne, reportSettling: reportSettling,
       handlePointerDown: pointerRouter.handlePointerDown,

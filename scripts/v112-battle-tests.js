@@ -21,6 +21,13 @@ function testConfigurationAndHardware() {
   assert.equal(team.players.length, 16);
   assert.equal(team.normalEventsEnabled, false);
   assert.equal(Battle.createState(team).activePlayerIds.length, 4);
+
+  const mixedCpu = Battle.normalizeConfig({ formatId: 'four-way', players: [
+    { id: 'cpu-current', cpu: true }, { id: 'cpu-legacy', ai: true },
+    { id: 'cpu-alias', isCpu: true }, { id: 'human', type: 'human' },
+  ] });
+  assert.deepEqual(mixedCpu.players.map((player) => player.cpu), [true, true, true, false],
+    'legacy ai/isCpu and current cpu flags normalize at the Battle boundary');
 }
 
 function testVolleyScoringTieAndHeat() {
@@ -75,6 +82,35 @@ function testPowerChargeAndMayhemTarget() {
   assert.equal(consumed.state.storedPowers.p1, null);
 }
 
+function testRushPowerOffersIgnoreCrossCompetitorResolveOrder() {
+  function resolve(order) {
+    let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+      powerProfileId: 'mayhem', players: players(2), seed: 349,
+      hardware: { width: 1280, verifiedContacts: 2 } }));
+    for (let round = 0; round < 3; round += 1) {
+      for (const playerId of order) {
+        state = Battle.recordAttempt(state, { attemptId: `${playerId}-${round}`,
+          playerId, pose: 'miss' });
+      }
+    }
+    return state;
+  }
+  const leftFirst = resolve(['p1', 'p2']);
+  const rightFirst = resolve(['p2', 'p1']);
+  assert.deepEqual(leftFirst.powerOffers, rightFirst.powerOffers,
+    'Rush settle order cannot alter either competitor power offer');
+  assert.deepEqual(leftFirst.powerOfferSequences, { p1: 1, p2: 1 });
+
+  let team = Battle.startHeat(Battle.createState({ formatId: 'doubles', paceId: 'rush',
+    players: players(4, true), hardware: { width: 1920, verifiedContacts: 4 } }));
+  for (const [index, playerId] of ['p1', 'p2', 'p1', 'p2'].entries()) {
+    team = Battle.recordAttempt(team, { attemptId: `team-charge-${index}`, playerId, pose: 'miss' });
+  }
+  assert(team.powerOffers.a);
+  assert.equal(team.charges.a, 1,
+    'a teammate resolving after the offer threshold still receives its qualified charge');
+}
+
 function testRushHornAndPendingLaunch() {
   let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
     players: players(2), hardware: { width: 1280, verifiedContacts: 2 } }));
@@ -96,7 +132,155 @@ function testTeamRotationAndSharedScore() {
   state = Battle.recordAttempt(state, { attemptId: 'team-score', playerId: 'p1', pose: 'cap' });
   assert.equal(state.scores.a, 2);
   state = Battle.advanceClock(state, 15000);
-  assert.deepEqual(state.activePlayerIds, ['p2', 'p3', 'p6', 'p7']);
+  assert.deepEqual(state.activePlayerIds, ['p3', 'p4', 'p7', 'p8'],
+    'two representatives per team advance by a two-seat stride');
+}
+
+function testOneLaneDuelRushAlternatesBothPlayers() {
+  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+    players: players(2), hardware: { width: 600, verifiedContacts: 1 } }));
+  assert.deepEqual(state.activePlayerIds, ['p1']);
+  assert.deepEqual(Battle.powerRoundPlayerIds(state), ['p1', 'p2']);
+  state = Battle.advanceClock(state, 7500);
+  assert.deepEqual(state.activePlayerIds, ['p2']);
+  state = Battle.advanceClock(state, 7500);
+  assert.deepEqual(state.activePlayerIds, ['p1']);
+
+  let heat = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+    players: players(2), hardware: { width: 600, verifiedContacts: 1 } }));
+  heat = Battle.recordAttempt(heat, { attemptId: 'relay-duel-score', playerId: 'p1',
+    pose: 'upright', qualifiedManual: false });
+  heat = Battle.advanceClock(heat, 60000);
+  heat = Battle.startHeat(heat);
+  assert.deepEqual(heat.activePlayerIds, ['p2'], 'the next heat rotates the relay starter');
+}
+
+function testFourWaySuddenDeathOnlyUsesTiedLeadersInPairs() {
+  let state = Battle.startHeat(Battle.createState({ formatId: 'four-way', paceId: 'volley',
+    players: players(4), hardware: { width: 1920, verifiedContacts: 4 } }));
+  for (let volley = 0; volley < 5; volley += 1) {
+    for (const playerId of ['p1', 'p2', 'p3', 'p4']) {
+      state = Battle.recordAttempt(state, { attemptId: `normal-${volley}-${playerId}`,
+        playerId, pose: playerId === 'p1' || playerId === 'p2' ? 'upright' : 'miss' });
+    }
+  }
+  assert.equal(state.suddenDeath, true);
+  assert.deepEqual(state.suddenDeathCompetitorIds, ['p1', 'p2']);
+  assert.deepEqual(state.volleyParticipantIds.slice().sort(), ['p1', 'p2']);
+  assert.equal(state.activePlayerIds.length, 2, 'sudden death runs paired even on four-touch hardware');
+  assert.throws(() => Battle.recordAttempt(state, { attemptId: 'trailer', playerId: 'p3',
+    pose: 'cap' }), /not active/, 'a trailing competitor can never re-enter sudden death');
+
+  state = Battle.recordAttempt(state, { attemptId: 'sd-tie-a', playerId: state.activePlayerIds[0],
+    pose: 'miss' });
+  state = Battle.recordAttempt(state, { attemptId: 'sd-tie-b', playerId: state.activePlayerIds[1],
+    pose: 'miss' });
+  assert.deepEqual(state.suddenDeathCompetitorIds.slice().sort(), ['p1', 'p2'],
+    'a repeated tie retains only the still-tied leader set');
+  const first = state.activePlayerIds[0];
+  const second = state.activePlayerIds[1];
+  state = Battle.recordAttempt(state, { attemptId: 'sd-win-a', playerId: first, pose: 'upright' });
+  state = Battle.recordAttempt(state, { attemptId: 'sd-win-b', playerId: second, pose: 'miss' });
+  assert.equal(state.heatWins[first], 1);
+
+  let allTied = Battle.startHeat(Battle.createState({ formatId: 'four-way', paceId: 'volley',
+    players: players(4), hardware: { width: 1920, verifiedContacts: 4 } }));
+  for (let volley = 0; volley < 5; volley += 1) {
+    for (const id of allTied.activePlayerIds.slice()) {
+      allTied = Battle.recordAttempt(allTied, { attemptId: `all-tie-${volley}-${id}`,
+        playerId: id, pose: 'miss' });
+    }
+  }
+  assert.equal(allTied.suddenDeathCompetitorIds.length, 4);
+  const firstPair = allTied.activePlayerIds.slice();
+  for (const id of firstPair) {
+    allTied = Battle.recordAttempt(allTied, { attemptId: `first-pair-${id}`,
+      playerId: id, pose: 'miss' });
+  }
+  assert.equal(allTied.activePlayerIds.length, 2);
+  assert(allTied.activePlayerIds.every((id) => !firstPair.includes(id)),
+    'all tied leaders receive one attempt through fair paired batches');
+  for (const id of allTied.activePlayerIds.slice()) {
+    allTied = Battle.recordAttempt(allTied, { attemptId: `second-pair-${id}`,
+      playerId: id, pose: 'miss' });
+  }
+  assert.equal(allTied.suddenDeathCompetitorIds.length, 4);
+  assert.equal(allTied.activePlayerIds.length, 2, 'a repeated four-way tie opens another pair');
+}
+
+function rushExposure(teamSize, profile) {
+  let state = Battle.createState({ formatId: 'team', paceId: 'rush',
+    players: players(teamSize * 2, true), hardware: profile });
+  const seen = new Set();
+  const counts = Object.fromEntries(players(teamSize * 2, true).map((player) => [player.id, 0]));
+  const interval = profile.width < 768 || profile.verifiedContacts < 2 ? 7500 : 15000;
+  const windows = 60000 / interval;
+  for (let heat = 0; heat < 2; heat += 1) {
+    state = Battle.startHeat(state);
+    for (let window = 0; window < windows; window += 1) {
+      state.activePlayerIds.forEach((id) => { seen.add(id); counts[id] += 1; });
+      if (window === 0) {
+        const scorer = state.activePlayerIds.find((id) => Number(id.slice(1)) <= teamSize);
+        if (scorer) state = Battle.recordAttempt(state, { attemptId: `rush-score-${heat}`,
+          playerId: scorer, pose: 'upright', qualifiedManual: false });
+      }
+      state = Battle.advanceClock(state, interval);
+    }
+  }
+  return { state, seen, counts };
+}
+
+function volleyExposure(teamSize, profile) {
+  let state = Battle.createState({ formatId: 'team', paceId: 'volley',
+    players: players(teamSize * 2, true), hardware: profile });
+  const seen = new Set();
+  const counts = Object.fromEntries(players(teamSize * 2, true).map((player) => [player.id, 0]));
+  const countedVolleys = new Set();
+  let sequence = 0;
+  for (let heat = 0; heat < 2; heat += 1) {
+    state = Battle.startHeat(state);
+    while (state.phase === 'active' && !state.suddenDeath) {
+      const volleyKey = `${heat}:${state.volleyIndex}`;
+      if (!countedVolleys.has(volleyKey)) {
+        countedVolleys.add(volleyKey);
+        state.volleyParticipantIds.forEach((id) => { seen.add(id); counts[id] += 1; });
+      }
+      const active = state.activePlayerIds.slice();
+      for (const id of active) {
+        state = Battle.recordAttempt(state, { attemptId: `volley-${sequence++}-${id}`,
+          playerId: id, pose: Number(id.slice(1)) <= teamSize ? 'upright' : 'miss',
+          qualifiedManual: false });
+      }
+    }
+  }
+  return { state, seen, counts };
+}
+
+function testLargeTeamRotationCoverageAndFairness() {
+  const profiles = [
+    { width: 600, verifiedContacts: 1 },
+    { width: 900, verifiedContacts: 2 },
+    { width: 1920, verifiedContacts: 4 },
+  ];
+  for (let teamSize = 3; teamSize <= 8; teamSize += 1) {
+    for (const profile of profiles) {
+      for (const result of [rushExposure(teamSize, profile), volleyExposure(teamSize, profile)]) {
+        assert.equal(result.seen.size, teamSize * 2,
+          `${teamSize}v${teamSize} ${profile.width}px schedule must expose every player in a 2-0`);
+        assert.equal(result.state.winnerId, 'a');
+        for (const firstSeat of [1, teamSize + 1]) {
+          const values = Array.from({ length: teamSize }, (_, offset) =>
+            result.counts[`p${firstSeat + offset}`]);
+          assert(Math.max(...values) - Math.min(...values) <= 1,
+            `${teamSize}v${teamSize} ${profile.width}px teammate exposure must differ by at most one`);
+        }
+      }
+    }
+  }
+  const relay = rushExposure(8, profiles[0]);
+  assert.deepEqual(Array.from(relay.seen).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))),
+    players(16, true).map((player) => player.id),
+  'one-lane 8v8 alternates competitors every 7.5s and exposes all sixteen players');
 }
 
 function testVolleyFallbackCompletesEqualOpportunityBeforeClosing() {
@@ -143,8 +327,12 @@ function run() {
   testVolleyScoringTieAndHeat();
   testVolleySuddenDeathAndDuplicate();
   testPowerChargeAndMayhemTarget();
+  testRushPowerOffersIgnoreCrossCompetitorResolveOrder();
   testRushHornAndPendingLaunch();
+  testOneLaneDuelRushAlternatesBothPlayers();
   testTeamRotationAndSharedScore();
+  testFourWaySuddenDeathOnlyUsesTiedLeadersInPairs();
+  testLargeTeamRotationCoverageAndFairness();
   testVolleyFallbackCompletesEqualOpportunityBeforeClosing();
   testRushTieEntersPairedSuddenDeath();
   console.log('v1.12 Battle rules tests passed.');
