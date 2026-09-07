@@ -33,11 +33,16 @@ function testCatalogAndCanon() {
 function testSequentialStoryAndPreliminary() {
   let state = Story.defaultState();
   assert.throws(() => prepare(state, 'scatterline'), /not available/);
+  assert.throws(() => prepare(state, 'first-broadcast'), /preliminary must be cleared/);
   const prelim = prepare(state, 'first-broadcast', { matchKind: 'preliminary' });
   let result = win(state, prelim);
   assert.deepEqual(result.state.clearedPreliminaryIds, ['wfc-qualifier']);
   assert.equal(result.state.clearedChapterIds.length, 0);
-  const duel = prepare(result.state, 'first-broadcast');
+  const duel = Story.prepareAttempt(result.state, {
+    attemptId: 'first-broadcast-default-next', chapterId: 'first-broadcast',
+    alliedHumanIds: ['human-1'], seed: 7,
+  });
+  assert.equal(duel.matchKind, 'signature', 'cleared preliminary advances to the signature encounter');
   result = win(result.state, duel);
   assert(result.state.defeatedRivalIds.includes('first-light'));
   assert(result.state.clearedChapterIds.includes('first-broadcast'));
@@ -63,7 +68,13 @@ function testCoopEitherHumanAndLoss() {
 
 function testRivalBoardSharedClearAndNoOrdinaryReward() {
   let state = Story.discoverForLevel(Story.defaultState(), 13).state;
-  const board = prepare(state, 'scatterline', { source: 'rival-board' });
+  const board = Story.prepareAttempt(state, { attemptId: 'board-default-signature',
+    source: 'rival-board', chapterId: 'scatterline', alliedHumanIds: ['human-1'] });
+  assert.equal(board.matchKind, 'signature');
+  assert.deepEqual(board.rosterTemplate, { humanCount: 1, cpuCount: 1, lives: 3, format: 'classic' });
+  assert.throws(() => Story.prepareAttempt(state, { attemptId: 'board-coop',
+    source: 'rival-board', chapterId: 'scatterline', cooperative: true,
+    alliedHumanIds: ['a', 'b'] }), /solo/);
   const result = win(state, board);
   assert.equal(result.ordinaryRewardsEligible, false);
   assert(result.state.clearedChapterIds.includes('scatterline'));

@@ -157,10 +157,27 @@
       var replay = current.clearedChapterIds.indexOf(chapter.id) >= 0;
       if (!replay && frontier && frontier.id !== chapter.id) throw new Error('Story chapter is not available');
     }
-    var matchKind = String(source.matchKind || (chapter.preliminaryId ? 'preliminary' : 'signature'));
+    var preliminaryComplete = !chapter.preliminaryId ||
+      current.clearedPreliminaryIds.indexOf(chapter.preliminaryId) >= 0;
+    var defaultMatchKind = route === 'rival-board' || preliminaryComplete
+      ? 'signature' : 'preliminary';
+    var matchKind = String(source.matchKind || defaultMatchKind);
     if (matchKind !== 'preliminary' && matchKind !== 'signature') throw new TypeError('Unknown matchKind');
     if (matchKind === 'preliminary' && !chapter.preliminaryId) throw new Error('Chapter has no preliminary');
+    if (route === 'rival-board' && matchKind !== 'signature') {
+      throw new Error('Rival Board attempts are signature duels');
+    }
+    if (route === 'story' && matchKind === 'signature' && !preliminaryComplete) {
+      throw new Error('Chapter preliminary must be cleared before its signature encounter');
+    }
     var cooperative = source.cooperative === true;
+    if (route === 'rival-board' && cooperative) throw new Error('Rival Board attempts are solo');
+    var alliedHumanIds = unique(source.alliedHumanIds);
+    var expectedHumans = cooperative ? 2 : 1;
+    if (alliedHumanIds.length !== expectedHumans) {
+      throw new TypeError('Story attempt requires ' + expectedHumans + ' allied human player ID' +
+        (expectedHumans === 1 ? '' : 's'));
+    }
     var rosterTemplate = cooperative
       ? { humanCount: 2, cpuCount: 6, lives: 10, format: 'classic' }
       : (matchKind === 'preliminary'
@@ -168,7 +185,7 @@
         : { humanCount: 1, cpuCount: 1, lives: 3, format: 'classic' });
     return freeze({ schema: 'StoryAttemptV1', attemptId: attemptId, source: route,
       chapterId: chapter.id, rivalId: chapter.rivalId, matchKind: matchKind,
-      cooperative: cooperative, alliedHumanIds: unique(source.alliedHumanIds),
+      cooperative: cooperative, alliedHumanIds: alliedHumanIds,
       rosterTemplate: rosterTemplate, arenaId: chapter.arenaId,
       cpuTier: chapter.cpuTier, physicsModeId: chapter.nativeAlien ? 'alien' : 'normal',
       eventsEnabled: !chapter.nativeAlien, seed: (Number(source.seed) || 1) >>> 0 });
