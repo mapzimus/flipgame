@@ -29,12 +29,12 @@ function verdict(result = 'MAKE', patch = {}) {
   }, patch);
 }
 
-function assertIsolated(value, activityId) {
-  assert.equal(value.testData, true);
+function assertIsolated(value, activityId, testData = true) {
+  assert.equal(value.testData, testData);
   assert.equal(value.progressionEligible, false);
   assert.equal(value.fcEligible, false);
   assert.equal(value.achievementsEligible, false);
-  assert.equal(value.statisticsDefaultEligible, false);
+  assert.equal(value.statisticsDefaultEligible, !testData);
   if (activityId) assert.equal(value.activityId, activityId);
 }
 
@@ -57,6 +57,25 @@ function testFeatureEligibilityAndMigrationFacingState() {
 
   assert.throws(() => Training.createRuntime({ activityId: 'physics-lab', sessionId: 'locked',
     profile: { flipLevel: 49 } }), (error) => error.code === 'PHYSICS_LAB_LOCKED');
+  assert.throws(() => Training.createMatchRequest({
+    activityId: 'physics-lab', matchId: 'unguarded-lab-request',
+  }), (error) => error.code === 'PHYSICS_LAB_LOCKED',
+  'a caller cannot bypass the FL50 gate by entering through MatchRequestV2');
+  const migratedAuthorization = Training.authorizePhysicsLab({
+    flipLevel: 1, featureIds: ['physics-lab'],
+  });
+  assert.equal(migratedAuthorization.entitlementSource, 'migrated-feature');
+  const authorizedRequest = Training.createMatchRequest({
+    activityId: 'physics-lab', matchId: 'authorized-lab-request',
+    physicsLabAuthorization: migratedAuthorization,
+  });
+  assert.equal(authorizedRequest.activityContext.physicsLabAuthorization.authorized, true);
+  const authorizedRuntime = Training.createRuntime({
+    activityId: 'physics-lab', sessionId: 'authorized-lab-runtime',
+    authorization: migratedAuthorization,
+  });
+  assert.equal(authorizedRuntime.request.activityContext.physicsLabAuthorization
+    .entitlementSource, 'migrated-feature');
   const immediate = Training.createRuntime({ activityId: 'practice', sessionId: 'fresh-practice',
     profile: { flipLevel: 1 }, availableFlipperIds: ['bottle'] });
   assert.equal(immediate.snapshot().activityId, 'practice');
@@ -67,19 +86,28 @@ async function testActivityAdaptersAndNoRewardPath() {
   assert.equal(Training.registerActivities(registry), registry);
   Training.registerActivities(registry); // Registration is deliberately idempotent.
   assert.deepEqual([...registry.ids()].sort(), ['physics-lab', 'practice', 'tutorial']);
+  const directUnauthorized = Activity.MatchRequestV2({
+    matchId: 'direct-unauthorized-lab', activityId: 'physics-lab', formatId: 'classic',
+    physicsModeId: 'normal', roster: [{ id: 'student' }], activityContext: {},
+  });
+  assert.throws(() => registry.prepare('physics-lab', { request: directUnauthorized }),
+    (error) => error.code === 'PHYSICS_LAB_LOCKED',
+    'the registered adapter independently enforces Lab authorization');
 
   for (const activityId of registry.ids()) {
     const request = Training.createMatchRequest({
       matchId: `training-${activityId}`, sessionId: `training-${activityId}`,
       activityId, seed: 22, roster: [{ id: 'student', human: true }],
+      profile: activityId === 'physics-lab' ? { flipLevel: 50 } : undefined,
     });
     assert.equal(request.formatId, 'classic');
     assert.equal(request.physicsModeId, 'normal');
     assert.equal(request.rulesOptions.rewardsEnabled, false);
     assert.equal(request.rulesOptions.progressionEnabled, false);
-    assertIsolated(request.activityContext, activityId);
+    const expectedTestData = activityId !== 'practice';
+    assertIsolated(request.activityContext, activityId, expectedTestData);
     const prepared = registry.prepare(activityId, { request });
-    assertIsolated(prepared.isolation, activityId);
+    assertIsolated(prepared.isolation, activityId, expectedTestData);
     const resolved = registry.resolve(activityId, {
       request, outcome: Activity.MatchOutcomeV2({ matchId: request.matchId, status: 'completed' }),
     });
@@ -87,7 +115,7 @@ async function testActivityAdaptersAndNoRewardPath() {
     assert.deepEqual(resolved.progressionCommands, []);
     assert.deepEqual(resolved.achievementCommands, []);
     assert.deepEqual(resolved.ownershipCommands, []);
-    assertIsolated(resolved, activityId);
+    assertIsolated(resolved, activityId, expectedTestData);
     const abandoned = registry.abandon(activityId, { request, reason: 'back' });
     assert.equal(abandoned.status, 'abandoned');
     assert.deepEqual(abandoned.awards, []);
@@ -101,7 +129,7 @@ async function testActivityAdaptersAndNoRewardPath() {
       transactionCommands += 1;
       assert.deepEqual(command.activityResolution.awards, []);
       assert.deepEqual(command.activityResolution.progressionCommands, []);
-      assert.equal(command.request.activityContext.testData, true);
+      assert.equal(command.request.activityContext.testData, false);
       return { duplicate: false, fxp: 0, fc: 0, awards: [] };
     },
     statsSink(payload) { statsPayload = payload; },
@@ -113,9 +141,85 @@ async function testActivityAdaptersAndNoRewardPath() {
   assert.equal(transactionCommands, 1);
   assert.equal(resolution.transaction.fxp, 0);
   assert.equal(resolution.transaction.fc, 0);
-  assert.equal(statsPayload.request.activityContext.testData, true);
-  assert.equal(statsPayload.request.activityContext.statisticsDefaultEligible, false,
-    'any optional Training record is excluded from default Stats Lab totals');
+  assert.equal(statsPayload.request.activityContext.testData, false);
+  assert.equal(statsPayload.request.activityContext.statisticsDefaultEligible, true,
+    'ordinary unforced Practice remains in default observed Practice statistics');
+  const forcedResolution = registry.resolve('practice', {
+    request,
+    outcome: Activity.MatchOutcomeV2({ matchId: request.matchId, status: 'completed',
+      activityState: { forcedEventId: 'wind-tunnel' } }),
+  });
+  assertIsolated(forcedResolution, 'practice', true);
+  const nestedForcedResolution = registry.resolve('practice', {
+    request,
+    outcome: Activity.MatchOutcomeV2({ matchId: request.matchId, status: 'completed',
+      telemetry: { flips: [{ testDataRecord: { testData: true,
+        statisticsDefaultEligible: false } }] } }),
+  });
+  assertIsolated(nestedForcedResolution, 'practice', true,
+    'nested forced-attempt markers cannot leak into default session statistics');
+}
+
+function testRosterDrivenForcingAndMrHowe() {
+  const ordinaryRequest = Training.createMatchRequest({
+    activityId: 'practice', matchId: 'ordinary-practice',
+    roster: [{ id: 'p1', displayName: 'Student' }],
+  });
+  assertIsolated(ordinaryRequest.activityContext, 'practice', false);
+  assert.throws(() => Training.createMatchRequest({ activityId: 'practice',
+    matchId: 'bad-force-request', forceName: 'wind tunnel' }), /Unknown forced event/);
+
+  const namedRequest = Training.createMatchRequest({
+    activityId: 'practice', matchId: 'named-force-request', activePlayerId: 'p2',
+    roster: [{ id: 'p1', displayName: 'Student' },
+      { id: 'p2', displayName: 'Wind Tunnel' }],
+  });
+  assertIsolated(namedRequest.activityContext, 'practice', true);
+  const generatedSeat = Training.createMatchRequest({
+    activityId: 'practice', matchId: 'generated-seat-name-force',
+    roster: [{ displayName: 'Trampoline' }],
+  });
+  assert.equal(generatedSeat.activityContext.activePlayerId, 'seat-1');
+  assertIsolated(generatedSeat.activityContext, 'practice', true);
+  const named = Training.createRuntime({
+    activityId: 'practice', sessionId: 'named-force-runtime', activePlayerId: 'p2', seed: 10,
+    roster: [{ id: 'p1', displayName: 'Student' },
+      { id: 'p2', displayName: 'Wind Tunnel' }],
+  });
+  const forced = named.prepareAttempt();
+  assert.equal(forced.eventSelection.eventId, 'wind-tunnel');
+  assert.equal(forced.eventSelection.forced, true);
+  assert.equal(forced.eventSelection.oddsProfile, 'forced-test');
+  assertIsolated(forced, 'practice', true);
+
+  const wrongCase = Training.createRuntime({
+    activityId: 'practice', sessionId: 'wrong-case-force', seed: 10,
+    roster: [{ id: 'p1', displayName: 'wind tunnel' }],
+  }).prepareAttempt();
+  assert.notEqual(wrongCase.eventSelection && wrongCase.eventSelection.forced, true,
+    'display-name forcing is exact and case-sensitive');
+  assertIsolated(wrongCase, 'practice', false);
+
+  let boosted = null;
+  let boostedSeed = null;
+  for (let seed = 0; seed < 100 && !boosted; seed += 1) {
+    const runtime = Training.createRuntime({
+      activityId: 'practice', sessionId: `mr-howe-${seed}`, seed,
+      roster: [{ id: 'howe', displayName: 'Mr. Howe' }],
+    });
+    const attempt = runtime.prepareAttempt();
+    if (attempt.eventSelection) { boosted = attempt; boostedSeed = seed; }
+  }
+  assert(boosted, 'deterministic Mr. Howe corpus should contain an event');
+  assert.equal(boosted.eventSelection.oddsProfile, 'mr-howe');
+  assert.equal(boosted.eventSelection.forced, false);
+  assertIsolated(boosted, 'practice', false,
+    'the easter-egg odds profile is ordinary observed Practice data, not a forced test');
+  const nearMiss = Training.createRuntime({
+    activityId: 'practice', sessionId: 'wrong-case-howe', seed: boostedSeed,
+    roster: [{ id: 'howe', displayName: 'mr. howe' }],
+  }).prepareAttempt();
+  if (nearMiss.eventSelection) assert.equal(nearMiss.eventSelection.oddsProfile, 'normal');
 }
 
 function testPracticeBindingTelegraphAndIsolation() {
@@ -123,9 +227,10 @@ function testPracticeBindingTelegraphAndIsolation() {
     activityId: 'practice', sessionId: 'practice-events', seed: 99,
     availableFlipperIds: ['bottle'], viewportPresetId: 'phone-portrait',
   });
-  assertIsolated(runtime.snapshot().isolation, 'practice');
-  assert.equal(runtime.request.activityContext.testData, true);
+  assertIsolated(runtime.snapshot().isolation, 'practice', false);
+  assert.equal(runtime.request.activityContext.testData, false);
   assert.equal(runtime.setForcedEvent('Wind Tunnel').forcedEventDisplayName, 'Wind Tunnel');
+  assertIsolated(runtime.snapshot().nextAttemptIsolation, 'practice');
   assert.throws(() => runtime.setForcedEvent('wind tunnel'), /Unknown forced event/,
     'event force names are exact allowlisted display names');
 
@@ -147,6 +252,8 @@ function testPracticeBindingTelegraphAndIsolation() {
   assert.equal(cancelled.attempt.attemptId, prepared.attemptId);
   assert.equal(cancelled.attempt.eventSelection.consumed, false,
     'cancelled gestures retain rather than consume the pre-bound event');
+  assert.equal(runtime.activityState().testData, false,
+    'an unqualified cancelled gesture does not taint an otherwise ordinary Practice session');
   const retained = runtime.prepareAttempt();
   assert.equal(retained.attemptId, prepared.attemptId);
   assert.equal(retained.eventSelection.eventSeed, prepared.eventSelection.eventSeed);
@@ -157,6 +264,8 @@ function testPracticeBindingTelegraphAndIsolation() {
   assertIsolated(launch.isolation, 'practice');
   assertIsolated(launch, 'practice');
   const resolution = runtime.resolveAttempt(prepared.attemptId, verdict('MISS'));
+  assert.equal(runtime.activityState().testData, true);
+  assert.equal(runtime.activityState().forcedAttemptSeen, true);
   assert.equal(resolution.result, 'MISS');
   assert.equal(resolution.ghost, null);
   assert.deepEqual(resolution.awards, []);
@@ -172,9 +281,16 @@ function testPracticeBindingTelegraphAndIsolation() {
 
   runtime.setForcedEvent(null);
   const made = runtime.prepareAttempt();
+  assertIsolated(made, 'practice', false);
   runtime.qualifyLaunch(made.attemptId, signal(), 900);
-  assert.equal(runtime.resolveAttempt(made.attemptId, verdict('MAKE')).ghost, null,
+  const ordinary = runtime.resolveAttempt(made.attemptId, verdict('MAKE'));
+  assert.equal(ordinary.ghost, null,
     'successful-shot ghosts remain an FL50 Physics Lab feature');
+  assertIsolated(ordinary, 'practice', false);
+  assert.equal(ordinary.testDataRecord.testData, false);
+  assert.equal(ordinary.testDataRecord.statisticsDefaultEligible, true);
+  assertIsolated(runtime.snapshot().isolation, 'practice', true,
+    'a mixed session stays excluded at session-summary level after any forced attempt');
   assert.throws(() => runtime.prepareAttempt({ seed: 7 }), /requires Physics Lab/);
 }
 
@@ -264,6 +380,74 @@ function testLandingReasonAndValidationSafety() {
   ] })), /monotonic/);
 }
 
+function testZeroSeedIsDistinctEverywhere() {
+  const request = Training.createMatchRequest({
+    activityId: 'practice', matchId: 'zero-request', seed: 0,
+  });
+  assert.equal(request.seed, 0);
+  const zero = Training.createRuntime({
+    activityId: 'practice', sessionId: 'zero-runtime', seed: 0,
+  });
+  const one = Training.createRuntime({
+    activityId: 'practice', sessionId: 'one-runtime', seed: 1,
+  });
+  assert.equal(zero.request.seed, 0);
+  assert.notEqual(zero.prepareAttempt().turnSeed, one.prepareAttempt().turnSeed,
+    'base seed 0 is not silently remapped onto seed 1');
+  const tour = Training.createTutorialSession({ sessionId: 'zero-tour', seed: 0 });
+  assert.equal(tour.request.seed, 0);
+  assert.equal(tour.snapshot().state.baseSeed, 0);
+}
+
+function testBoundedTrajectoriesRetentionAndGhosts() {
+  const longPath = Array.from({ length: 1000 }, (_, index) => ({
+    t: index * 4, x: index / 10, y: 10 - index / 100, angle: index / 20,
+  }));
+  const boundedOutcome = Training.outcome(verdict('MAKE', { trajectory: longPath }));
+  assert.equal(boundedOutcome.trajectory.length, Training.MAX_TRAJECTORY_SAMPLES);
+  assert.equal(boundedOutcome.trajectorySourceSampleCount, 1000);
+  assert.equal(boundedOutcome.trajectoryTruncated, true);
+  assert.equal(boundedOutcome.trajectory[0].sourceIndex, 0);
+  assert.equal(boundedOutcome.trajectory.at(-1).sourceIndex, 999,
+    'deterministic downsampling keeps both physical endpoints');
+
+  const runtime = Training.createRuntime({
+    activityId: 'physics-lab', sessionId: 'bounded-resolutions', seed: 4,
+    profile: { flipLevel: 50 },
+  });
+  const ids = [];
+  for (let index = 0; index < Training.MAX_RESOLVED_ATTEMPTS + 4; index += 1) {
+    const prepared = runtime.prepareAttempt();
+    ids.push(prepared.attemptId);
+    runtime.qualifyLaunch(prepared.attemptId, signal(), 900);
+    runtime.resolveAttempt(prepared.attemptId, verdict('MISS', { trajectory: [] }));
+  }
+  const retained = runtime.snapshot();
+  assert.equal(retained.resolvedAttemptCount, Training.MAX_RESOLVED_ATTEMPTS + 4);
+  assert.equal(retained.retainedResolutionCount, Training.MAX_RESOLVED_ATTEMPTS);
+  assert.equal(retained.retention.maximum, Training.MAX_RESOLVED_ATTEMPTS);
+  assert.equal(retained.retention.evicted, 4);
+  assert.equal(retained.retention.oldestAttemptId, ids[4]);
+  assert.equal(retained.retention.newestAttemptId, ids.at(-1));
+  assert.throws(() => runtime.replayAttempt(ids[0]), /not found/,
+    'FIFO-evicted full resolutions are no longer replayable');
+  assert.equal(runtime.replayAttempt(ids[4]).replayOfAttemptId, ids[4]);
+  runtime.close();
+
+  const ghosts = Training.createRuntime({
+    activityId: 'physics-lab', sessionId: 'bounded-ghosts', seed: 8,
+    profile: { flipLevel: 50 }, forceName: 'Rainbow Corkscrew',
+  });
+  for (let index = 0; index < Training.MAX_SUCCESSFUL_GHOSTS + 2; index += 1) {
+    const prepared = ghosts.prepareAttempt();
+    ghosts.qualifyLaunch(prepared.attemptId, signal(), 900);
+    ghosts.resolveAttempt(prepared.attemptId, verdict('MAKE'));
+  }
+  const ghostSnapshot = ghosts.snapshot();
+  assert.equal(ghostSnapshot.ghosts.length, Training.MAX_SUCCESSFUL_GHOSTS);
+  assert.equal(ghostSnapshot.ghosts[0].sourceAttemptId, 'bounded-ghosts.attempt.3');
+}
+
 function completeAttempt(runtime, expected, result, pose, patch = {}) {
   const prepared = runtime.prepareAttempt();
   if (expected) assert.equal(prepared.eventSelection && prepared.eventSelection.eventId, expected);
@@ -283,6 +467,7 @@ function testFirstFlipTourRealSessionIntegration() {
   assert.equal(tour.request.physicsModeId, 'normal');
   assertIsolated(tour.request.activityContext, 'tutorial');
   assert.equal(tour.snapshot().step.id, 'welcome');
+  assert.deepEqual(tour.snapshot().targetDurationSeconds, { minimum: 45, maximum: 75 });
   assert.equal(tour.snapshot().history.length, 0);
   tour.acknowledge();
 
@@ -314,7 +499,14 @@ function testFirstFlipTourRealSessionIntegration() {
   step = completeAttempt(tour, null, 'MAKE', 'cap');
   assert.equal(step.value.resolution.advanced, true);
 
+  const preview = tour.snapshot().step;
+  assert.equal(preview.id, 'deep-time-preview');
+  assert.equal(preview.flipperId, 'trex');
+  assert.equal(preview.temporaryFlipper, true);
+  tour.acknowledge();
   prepared = tour.prepareAttempt();
+  assert.equal(prepared.flipperId, 'trex');
+  assert.equal(prepared.temporaryFlipper, true);
   assert.equal(prepared.eventSelection.eventId, 'rainbow-corkscrew');
   assert.equal(prepared.eventSelection.forced, true);
   assert.equal(prepared.eventSelection.testData, true);
@@ -327,11 +519,6 @@ function testFirstFlipTourRealSessionIntegration() {
   assert.equal(resolved.resolution.advanced, true,
     'the scripted event demonstrates real fallible mechanics; a miss still teaches it');
 
-  const preview = tour.snapshot().step;
-  assert.equal(preview.id, 'deep-time-preview');
-  assert.equal(preview.flipperId, 'trex');
-  assert.equal(preview.temporaryFlipper, true);
-  tour.acknowledge();
   prepared = tour.prepareAttempt();
   assert.equal(prepared.flipperId, 'trex');
   assert.equal(prepared.temporaryFlipper, true);
@@ -347,6 +534,49 @@ function testFirstFlipTourRealSessionIntegration() {
     'temporary protected T-Rex presentation cannot grant or mutate ownership');
   assert(resolved.session.history.every((entry) => entry.awards.length === 0 &&
     entry.progressionCommands.length === 0 && entry.achievementCommands.length === 0));
+}
+
+function testTutorialGuidedCapIntegrationAndBoundedHistory() {
+  const tour = Training.createTutorialSession({ sessionId: 'guided-cap-tour', seed: 33 });
+  tour.acknowledge();
+  completeAttempt(tour, null, 'MAKE', 'upright'); // gesture
+  completeAttempt(tour, null, 'MAKE', 'upright'); // meter
+  completeAttempt(tour, null, 'MISS', 'other'); // settling
+  tour.acknowledge();
+  completeAttempt(tour, null, 'MAKE', 'upright');
+
+  let cap = completeAttempt(tour, null, 'MISS', 'other');
+  assert.equal(cap.prepared.guidedAssist, false);
+  assert.equal(cap.value.resolution.advanced, false);
+  cap = completeAttempt(tour, null, 'MAKE', 'upright');
+  assert.equal(cap.prepared.guidedAssist, false);
+  assert.equal(cap.value.resolution.advanced, false);
+  cap = completeAttempt(tour, null, 'MISS', 'other');
+  assert.equal(cap.prepared.guidedAssist, true);
+  assert.deepEqual(cap.prepared.guidedAssistProfile, {
+    id: 'cap-window', inputGuide: true, resultOverride: false,
+    completesAfterQualifiedResolution: true, showCapDemonstrationOnFailure: true,
+  });
+  assert.equal(cap.value.resolution.guidedAssist, true);
+  assert.equal(cap.value.resolution.guidedCompletion, true);
+  assert.equal(cap.value.resolution.result, 'MISS',
+    'guided completion does not rewrite a real physical miss into a make');
+  assert.equal(cap.value.session.step.id, 'deep-time-preview');
+
+  const retryTour = Training.createTutorialSession({ sessionId: 'bounded-tour-history', seed: 71 });
+  retryTour.acknowledge();
+  completeAttempt(retryTour, null, 'MAKE', 'upright');
+  completeAttempt(retryTour, null, 'MAKE', 'upright');
+  completeAttempt(retryTour, null, 'MISS', 'other');
+  retryTour.acknowledge();
+  for (let index = 0; index < Training.MAX_RESOLVED_ATTEMPTS + 3; index += 1) {
+    const retry = completeAttempt(retryTour, null, 'MISS', 'other');
+    assert.equal(retry.value.resolution.advanced, false);
+  }
+  const snapshot = retryTour.snapshot();
+  assert.equal(snapshot.history.length, Training.MAX_RESOLVED_ATTEMPTS);
+  assert.equal(snapshot.retention.maximum, Training.MAX_RESOLVED_ATTEMPTS);
+  assert(snapshot.retention.evicted > 0);
 }
 
 function testTutorialDeterminismSkipAndRestoredState() {
@@ -397,16 +627,21 @@ function testBrowserExportsAndDependencyOrder() {
     activityId: 'practice', sessionId: 'browser-practice', seed: 4,
   });
   assert.equal(practice.request.schema, 'MatchRequestV2');
-  assert.equal(practice.snapshot().isolation.testData, true);
+  assert.equal(practice.snapshot().isolation.testData, false);
+  assert.equal(practice.snapshot().isolation.statisticsDefaultEligible, true);
 }
 
 async function run() {
   testFeatureEligibilityAndMigrationFacingState();
   await testActivityAdaptersAndNoRewardPath();
+  testRosterDrivenForcingAndMrHowe();
   testPracticeBindingTelegraphAndIsolation();
   testLabControlsGhostAndExactReplay();
   testLandingReasonAndValidationSafety();
+  testZeroSeedIsDistinctEverywhere();
+  testBoundedTrajectoriesRetentionAndGhosts();
   testFirstFlipTourRealSessionIntegration();
+  testTutorialGuidedCapIntegrationAndBoundedHistory();
   testTutorialDeterminismSkipAndRestoredState();
   testCatalogSecrecyAndDeterministicPracticeSeeds();
   testBrowserExportsAndDependencyOrder();

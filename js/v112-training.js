@@ -50,8 +50,15 @@
     }
     return number >>> 0;
   }
+  function seedOrDefault(value, fallback) {
+    if (value == null || value === '') return fallback >>> 0;
+    var number = Number(value);
+    return Number.isFinite(number) ? Math.floor(number) >>> 0 : fallback >>> 0;
+  }
   function hash(seed, salt) {
-    var x = ((Number(seed) || 1) ^ (Number(salt) || 0)) >>> 0;
+    var seedNumber = seed == null || !Number.isFinite(Number(seed)) ? 1 : Number(seed);
+    var saltNumber = salt == null || !Number.isFinite(Number(salt)) ? 0 : Number(salt);
+    var x = (seedNumber ^ saltNumber) >>> 0;
     x ^= x >>> 16; x = Math.imul(x, 0x7feb352d); x ^= x >>> 15;
     x = Math.imul(x, 0x846ca68b); x ^= x >>> 16;
     return x >>> 0;
@@ -76,6 +83,9 @@
   var VIEWPORT_BY_ID = Object.create(null);
   VIEWPORT_PRESETS.forEach(function (preset) { VIEWPORT_BY_ID[preset.id] = preset; });
   var SLOW_MOTION_RATES = freeze([0.1, 0.25, 0.5, 1]);
+  var MAX_RESOLVED_ATTEMPTS = 256;
+  var MAX_TRAJECTORY_SAMPLES = 480;
+  var MAX_SUCCESSFUL_GHOSTS = 24;
   var FORCEABLE_EVENT_NAMES = freeze(Events.definitions.map(function (entry) { return entry.displayName; }));
   var LANDING_LABELS = freeze({
     upright: 'Stable upright landing', cap: 'Stable cap landing', 'cap-settled': 'Detachable top settled',
@@ -106,6 +116,82 @@
       claimed.indexOf('level.50.feature.physics-lab') >= 0;
   }
 
+  function labLockedError() {
+    var error = new Error('Physics Lab is locked until Flip Level 50');
+    error.code = 'PHYSICS_LAB_LOCKED';
+    return error;
+  }
+
+  function authorizePhysicsLab(profile) {
+    var source = object(profile);
+    if (!hasPhysicsLabEntitlement(source)) throw labLockedError();
+    var featureIds = uniqueStrings(source.featureIds)
+      .concat(uniqueStrings(object(source.entitlements).featureIds));
+    var claimed = uniqueStrings(source.claimedRewardIds);
+    var entitlementSource = integer(source.flipLevel, 1) >= 50 ? 'flip-level'
+      : (featureIds.indexOf('physics-lab') >= 0 ? 'migrated-feature'
+      : (claimed.indexOf('level.50.feature.physics-lab') >= 0 ? 'migrated-level-claim'
+      : 'migrated-feature-claim'));
+    return freeze({ schema: 'PhysicsLabAuthorizationV1', featureId: 'physics-lab',
+      authorized: true, entitlementSource: entitlementSource });
+  }
+
+  function validLabAuthorization(value) {
+    var source = object(value);
+    return source.schema === 'PhysicsLabAuthorizationV1' &&
+      source.featureId === 'physics-lab' && source.authorized === true &&
+      ['flip-level', 'migrated-feature', 'migrated-level-claim',
+        'migrated-feature-claim'].indexOf(source.entitlementSource) >= 0;
+  }
+
+  function resolveLabAuthorization(source) {
+    var value = object(source);
+    var supplied = value.physicsLabAuthorization || value.authorization ||
+      object(value.activityContext).physicsLabAuthorization;
+    if (validLabAuthorization(supplied)) return freeze(clone(supplied));
+    if (value.profile != null) return authorizePhysicsLab(value.profile);
+    throw labLockedError();
+  }
+
+  function rosterDisplayName(roster, activePlayerId) {
+    var entries = Array.isArray(roster) ? roster : [];
+    var id = activePlayerId == null ? null : String(activePlayerId);
+    var entry = id == null ? entries[0] : entries.find(function (candidate, index) {
+      return String(object(candidate).id || object(candidate).playerId || ('seat-' + (index + 1))) === id;
+    });
+    var source = object(entry);
+    if (!entry) throw new TypeError('Active Training player is not in the roster');
+    if (source.displayName != null) return String(source.displayName);
+    if (source.name != null) return String(source.name);
+    return '';
+  }
+
+  function forcedContext(value) {
+    var source = object(value);
+    return source.forced === true || source.testData === true ||
+      source.forcedEvent === true || source.forcedEventId != null ||
+      (source.forcedEventDisplayName != null && String(source.forcedEventDisplayName) !== '') ||
+      (source.forceName != null && String(source.forceName) !== '');
+  }
+
+  function containsForcedMarker(value, depth) {
+    if (depth == null) depth = 3;
+    if (forcedContext(value)) return true;
+    if (depth <= 0) return false;
+    var source = object(value);
+    var nestedKeys = ['isolation', 'testDataRecord', 'eventSelection', 'trainingResolution',
+      'resolution', 'activityState', 'telemetry'];
+    if (nestedKeys.some(function (key) {
+      return source[key] && containsForcedMarker(source[key], depth - 1);
+    })) return true;
+    var listKeys = ['attempts', 'flips', 'records', 'resolutions', 'participantResults'];
+    return listKeys.some(function (key) {
+      return Array.isArray(source[key]) && source[key].some(function (entry) {
+        return containsForcedMarker(entry, depth - 1);
+      });
+    });
+  }
+
   function featureState(profile) {
     var source = object(profile);
     var level = Math.max(1, Math.min(100, integer(source.flipLevel, 1)));
@@ -121,11 +207,14 @@
     });
   }
 
-  function isolation(activityId) {
+  function isolation(activityId, detail) {
+    var forced = forcedContext(detail);
+    var testData = activityId === 'physics-lab' || activityId === 'tutorial' ||
+      (activityId === 'practice' && forced);
     return freeze({
-      schema: 'TrainingIsolationV1', activityId: activityId, testData: true,
+      schema: 'TrainingIsolationV1', activityId: activityId, testData: testData,
       progressionEligible: false, fcEligible: false, achievementsEligible: false,
-      statisticsDefaultEligible: false, importedArchiveEligible: false,
+      statisticsDefaultEligible: !testData, importedArchiveEligible: false,
     });
   }
 
@@ -138,26 +227,61 @@
     var matchId = required(source.matchId || source.sessionId, 'training matchId');
     var roster = Array.isArray(source.roster) && source.roster.length
       ? source.roster : [{ id: 'training-player', human: true }];
+    var activePlayerId = source.activePlayerId == null
+      ? String(object(roster[0]).id || object(roster[0]).playerId || 'seat-1')
+      : String(source.activePlayerId);
+    var playerName = rosterDisplayName(roster, activePlayerId);
+    var namedForce = activityId === 'practice' && !!Events.forcedId(playerName, activityId);
+    var requestedForceName = source.forceName == null ? '' : String(source.forceName);
+    if (requestedForceName && !Events.forcedId(requestedForceName, activityId)) {
+      throw new TypeError('Unknown forced event display name');
+    }
+    var sessionPolicy = isolation(activityId, {
+      forced: forcedContext(source) || forcedContext(source.activityContext) || namedForce,
+    });
+    var labAuthorization = activityId === 'physics-lab' ? resolveLabAuthorization(source) : null;
     return Activity.MatchRequestV2({
       matchId: matchId, activityId: activityId, formatId: 'classic', physicsModeId: 'normal',
-      roster: roster, seed: integer(source.seed, 1) >>> 0, createdAt: source.createdAt,
+      roster: roster, seed: seedOrDefault(source.seed, 1), createdAt: source.createdAt,
       rulesOptions: Object.assign({}, clone(object(source.rulesOptions)), {
         eventsEnabled: true, rewardsEnabled: false, progressionEnabled: false,
       }),
-      activityContext: Object.assign({}, clone(object(source.activityContext)), isolation(activityId), {
-        trainingSessionId: String(source.sessionId || matchId),
+      activityContext: Object.assign({}, clone(object(source.activityContext)), sessionPolicy, {
+        trainingSessionId: String(source.sessionId || matchId), activePlayerId: activePlayerId,
+        physicsLabAuthorization: labAuthorization,
       }),
     });
   }
 
-  function trainingResolution(activityId, status, detail) {
+  function trainingResolution(activityId, status, detail, policy) {
+    var resolvedPolicy = policy || isolation(activityId, detail);
     return freeze({
       schema: 'TrainingActivityResolutionV1', activityId: activityId,
-      status: String(status || 'completed'), testData: true,
+      status: String(status || 'completed'), testData: resolvedPolicy.testData,
       progressionEligible: false, fcEligible: false, achievementsEligible: false,
-      statisticsDefaultEligible: false, awards: [], progressionCommands: [],
+      statisticsDefaultEligible: resolvedPolicy.statisticsDefaultEligible,
+      awards: [], progressionCommands: [],
       achievementCommands: [], ownershipCommands: [], detail: clone(object(detail)),
     });
+  }
+
+  function validateRegisteredRequest(activityId, request) {
+    var value = object(request);
+    if (value.activityId !== activityId) throw new TypeError('Training activity request mismatch');
+    if (activityId === 'physics-lab' &&
+        !validLabAuthorization(object(value.activityContext).physicsLabAuthorization)) {
+      throw labLockedError();
+    }
+    return value;
+  }
+
+  function payloadPolicy(activityId, payload) {
+    var value = object(payload);
+    var request = object(value.request);
+    var outcome = object(value.outcome);
+    var forced = containsForcedMarker(request.activityContext) ||
+      containsForcedMarker(outcome) || containsForcedMarker(value.detail);
+    return isolation(activityId, { forced: forced });
   }
 
   function registerActivities(registry) {
@@ -169,17 +293,25 @@
       registry.register({
         id: activityId,
         prepare: function (payload) {
-          var request = object(payload).request;
+          var request = validateRegisteredRequest(activityId, object(payload).request);
+          var policy = payloadPolicy(activityId, payload);
           return freeze({ schema: 'TrainingActivityPreparationV1', activityId: activityId,
-            matchId: request && request.matchId || null, isolation: isolation(activityId) });
+            matchId: request.matchId || null, isolation: policy });
         },
         resolve: function (payload) {
           var value = object(payload);
+          validateRegisteredRequest(activityId, value.request);
+          var policy = payloadPolicy(activityId, value);
           return trainingResolution(activityId, value.outcome && value.outcome.status,
-            { matchId: value.request && value.request.matchId || null });
+            { matchId: value.request && value.request.matchId || null,
+              forced: policy.testData }, policy);
         },
         abandon: function (payload) {
-          return trainingResolution(activityId, 'abandoned', { reason: object(payload).reason || 'abandoned' });
+          var value = object(payload);
+          validateRegisteredRequest(activityId, value.request);
+          var policy = payloadPolicy(activityId, value);
+          return trainingResolution(activityId, 'abandoned',
+            { reason: value.reason || 'abandoned', forced: policy.testData }, policy);
         },
       });
     });
@@ -215,17 +347,29 @@
   function trajectory(value) {
     if (value == null) return freeze([]);
     if (!Array.isArray(value)) throw new TypeError('trajectory must be an array');
-    if (value.length > 1200) throw new RangeError('trajectory exceeds the Training ghost limit');
     var previousTime = -Infinity;
-    return freeze(value.map(function (sample, index) {
+    value.forEach(function (sample) {
       var source = object(sample);
       var time = finite(source.t == null ? source.timeMs : source.t, 'trajectory time');
       if (time < previousTime) throw new RangeError('trajectory time must be monotonic');
       previousTime = time;
+      finite(source.x, 'trajectory x'); finite(source.y, 'trajectory y');
+      finite(source.angle, 'trajectory angle');
+    });
+    var count = Math.min(value.length, MAX_TRAJECTORY_SAMPLES);
+    var indices = [];
+    for (var index = 0; index < count; index += 1) {
+      indices.push(value.length <= MAX_TRAJECTORY_SAMPLES ? index
+        : Math.floor(index * (value.length - 1) / (MAX_TRAJECTORY_SAMPLES - 1)));
+    }
+    return freeze(indices.map(function (sourceIndex, outputIndex) {
+      var source = object(value[sourceIndex]);
+      var time = finite(source.t == null ? source.timeMs : source.t, 'trajectory time');
       return {
         t: time, x: finite(source.x, 'trajectory x'), y: finite(source.y, 'trajectory y'),
         angle: finite(source.angle, 'trajectory angle'),
-        phase: source.phase == null ? null : String(source.phase), index: index,
+        phase: source.phase == null ? null : String(source.phase), index: outputIndex,
+        sourceIndex: sourceIndex,
       };
     }));
   }
@@ -235,6 +379,8 @@
     if (source.phase !== 'resolved') throw new TypeError('Training outcome must be resolved');
     var result = String(source.result || '').toUpperCase();
     if (result !== 'MAKE' && result !== 'MISS') throw new TypeError('Training result must be MAKE or MISS');
+    var normalizedTrajectory = trajectory(source.trajectory);
+    var trajectorySourceSampleCount = Array.isArray(source.trajectory) ? source.trajectory.length : 0;
     return freeze({
       schema: 'TrainingOutcomeV1', phase: 'resolved', result: result,
       pose: String(source.pose || (result === 'MAKE' ? 'upright' : 'other')),
@@ -249,7 +395,9 @@
       banks: Math.max(0, integer(source.banks == null ? source.bankHits : source.banks, 0)),
       flightMs: Math.max(0, Number(source.flightMs) || 0),
       settleMs: source.settleMs == null ? null : Math.max(0, Number(source.settleMs) || 0),
-      trajectory: trajectory(source.trajectory),
+      trajectory: normalizedTrajectory,
+      trajectorySourceSampleCount: trajectorySourceSampleCount,
+      trajectoryTruncated: trajectorySourceSampleCount > normalizedTrajectory.length,
     });
   }
 
@@ -285,20 +433,23 @@
   }
 
   function preparedView(internal) {
+    var policy = internal.policy || isolation(internal.activityId);
     return freeze({
       schema: 'TrainingAttemptV1', attemptId: internal.attemptId,
       activityId: internal.activityId, phase: internal.phase,
       flipperId: internal.flipperId, temporaryFlipper: internal.temporaryFlipper === true,
+      guidedAssist: internal.guidedAssist === true,
+      guidedAssistProfile: clone(internal.guidedAssistProfile),
       viewportPreset: internal.viewportPreset,
       presentationRate: internal.presentationRate, simulationStepScale: 1,
       turnSeed: internal.turnSeed, seedSource: internal.seedSource,
       eventSelection: clone(internal.eventSelection),
       replayOfAttemptId: internal.replayOfAttemptId,
       recordedLaunchSignal: clone(internal.recordedLaunchSignal),
-      ghost: clone(internal.ghost), isolation: isolation(internal.activityId),
-      testData: true, progressionEligible: false, fcEligible: false,
+      ghost: clone(internal.ghost), isolation: policy,
+      testData: policy.testData, progressionEligible: false, fcEligible: false,
       achievementsEligible: false,
-      statisticsDefaultEligible: false,
+      statisticsDefaultEligible: policy.statisticsDefaultEligible,
     });
   }
 
@@ -308,13 +459,9 @@
     if (activityId !== 'practice' && activityId !== 'physics-lab') {
       throw new TypeError('Training runtime supports Practice or Physics Lab');
     }
-    if (activityId === 'physics-lab' && !hasPhysicsLabEntitlement(options.profile)) {
-      var locked = new Error('Physics Lab is locked until Flip Level 50');
-      locked.code = 'PHYSICS_LAB_LOCKED';
-      throw locked;
-    }
+    var labAuthorization = activityId === 'physics-lab' ? resolveLabAuthorization(options) : null;
     var sessionId = required(options.sessionId, 'training sessionId');
-    var baseSeed = integer(options.seed, 1) >>> 0;
+    var baseSeed = seedOrDefault(options.seed, 1);
     var availableFlippers = uniqueStrings(options.availableFlipperIds);
     if (!availableFlippers.length) availableFlippers.push('bottle');
     var selectedFlipper = String(options.flipperId || availableFlippers[0]);
@@ -325,12 +472,23 @@
     var rate = options.slowMotionRate == null ? 1 : Number(options.slowMotionRate);
     if (SLOW_MOTION_RATES.indexOf(rate) < 0) throw new TypeError('Unsupported slow-motion rate');
     if (activityId === 'practice' && rate !== 1) throw new Error('Slow motion requires Physics Lab');
-    var forceName = null;
+    var forceName = options.forceName == null || options.forceName === ''
+      ? null : String(options.forceName);
+    if (forceName && !Events.forcedId(forceName, activityId)) {
+      throw new TypeError('Unknown forced event display name');
+    }
     var attemptNumber = 0;
     var pending = null;
     var resolvedById = new Map();
+    var resolvedOrder = [];
     var history = [];
     var ghosts = [];
+    var totalResolved = 0;
+    var evictedResolutions = 0;
+    var request = null;
+    var activeDisplayName = '';
+    var rosterForceName = null;
+    var sessionHasTestData = activityId === 'physics-lab';
     var disposed = false;
 
     function assertOpen() { if (disposed) throw new Error('Training session is closed'); }
@@ -338,15 +496,31 @@
     function requireLab(feature) {
       if (activityId !== 'physics-lab') throw new Error(feature + ' requires Physics Lab');
     }
+    function activityState() {
+      var policy = isolation(activityId, { forced: sessionHasTestData });
+      return freeze({ schema: 'TrainingActivityStateV1', activityId: activityId,
+        resolvedAttemptCount: totalResolved, testData: policy.testData,
+        statisticsDefaultEligible: policy.statisticsDefaultEligible,
+        forcedAttemptSeen: activityId === 'practice' && sessionHasTestData });
+    }
     function snapshot() {
+      var nextAttemptPolicy = isolation(activityId,
+        { forced: !!(forceName || rosterForceName) });
       return freeze({
         schema: 'TrainingSessionV1', sessionId: sessionId, activityId: activityId,
         selectedFlipperId: selectedFlipper, viewportPreset: selectedViewport,
         presentationRate: rate, simulationStepScale: 1,
         forcedEventDisplayName: forceName, activeAttempt: pending ? preparedView(pending) : null,
-        resolvedAttemptCount: history.length, ghosts: clone(ghosts),
+        activePlayerId: request && request.activityContext.activePlayerId,
+        resolvedAttemptCount: totalResolved, retainedResolutionCount: history.length,
+        ghosts: clone(ghosts),
         landingReasons: history.map(function (entry) { return entry.landingReason; }),
-        isolation: isolation(activityId), closed: disposed,
+        retention: { maximum: MAX_RESOLVED_ATTEMPTS, evicted: evictedResolutions,
+          oldestAttemptId: resolvedOrder[0] || null,
+          newestAttemptId: resolvedOrder[resolvedOrder.length - 1] || null },
+        isolation: isolation(activityId, { forced: sessionHasTestData }),
+        activityState: activityState(),
+        nextAttemptIsolation: nextAttemptPolicy, closed: disposed,
       });
     }
     function setFlipper(id) {
@@ -381,9 +555,10 @@
     }
     function makePending(config) {
       var controller = Events.createTurnController();
+      var effectiveForceName = config.forceName || rosterForceName || null;
       var selection = controller.bind({
         activityId: activityId, physicsModeId: 'normal', seed: config.seed,
-        forceName: config.forceName,
+        forceName: effectiveForceName, playerName: activeDisplayName,
       });
       if (config.expectedEventId !== undefined) {
         var selectedId = selection ? selection.eventId : null;
@@ -392,6 +567,9 @@
           throw new Error('Replay event contract no longer matches its source attempt');
         }
       }
+      var attemptPolicy = isolation(activityId, {
+        forced: !!(selection && selection.forced),
+      });
       attemptNumber += 1;
       pending = {
         attemptId: sessionId + '.attempt.' + attemptNumber,
@@ -401,7 +579,9 @@
         presentationRate: config.presentationRate == null ? rate : config.presentationRate,
         turnSeed: config.seed >>> 0, seedSource: config.seedSource || 'sequence',
         eventSelection: selection,
-        forceName: config.forceName || null,
+        forceName: effectiveForceName, forceOrigin: config.forceName
+          ? 'explicit-control' : (rosterForceName ? 'player-display-name' : null),
+        playerName: activeDisplayName, policy: attemptPolicy,
         replayOfAttemptId: config.replayOfAttemptId || null,
         recordedLaunchSignal: config.recordedLaunchSignal || null,
         ghost: config.ghost || null, launch: null,
@@ -447,6 +627,8 @@
       if (!signal || signal.qualifiedManual !== true) return cancelGesture(attemptId);
       var normalized = launchSignal(signal);
       var consumed = pending.controller.qualifyLaunch();
+      var policy = pending.policy;
+      if (policy.testData) sessionHasTestData = true;
       pending.phase = 'airborne';
       pending.eventSelection = consumed;
       pending.launch = freeze({
@@ -455,10 +637,10 @@
         presentationRate: pending.presentationRate, simulationStepScale: 1,
         turnSeed: pending.turnSeed, seedSource: pending.seedSource,
         eventSelection: clone(consumed), launchSignal: normalized,
-        replayOfAttemptId: pending.replayOfAttemptId, isolation: isolation(activityId),
-        testData: true, progressionEligible: false, fcEligible: false,
+        replayOfAttemptId: pending.replayOfAttemptId, isolation: policy,
+        testData: policy.testData, progressionEligible: false, fcEligible: false,
         achievementsEligible: false,
-        statisticsDefaultEligible: false,
+        statisticsDefaultEligible: policy.statisticsDefaultEligible,
       });
       return pending.launch;
     }
@@ -470,20 +652,22 @@
       var normalized = outcome(value);
       var reason = landingReason(normalized.landingReason, normalized.result);
       var ghost = createGhost(pending, pending.launch, normalized);
+      var policy = pending.policy;
       var resolution = freeze({
         schema: 'TrainingResolutionV1', attemptId: pending.attemptId, activityId: activityId,
         result: normalized.result, pose: normalized.pose, landingReason: reason,
         outcome: normalized, launch: pending.launch, ghost: ghost,
         replayOfAttemptId: pending.replayOfAttemptId,
         testDataRecord: {
-          schema: 'TrainingTestDataMarkerV1', testData: true,
-          statisticsDefaultEligible: false, activityId: activityId,
+          schema: 'TrainingTestDataMarkerV1', testData: policy.testData,
+          statisticsDefaultEligible: policy.statisticsDefaultEligible, activityId: activityId,
           attemptId: pending.attemptId,
         },
         awards: [], progressionCommands: [], achievementCommands: [], ownershipCommands: [],
-        isolation: isolation(activityId), testData: true, progressionEligible: false,
+        isolation: policy, testData: policy.testData, progressionEligible: false,
         fcEligible: false,
-        achievementsEligible: false, statisticsDefaultEligible: false,
+        achievementsEligible: false,
+        statisticsDefaultEligible: policy.statisticsDefaultEligible,
       });
       var source = {
         attemptId: pending.attemptId, turnSeed: pending.turnSeed,
@@ -496,10 +680,18 @@
         resolution: resolution,
       };
       resolvedById.set(source.attemptId, source);
+      resolvedOrder.push(source.attemptId);
       history.push(resolution);
+      totalResolved += 1;
+      if (resolvedOrder.length > MAX_RESOLVED_ATTEMPTS) {
+        var evictedId = resolvedOrder.shift();
+        resolvedById.delete(evictedId);
+        history.shift();
+        evictedResolutions += 1;
+      }
       if (ghost) {
         ghosts.push(ghost);
-        if (ghosts.length > 24) ghosts.shift();
+        if (ghosts.length > MAX_SUCCESSFUL_GHOSTS) ghosts.shift();
       }
       pending.controller.clear();
       pending = null;
@@ -523,13 +715,19 @@
       return snapshot();
     }
 
-    var request = createMatchRequest({
+    request = createMatchRequest({
       matchId: sessionId, sessionId: sessionId, activityId: activityId,
-      roster: options.roster, seed: baseSeed,
+      roster: options.roster, seed: baseSeed, activePlayerId: options.activePlayerId,
+      forceName: forceName, physicsLabAuthorization: labAuthorization,
       activityContext: { selectedFlipperId: selectedFlipper },
     });
+    activeDisplayName = rosterDisplayName(request.roster, request.activityContext.activePlayerId);
+    rosterForceName = activityId === 'practice' && Events.forcedId(activeDisplayName, activityId)
+      ? activeDisplayName : null;
+    sessionHasTestData = request.activityContext.testData;
     return freeze({
       schema: 'TrainingRuntimeV1', request: request, snapshot: snapshot,
+      activityState: activityState,
       prepareAttempt: prepareAttempt, eventPhase: eventPhase, cancelGesture: cancelGesture,
       qualifyLaunch: qualifyLaunch, resolveAttempt: resolveAttempt, replayAttempt: replayAttempt,
       setFlipper: setFlipper, setViewportPreset: setViewport, setSlowMotion: setSlowMotion,
@@ -550,10 +748,12 @@
   function createTutorialSession(input) {
     var options = object(input);
     var sessionId = required(options.sessionId, 'Tutorial sessionId');
-    var baseSeed = integer(options.seed, 1) >>> 0;
+    var baseSeed = seedOrDefault(options.seed, 1);
     var state = options.state ? Tutorial.normalize(options.state) : Tutorial.initial(baseSeed);
     var pending = null;
     var history = [];
+    var totalResolved = 0;
+    var evictedResolutions = 0;
     var skipped = state.skipped;
 
     function assertTourActive() {
@@ -565,8 +765,11 @@
       return freeze({
         schema: 'FirstFlipTourSessionV1', sessionId: sessionId,
         state: state, step: tutorialStepView(state),
+        targetDurationSeconds: Tutorial.targetDurationSeconds,
         activeAttempt: pending ? preparedView(pending) : null,
-        history: clone(history), isolation: isolation('tutorial'), skipped: skipped,
+        history: clone(history), resolvedAttemptCount: totalResolved,
+        retention: { maximum: MAX_RESOLVED_ATTEMPTS, evicted: evictedResolutions },
+        isolation: isolation('tutorial'), skipped: skipped,
       });
     }
     function acknowledge() {
@@ -592,6 +795,8 @@
         attemptId: attempt.attemptId, activityId: 'tutorial', phase: 'prepared',
         controller: controller, tutorialAttempt: attempt,
         flipperId: attempt.objectId, temporaryFlipper: attempt.temporaryObject === true,
+        guidedAssist: attempt.guidedAssist === true,
+        guidedAssistProfile: clone(attempt.guidedAssistProfile), policy: isolation('tutorial'),
         viewportPreset: viewportPreset(options.viewportPresetId || 'desktop-hd'),
         presentationRate: 1, turnSeed: attempt.seed, seedSource: 'tutorial',
         eventSelection: selected,
@@ -627,6 +832,8 @@
         schema: 'TrainingLaunchV1', attemptId: pending.attemptId, activityId: 'tutorial',
         flipperId: pending.flipperId,
         temporaryFlipper: pending.tutorialAttempt.temporaryObject === true,
+        guidedAssist: pending.tutorialAttempt.guidedAssist === true,
+        guidedAssistProfile: clone(pending.tutorialAttempt.guidedAssistProfile),
         viewportPreset: pending.viewportPreset, presentationRate: 1, simulationStepScale: 1,
         turnSeed: pending.turnSeed, seedSource: pending.seedSource,
         eventSelection: clone(consumed), launchSignal: normalized,
@@ -652,6 +859,8 @@
       var resolution = freeze({
         schema: 'TutorialTrainingResolutionV1', attemptId: pending.attemptId,
         advanced: result.advanced, retry: result.retry, result: normalized.result,
+        guidedAssist: pending.tutorialAttempt.guidedAssist === true,
+        guidedCompletion: result.guidedCompletion === true,
         pose: normalized.pose, landingReason: landingReason(normalized.landingReason, normalized.result),
         eventId: pending.eventSelection ? pending.eventSelection.eventId : null,
         temporaryFlipper: pending.tutorialAttempt.temporaryObject === true,
@@ -664,6 +873,10 @@
       });
       state = result.state;
       history.push(resolution);
+      totalResolved += 1;
+      if (history.length > MAX_RESOLVED_ATTEMPTS) {
+        history.shift(); evictedResolutions += 1;
+      }
       pending.controller.clear(); pending = null;
       return freeze({ resolution: resolution, session: snapshot() });
     }
@@ -688,8 +901,12 @@
   return freeze({
     schema: 'FlipgameV112TrainingV1', VIEWPORT_PRESETS: VIEWPORT_PRESETS,
     SLOW_MOTION_RATES: SLOW_MOTION_RATES, FORCEABLE_EVENT_NAMES: FORCEABLE_EVENT_NAMES,
+    MAX_RESOLVED_ATTEMPTS: MAX_RESOLVED_ATTEMPTS,
+    MAX_TRAJECTORY_SAMPLES: MAX_TRAJECTORY_SAMPLES,
+    MAX_SUCCESSFUL_GHOSTS: MAX_SUCCESSFUL_GHOSTS,
     featureState: featureState, hasPhysicsLabEntitlement: hasPhysicsLabEntitlement,
-    isolation: isolation, createMatchRequest: createMatchRequest,
+    authorizePhysicsLab: authorizePhysicsLab, isolation: isolation,
+    createMatchRequest: createMatchRequest,
     registerActivities: registerActivities, launchSignal: launchSignal,
     outcome: outcome, landingReason: landingReason,
     createRuntime: createRuntime, createTutorialSession: createTutorialSession,

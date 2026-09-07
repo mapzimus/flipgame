@@ -18,8 +18,13 @@
     Object.keys(value).forEach(function (key) { freeze(value[key]); });
     return Object.freeze(value);
   }
+  function seed32(value, fallback) {
+    if (value == null || value === '') return fallback >>> 0;
+    var number = Number(value);
+    return Number.isFinite(number) ? number >>> 0 : fallback >>> 0;
+  }
   function hash(seed, salt) {
-    var x = ((Number(seed) || 1) ^ (Number(salt) || 0)) >>> 0;
+    var x = (seed32(seed, 1) ^ seed32(salt, 0)) >>> 0;
     x ^= x >>> 16; x = Math.imul(x, 0x7feb352d); x ^= x >>> 15;
     x = Math.imul(x, 0x846ca68b); x ^= x >>> 16;
     return x >>> 0;
@@ -39,11 +44,12 @@
     { id: 'upright', kind: 'attempt', objective: 'upright-make', objectId: 'bottle',
       instruction: 'Land upright. Retry freely until it sticks.' },
     { id: 'cap', kind: 'attempt', objective: 'cap-make', objectId: 'bottle',
-      instruction: 'A stable cap landing counts too.' },
-    { id: 'rainbow-demo', kind: 'attempt', objective: 'event-resolved', objectId: 'bottle',
-      eventId: 'rainbow-corkscrew', instruction: 'The force changes the route, not the verdict.' },
+      instruction: 'A stable cap landing counts too.', guidedAfterAttempts: 2 },
     { id: 'deep-time-preview', kind: 'card', objectId: 'trex', temporaryObject: true,
       title: 'Try another Flipper', instruction: 'This preview does not unlock or alter the original T-Rex.' },
+    { id: 'rainbow-demo', kind: 'attempt', objective: 'event-resolved', objectId: 'trex',
+      eventId: 'rainbow-corkscrew', temporaryObject: true,
+      instruction: 'The force changes the route, not the verdict.' },
     { id: 'trampoline-demo', kind: 'attempt', objective: 'event-resolved', objectId: 'trex',
       eventId: 'trampoline', temporaryObject: true,
       instruction: 'The first impact relaunches. Land the return.' },
@@ -55,15 +61,20 @@
 
   function initial(seed) {
     return freeze({ schema: 'TutorialStateV1', status: 'ready', stepId: 'welcome',
-      baseSeed: (Number(seed) || 1) >>> 0, attemptNumber: 0,
+      baseSeed: seed32(seed, 1), attemptNumber: 0, stepAttemptCounts: {},
       completedStepIds: [], skipped: false, completed: false });
   }
   function normalize(value) {
     var source = value && typeof value === 'object' ? value : initial(1);
     var stepId = BY_ID[source.stepId] ? source.stepId : 'welcome';
     return freeze({ schema: 'TutorialStateV1', status: String(source.status || 'ready'),
-      stepId: stepId, baseSeed: (Number(source.baseSeed) || 1) >>> 0,
+      stepId: stepId, baseSeed: seed32(source.baseSeed, 1),
       attemptNumber: Math.max(0, Math.floor(Number(source.attemptNumber) || 0)),
+      stepAttemptCounts: Object.keys(source.stepAttemptCounts && typeof source.stepAttemptCounts === 'object'
+        ? source.stepAttemptCounts : {}).reduce(function (result, id) {
+          if (BY_ID[id]) result[id] = Math.max(0, Math.floor(Number(source.stepAttemptCounts[id]) || 0));
+          return result;
+        }, {}),
       completedStepIds: Array.from(new Set(Array.isArray(source.completedStepIds)
         ? source.completedStepIds.map(String).filter(function (id) { return !!BY_ID[id]; }) : [])),
       skipped: source.skipped === true, completed: source.completed === true });
@@ -89,23 +100,33 @@
     var step = current(currentState);
     if (step.kind !== 'attempt') throw new Error('Current Tutorial step does not accept a flip');
     var attemptNumber = currentState.attemptNumber + 1;
+    var stepAttemptNumber = (currentState.stepAttemptCounts[step.id] || 0) + 1;
     var seed = hash(currentState.baseSeed, attemptNumber ^ (BY_ID[step.id].index * 0x9e37));
     var selection = step.eventId ? Events.select({ activityId: 'tutorial',
       physicsModeId: 'normal', tutorialEventId: step.eventId, seed: seed }) : null;
+    var guidedAssist = step.id === 'cap' && stepAttemptNumber > Number(step.guidedAfterAttempts || 0);
     return freeze({ schema: 'TutorialAttemptV1', attemptId: 'tour.' + step.id + '.' + attemptNumber,
       stepId: step.id, objective: step.objective, objectId: step.objectId,
       temporaryObject: step.temporaryObject === true, seed: seed,
+      stepAttemptNumber: stepAttemptNumber,
+      guidedAssist: guidedAssist,
+      guidedAssistProfile: guidedAssist ? {
+        id: 'cap-window', inputGuide: true, resultOverride: false,
+        completesAfterQualifiedResolution: true, showCapDemonstrationOnFailure: true,
+      } : null,
       eventSelection: selection, testData: true, progressionEligible: false,
       achievementsEligible: false, statisticsDefaultEligible: false });
   }
-  function objectiveMet(objective, outcome) {
+  function objectiveMet(attempt, outcome) {
+    var objective = attempt.objective;
     var result = outcome && typeof outcome === 'object' ? outcome : {};
     if (objective === 'qualified-launch') return result.qualifiedManual === true;
     if (objective === 'meter-read') return result.qualifiedManual === true &&
       Number.isFinite(Number(result.normalizedPower)) && Number.isFinite(Number(result.normalizedDirection));
     if (objective === 'resolved') return result.phase === 'resolved';
     if (objective === 'upright-make') return result.result === 'MAKE' && result.pose === 'upright';
-    if (objective === 'cap-make') return result.result === 'MAKE' && result.pose === 'cap';
+    if (objective === 'cap-make') return (result.result === 'MAKE' && result.pose === 'cap') ||
+      (attempt.guidedAssist === true && result.phase === 'resolved' && result.qualifiedManual === true);
     if (objective === 'event-resolved') return result.phase === 'resolved';
     return false;
   }
@@ -116,10 +137,16 @@
     }
     var next = clone(currentState);
     next.attemptNumber = Math.max(next.attemptNumber, Number(attempt.attemptId.split('.').pop()) || 0);
-    if (!objectiveMet(attempt.objective, outcome)) {
-      return freeze({ advanced: false, state: freeze(next), retry: true, awards: [] });
+    next.stepAttemptCounts[attempt.stepId] = Math.max(next.stepAttemptCounts[attempt.stepId] || 0,
+      Number(attempt.stepAttemptNumber) || 1);
+    if (!objectiveMet(attempt, outcome)) {
+      return freeze({ advanced: false, guidedCompletion: false,
+        state: freeze(next), retry: true, awards: [] });
     }
-    return freeze({ advanced: true, state: advance(next), retry: false, awards: [] });
+    var guidedCompletion = attempt.guidedAssist === true &&
+      !(outcome && outcome.result === 'MAKE' && outcome.pose === 'cap');
+    return freeze({ advanced: true, guidedCompletion: guidedCompletion,
+      state: advance(next), retry: false, awards: [] });
   }
   function skip(state) {
     var next = clone(normalize(state));
@@ -127,7 +154,8 @@
     return freeze(next);
   }
 
-  return freeze({ schema: 'FirstFlipTourV1', steps: STEPS, initial: initial,
+  return freeze({ schema: 'FirstFlipTourV1', steps: STEPS,
+    targetDurationSeconds: { minimum: 45, maximum: 75 }, initial: initial,
     normalize: normalize, current: current, acknowledge: acknowledge,
     prepareAttempt: prepareAttempt, resolveAttempt: resolveAttempt, skip: skip });
 });
