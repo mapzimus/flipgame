@@ -6,20 +6,20 @@ is part of v1.12 and is not yet eligible for release.
 | ID | Severity | Subsystem | Reproduction | Status | Verification required |
 |---|---|---|---|---|---|
 | V112-001 | P1 | Progression/UI | Win and receive an object reveal, then open Customize without reloading; the item can remain absent | Fixed in recovery baseline (`4349a62`); independent QA pending | Shared live state, FL1–100 migration/no-relock |
-| V112-002 | P1 | Input/Physics | A short fast flick displays near 25% while launching with peak velocity/full rotation | Fix in progress | Meter/launch signal parity across pointer types |
-| V112-003 | P1 | Physics | Ordinary playtest objects rotate substantially faster and feel harder than intended | Fix in progress | Deterministic low/mid/high calibration and event regression |
+| V112-002 | P1 | Input/Physics | A short fast flick displays near 25% while launching with peak velocity/full rotation | Fixed (`d765973`, `193f819`); independent QA pending | Meter/launch signal parity across pointer types |
+| V112-003 | P1 | Physics | Ordinary playtest objects rotate substantially faster and feel harder than intended | Fixed (`d765973`); independent QA pending | Deterministic low/mid/high calibration and event regression |
 | V112-004 | P2 | Unlock UI | Locked/reveal tile retains the prior selected object's pixels beneath `?`/`🔒` | Pending | Clean canvas lifecycle, queue, secrecy screenshots |
 | V112-005 | P2 | Progression/UI | Odd-win visual/cosmetic reward is persisted but produces no reveal notification | Pending | All five cosmetic types and queued mixed rewards |
 | V112-006 | P2 | Customize | Variant tab shows color dots/generic names; actual cast appears only after returning to Setup | Pending | All objects/variants, names, immediate art preview |
 | V112-007 | P2 | Owner testing | No safe way exists to preview all locked content without changing earned progression | Pending | Exact temporary code and Test Data boundaries |
 | V112-008 | P2 | Plinko | Playtest view appears seven slots wide and the fall is too short for the expanded board | Pending | Nine-slot render, longer board, tracked camera, deterministic outcomes |
-| V112-009 | P1 | Physics/Alien | Classic calibrates near 32.5% while temporary Alien is near 68% and native Alien reaches about 82% before dropping at 4K | Open | Alien within ±10pp of matched Classic per viewport; Alien viewport spread ≤10pp; CPU bands ordered |
+| V112-009 | P1 | Physics/Alien | Classic calibrates near 32.5% while temporary Alien is near 68% and native Alien reaches about 82% before dropping at 4K | Fixed (`d765973`, `2996a8c`); independent QA pending | Alien within ±10pp of matched Classic per viewport; Alien viewport spread ≤10pp; CPU bands ordered |
 | V112-010 | P1 | Events | Some events are visually too subtle to understand during play | Audit assigned | 30-event physical/visual/audio/camera matrix and owner approval |
 | V112-011 | P1 | Events | Earlier assistance profiles may be guaranteed or effectively automatic over broad inputs | Audit assigned | Non-zero miss path and mixed-outcome deterministic corpus per event |
 | V112-012 | P1 | Art/Renderer | Smile/frown/scared overlay is painted over the authored neutral face, doubling facial features | Pending | Single-face states across every allowlisted variant/legacy object; Bottle/T-Rex exclusions |
 | V112-013 | P1 | Art | Product owner rejected the current new-object artwork as substantially below the v1.12 quality bar | Open | Approved calibration set, 25-object gallery, 300-variant motion/screenshot review |
 | V112-014 | P1 | UI/UX | Product owner rejected the responsive menu as robotic and boring | Open | Approved concept direction and code-native phone/smartboard prototype before rollout |
-| V112-015 | P1 | Input/Physics | Equivalent intentional flicks feel much harder on phone than desktop | Audit active | Timestamped/coalesced gesture replay and bounded cross-device make-rate parity |
+| V112-015 | P1 | Input/Physics | Equivalent intentional flicks feel much harder on phone than desktop | Fixed (`d765973`, `193f819`); independent QA pending | Timestamped/coalesced gesture replay and bounded cross-device make-rate parity |
 | V112-016 | P1 | Alien/Renderer | Floating UFO bank surfaces are missing in observed Alien and Alien Invasion play | Open | Physics/render obstacle parity and phone/desktop/4K browser evidence |
 | V112-017 | P2 | UI/Renderer/Audio | ON FIRE is no longer visually pronounced enough to read as a major momentum state | Open | Escalating lifecycle, cleanup, reduced-motion, phone/smartboard evidence |
 | V112-018 | P1 | Events/Renderer | Mitosis shows a generic/cap-like secondary body instead of two complete selected-object clones | Open | All objects/variants, independent dynamics, conserved physics, one/both/neither outcomes |

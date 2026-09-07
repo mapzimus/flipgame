@@ -506,3 +506,30 @@ log, and defect ledger remain release history and are not rewritten.
   bypass that transaction boundary.
 - Test action: keep the Story, Battle, and activity suites mandatory after every
   subsequent integration merge.
+
+## Revision 35 — Wave 1 foundation gate passed
+
+- Core input/physics landed in `d765973`, with canonical lane-relative launch
+  sampling, coalesced-pointer handling, aborted-gesture cleanup, exact Practice
+  meter parity, prelaunch-only Physics Feel, restored ordinary spin, and shared
+  Alien/Alien Invasion trajectory rules.
+- Follow-up `193f819` removed viewport-dependent raw-pixel launch thresholds and
+  equal-timestamp velocity spikes. Equivalent gestures now use the same
+  canonical threshold and transfer signal from phone through 4K.
+- The Alien target ring remains unchanged. Its first qualifying bank conserves
+  energy; repeated wall, deflector, or UFO banks progressively damp translation
+  and spin. The deterministic corpus reports Classic at 32.1% and Alien between
+  24.2% and 31.3% across supported viewports, with native and Invasion parity
+  and no bankless makes.
+- Transactional progression/profile work landed in `93f4c55`, with the frozen
+  FL1–100 curve, 51-object/23-arena/40-cosmetic catalog, v1.11 reconciliation,
+  Story rewards and final Alien gate. Follow-up `c1fba1b` ensures draws do not
+  receive the win-only bonus; `193f819` gives Standard and Pro the same raw
+  performance baseline.
+- The reward-free First Flip Tour landed in `4c62a34`; the complete prelaunch
+  event registry landed in `81e402f`; event/Alien metadata was aligned in
+  `2996a8c`.
+- Foundation verification: the inherited Node suite passes 49/49 and every
+  integrated v1.12 activity, Story, Battle, input/physics, Alien, event,
+  tutorial, economy, migration, and profile suite passes. Independent QA is
+  still required before any defect or release gate closes.
