@@ -436,26 +436,23 @@ function (Activity, Story, Profile, View, root) {
     if (resolution.abandoned === true || resolution.duplicate === true || context.replay === true) {
       return freeze([]);
     }
-    var commands = [];
-    if (resolution.ordinaryRewardsEligible === true && command.request.activityId === 'story') {
-      commands.push(freeze({
-        kind: 'claimMatch', matchId: command.matchId,
+    return freeze([freeze({
+      kind: 'claimStoryMatchResolution',
+      input: freeze({
+        matchId: command.matchId,
+        ordinaryRewardsEligible: resolution.ordinaryRewardsEligible === true &&
+          command.request.activityId === 'story',
         rewardInput: ordinaryRewardInput(command),
-      }));
-    }
-    (Array.isArray(resolution.rewards) ? resolution.rewards : []).forEach(function (reward) {
-      commands.push(freeze({ kind: 'claimStoryReward', reward: clone(reward) }));
-    });
-    return freeze(commands);
+        rewards: freeze((Array.isArray(resolution.rewards) ? resolution.rewards : []).map(clone)),
+      }),
+    })]);
   }
 
   function executeProfileCommands(profileStore, commands) {
     return commands.map(function (command) {
       var result;
-      if (command.kind === 'claimMatch') {
-        result = profileStore.claimMatch(command.matchId, command.rewardInput);
-      } else if (command.kind === 'claimStoryReward') {
-        result = profileStore.claimStoryReward(command.reward);
+      if (command.kind === 'claimStoryMatchResolution') {
+        result = profileStore.claimStoryMatchResolution(command.input);
       } else {
         throw new RangeError('Unknown Story profile command: ' + command.kind);
       }
@@ -470,8 +467,7 @@ function (Activity, Story, Profile, View, root) {
     var opts = object(options);
     var profileStore = opts.profileStore || Profile;
     if (!profileStore || typeof profileStore.snapshot !== 'function' ||
-        typeof profileStore.claimStoryReward !== 'function' ||
-        typeof profileStore.claimMatch !== 'function') {
+        typeof profileStore.claimStoryMatchResolution !== 'function') {
       throw new TypeError('A v1.12 profile store is required');
     }
     var browserStorage = null;

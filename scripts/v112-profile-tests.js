@@ -350,6 +350,49 @@ function testExactStoryRewardInterface() {
   assert.throws(() => store.claimRivalVictory('scatterline', 'unstable-id'), /claim ID/);
 }
 
+function testAtomicStoryMatchResolution() {
+  const storage = Profile.createMemoryStorage();
+  const store = Profile.createStore({ storage, now: () => 91 });
+  const input = {
+    matchId: 'story:first-broadcast:signature',
+    ordinaryRewardsEligible: true,
+    rewardInput: rewardInput({ activityId: 'story', humanWon: true }),
+    rewards: [
+      { claimId: 'rival.first-light.first-clear', type: 'rival-first-clear',
+        rivalId: 'first-light', objectId: 'coffee-mug', fxp: 25, fc: 15 },
+      { claimId: 'story.act.1.first-clear', type: 'act-first-clear', actId: 1,
+        fxp: 50, fc: 25, fieldNoteId: 'field-note-act-1' },
+    ],
+  };
+  const before = store.snapshot();
+  storage.failNextWrite();
+  const failed = store.claimStoryMatchResolution(input);
+  assert.equal(failed.reason, 'persistence-failed');
+  assert.deepEqual(store.snapshot(), before,
+    'ordinary, rival, act, ownership, FXP, and FC must roll back together');
+
+  const applied = store.claimStoryMatchResolution(input);
+  assert.equal(applied.applied, true);
+  assert.deepEqual(applied.appliedStoryClaimIds,
+    ['rival.first-light.first-clear', 'story.act.1.first-clear']);
+  assert.ok(store.snapshot().processedClaimIds.includes(
+    'story-match:story:first-broadcast:signature'));
+  assert.ok(store.snapshot().processedClaimIds.includes('rival.first-light.first-clear'));
+  assert.ok(store.snapshot().processedClaimIds.includes('story.act.1.first-clear'));
+  assert.ok(store.snapshot().ownedObjectIds.includes('coffee-mug'));
+  assert.ok(store.snapshot().completedActIds.includes('1'));
+  assert.ok(store.snapshot().fieldNoteIds.includes('field-note-act-1'));
+  const committed = store.snapshot();
+  assert.equal(store.claimStoryMatchResolution(input).reason, 'duplicate');
+  assert.deepEqual(store.snapshot(), committed);
+
+  assert.throws(() => store.claimStoryMatchResolution({
+    matchId: 'story:forged', ordinaryRewardsEligible: false,
+    rewards: [{ claimId: 'rival.first-light.first-clear', type: 'rival-first-clear',
+      rivalId: 'first-light', objectId: 'coffee-mug', fxp: 999, fc: 15 }],
+  }), /amount/);
+}
+
 function testRivalAndAlienGate() {
   const store = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 55 });
   const earth = store.claimRivalVictory('first-light');
@@ -480,6 +523,7 @@ const tests = [
   testStorePurchaseAndFcLedger,
   testAchievementAndStoryIdempotency,
   testExactStoryRewardInterface,
+  testAtomicStoryMatchResolution,
   testRivalAndAlienGate,
   testV111GrandfatheredAlien,
   testAlienAndInsaneGateIsNotEntitlementGuessing,

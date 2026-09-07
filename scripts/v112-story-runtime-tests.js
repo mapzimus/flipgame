@@ -204,7 +204,7 @@ async function completeCampaign(cooperative) {
   assert.deepEqual(profile.completedActIds, ['1', '2', '3', '4']);
   assert.deepEqual(profile.fieldNoteIds,
     ['field-note-act-1', 'field-note-act-2', 'field-note-act-3', 'field-note-act-4']);
-  assert.equal(profile.processedClaimIds.filter((id) => id.startsWith('match:')).length, 17);
+  assert.equal(profile.processedClaimIds.filter((id) => id.startsWith('story-match:')).length, 17);
   assert.equal(profile.processedClaimIds.filter((id) => /^rival\./.test(id)).length, 12);
   assert.equal(profile.processedClaimIds.filter((id) => /^story\.act\./.test(id)).length, 4);
   assert.equal(profile.ownedObjectIds.includes('trex'), true);
@@ -306,7 +306,8 @@ async function testDuplicateReplayAndRetryNeverDoubleReward() {
   ]);
   assert.deepEqual(a, b, 'concurrent finalize calls share one finalization');
   const afterFirst = h.profileStore.snapshot();
-  assert.equal(afterFirst.processedClaimIds.filter((id) => id === 'match:story:scatterline:first').length, 1);
+  assert.equal(afterFirst.processedClaimIds.filter((id) =>
+    id === 'story-match:story:scatterline:first').length, 1);
   assert.equal(afterFirst.processedClaimIds.filter((id) => id === 'rival.scatterline.first-clear').length, 1);
 
   const replay = h.runtime.start({
@@ -336,16 +337,15 @@ async function testDuplicateReplayAndRetryNeverDoubleReward() {
 async function testProfileRetryIsExactlyOnce() {
   const storage = Profile.createMemoryStorage();
   const realProfile = Profile.createStore({ storage, now: () => 900 });
-  let failStoryReward = true;
+  let failAtomicResolution = true;
   const profileProxy = {
     snapshot: realProfile.snapshot,
-    claimMatch: realProfile.claimMatch,
-    claimStoryReward(reward) {
-      if (failStoryReward) {
-        failStoryReward = false;
+    claimStoryMatchResolution(input) {
+      if (failAtomicResolution) {
+        failAtomicResolution = false;
         return { applied: false, duplicate: false, reason: 'persistence-failed' };
       }
-      return realProfile.claimStoryReward(reward);
+      return realProfile.claimStoryMatchResolution(input);
     },
   };
   const storyStore = Runtime.createStoryStateStore({
@@ -357,14 +357,18 @@ async function testProfileRetryIsExactlyOnce() {
     matchId: 'story:retry:scatterline', chapterId: 'scatterline', humans: [human()],
   });
   await assert.rejects(() => win(runtime, session), /Profile persistence failed/);
-  assert.equal(realProfile.snapshot().processedClaimIds.includes('match:story:retry:scatterline'), true,
-    'ordinary reward committed before the simulated later failure');
+  assert.equal(realProfile.snapshot().processedClaimIds.includes(
+    'story-match:story:retry:scatterline'), false,
+  'ordinary and first-clear rewards must both roll back after a failed atomic write');
+  assert.equal(realProfile.snapshot().processedClaimIds.includes(
+    'rival.scatterline.first-clear'), false,
+  'the rival component cannot commit separately from its match reward');
   assert.equal(storyStore.snapshot().defeatedRivalIds.includes('scatterline'), false,
     'Story state waits until all profile commands are durable');
   const recovered = await win(runtime, session);
   assert.equal(recovered.activityResolution.success, true);
   assert.equal(realProfile.snapshot().processedClaimIds.filter((id) =>
-    id === 'match:story:retry:scatterline').length, 1);
+    id === 'story-match:story:retry:scatterline').length, 1);
   assert.equal(realProfile.snapshot().processedClaimIds.filter((id) =>
     id === 'rival.scatterline.first-clear').length, 1);
   assert.equal(storyStore.snapshot().defeatedRivalIds.includes('scatterline'), true);
@@ -400,7 +404,7 @@ async function testLossAndAbandonmentHaveNoClearPenalty() {
   assert.equal(lossResult.activityResolution.success, false);
   assert.equal(h.storyStore.snapshot().clearedPreliminaryIds.length, 0);
   assert.equal(h.storyStore.snapshot().defeatedRivalIds.length, 0);
-  assert.equal(lossResult.transaction.profileCommands[0].kind, 'claimMatch',
+  assert.equal(lossResult.transaction.profileCommands[0].kind, 'claimStoryMatchResolution',
     'a completed, qualified Story loss still earns ordinary participation progression');
 }
 

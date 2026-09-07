@@ -498,7 +498,7 @@
       return claimBundle({ claimId: claimId, sourceType: 'story-act', sourceId: id,
         fxp: 50, fc: 25, actIds: [id], fieldNoteIds: [noteId], reveal: false });
     }
-    function claimStoryReward(rewardInput) {
+    function normalizeStoryReward(rewardInput) {
       var reward = rewardInput && typeof rewardInput === 'object' ? rewardInput : {};
       var type = String(reward.type || '');
       if (type === 'rival-first-clear') {
@@ -511,16 +511,125 @@
             finiteInteger(reward.fc) !== (alien ? 50 : 15)) {
           throw new RangeError('Story rival reward amount does not match StoryCatalogV1');
         }
-        return claimRivalVictory(rival.id, reward.claimId);
+        var rivalClaimId = validId(reward.claimId, 'Story rival reward claimId');
+        if (rivalClaimId !== 'rival.' + rival.id + '.first-clear') {
+          throw new RangeError('Rival claim ID does not match StoryCatalogV1');
+        }
+        return freeze({ claimId: rivalClaimId, type: type, rivalId: rival.id,
+          objectId: rival.objectId, fxp: alien ? 75 : 25, fc: alien ? 50 : 15,
+          alien: alien });
       }
       if (type === 'act-first-clear') {
         var id = storyActId(reward.actId);
         if (finiteInteger(reward.fxp) !== 50 || finiteInteger(reward.fc) !== 25) {
           throw new RangeError('Story act reward amount does not match StoryCatalogV1');
         }
-        return claimStoryAct(id, reward.fieldNoteId, reward.claimId);
+        var actClaimId = validId(reward.claimId, 'Story act reward claimId');
+        var expectedClaimId = 'story.act.' + id + '.first-clear';
+        var expectedFieldNoteId = 'field-note-act-' + id;
+        if (actClaimId !== expectedClaimId) {
+          throw new RangeError('Story act claim ID does not match StoryCatalogV1');
+        }
+        if (String(reward.fieldNoteId || '') !== expectedFieldNoteId) {
+          throw new RangeError('Story field note ID does not match StoryCatalogV1');
+        }
+        return freeze({ claimId: actClaimId, type: type, actId: id,
+          fieldNoteId: expectedFieldNoteId, fxp: 50, fc: 25 });
       }
       throw new RangeError('Unknown Story reward type: ' + type);
+    }
+    function claimStoryReward(rewardInput) {
+      var reward = normalizeStoryReward(rewardInput);
+      if (reward.type === 'rival-first-clear') {
+        return claimRivalVictory(reward.rivalId, reward.claimId);
+      }
+      return claimStoryAct(reward.actId, reward.fieldNoteId, reward.claimId);
+    }
+    function claimStoryMatchResolution(input) {
+      var source = input && typeof input === 'object' ? input : {};
+      var matchId = validId(source.matchId, 'Story matchId');
+      var componentRewards = (Array.isArray(source.rewards) ? source.rewards : [])
+        .map(normalizeStoryReward);
+      var componentIds = new Set();
+      componentRewards.forEach(function (reward) {
+        if (componentIds.has(reward.claimId)) {
+          throw new RangeError('Duplicate Story component reward: ' + reward.claimId);
+        }
+        componentIds.add(reward.claimId);
+      });
+      var ordinaryReward = source.ordinaryRewardsEligible === true
+        ? Economy.calculateMatchReward(source.rewardInput || {}) : null;
+      var outerClaimId = 'story-match:' + matchId;
+      return commit(outerClaimId, function (draft) {
+        var beforeLevel = draft.flipLevel;
+        var beforeBalance = draft.fcBalance;
+        var totalFxp = 0;
+        var granted = [];
+        var appliedComponents = [];
+        var skippedComponents = [];
+
+        if (ordinaryReward && ordinaryReward.eligible) {
+          totalFxp += ordinaryReward.fxp;
+          if (ordinaryReward.fc) appendFc(draft, {
+            txId: outerClaimId + ':ordinary:fc',
+            idempotencyKey: outerClaimId + ':ordinary:fc',
+            kind: 'earn', sourceType: 'match', sourceId: matchId,
+            signedAmount: ordinaryReward.fc, timestamp: now(),
+          });
+        }
+
+        componentRewards.forEach(function (reward) {
+          var alreadyApplied = draft.processedClaimIds.indexOf(reward.claimId) >= 0;
+          if (reward.type === 'rival-first-clear') {
+            alreadyApplied = alreadyApplied || draft.defeatedRivalIds.indexOf(reward.rivalId) >= 0;
+          } else {
+            alreadyApplied = alreadyApplied || draft.completedActIds.indexOf(reward.actId) >= 0;
+          }
+          addUnique(draft.processedClaimIds, reward.claimId);
+          addUnique(draft.claimedRewardIds, reward.claimId);
+          if (alreadyApplied) {
+            skippedComponents.push(reward.claimId);
+            return;
+          }
+          totalFxp += reward.fxp;
+          appendFc(draft, {
+            txId: outerClaimId + ':' + reward.claimId + ':fc',
+            idempotencyKey: reward.claimId + ':fc',
+            kind: 'earn',
+            sourceType: reward.type === 'rival-first-clear' ? 'rival' : 'story-act',
+            sourceId: reward.type === 'rival-first-clear' ? reward.rivalId : reward.actId,
+            signedAmount: reward.fc, timestamp: now(),
+          });
+          if (reward.type === 'rival-first-clear') {
+            addUnique(draft.defeatedRivalIds, reward.rivalId);
+            if (!reward.alien && draft.ownedObjectIds.indexOf(reward.objectId) < 0) {
+              draft.ownedObjectIds.push(reward.objectId);
+              granted.push('object.' + reward.objectId);
+            }
+          } else {
+            addUnique(draft.completedActIds, reward.actId);
+            addUnique(draft.fieldNoteIds, reward.fieldNoteId);
+          }
+          appliedComponents.push(reward.claimId);
+        });
+
+        draft.fxp = Math.min(Number.MAX_SAFE_INTEGER, draft.fxp + totalFxp);
+        draft.flipLevel = Economy.flipLevelForFxp(draft.fxp);
+        granted = granted.concat(grantLevelsCrossed(draft, beforeLevel, {
+          reveal: true, now: now(),
+        }));
+        granted = granted.concat(grantAlienGate(draft, true));
+        granted.forEach(function (id) { addUnique(draft.pendingRevealIds, id); });
+        return {
+          fxpAwarded: totalFxp,
+          fcAwarded: draft.fcBalance - beforeBalance,
+          levelsCrossed: Math.max(0, draft.flipLevel - beforeLevel),
+          granted: uniqueStrings(granted),
+          ordinaryReward: ordinaryReward,
+          appliedStoryClaimIds: appliedComponents,
+          skippedStoryClaimIds: skippedComponents,
+        };
+      });
     }
     function purchaseCosmetic(cosmeticId) {
       refresh();
@@ -556,7 +665,7 @@
       snapshot: snapshot, refresh: refresh, subscribe: subscribe, exportState: exportState,
       claimBundle: claimBundle, claimMatch: claimMatch, claimAchievement: claimAchievement,
       claimRivalVictory: claimRivalVictory, claimStoryAct: claimStoryAct,
-      claimStoryReward: claimStoryReward,
+      claimStoryReward: claimStoryReward, claimStoryMatchResolution: claimStoryMatchResolution,
       purchaseCosmetic: purchaseCosmetic, dismissReveals: dismissReveals,
       lastPersistenceError: lastPersistenceError,
     });
@@ -578,6 +687,7 @@
     claimMatch: defaultStore.claimMatch, claimAchievement: defaultStore.claimAchievement,
     claimRivalVictory: defaultStore.claimRivalVictory, claimStoryAct: defaultStore.claimStoryAct,
     claimStoryReward: defaultStore.claimStoryReward,
+    claimStoryMatchResolution: defaultStore.claimStoryMatchResolution,
     purchaseCosmetic: defaultStore.purchaseCosmetic, dismissReveals: defaultStore.dismissReveals,
     lastPersistenceError: defaultStore.lastPersistenceError,
   });
