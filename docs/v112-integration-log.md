@@ -533,3 +533,28 @@ log, and defect ledger remain release history and are not rewritten.
   integrated v1.12 activity, Story, Battle, input/physics, Alien, event,
   tutorial, economy, migration, and profile suite passes. Independent QA is
   still required before any defect or release gate closes.
+
+## Revision 36 — Wave 2 vertical slices integrated
+
+- The executable Story/Rival slice landed in `f4e7189`. It builds valid
+  activity requests, enforces WFC-before-signature chapter order, supports
+  solo/co-op and Rival Board attempts, and exposes replay, abandonment, early
+  Alien victory and final-gate views without leaking undiscovered rivals.
+- Follow-up `1db090b` moved match, rival, act, Field Note, ownership, FXP and FC
+  effects into one profile transaction. An injected storage failure now leaves
+  the entire clear unclaimed, and retry applies every effect exactly once.
+- The seven-Flipper authored-art and Globe calibration landed in `0561188`.
+  `da218f8` made the shared WebGL sphere reachable from preview/gameplay paint;
+  `634c21a` permanently fails over to deterministic Canvas geography after a
+  lost context. The protected Bottle and T-Rex remain outside this system.
+- The simultaneous Battle lane runtime landed in `36a3b70`. It owns concurrent
+  pointer capture, isolated lane resources, Volley synchronization, Rush
+  re-arming, pre-horn airborne leases and pre-input power targeting without
+  enabling ordinary/terminal events or cross-lane collisions.
+- Follow-up `c2c78e9` replaced Battle-only raw-pixel qualification with the
+  canonical 1280×720 gesture signal, radial deadzone, chronological coalesced
+  samples and identical touch/pen/mouse transfer used by core input.
+- Integrated verification passes Battle two/four-pointer, relay, resize,
+  power, horn and input-parity tests; all inherited Node tests remain 49/49.
+  Actual smartboard contact hardware, full UI wiring, complete 51-Flipper art,
+  owner art approval and independent QA remain open release gates.
