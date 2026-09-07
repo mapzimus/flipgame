@@ -248,6 +248,26 @@ function testRecordsSchemaAndHtmlSafety() {
   assert.equal(exported.records.schema, 'RecordSummaryV2');
 }
 
+function testBrowserRecordsAndPickerShareLiveProgression() {
+  const before = Progression.snapshot();
+  const first = Records.recordWin('Live Sync', humanWin({ playerId: 'live-sync' }));
+  const second = Records.recordWin('Live Sync', humanWin({ playerId: 'live-sync' }));
+  const after = Progression.snapshot();
+
+  assert.equal(after.qualifyingWins, before.qualifyingWins + 2,
+    'the picker-facing progression store must advance immediately with Records');
+  assert.deepEqual(second.progression, after,
+    'the unlock notification and picker must observe the same progression snapshot');
+  [first, second].flatMap((result) => result.unlocked)
+    .filter((reward) => reward.type === 'object')
+    .forEach((reward) => {
+      assert.equal(Content.viewObject(after, reward.contentId).locked, false,
+        `${reward.contentId} was announced but stayed locked in the picker`);
+      assert.equal(Records.isSkinUnlocked(reward.contentId), true,
+        `${reward.contentId} was announced but stayed locked in Records`);
+    });
+}
+
 const tests = [
   testCatalogCountsAndLadder,
   testFrozenCosmeticSequence,
@@ -257,6 +277,7 @@ const tests = [
   testHiddenContentQueries,
   testAchievementCatalogAndDeterminism,
   testRecordsSchemaAndHtmlSafety,
+  testBrowserRecordsAndPickerShareLiveProgression,
 ];
 
 for (const test of tests) {
