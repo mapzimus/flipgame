@@ -53,10 +53,15 @@
     });
   }
 
-  function sampleFromEvent(event, gesture) {
+  function eventTime(event, fallback) {
+    var stamp = Number(event && event.timeStamp);
+    return Number.isFinite(stamp) && stamp >= 0 ? stamp : fallback;
+  }
+
+  function sampleFromEvent(event, gesture, fallbackTime) {
     var clientX = finite(event && event.clientX, gesture.lastClientX);
     var clientY = finite(event && event.clientY, gesture.lastClientY);
-    var timeStamp = finite(event && event.timeStamp, gesture.lastTimeStamp);
+    var timeStamp = eventTime(event, fallbackTime);
     var geometry = gesture.geometry;
     return freeze({
       pointerId: gesture.pointerId,
@@ -73,7 +78,7 @@
     });
   }
 
-  function eventSamples(event) {
+  function eventSamples(event, fallbackTime) {
     var samples = [];
     if (event && typeof event.getCoalescedEvents === 'function') {
       try {
@@ -83,10 +88,18 @@
         }
       } catch (_) {}
     }
-    // Pointer-up-only hardware and some WebViews expose no coalesced history.
-    // Always include the dispatched event as the authoritative final sample.
-    if (event) samples.push(event);
-    return samples;
+    // Browsers disagree on whether the dispatched event is already the final
+    // coalesced sample. Include it exactly once, then restore chronological
+    // order before measuring peak velocity.
+    var last = samples.length ? samples[samples.length - 1] : null;
+    if (event && (!last || finite(last.clientX, NaN) !== finite(event.clientX, NaN) ||
+        finite(last.clientY, NaN) !== finite(event.clientY, NaN) ||
+        eventTime(last, fallbackTime) !== eventTime(event, fallbackTime))) samples.push(event);
+    return samples.map(function (sample, index) {
+      return { sample: sample, index: index, timeStamp: eventTime(sample, fallbackTime) };
+    }).sort(function (a, b) {
+      return a.timeStamp === b.timeStamp ? a.index - b.index : a.timeStamp - b.timeStamp;
+    }).map(function (entry) { return entry.sample; });
   }
 
   function createMultiPointerRouter(options) {
@@ -105,6 +118,9 @@
     var onRelease = typeof opts.onRelease === 'function' ? opts.onRelease : function () {};
     var onCancel = typeof opts.onCancel === 'function' ? opts.onCancel : function () {};
     var captureTarget = opts.captureTarget || null;
+    var clock = typeof opts.now === 'function' ? opts.now
+      : (typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? function () { return performance.now(); } : function () { return Date.now(); });
 
     function setLaneRects(values) {
       var entries;
@@ -185,18 +201,22 @@
     }
 
     function appendSamples(gesture, event) {
-      var raw = eventSamples(event);
+      var fallbackTime = clock();
+      var raw = eventSamples(event, fallbackTime);
       raw.forEach(function (candidate) {
         if (candidate && candidate.pointerId != null &&
             Math.floor(Number(candidate.pointerId)) !== gesture.pointerId) return;
-        var sample = sampleFromEvent(candidate, gesture);
+        var sample = sampleFromEvent(candidate, gesture, fallbackTime);
+        // A stale driver sample must not become a one-millisecond speed spike
+        // or move the canonical gesture endpoint backwards in time.
+        if (sample.timeStamp < gesture.lastTimeStamp) return;
         var last = gesture.samples.length ? gesture.samples[gesture.samples.length - 1] : null;
         if (last && last.clientX === sample.clientX && last.clientY === sample.clientY &&
             last.timeStamp === sample.timeStamp) return;
         gesture.samples.push(sample);
         gesture.lastClientX = sample.clientX;
         gesture.lastClientY = sample.clientY;
-        gesture.lastTimeStamp = sample.timeStamp;
+        gesture.lastTimeStamp = Math.max(gesture.lastTimeStamp, sample.timeStamp);
         onSample(freeze({ laneId: gesture.laneId, pointerId: gesture.pointerId,
           geometry: gesture.geometry, sample: sample }));
       });
@@ -224,7 +244,7 @@
       var laneId = findLane(clientX, clientY);
       if (!laneId) return false;
       var geometry = laneRects.get(laneId);
-      var startedAt = finite(event && event.timeStamp, 0);
+      var startedAt = eventTime(event, clock());
       var gesture = {
         laneId: laneId,
         pointerId: pointerId,

@@ -97,6 +97,8 @@ function testMultiPointerSamplingCaptureAndFrozenGeometry() {
   assert.equal(releases[0].samples.at(-1).nx, 0.42,
     'final up sample uses frozen lane-relative CSS coordinates');
   assert(samples.length >= 5, 'coalesced and dispatched samples are retained');
+  assert.deepEqual(releases[0].samples.map((sample) => sample.timeStamp), [10, 20, 30, 40, 50],
+    'coalesced samples are processed chronologically');
   assert(Object.isFrozen(releases[0].samples));
   assert(Object.isFrozen(releases[0].geometry));
 
@@ -113,6 +115,106 @@ function testMultiPointerSamplingCaptureAndFrozenGeometry() {
   assert.equal(router.handlePointerDown(pointer(5, 100, 400, 90)), true);
   assert.equal(router.handlePointerUp(pointer(5, 100, 200, 120)), true);
   assert.equal(releases[1].samples.length, 2);
+}
+
+function canonicalGesture(width, height, pointerType = 'touch', points) {
+  const values = points || [
+    { nx: 0.40, ny: 0.75, timeStamp: 100 },
+    { nx: 0.45, ny: 0.60, timeStamp: 180 },
+    { nx: 0.50, ny: 0.55, timeStamp: 260 },
+  ];
+  return {
+    pointerType,
+    geometry: { left: 0, top: 0, width, height },
+    samples: values.map((point) => ({
+      x: point.nx * width,
+      y: point.ny * height,
+      nx: point.nx,
+      ny: point.ny,
+      timeStamp: point.timeStamp,
+    })),
+  };
+}
+
+function testCanonicalQualifierAcrossDevicesAndPointerTypes() {
+  const viewports = [[360, 640], [1280, 720], [3840, 2160]];
+  const pointerTypes = ['touch', 'pen', 'mouse'];
+  const results = [];
+  for (const [width, height] of viewports) {
+    for (const pointerType of pointerTypes) {
+      const result = Runtime.defaultQualifier(canonicalGesture(width, height, pointerType));
+      assert.equal(result.qualified, true);
+      results.push(result.launchSignal);
+    }
+  }
+  for (const signal of results) {
+    assert.ok(Math.abs(signal.vx - results[0].vx) <= Math.abs(results[0].vx) * 0.02);
+    assert.ok(Math.abs(signal.vy - results[0].vy) <= Math.abs(results[0].vy) * 0.02);
+    assert.ok(Math.abs(signal.peakSpeed - results[0].peakSpeed) <= results[0].peakSpeed * 0.02);
+  }
+  assert.equal(new Set(results.map((signal) => `${signal.vx}:${signal.vy}`)).size, 1,
+    'pointer type has no hidden launch multiplier');
+}
+
+function testCanonicalRadialDeadzoneAndLongDistanceFallback() {
+  function displacement(dx, dy, duration = 100) {
+    return Runtime.defaultQualifier(canonicalGesture(1280, 720, 'touch', [
+      { nx: 100 / 1280, ny: 100 / 720, timeStamp: 0 },
+      { nx: (100 + dx) / 1280, ny: (100 + dy) / 720, timeStamp: duration },
+    ]));
+  }
+  assert.equal(displacement(21, 0).qualified, false);
+  assert.equal(displacement(22, 0).qualified, true, 'sideways 22px gesture must qualify');
+  assert.equal(displacement(0, 22).qualified, true, 'downward 22px gesture must qualify');
+
+  const phone = Runtime.defaultQualifier(canonicalGesture(360, 640, 'touch', [
+    { nx: 0.25, ny: 0.5, timeStamp: 0 },
+    { nx: 0.25 + 22 / 1280, ny: 0.5, timeStamp: 100 },
+  ]));
+  assert.equal(phone.qualified, true,
+    'deadzone is 22 canonical pixels, not 22 phone CSS pixels');
+
+  const longDrag = displacement(30, 0, 10000);
+  assert.equal(longDrag.qualified, true, 'core input has no Battle-only 1500ms rejection');
+  assert.equal(longDrag.launchSignal.usedDistanceFallback, true);
+  assert.equal(Math.round(longDrag.launchSignal.vx), 300,
+    'slow gestures use canonical total-distance fallback');
+}
+
+function testChronologicalPeakAndQuantizedTimestamps() {
+  const peak = Runtime.defaultQualifier(canonicalGesture(1280, 720, 'mouse', [
+    { nx: 400 / 1280, ny: 500 / 720, timeStamp: 0 },
+    { nx: 400 / 1280, ny: 480 / 720, timeStamp: 10 },
+    { nx: 400 / 1280, ny: 400 / 720, timeStamp: 20 },
+    { nx: 400 / 1280, ny: 450 / 720, timeStamp: 30 },
+  ]));
+  assert.equal(Math.round(peak.launchSignal.vy), -8000,
+    'fastest chronological coalesced step supplies the launch signal');
+
+  const quantized = Runtime.defaultQualifier(canonicalGesture(1280, 720, 'pen', [
+    { nx: 400 / 1280, ny: 500 / 720, timeStamp: 100 },
+    { nx: 400 / 1280, ny: 480 / 720, timeStamp: 110 },
+    { nx: 400 / 1280, ny: 300 / 720, timeStamp: 110 },
+    // Stale cross-batch sample: must be ignored rather than becoming a spike
+    // or changing the endpoint used by the distance fallback.
+    { nx: 400 / 1280, ny: 100 / 720, timeStamp: 105 },
+    { nx: 400 / 1280, ny: 280 / 720, timeStamp: 120 },
+  ]));
+  assert.equal(Math.round(quantized.launchSignal.vy), -2000,
+    'equal timestamps preserve the path without manufacturing a velocity spike');
+  assert.equal(Math.round(quantized.launchSignal.dy), -220,
+    'backwards timestamps do not mutate the gesture endpoint');
+
+  for (const [width, height] of [[360, 640], [3840, 2160]]) {
+    const scaled = Runtime.defaultQualifier(canonicalGesture(width, height, 'touch', [
+      { nx: 400 / 1280, ny: 500 / 720, timeStamp: 100 },
+      { nx: 400 / 1280, ny: 480 / 720, timeStamp: 110 },
+      { nx: 400 / 1280, ny: 300 / 720, timeStamp: 110 },
+      { nx: 400 / 1280, ny: 280 / 720, timeStamp: 120 },
+    ]));
+    assert.equal(Math.round(scaled.launchSignal.vy), -2000,
+      'quantized timestamp transfer must remain viewport-independent');
+  }
 }
 
 function createRuntime({ formatId = 'duel', paceId = 'volley', count = 2,
@@ -375,6 +477,9 @@ function testTwoFourTouchProfilesAndRelayFairness() {
 
 function run() {
   testMultiPointerSamplingCaptureAndFrozenGeometry();
+  testCanonicalQualifierAcrossDevicesAndPointerTypes();
+  testCanonicalRadialDeadzoneAndLongDistanceFallback();
+  testChronologicalPeakAndQuantizedTimestamps();
   testSynchronizedTwoPointerVolleyAndResultOrdering();
   testFourPointerIsolationAndLifecycle();
   testAdapterCannotSubstituteSharedResources();

@@ -69,6 +69,10 @@
     powerEventIds: POWER_EVENT_IDS,
   });
 
+  var REFERENCE_WIDTH = 1280;
+  var REFERENCE_HEIGHT = 720;
+  var MIN_CANONICAL_DRAG = 22;
+
   function normalizeRects(values) {
     var entries = Array.isArray(values) ? values.map(function (entry) {
       var source = object(entry);
@@ -91,16 +95,66 @@
   function defaultQualifier(gesture) {
     var samples = gesture.samples || [];
     if (samples.length < 2) return freeze({ qualified: false, reason: 'not-enough-samples' });
+    var geometry = object(gesture.geometry);
+    var width = Math.max(1, finite(geometry.width, REFERENCE_WIDTH));
+    var height = Math.max(1, finite(geometry.height, REFERENCE_HEIGHT));
     var first = samples[0];
-    var last = samples[samples.length - 1];
-    var elapsedMs = Math.max(1, last.timeStamp - first.timeStamp);
-    var dx = last.x - first.x;
-    var dy = last.y - first.y;
-    var qualified = dy <= -22 && elapsedMs <= 1500;
+    var lastX = finite(first.x, 0);
+    var lastY = finite(first.y, 0);
+    var currentX = lastX;
+    var currentY = lastY;
+    var firstTime = Math.max(0, finite(first.timeStamp, 0));
+    var lastTime = firstTime;
+    var peakSpeed = 0;
+    var peakVx = 0;
+    var peakVy = 0;
+    for (var index = 1; index < samples.length; index++) {
+      var sample = samples[index];
+      var nextX = finite(sample.x, NaN);
+      var nextY = finite(sample.y, NaN);
+      var nextTime = finite(sample.timeStamp, lastTime);
+      if (!Number.isFinite(nextX) || !Number.isFinite(nextY) || nextTime < lastTime) continue;
+      if (nextTime === lastTime) {
+        // Quantized timestamps preserve the path endpoint but cannot provide a
+        // trustworthy instantaneous velocity. Core Input uses the same rule.
+        currentX = nextX;
+        currentY = nextY;
+        lastX = nextX;
+        lastY = nextY;
+        continue;
+      }
+      var dt = Math.max((nextTime - lastTime) / 1000, 0.001);
+      var canonicalStepX = (nextX - lastX) * REFERENCE_WIDTH / width;
+      var canonicalStepY = (nextY - lastY) * REFERENCE_HEIGHT / height;
+      var instantVx = canonicalStepX / dt;
+      var instantVy = canonicalStepY / dt;
+      var speed = Math.hypot(instantVx, instantVy);
+      if (speed > peakSpeed) {
+        peakSpeed = speed;
+        peakVx = instantVx;
+        peakVy = instantVy;
+      }
+      currentX = nextX;
+      currentY = nextY;
+      lastX = nextX;
+      lastY = nextY;
+      lastTime = Math.max(lastTime, nextTime);
+    }
+    var canonicalDx = (currentX - finite(first.x, 0)) * REFERENCE_WIDTH / width;
+    var canonicalDy = (currentY - finite(first.y, 0)) * REFERENCE_HEIGHT / height;
+    var canonicalDistance = Math.hypot(canonicalDx, canonicalDy);
+    var usePeak = peakSpeed >= 80;
+    var signalVx = usePeak ? peakVx : canonicalDx * 10;
+    var signalVy = usePeak ? peakVy : canonicalDy * 10;
+    var qualified = canonicalDistance + 1e-6 >= MIN_CANONICAL_DRAG;
     return freeze({ qualified: qualified, reason: qualified ? null : 'gesture-too-small',
-      launchSignal: { dx: dx, dy: dy, elapsedMs: elapsedMs,
-        vx: dx / elapsedMs, vy: dy / elapsedMs,
-        normalizedDx: last.nx - first.nx, normalizedDy: last.ny - first.ny } });
+      launchSignal: { dx: canonicalDx, dy: canonicalDy,
+        rawDx: currentX - finite(first.x, 0), rawDy: currentY - finite(first.y, 0),
+        canonicalDistance: canonicalDistance, elapsedMs: Math.max(0, lastTime - firstTime),
+        vx: signalVx, vy: signalVy, peakSpeed: peakSpeed,
+        usedDistanceFallback: !usePeak,
+        normalizedDx: canonicalDx / REFERENCE_WIDTH,
+        normalizedDy: canonicalDy / REFERENCE_HEIGHT } });
   }
 
   function createBattleRuntime(options) {
