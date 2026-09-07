@@ -367,6 +367,7 @@ function testSharedGlobeSurfaceIntegrationAndFallback() {
     'repeated paints must never create per-tile or per-player globe contexts');
   assert.deepEqual(shared.info(), {
     rendererKind: 'webgl', attempts: 2, successes: 2, destroyed: false,
+    failed: false, failureMessage: null,
     lastSnapshot: { renderer: 'webgl', sequence: 2 },
   });
 
@@ -405,6 +406,14 @@ function testSharedGlobeSurfaceIntegrationAndFallback() {
     'context failure must deterministically render the vector globe');
   assert.equal(failedSurface.info().attempts, 1);
   assert.equal(failedSurface.info().successes, 0);
+  assert.equal(failedSurface.info().failed, true);
+  assert.equal(failedSurface.info().failureMessage, 'simulated context loss');
+  assert.doesNotThrow(() => Art.renderPreview(fakeContext(280, 360), {
+    objectId: 'desk-globe', variantId: 'blue-steel', geography,
+    globeSurface: failedSurface,
+  }));
+  assert.equal(failureAttempts, 1,
+    'a failed shared surface must not retry a dead WebGL context every frame');
 
   shared.destroy();
   shared.destroy();

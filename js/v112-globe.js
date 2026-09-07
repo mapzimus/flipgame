@@ -579,6 +579,9 @@
     }
 
     function render(renderInput) {
+      if (typeof gl.isContextLost === 'function' && gl.isContextLost()) {
+        throw new Error('WebGL globe context is lost');
+      }
       var request = renderInput && typeof renderInput === 'object' ? renderInput : {};
       var orientation = orientationFrom({
         centerLon: request.centerLon != null ? request.centerLon
@@ -667,11 +670,18 @@
     var attempts = 0;
     var successes = 0;
     var lastSnapshot = null;
+    var failure = null;
 
     function render(request) {
       if (destroyed) throw new Error('Shared globe surface has been destroyed');
+      if (failure) throw failure;
       attempts += 1;
-      lastSnapshot = renderer.render(request || {});
+      try {
+        lastSnapshot = renderer.render(request || {});
+      } catch (error) {
+        failure = error instanceof Error ? error : new Error(String(error));
+        throw failure;
+      }
       successes += 1;
       return Object.freeze({
         canvas: canvas,
@@ -686,6 +696,8 @@
         attempts: attempts,
         successes: successes,
         destroyed: destroyed,
+        failed: !!failure,
+        failureMessage: failure ? failure.message : null,
         lastSnapshot: lastSnapshot,
       });
     }
