@@ -1,6 +1,4 @@
-// v112-event-rules-adapter.js -- the sole v1.12 fact-to-rule mapper.
-// Event packs report physical facts; this adapter validates them and emits one
-// idempotently claimable rules input. It never trusts a pack-supplied reward.
+// v112-event-rules-adapter.js -- sole event-verdict to match-rule boundary.
 (function (root, factory) {
   'use strict';
   var Kernel = root && root.FlipgameV112EventKernel;
@@ -13,8 +11,8 @@
   : (typeof window !== 'undefined' ? window : this)), function (Kernel) {
   'use strict';
 
-  if (!Kernel || typeof Kernel.normalizeOutcomeFacts !== 'function') {
-    throw new Error('FlipgameV112EventKernel must load before v112-event-rules-adapter.js');
+  if (!Kernel || Kernel.schema !== 'FlipgameEventKernelV2') {
+    throw new Error('FlipgameV112EventKernel V2 must load before v112-event-rules-adapter.js');
   }
 
   var ROULETTE_MULTIPLIERS = Object.freeze([1, 2, 3, 4, 4, 3, 2, 1]);
@@ -23,66 +21,63 @@
     'automatic-win', 'automatic-loss', 'always-magnet',
     'everyone-else-halved', 'lives-doubled',
   ]);
-  var REQUEST_KEYS = Object.freeze([
-    'resolutionId', 'eventId', 'formatId', 'result', 'pose', 'facts',
-  ]);
 
-  function object(value) {
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  function stableHash(value) {
+    var text = String(value);
+    var hash = 2166136261;
+    for (var index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
   }
-  function required(value, label, maximum) {
-    var text = String(value == null ? '' : value).trim();
-    if (!text) throw new TypeError(label + ' is required');
-    if (maximum != null && text.length > maximum) throw new RangeError(label + ' is too long');
-    return text;
+  function hex32(value) { return (value >>> 0).toString(16).padStart(8, '0'); }
+  function callerId(value) {
+    if (value == null) return null;
+    return Kernel.primitiveString(value, 'resolution callerId', 96, false);
   }
-  function canonical(value) {
-    if (value == null || typeof value !== 'object') return JSON.stringify(value);
-    if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
-    return '{' + Object.keys(value).sort().map(function (key) {
-      return JSON.stringify(key) + ':' + canonical(value[key]);
-    }).join(',') + '}';
+  function token(namespace, ordinal, caller) {
+    var material = namespace + '|' + ordinal + '|' +
+      encodeURIComponent(caller == null ? '' : caller) + '|pressure-signal';
+    return hex32(stableHash('a|' + material)) + hex32(stableHash('b|' + material));
   }
-  function effectMetadata(eventId, facts) {
-    return { eventId: eventId, outcomeFacts: facts.values };
+  function identityId(namespace, ordinal, tokenValue, caller) {
+    return 'ri1|' + namespace + '|' + ordinal + '|' + tokenValue + '|' +
+      (caller == null ? '' : encodeURIComponent(caller));
   }
-
-  function normalizedRequest(value) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new TypeError('Event rules resolution request is required');
+  function normalizeIdentity(value) {
+    if (!Kernel.isPlainObject(value)) throw new TypeError('ResolutionIdentityV1 is required');
+    Kernel.exactKeys(value, ['schema', 'namespace', 'ordinal', 'token', 'callerId', 'id'],
+      'ResolutionIdentityV1');
+    if (value.schema !== 'ResolutionIdentityV1') throw new TypeError('ResolutionIdentityV1 schema is invalid');
+    var namespace = Kernel.primitiveString(value.namespace, 'resolution namespace', 320, false);
+    if (namespace.indexOf('|') >= 0) throw new TypeError('resolution namespace cannot contain a pipe');
+    var ordinal = Kernel.whole(value.ordinal, 'resolution ordinal', 1, Number.MAX_SAFE_INTEGER);
+    var caller = callerId(value.callerId);
+    var expectedToken = token(namespace, ordinal, caller);
+    var suppliedToken = Kernel.primitiveString(value.token, 'resolution token', 32, false);
+    var expectedId = identityId(namespace, ordinal, expectedToken, caller);
+    var suppliedId = Kernel.primitiveString(value.id, 'resolution id', 640, false);
+    if (suppliedToken !== expectedToken || suppliedId !== expectedId) {
+      throw new Error('ResolutionIdentityV1 token or id is invalid');
     }
-    Object.keys(value).forEach(function (key) {
-      if (REQUEST_KEYS.indexOf(key) < 0) {
-        throw new TypeError('Event rules request has unsupported field: ' + key);
-      }
-    });
-    var resolutionId = required(value.resolutionId, 'resolutionId', 320);
-    var eventId = required(value.eventId, 'eventId', 64);
-    if (!Object.prototype.hasOwnProperty.call(Kernel.FACT_SPECS, eventId)) {
-      throw new TypeError('Unsupported eventId: ' + eventId);
-    }
-    var formatId = String(value.formatId || 'classic');
-    if (['classic', 'cup', 'team-clash'].indexOf(formatId) < 0) {
-      throw new TypeError('Event rules adapter does not support format: ' + formatId);
-    }
-    if (formatId === 'team-clash' && eventId === 'life-drain') {
-      throw new Error('Life Drain is excluded from Team Clash');
-    }
-    var result = String(value.result || '').toUpperCase();
-    if (result !== 'MAKE' && result !== 'MISS') throw new TypeError('Event result must be MAKE or MISS');
-    var pose = result === 'MISS' ? 'miss' : String(value.pose || 'upright').toLowerCase();
-    if (result === 'MAKE' && pose !== 'upright' && pose !== 'cap') {
-      throw new TypeError('Event make pose must be upright or cap');
-    }
-    var facts = Kernel.normalizeOutcomeFacts(eventId, value.facts);
-    return Kernel.deepFreeze({ resolutionId: resolutionId, eventId: eventId,
-      formatId: formatId, result: result, pose: pose, facts: facts });
+    return Kernel.deepFreeze({ schema: 'ResolutionIdentityV1', namespace: namespace,
+      ordinal: ordinal, token: suppliedToken, callerId: caller, id: suppliedId });
+  }
+  function fingerprint(outcome, formatId) {
+    return stableHash(formatId + '|' + JSON.stringify(outcome)) + ':' +
+      stableHash('b|' + formatId + '|' + JSON.stringify(outcome));
+  }
+  function metadata(outcome) {
+    return { eventId: outcome.eventId, eventClass: outcome.eventClass,
+      laneId: outcome.laneId, launchClaimId: outcome.launchClaimId,
+      outcomeFacts: outcome.facts.values };
   }
 
-  function validatePhysicalVerdict(request) {
-    var id = request.eventId;
-    var made = request.result === 'MAKE';
-    var facts = request.facts.values;
+  function validatePhysicalVerdict(outcome) {
+    var id = outcome.eventId;
+    var made = outcome.result === 'MAKE';
+    var facts = outcome.facts.values;
     function madeRequires(condition, message) {
       if (made && !condition) throw new Error(id + ' cannot report MAKE: ' + message);
     }
@@ -97,23 +92,23 @@
     if (id === 'portal-pair') madeRequires(facts.portalPasses >= 1, 'no portal was traversed');
     if (id === 'tether-swing') madeRequires(facts.cableAttached && facts.released,
       'the tether arc was incomplete');
-    if (id === 'mitosis') exactVerdict(facts.landedCopies >= 1, 'clone landing count');
+    if (id === 'mitosis') exactVerdict(facts.landedCopies >= 1, 'clone landing evidence');
     if (id === 'double-flip') madeRequires(facts.rotations >= 2, 'fewer than two rotations completed');
     if (id === 'ceiling-flip') madeRequires(facts.ceilingContact, 'the ceiling plane was not reached');
     if (id === 'boomerang') madeRequires(facts.returnedToOrigin, 'the marked return was not reached');
     if (id === 'cap-toss') exactVerdict(facts.bodyLanded && facts.topLanded,
-      'body/top landing facts');
-    if (id === 'plinko') return;
+      'body/top collider verdicts');
   }
 
-  function classicReward(request, rulesInput, output) {
-    var id = request.eventId;
-    var facts = request.facts.values;
+  function classicReward(outcome, rulesInput, output) {
+    var id = outcome.eventId;
+    var facts = outcome.facts.values;
     if (id === 'mirror-match') {
       output.deferred = { schema: 'EventDeferredEffectV1', kind: 'mirror-match',
-        normalizedLaunchX: facts.normalizedLaunchX, normalizedLaunchY: facts.normalizedLaunchY,
-        spin: facts.spin, profileSeed: facts.profileSeed,
-        physicsProfileId: facts.physicsProfileId, nestedEvents: false };
+        normalizedLaunchX: facts.normalizedLaunchX,
+        normalizedLaunchY: facts.normalizedLaunchY, spin: facts.spin,
+        profileSeed: facts.profileSeed, physicsProfileId: facts.physicsProfileId,
+        nestedEvents: false };
     }
     if (rulesInput.result !== 'MAKE') return;
     if (id === 'rainbow-corkscrew') rulesInput.effects.additiveLives = 1;
@@ -131,20 +126,22 @@
     if (id === 'life-drain') rulesInput.effects.setOpponentsTo = 1;
   }
 
-  function teamReward(request, rulesInput, output) {
-    var id = request.eventId;
-    var facts = request.facts.values;
+  function teamReward(outcome, rulesInput, output) {
+    var id = outcome.eventId;
+    var facts = outcome.facts.values;
     if (id === 'mirror-match') {
       output.deferred = { schema: 'EventDeferredEffectV1', kind: 'mirror-match',
-        normalizedLaunchX: facts.normalizedLaunchX, normalizedLaunchY: facts.normalizedLaunchY,
-        spin: facts.spin, profileSeed: facts.profileSeed,
-        physicsProfileId: facts.physicsProfileId, nestedEvents: false };
+        normalizedLaunchX: facts.normalizedLaunchX,
+        normalizedLaunchY: facts.normalizedLaunchY, spin: facts.spin,
+        profileSeed: facts.profileSeed, physicsProfileId: facts.physicsProfileId,
+        nestedEvents: false };
     }
     if (rulesInput.result !== 'MAKE') return;
     if (id === 'golden-flip') rulesInput.golden = true;
     if (id === 'rainbow-corkscrew') rulesInput.effects.additivePoints = 1;
-    if (id === 'shrink-ray') rulesInput.effects.additivePoints = rulesInput.pose === 'cap' ? 3 : 2;
-    if (id === 'mitosis' && facts.landedCopies === 2) rulesInput.effects.additivePoints = 3;
+    // These are total raw flip values, not bonuses on top of the base point.
+    if (id === 'shrink-ray') rulesInput.rawPoints = rulesInput.pose === 'cap' ? 3 : 2;
+    if (id === 'mitosis' && facts.landedCopies === 2) rulesInput.rawPoints = 3;
     if (id === 'double-flip') {
       rulesInput.effects.scoreMultiplier = 2;
       rulesInput.effects.halveOpponentRound = true;
@@ -155,89 +152,122 @@
     if (id === 'cap-toss') rulesInput.rawPoints = 5;
   }
 
-  function applyPlinko(request, rulesInput, output) {
-    var slotIndex = request.facts.values.slotIndex;
-    var slot = PLINKO_SLOTS[slotIndex];
+  function applyPlinko(outcome, formatId, rulesInput, output) {
+    var slot = PLINKO_SLOTS[outcome.facts.values.slotIndex];
     rulesInput.result = slot === 'automatic-loss' ? 'MISS' : 'MAKE';
     rulesInput.pose = slot === 'automatic-loss' ? 'miss' : 'upright';
     if (slot === 'automatic-win') {
       output.terminalOutcome = 'current-win';
-      if (request.formatId === 'team-clash') rulesInput.effects.automaticWinner = 'current';
+      if (formatId === 'team-clash') rulesInput.effects.automaticWinner = 'current';
     } else if (slot === 'automatic-loss') {
       output.terminalOutcome = 'current-loss';
-      if (request.formatId === 'team-clash') rulesInput.effects.automaticWinner = 'opponent';
+      if (formatId === 'team-clash') rulesInput.effects.automaticWinner = 'opponent';
       else rulesInput.effects.forceEliminateActor = true;
     } else if (slot === 'lives-doubled') {
-      if (request.formatId === 'team-clash') rulesInput.effects.scoreMultiplier = 2;
+      if (formatId === 'team-clash') rulesInput.effects.scoreMultiplier = 2;
       else rulesInput.effects.lifeMultiplier = 2;
     } else if (slot === 'everyone-else-halved') {
-      if (request.formatId === 'team-clash') rulesInput.effects.halveOpponentRound = true;
+      if (formatId === 'team-clash') rulesInput.effects.halveOpponentScore = true;
       else rulesInput.effects.halveOpponents = true;
     } else if (slot === 'always-magnet') {
       rulesInput.effects.grantAlwaysMagnet = true;
     }
   }
 
-  function mapRequest(request) {
-    validatePhysicalVerdict(request);
-    var rulesInput = { result: request.result, pose: request.pose,
-      effects: { metadata: effectMetadata(request.eventId, request.facts) } };
+  function mapOutcome(outcome, formatId) {
+    validatePhysicalVerdict(outcome);
+    var rulesInput = { result: outcome.result, pose: outcome.pose,
+      effects: { metadata: metadata(outcome) } };
     var output = { terminalOutcome: null, deferred: null };
-    if (request.eventId === 'plinko') applyPlinko(request, rulesInput, output);
-    else if (request.formatId === 'team-clash') teamReward(request, rulesInput, output);
-    else classicReward(request, rulesInput, output);
-    return Kernel.deepFreeze({ rulesInput: rulesInput,
-      terminalOutcome: output.terminalOutcome, deferred: output.deferred });
+    if (outcome.eventId === 'plinko') applyPlinko(outcome, formatId, rulesInput, output);
+    else if (formatId === 'team-clash') teamReward(outcome, rulesInput, output);
+    else classicReward(outcome, rulesInput, output);
+    return Kernel.immutableData({ rulesInput: rulesInput,
+      terminalOutcome: output.terminalOutcome, deferred: output.deferred }, 'event rule mapping');
   }
 
   function createRulesAdapter(options) {
-    var source = object(options);
-    Object.keys(source).forEach(function (key) {
-      if (key !== 'scopeId') throw new TypeError('Rules adapter has unsupported option: ' + key);
-    });
-    var scopeId = required(source.scopeId || 'local-match', 'rules adapter scopeId', 160);
-    var claims = new Map();
+    if (!Kernel.isPlainObject(options)) throw new TypeError('Rules adapter options are required');
+    Kernel.exactKeys(options, ['namespace', 'resolvedThrough', 'authority'], 'Rules adapter options');
+    var namespace = Kernel.primitiveString(options.namespace, 'rules namespace', 320, false);
+    if (namespace.indexOf('|') >= 0) throw new TypeError('rules namespace cannot contain a pipe');
+    var resolvedThrough = options.resolvedThrough == null ? 0
+      : Kernel.whole(options.resolvedThrough, 'resolvedThrough', 0, Number.MAX_SAFE_INTEGER - 1);
+    var authority = options.authority;
+    if (!authority || typeof authority.verifyOutcome !== 'function') {
+      throw new TypeError('Rules adapter requires an EventAuthorityV1 rules capability');
+    }
+    var nextOrdinal = resolvedThrough + 1;
+    var lastResolutionId = null;
+    var lastFingerprint = null;
+    var lastOutcome = null;
+    var claimedOutcomes = new WeakSet();
     var closed = false;
 
     function resolve(value) {
       if (closed) throw new Error('Event rules adapter is closed');
-      var request = normalizedRequest(value);
-      var fingerprint = canonical(request);
-      var prior = claims.get(request.resolutionId);
-      if (prior) {
-        if (prior.fingerprint !== fingerprint) {
-          throw new Error('Resolution ID was reused with different event facts');
-        }
-        return Kernel.deepFreeze({ schema: 'EventRulesResolutionV1', scopeId: scopeId,
-          resolutionId: request.resolutionId, eventId: request.eventId,
-          claimed: false, duplicate: true, rulesInput: null,
-          terminalOutcome: null, deferred: null });
+      if (!Kernel.isPlainObject(value)) throw new TypeError('Event rules resolution request is required');
+      Kernel.exactKeys(value, ['resolutionIdentity', 'formatId', 'outcome'],
+        'Event rules resolution request');
+      var identity = normalizeIdentity(value.resolutionIdentity);
+      var formatId = Kernel.primitiveString(value.formatId, 'event formatId', 32, false);
+      if (['classic', 'cup', 'team-clash'].indexOf(formatId) < 0) {
+        throw new TypeError('Event rules adapter does not support format: ' + formatId);
       }
-      var mapped = mapRequest(request);
-      var result = Kernel.deepFreeze({ schema: 'EventRulesResolutionV1', scopeId: scopeId,
-        resolutionId: request.resolutionId, eventId: request.eventId,
+      var outcome = value.outcome;
+      if (!authority.verifyOutcome(outcome)) {
+        throw new Error('Rules adapter accepts only a kernel-issued runtime outcome');
+      }
+      if (formatId === 'team-clash' && outcome.eventId === 'life-drain') {
+        throw new Error('Life Drain is excluded from Team Clash');
+      }
+      var mark = fingerprint(outcome, formatId);
+      if (identity.namespace !== namespace) throw new Error('Foreign resolution identity');
+      if (identity.ordinal !== nextOrdinal) {
+        if (identity.ordinal === nextOrdinal - 1 && identity.id === lastResolutionId &&
+            mark === lastFingerprint && outcome === lastOutcome) {
+          return Kernel.immutableData({ schema: 'EventRulesResolutionV1',
+            namespace: namespace, resolutionId: identity.id, eventId: outcome.eventId,
+            claimed: false, duplicate: true, rulesInput: null,
+            terminalOutcome: null, deferred: null }, 'duplicate event rules resolution');
+        }
+        throw new Error('Duplicate, stale, future, or reordered resolution identity');
+      }
+      if (claimedOutcomes.has(outcome)) {
+        throw new Error('Runtime outcome was already consumed by a prior resolution identity');
+      }
+      var mapped = mapOutcome(outcome, formatId);
+      var result = Kernel.immutableData({ schema: 'EventRulesResolutionV1',
+        namespace: namespace, resolutionId: identity.id, eventId: outcome.eventId,
         claimed: true, duplicate: false, rulesInput: mapped.rulesInput,
-        terminalOutcome: mapped.terminalOutcome, deferred: mapped.deferred });
-      claims.set(request.resolutionId, { fingerprint: fingerprint, result: result });
+        terminalOutcome: mapped.terminalOutcome, deferred: mapped.deferred },
+      'event rules resolution');
+      resolvedThrough = identity.ordinal;
+      nextOrdinal = identity.ordinal + 1;
+      lastResolutionId = identity.id;
+      lastFingerprint = mark;
+      lastOutcome = outcome;
+      claimedOutcomes.add(outcome);
       return result;
     }
 
     function snapshot() {
-      return Object.freeze({ schema: 'EventRulesAdapterSnapshotV1', scopeId: scopeId,
-        closed: closed, claims: claims.size });
+      return Object.freeze({ schema: 'EventRulesAdapterSnapshotV1', namespace: namespace,
+        closed: closed, resolvedThrough: resolvedThrough, nextOrdinal: nextOrdinal,
+        lastResolutionId: lastResolutionId });
     }
     function cleanup() {
-      if (!closed) {
-        closed = true;
-        claims.clear();
-      }
+      closed = true;
+      lastResolutionId = null;
+      lastFingerprint = null;
+      lastOutcome = null;
       return snapshot();
     }
-    return Object.freeze({ schema: 'EventRulesAdapterV1', scopeId: scopeId,
+    return Object.freeze({ schema: 'EventRulesAdapterV2', namespace: namespace,
       resolve: resolve, snapshot: snapshot, cleanup: cleanup });
   }
 
-  return Object.freeze({ schema: 'FlipgameEventRulesAdapterV1',
+  return Object.freeze({ schema: 'FlipgameEventRulesAdapterV2',
     ROULETTE_MULTIPLIERS: ROULETTE_MULTIPLIERS, PLINKO_SLOTS: PLINKO_SLOTS,
     createRulesAdapter: createRulesAdapter });
 });

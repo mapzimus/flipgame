@@ -1,4 +1,4 @@
-// v112-event-harness.js -- deterministic reusable harness for event-pack suites.
+// v112-event-harness.js -- deterministic fixtures for event-pack qualification.
 (function (root, factory) {
   'use strict';
   var Kernel = root && root.FlipgameV112EventKernel;
@@ -23,6 +23,9 @@
     throw new Error('The v1.12 event infrastructure must load before its harness');
   }
 
+  var PRIMARY_TRANSFORM = Object.freeze({ x: 640, y: 300, angle: 1.2, scaleX: 1, scaleY: 1 });
+  var PRIMARY_BOUNDS = Object.freeze({ left: 610, top: 240, width: 60, height: 120,
+    right: 670, bottom: 360 });
   var DEFAULT_FACTS = Object.freeze({
     'rainbow-corkscrew': { corkscrewRadians: 8 },
     'half-full': { centerOfMassShift: 0.2, baseStabilized: true },
@@ -40,7 +43,8 @@
     'shrink-ray': { scale: 0.62 },
     'portal-pair': { portalPasses: 1, speedRatio: 1 },
     'tether-swing': { cableAttached: true, released: true, swingRadians: 2.5 },
-    mitosis: { landedCopies: 1 },
+    mitosis: { primaryColliderRef: 'body:primary', secondaryColliderRef: 'body:secondary',
+      primaryLanded: true, secondaryLanded: false, landedCopies: 1 },
     'double-flip': { rotations: 2.1 },
     'ceiling-flip': { ceilingContact: true },
     'meteor-shower': { debrisContacts: 2 },
@@ -48,37 +52,66 @@
     'heart-rush': { pulseCount: 3 },
     'black-hole': { orbitRadians: 3.4 },
     boomerang: { returnedToOrigin: true, returnDistance: 6 },
-    'roulette-table': { sectorIndex: 3 },
+    'roulette-table': { wheelColliderRef: 'body:wheel', objectColliderRef: 'body:object',
+      sectorIndex: 3, landingX: 42, sectorLeft: 40, sectorRight: 50,
+      wheelAngle: 1.5, settled: true },
     rewind: { replayCount: 1, correctiveImpulseApplied: true },
-    plinko: { slotIndex: 4, dropDurationMs: 12000 },
+    plinko: { objectColliderRef: 'body:object', slotSensorRef: 'sensor:slot-4',
+      slotIndex: 4, dropDurationMs: 12000, landingX: 45,
+      slotLeft: 40, slotRight: 50, settled: true },
     'mirror-match': { normalizedLaunchX: 0.12, normalizedLaunchY: -0.48,
       spin: 7.5, profileSeed: 123, physicsProfileId: 'standard' },
-    'cap-toss': { bodyLanded: true, topLanded: true },
+    'cap-toss': { bodyColliderRef: 'body:body', topColliderRef: 'body:top',
+      bodyLanded: true, topLanded: true },
     'life-drain': { magnetAssisted: true },
   });
 
-  function clone(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
+  function clone(value) {
+    if (value == null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map(clone);
+    var result = {};
+    Object.keys(value).forEach(function (key) { result[key] = clone(value[key]); });
+    return result;
+  }
 
   function makeSelection(eventId, eventClass, eventSeed, overrides) {
-    return Kernel.deepFreeze(Object.assign({ schema: 'EventSelectionV2', eventId: eventId,
+    var value = Object.assign({ schema: 'EventSelectionV2', eventId: eventId,
       displayName: eventId, eventClass: eventClass, turnSeed: 1,
-      eventSeed: eventSeed == null ? 12345 : Number(eventSeed) >>> 0,
-      oddsProfile: 'forced-test', forced: true, testData: true, consumed: true,
-      telegraph: { glyph: eventId, title: eventId, instruction: 'Harness event.', durationMs: 0 },
-    }, clone(overrides || {})));
+      eventSeed: eventSeed == null ? 12345 : eventSeed,
+      oddsProfile: 'forced-test', forced: true, testData: true, consumed: false,
+      telegraph: { glyph: eventId, title: eventId,
+        instruction: 'Harness event.', durationMs: 0, cues: [] },
+    }, clone(overrides || {}));
+    return Kernel.deepFreeze(value);
   }
 
   function makeContext(overrides) {
-    return Object.assign({
-      layout: { width: 1280, height: 720, groundY: 620 },
+    return Object.assign({ layout: { width: 1280, height: 720, groundY: 620 },
       appearance: { flipperId: 'bottle', variantId: 'classic-blue' },
-      physicsProfile: { id: 'standard', mass: 1, colliderRef: 'flipper-main' },
+      physicsProfile: { id: 'standard', mass: 1, colliderRef: 'body:flipper-main' },
     }, clone(overrides || {}));
+  }
+
+  function makeSignal(overrides) {
+    return Object.assign({ schema: 'EventLaunchSignalV1', dx: 20, dy: -160,
+      vx: 2, vy: -8, power: 0.6, direction: 0.2, spin: 4, elapsedMs: 180 },
+    clone(overrides || {}));
+  }
+
+  function makeDraft(overrides) {
+    return Object.assign({ schema: 'EventLaunchDraftV1', bodyRef: 'body:flipper-main',
+      position: { x: 640, y: 300 }, velocity: { x: 2, y: -8 }, angle: 1.2,
+      angularVelocity: 4 }, clone(overrides || {}));
+  }
+
+  function makeStep(overrides) {
+    return Object.assign({ schema: 'EventPhysicsStepV1', dtMs: 16, elapsedMs: 1800 },
+      clone(overrides || {}));
   }
 
   function makeContact(overrides) {
     return Object.assign({ schema: 'ContactV1', contactId: 'contact-1', phase: 'begin',
-      entityARef: 'flipper-main', entityBRef: 'table', point: { x: 640, y: 620 },
+      entityARef: 'body:flipper-main', entityBRef: 'table', point: { x: 640, y: 620 },
       normal: { x: 0, y: -1 }, impulse: 4, elapsedMs: 600 }, clone(overrides || {}));
   }
 
@@ -92,12 +125,64 @@
     return Object.assign({ schema: 'EventFrameV1', eventId: eventId,
       eventClass: eventClass, laneId: laneId, sequence: 0,
       entities: [{ entityId: 'flipper-main', role: 'flipper',
-        transform: { x: 640, y: 300, angle: 1.2, scaleX: 1, scaleY: 1 },
-        bounds: { left: 610, top: 240, width: 60, height: 120 },
-        colliderRef: 'flipper-main', appearanceRef: 'bottle:classic-blue',
+        transform: clone(PRIMARY_TRANSFORM), bounds: clone(PRIMARY_BOUNDS),
+        colliderRef: 'body:flipper-main', appearanceRef: 'bottle:classic-blue',
         visualStateRef: 'airborne', visible: true, zIndex: 10 }],
-      cues: [{ cueId: 'harness-cue' }], reducedMotion: false,
+      cues: [{ cueId: 'harness-cue', kind: 'trail' }], reducedMotion: false,
     }, clone(overrides || {}));
+  }
+
+  function makeCollider(laneId, name, overrides) {
+    var source = overrides || {};
+    return { laneId: laneId, name: name, transform: clone(PRIMARY_TRANSFORM),
+      bounds: clone(PRIMARY_BOUNDS), evidence: Object.assign({ settled: true,
+        validLanding: true, pose: 'upright', sensorActive: false },
+      clone(source.evidence || {})) };
+  }
+
+  function ownCollider(context, kind, id, disposals, source, overrides) {
+    var collider = makeCollider(context.scope.laneId, id, overrides);
+    if (overrides && overrides.transform) collider.transform = Object.assign(collider.transform,
+      clone(overrides.transform));
+    if (overrides && overrides.bounds) collider.bounds = Object.assign(collider.bounds,
+      clone(overrides.bounds));
+    var method = kind === 'sensor' ? 'ownSensor' : 'ownBody';
+    context.scope[method](id, collider, function (resource, metadata) {
+      disposals.push({ value: resource, metadata: metadata });
+      if (source.throwDisposerAt === kind + ':' + id || source.throwDisposerAt === kind) {
+        throw new Error('harness-dispose-' + kind + ':' + id);
+      }
+    });
+    return collider;
+  }
+
+  function ownRequiredColliders(eventId, context, disposals, source) {
+    var facts = source.facts || DEFAULT_FACTS[eventId];
+    ownCollider(context, 'body', 'flipper-main', disposals, source);
+    if (eventId === 'mitosis') {
+      ownCollider(context, 'body', 'primary', disposals, source,
+        { evidence: { validLanding: facts.primaryLanded, pose: facts.primaryLanded ? 'upright' : 'miss' } });
+      ownCollider(context, 'body', 'secondary', disposals, source,
+        { evidence: { validLanding: facts.secondaryLanded,
+          pose: facts.secondaryLanded ? 'upright' : 'miss' } });
+    } else if (eventId === 'roulette-table') {
+      ownCollider(context, 'body', 'wheel', disposals, source,
+        { transform: { angle: facts.wheelAngle } });
+      ownCollider(context, 'body', 'object', disposals, source,
+        { transform: { x: facts.landingX } });
+    } else if (eventId === 'plinko') {
+      ownCollider(context, 'body', 'object', disposals, source,
+        { transform: { x: facts.landingX } });
+      ownCollider(context, 'sensor', 'slot-4', disposals, source,
+        { bounds: { left: facts.slotLeft, width: facts.slotRight - facts.slotLeft,
+            right: facts.slotRight },
+          evidence: { sensorActive: true } });
+    } else if (eventId === 'cap-toss') {
+      ownCollider(context, 'body', 'body', disposals, source,
+        { evidence: { validLanding: facts.bodyLanded, pose: facts.bodyLanded ? 'upright' : 'miss' } });
+      ownCollider(context, 'body', 'top', disposals, source,
+        { evidence: { validLanding: facts.topLanded, pose: facts.topLanded ? 'upright' : 'miss' } });
+    }
   }
 
   function makePack(options) {
@@ -105,9 +190,11 @@
     var eventClass = source.eventClass || 'assist';
     var ids = source.ids || ['rainbow-corkscrew'];
     var trace = source.trace || [];
+    var disposals = source.disposals || [];
     return Kernel.definePack({ eventClass: eventClass, ids: ids,
       create: function (eventId, context) {
         trace.push('create:' + context.scope.laneId);
+        ownRequiredColliders(eventId, context, disposals, source);
         if (typeof source.onCreate === 'function') source.onCreate(eventId, context, trace);
         var frameSequence = 0;
         function maybeThrow(name) {
@@ -116,29 +203,38 @@
         return Object.freeze({
           telegraph: function () {
             trace.push('telegraph'); maybeThrow('telegraph');
-            return { title: eventId, instruction: 'Harness event.', glyph: 'test', durationMs: 0,
-              cues: [] };
+            return { title: eventId, instruction: 'Harness event.', glyph: 'test',
+              durationMs: 0, cues: [] };
           },
-          qualifyLaunch: function () {
+          qualifyLaunch: function (signal) {
             trace.push('qualifyLaunch'); maybeThrow('qualifyLaunch');
+            if (typeof source.qualify === 'function') return source.qualify(signal, context);
             return { qualified: source.qualified !== false,
               reason: source.qualified === false ? 'harness-retry' : null };
           },
-          launch: function () {
+          launch: function (draft) {
             trace.push('launch'); maybeThrow('launch');
-            return { rngSample: context.rng.nextUint32('launch') };
+            if (typeof source.launch === 'function') return source.launch(draft, context);
+            context.rng.nextUint32('launch');
+            return {};
           },
-          step: function () {
+          step: function (physicsStep) {
             trace.push('step'); maybeThrow('step'); frameSequence += 1;
-            return { simulated: true };
+            if (typeof source.step === 'function') return source.step(physicsStep, context);
+            return {};
           },
-          contact: function () {
+          contact: function (contact) {
             trace.push('contact'); maybeThrow('contact');
-            return { observed: true };
+            if (typeof source.contact === 'function') return source.contact(contact, context);
+            return {};
           },
-          evaluate: function () {
+          evaluate: function (probe) {
             trace.push('evaluate'); maybeThrow('evaluate');
-            return clone(source.facts || DEFAULT_FACTS[eventId]);
+            if (typeof source.evaluate === 'function') return source.evaluate(probe, context);
+            if (!probe.settled) return null;
+            return Kernel.immutableData({ result: probe.result, pose: probe.pose,
+              reason: probe.reason, facts: clone(source.facts || DEFAULT_FACTS[eventId]) },
+            'harness evaluation');
           },
           frame: function (reducedMotion) {
             trace.push('frame:' + reducedMotion); maybeThrow('frame');
@@ -146,11 +242,12 @@
               ? source.frame(reducedMotion, context, frameSequence) : null;
             return provided || makeFrame(eventId, eventClass, context.scope.laneId,
               { sequence: frameSequence, reducedMotion: reducedMotion,
-                cues: reducedMotion ? [{ cueId: 'static-harness-cue' }] : [{ cueId: 'harness-cue' }] });
+                cues: reducedMotion ? [{ cueId: 'static-harness-cue', kind: 'static' }]
+                  : [{ cueId: 'harness-cue', kind: 'trail' }] });
           },
           cleanup: function (reason) {
             trace.push('cleanup:' + reason); maybeThrow('cleanup');
-            return { cleaned: true };
+            if (typeof source.cleanup === 'function') return source.cleanup(reason, context);
           },
         });
       } });
@@ -161,59 +258,58 @@
     var trace = [];
     var disposals = [];
     var reflows = [];
+    var authority = source.authority || Kernel.createAuthority();
     var pack = source.pack || makePack({ eventClass: source.eventClass,
       ids: source.ids || [source.eventId || 'rainbow-corkscrew'],
-      facts: source.facts, frame: source.frame, throwAt: source.throwAt,
-      qualified: source.qualified, trace: trace,
-      onCreate: function (eventId, context) {
-        (source.resourceKinds || []).forEach(function (kind, index) {
-          var resource = { laneId: context.scope.laneId, kind: kind, index: index };
-          var method = 'own' + kind.charAt(0).toUpperCase() + kind.slice(1);
-          context.scope[method](kind + '-' + index, resource, function (value, metadata) {
-            disposals.push({ value: value, metadata: metadata });
-            if (source.throwDisposerAt === kind) throw new Error('harness-dispose-' + kind);
-          });
-        });
-        if (typeof source.onCreate === 'function') source.onCreate(eventId, context, trace);
-      },
-    });
+      facts: source.facts, frame: source.frame, evaluate: source.evaluate,
+      launch: source.launch, step: source.step, contact: source.contact,
+      cleanup: source.cleanup, throwAt: source.throwAt,
+      qualified: source.qualified, qualify: source.qualify, trace: trace,
+      disposals: disposals, throwDisposerAt: source.throwDisposerAt,
+      onCreate: source.onCreate });
     var eventId = source.eventId || pack.ids[0];
     var runtime = Runtime.createEventRuntime({ laneId: source.laneId || 'lane-a',
-      packs: [pack], reflow: function (layout, metadata) {
+      packs: [pack], authority: authority.runtime,
+      resolveCollider: source.resolveCollider || function (collider) {
+        return { transform: collider.transform, bounds: collider.bounds,
+          evidence: collider.evidence };
+      },
+      reflow: function (layout, metadata) {
         reflows.push({ layout: layout, metadata: metadata });
         if (source.throwReflow) throw new Error('harness-reflow');
       } });
-    runtime.bind(makeSelection(eventId, pack.eventClass, source.eventSeed),
-      makeContext(source.context));
+    var selection = makeSelection(eventId, pack.eventClass, source.eventSeed, source.selection);
+    runtime.bind(selection, makeContext(source.context));
     return { runtime: runtime, pack: pack, trace: trace, disposals: disposals,
-      reflows: reflows, selection: makeSelection(eventId, pack.eventClass, source.eventSeed) };
+      reflows: reflows, selection: selection, authority: authority };
   }
 
   function drive(runtime, options) {
     var source = options || {};
+    var defaultElapsed = runtime.snapshot().eventId === 'plinko' ? 12000 : 1800;
     var result = { telegraph: runtime.telegraph(),
-      qualification: runtime.qualifyLaunch(source.signal || { dx: 0.1, dy: -0.5 }) };
+      qualification: runtime.qualifyLaunch(source.signal || makeSignal()) };
     if (!result.qualification.qualified) return result;
-    result.launch = runtime.launch(source.draft || { velocity: { x: 2, y: -8 }, spin: 4 });
-    result.step = runtime.step(source.step || { dtMs: 16, elapsedMs: 16 });
+    result.launch = runtime.launch(source.draft || makeDraft());
+    result.step = runtime.step(source.step || makeStep({ elapsedMs: defaultElapsed }));
     if (source.contact !== false) result.contact = runtime.contact(makeContact(source.contact));
     result.frame = runtime.frame(source.reducedMotion === true);
-    result.facts = runtime.evaluate(makeProbe(source.probe));
+    result.outcome = runtime.evaluate(makeProbe(Object.assign({ elapsedMs: defaultElapsed },
+      source.probe || {})));
     return result;
   }
 
   function assertNoLeaks(runtime) {
-    var snapshot = runtime.snapshot();
-    if (!snapshot.cleanup || snapshot.resources.active !== 0) {
-      throw new Error('Event runtime still owns lane resources');
-    }
+    var state = runtime.snapshot();
+    if (!state.cleanup || state.resources.active !== 0) throw new Error('Event runtime still owns lane resources');
     return true;
   }
 
-  return Object.freeze({ schema: 'FlipgameEventHarnessV1',
-    Kernel: Kernel, Runtime: Runtime, Renderer: Renderer, RulesAdapter: RulesAdapter,
-    DEFAULT_FACTS: DEFAULT_FACTS, makeSelection: makeSelection, makeContext: makeContext,
-    makeContact: makeContact, makeProbe: makeProbe, makeFrame: makeFrame,
-    makePack: makePack, createHarness: createHarness, drive: drive,
-    assertNoLeaks: assertNoLeaks });
+  return Object.freeze({ schema: 'FlipgameEventHarnessV2', Kernel: Kernel,
+    Runtime: Runtime, Renderer: Renderer, RulesAdapter: RulesAdapter,
+    DEFAULT_FACTS: DEFAULT_FACTS, makeSelection: makeSelection,
+    makeContext: makeContext, makeSignal: makeSignal, makeDraft: makeDraft,
+    makeStep: makeStep, makeContact: makeContact, makeProbe: makeProbe,
+    makeFrame: makeFrame, makeCollider: makeCollider, makePack: makePack,
+    createHarness: createHarness, drive: drive, assertNoLeaks: assertNoLeaks });
 });
