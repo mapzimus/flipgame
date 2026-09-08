@@ -633,3 +633,30 @@ log, and defect ledger remain release history and are not rewritten.
 - Required tests: exact canon string, absence of prior title in shipped authored
   surfaces, one-to-one term definitions, conventional functional/accessibility
   copy, and unchanged IDs/rules/physics.
+
+## Revision 40 — Wave 3 integrity closure
+
+- Affected interfaces: `MatchSessionCoordinator`, Training activity-state hooks,
+  Physics Lab authorization, Story co-op request/target policy, Battle relay
+  leases and launch adapters, `MatchOutcomeV2`, Classic/Cup/Team validators, and
+  `ResolutionIdentityV1`.
+- Old behavior: adversarial callers could omit a dynamic Practice provider,
+  retain a held Battle aim across a full-cycle batched relay tick, strand a lane
+  with a hostile thenable, submit contradictory or forged match states, rebind a
+  resolution caller ID, or grow replay identity history without a bound.
+- New behavior: dynamic activity requests require their live provider before a
+  session opens; Battle invalidates an aim at the first crossed assignment lease
+  and safely assimilates launch promises; Story allies are exact and actor
+  scoped; match states are reachable and parent-consistent; resolution identity
+  is caller-bound, monotonic, compact, and rejects stale/foreign/tampered input.
+- Migration action: no v1.11 persistent record contains these ephemeral runtime
+  fields. Development-only match snapshots from before this revision are
+  discarded. Runtime callers issue identities through
+  `Rules.nextResolutionIdentity(state, callerId)` and submit the returned token.
+- Integrated commits: Training/Story `4cd20be`, `604f15b`, `e709044`; Battle
+  `b956db2`, `3652061`; Rules `fc8d56a`, `61ac9b0`.
+- Verification: all 45 repository script suites and all 49 inherited node tests
+  pass. Independent re-audits cover dynamic finalize/abandon, hostile launch
+  thenables, 18 multi-lane relay-cycle cases, exactly-once power restoration,
+  status/phase cross-products, exact Story alliances, forged Classic/Cup/Team
+  states, and 10,000 resolutions with only 96 bytes of payload growth.
