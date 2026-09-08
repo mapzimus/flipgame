@@ -102,7 +102,9 @@ twelve signature encounters:
   signature encounters: 1v1, three lives, Normal events.
 - Co-op uses two allied humans + six CPUs for every required match, including
   signature encounters. Humans have separate lives/turns; either human winning
-  clears. Opponent-targeted effects never attack the allied partner.
+  clears. The match ends when every survivor belongs to that human alliance.
+  Opponent-targeted effects protect only a target allied with the acting
+  Flipper; CPU actors may affect either human normally.
 - First clears use prescribed arenas. Checkpoints exist between matches only;
   abandon/interruption grants no clear or reward.
 - Story and Rival Board share rival defeat and the object grant. A Board clear
@@ -319,13 +321,26 @@ leaving discards it.
   `PostMatchResolutionV1`, `MatchSessionCoordinator`, `LaneRuntime`,
   `BattleStateV1`, `StoryCatalogV1`, `StoryAttemptV1`, `StoryStateV1`,
   `StoryResolutionV1`, `CpuProfileV1`, `ProgressionStateV4`, `FcTransactionV1`,
-  `FlipRecordV2`, `MatchRecordV2`, `EventDefinitionV2`, `UrthLexiconV1`.
+  `FlipRecordV2`, `MatchRecordV2`, `EventDefinitionV2`, `UrthLexiconV1`, and
+  compact monotonic `ResolutionIdentityV1`.
 - Separate activity (`free-play|story|rival-board|practice|physics-lab|tutorial`),
   format (`classic|cup|team-clash|battle`) and physics mode
   (`normal|insane|alien`).
 - Finalize once before presentation: freeze rules outcome; resolve activity;
   atomically claim progression/story/rival/achievement/economy by immutable
   match ID; queue stats asynchronously; render `PostMatchResolutionV1`.
+- `MatchOutcomeV2` enforces rules-phase/status agreement at its shared boundary;
+  an active state cannot claim completion and a completed state cannot be
+  relabeled abandoned/cancelled. Winner data exists only for completed state.
+- `MatchSessionCoordinator` reads a registered activity-state provider at both
+  finalize and abandon so a Training session's latest forced/Test Data state
+  cannot diverge from its immutable opening request.
+- Physics Lab authorization is issued by the Training module or checked through
+  an injected current-profile provider. Structurally similar caller objects are
+  not authority.
+- Rules resolution identity is bounded, namespaced and monotonic. Duplicate or
+  stale callbacks reject in O(1), while final outcomes retain only compact
+  integrity metadata rather than an unbounded list of prior IDs.
 - Reconcile v1.11 through its frozen catalog before V4 migration. Preserve all
   legitimate wins/FXP floor, ownership, modes, arenas, cosmetics and
   achievements without relock/reannouncement. Legacy ownership does not imply

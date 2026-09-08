@@ -581,3 +581,29 @@ log, and defect ledger remain release history and are not rewritten.
   exact per-side opportunity totals, absolute horn/CPU cutoffs, rotating Volley
   openers, delayed offer visibility, atomic power conflicts, stale callbacks,
   destruction, and two-/four-lane parity.
+
+## Revision 38 — Match integrity and dynamic activity state
+
+- Affected interfaces: `MatchOutcomeV2`, `MatchSessionCoordinator`, Training
+  activity adapters, Physics Lab authorization, rules resolution identity, and
+  Story co-op targeting/completion.
+- Old behavior: helper-level checks could be bypassed at the shared outcome
+  constructor; dynamically forced Practice state could disagree with the
+  opening request during finalize/abandon; Lab authority was self-attested; an
+  ever-growing replay-ID array made long rules sessions quadratic; ally
+  protection was target-only rather than actor-scoped and co-op allies could be
+  forced to eliminate each other after every CPU left.
+- New behavior: the shared outcome boundary enforces status/phase agreement,
+  the coordinator queries current activity state on both terminal paths, and
+  only issuer/profile-backed Lab authority is valid. Rules use bounded,
+  namespaced monotonic resolution identity with compact final metadata. Story
+  completes when all survivors are in the human alliance, and opponent effects
+  protect only targets sharing the actor's alliance.
+- Migration action: existing v1.12 development snapshots are disposable and
+  must be regenerated. v1.11 saves contain none of these ephemeral match fields
+  and require no new persistent migration.
+- Required tests: direct outcome-constructor spoofing; completed/non-completed
+  state/status cross-product; dynamic force/clear/mixed finalize and abandon;
+  forged Lab tokens/direct Activity entry; restored Tutorial seeds; 10,000
+  monotonic resolutions without growing payload; stale/duplicate callbacks;
+  human- and CPU-actor co-op effects; and two-allies-surviving Story clear.
