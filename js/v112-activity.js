@@ -233,7 +233,306 @@
     var transaction = typeof opts.transaction === 'function'
       ? opts.transaction : function (payload) { return payload; };
     var statsSink = typeof opts.statsSink === 'function' ? opts.statsSink : function () {};
+    var rewardAuthority = opts.rewardAuthority || null;
     var sessions = new Map();
+
+    function authorityMethod(primary, fallback) {
+      if (!rewardAuthority) return null;
+      if (typeof rewardAuthority[primary] === 'function') return rewardAuthority[primary];
+      return fallback && typeof rewardAuthority[fallback] === 'function'
+        ? rewardAuthority[fallback] : null;
+    }
+
+    var reserveRewardMatch = authorityMethod('reserveMatch');
+    var resumeRewardMatch = authorityMethod('resumeMatchReservation');
+    var consumeRewardMatch = authorityMethod('claimMatch', 'consumeReservedMatch');
+    var abandonRewardMatch = authorityMethod('abandonMatch', 'abandonReservedMatch');
+    var claimStoryResolution = authorityMethod('claimStoryMatchResolution');
+    var rewardSnapshot = authorityMethod('earnedSnapshot', 'snapshot');
+    if (rewardAuthority && (!reserveRewardMatch || !resumeRewardMatch ||
+        !consumeRewardMatch || !abandonRewardMatch || !rewardSnapshot)) {
+      throw new TypeError('Reward authority must implement the MatchClaimTokenV1 lifecycle');
+    }
+
+    function exactToken(value) {
+      var token = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+      if (!token || token.schema !== 'MatchClaimTokenV1' || token.version !== 1 ||
+          typeof token.lineageId !== 'string' || !token.lineageId ||
+          !Number.isSafeInteger(token.ordinal) || token.ordinal < 1 ||
+          typeof token.nonce !== 'string' || !token.nonce ||
+          typeof token.matchId !== 'string' || !token.matchId ||
+          typeof token.activityId !== 'string' || !token.activityId ||
+          !Number.isSafeInteger(token.reservedAt)) {
+        throw new TypeError('Reward authority returned an invalid MatchClaimTokenV1');
+      }
+      return token;
+    }
+
+    function sameToken(left, right) {
+      return !!left && !!right && left.schema === right.schema && left.version === right.version &&
+        left.lineageId === right.lineageId && left.ordinal === right.ordinal &&
+        left.nonce === right.nonce && left.matchId === right.matchId &&
+        left.activityId === right.activityId && left.reservedAt === right.reservedAt;
+    }
+
+    function authorityState() {
+      return rewardAuthority ? object(rewardSnapshot.call(rewardAuthority)) : {};
+    }
+
+    function tokenStatus(tokenInput, request) {
+      var token = exactToken(tokenInput);
+      if (request && (token.matchId !== request.matchId || token.activityId !== request.activityId)) {
+        throw new RangeError('Match claim token does not match its request identity');
+      }
+      var current = authorityState();
+      var resumed = resumeRewardMatch.call(rewardAuthority);
+      if ((resumed == null) !== (current.activeMatchReservation == null) ||
+          (resumed != null && !sameToken(exactToken(resumed), current.activeMatchReservation))) {
+        throw new RangeError('Reward authority active-reservation views disagree');
+      }
+      if (typeof current.lineageId !== 'string' || current.lineageId !== token.lineageId) {
+        throw new RangeError('Match claim token does not match the active profile lineage');
+      }
+      if (Number.isSafeInteger(current.consumedMatchOrdinal) &&
+          current.consumedMatchOrdinal >= token.ordinal) return 'consumed';
+      if (current.activeMatchReservation && sameToken(token, current.activeMatchReservation)) {
+        return 'active';
+      }
+      throw new RangeError('Match claim token is not active in the reward authority');
+    }
+
+    function noRewardFlag(value) {
+      var source = object(value);
+      return source.testData === true || source.ownerTest === true ||
+        source.ownerTestMode === true || source.imported === true ||
+        source.importReplay === true || source.replay === true ||
+        source.rewardsEligible === false || source.progressionEligible === false;
+    }
+
+    function reasonFromFlags(values) {
+      var sources = values.map(object);
+      if (sources.some(function (source) { return source.replay === true; })) return 'replay';
+      if (sources.some(function (source) {
+        return source.imported === true || source.importReplay === true;
+      })) return 'imported';
+      return sources.some(noRewardFlag) ? 'test-data' : null;
+    }
+
+    function classifyRewards(request, trustedState, policy, untrustedState) {
+      if (!rewardAuthority) return Object.freeze({ managed: false, eligible: false,
+        canonicalClaimsAllowed: false, reason: 'unmanaged', testData: false });
+      var context = object(request.activityContext);
+      var rules = object(request.rulesOptions);
+      var policyValue = object(policy);
+      if (policyValue.activityId != null && policyValue.activityId !== request.activityId) {
+        throw new RangeError('Reward policy does not match the request activity');
+      }
+      if (policyValue.ownerTest === true || policyValue.ownerTestMode === true) {
+        if (typeof rewardAuthority.validateOwnerTestGuard !== 'function' ||
+            rewardAuthority.validateOwnerTestGuard(policyValue.ownerTestGuard,
+              request.activityId) !== true) {
+          throw new TypeError('Owner-test reward policy requires a valid authority guard');
+        }
+        return Object.freeze({ managed: true, eligible: false,
+          canonicalClaimsAllowed: false, reason: 'owner-test-mode', testData: true });
+      }
+      if (['practice', 'physics-lab', 'tutorial'].indexOf(request.activityId) >= 0) {
+        return Object.freeze({ managed: true, eligible: false,
+          canonicalClaimsAllowed: false, reason: request.activityId, testData: true });
+      }
+      if (!request.roster.some(function (entry) {
+        return entry.human === true || entry.kind === 'human';
+      })) {
+        return Object.freeze({ managed: true, eligible: false,
+          canonicalClaimsAllowed: false, reason: 'ai-only', testData: false });
+      }
+      var trustedReason = reasonFromFlags([trustedState, policyValue]);
+      if (trustedReason) {
+        return Object.freeze({ managed: true, eligible: false,
+          canonicalClaimsAllowed: false, reason: trustedReason, testData: true });
+      }
+      var untrustedReason = reasonFromFlags([context, rules, untrustedState]);
+      if (untrustedReason) {
+        // Caller-controlled flags may safely deny a reward, but they never
+        // become the authoritative Test Data marker consumed by statistics.
+        return Object.freeze({ managed: true, eligible: false,
+          canonicalClaimsAllowed: false, reason: untrustedReason, testData: false });
+      }
+      if (request.activityId === 'rival-board') {
+        return Object.freeze({ managed: true, eligible: false,
+          canonicalClaimsAllowed: true, reason: 'rival-board-no-match-reward', testData: false });
+      }
+      var eligible = request.activityId === 'story' || request.activityId === 'free-play';
+      return Object.freeze({ managed: true, eligible: eligible,
+        canonicalClaimsAllowed: request.activityId === 'story' ||
+          request.activityId === 'rival-board',
+        reason: eligible ? null : 'activity-ineligible', testData: false });
+    }
+
+    function classifiedOutcome(input, classification) {
+      var outcome = MatchOutcomeV2(input);
+      if (!classification.managed || classification.eligible ||
+          classification.canonicalClaimsAllowed) return outcome;
+      var reason = classification.reason;
+      var testData = classification.testData === true;
+      var activityState = Object.assign({}, clone(outcome.activityState), {
+        rewardsEligible: false,
+        progressionEligible: false,
+      });
+      if (testData) {
+        activityState.testData = true;
+        activityState.statisticsDefaultEligible = false;
+      }
+      if (testData && reason === 'owner-test-mode') activityState.ownerTestMode = true;
+      if (testData && reason === 'imported') activityState.imported = true;
+      if (testData && reason === 'replay') activityState.replay = true;
+      if (reason === 'ai-only') activityState.aiOnly = true;
+      return MatchOutcomeV2(Object.assign({}, clone(outcome), { activityState: activityState }));
+    }
+
+    function monotonicRewardClassification(initialInput, finalInput) {
+      var initial = object(initialInput);
+      var final = object(finalInput);
+      var eligible = initial.eligible === true && final.eligible === true;
+      var canonical = initial.canonicalClaimsAllowed === true &&
+        final.canonicalClaimsAllowed === true;
+      var finalTightened = (initial.eligible === true && final.eligible !== true) ||
+        (initial.canonicalClaimsAllowed === true && final.canonicalClaimsAllowed !== true);
+      return Object.freeze({
+        managed: initial.managed === true && final.managed === true,
+        eligible: eligible,
+        canonicalClaimsAllowed: canonical,
+        reason: eligible ? null : (finalTightened ? final.reason : (initial.reason || final.reason)),
+        testData: initial.testData === true || final.testData === true,
+      });
+    }
+
+    function sanitizeSuppliedActivityState(value) {
+      var clean = clone(object(value));
+      ['testData', 'ownerTest', 'ownerTestMode', 'rewardsEligible',
+        'progressionEligible', 'statisticsDefaultEligible', 'imported',
+        'importReplay', 'replay', 'aiOnly'].forEach(function (key) { delete clean[key]; });
+      return clean;
+    }
+
+    function currentRewardPolicy(request) {
+      if (!rewardAuthority || typeof rewardAuthority.activityPolicy !== 'function') return null;
+      return rewardAuthority.activityPolicy({ activityId: request.activityId });
+    }
+
+    function mutationSucceeded(result, operation) {
+      if (result && (result.applied === true || result.reason === 'duplicate')) return result;
+      var reason = result && result.reason ? ': ' + result.reason : '';
+      throw new Error(operation + ' failed' + reason);
+    }
+
+    function abandonToken(session, reason) {
+      if (!session.matchClaimToken) return null;
+      var status = tokenStatus(session.matchClaimToken, session.request);
+      if (status === 'consumed') return Object.freeze({ applied: false, reason: 'duplicate' });
+      var result = abandonRewardMatch.call(rewardAuthority, session.matchClaimToken,
+        reason || 'abandoned');
+      mutationSucceeded(result, 'Match reward abandonment');
+      if (tokenStatus(session.matchClaimToken, session.request) !== 'consumed') {
+        throw new Error('Match reward abandonment was not durably consumed');
+      }
+      return result;
+    }
+
+    function activeAuthorityReservation() {
+      if (!rewardAuthority) return null;
+      var token = resumeRewardMatch.call(rewardAuthority);
+      if (token == null) return null;
+      token = exactToken(token);
+      if (tokenStatus(token, null) !== 'active') {
+        throw new RangeError('Persisted match reservation is not active');
+      }
+      return token;
+    }
+
+    function reconcilePersistedReservation(request, classification) {
+      var active = activeAuthorityReservation();
+      if (!active) return;
+      var locallyOwned = Array.from(sessions.values()).some(function (session) {
+        return session.matchClaimToken && sameToken(session.matchClaimToken, active) &&
+          (session.status === 'active' || session.status === 'finalizing');
+      });
+      if (locallyOwned) throw new Error('Another reward-bearing match is already active');
+      if (classification.eligible && active.matchId === request.matchId &&
+          active.activityId === request.activityId) return;
+      var abandoned = abandonRewardMatch.call(rewardAuthority, active,
+        'orphaned-before-match-start');
+      mutationSucceeded(abandoned, 'Persisted match reservation recovery');
+      if (tokenStatus(active, null) !== 'consumed') {
+        throw new Error('Persisted match reservation recovery was not durable');
+      }
+    }
+
+    function assertNoUnresolvedFinalization(request) {
+      var unresolved = Array.from(sessions.values()).find(function (session) {
+        return session.request.matchId !== request.matchId && !!session.matchClaimToken &&
+          !!session.outcome && !session.resolution &&
+          (session.status === 'active' || session.status === 'finalizing');
+      });
+      if (unresolved) {
+        throw new Error('Unresolved reward finalization must retry before another match starts');
+      }
+    }
+
+    function privateRewardContext(session, classification) {
+      function requireBoundToken(operation) {
+        if (!session.matchClaimToken) {
+          throw new Error(operation + ' requires a reservation made before match start');
+        }
+        if (!classification.eligible) {
+          throw new Error(operation + ' is forbidden for ' + classification.reason);
+        }
+        // A transaction may have durably consumed the token and then failed in
+        // a later owning store.  Replaying the same private token lets the
+        // reward authority return its exact duplicate result so finalization
+        // can finish without issuing another reservation or reward.
+        tokenStatus(session.matchClaimToken, session.request);
+        return session.matchClaimToken;
+      }
+      return Object.freeze({
+        schema: 'PrivateMatchRewardContextV1',
+        managed: classification.managed,
+        reserved: !!session.matchClaimToken,
+        rewardsEligible: classification.eligible,
+        canonicalClaimsAllowed: classification.canonicalClaimsAllowed,
+        noRewardsReason: classification.reason,
+        consumeMatch: function (rewardInput) {
+          if (session.request.activityId !== 'free-play') {
+            throw new RangeError('Only a free-play transaction may consume a generic match reward');
+          }
+          var token = requireBoundToken('Match reward consumption');
+          return mutationSucceeded(consumeRewardMatch.call(rewardAuthority, token, rewardInput),
+            'Match reward consumption');
+        },
+        claimStoryMatchResolution: function (input) {
+          if (session.request.activityId !== 'story' &&
+              session.request.activityId !== 'rival-board') {
+            throw new RangeError('Only Story activities may claim a Story resolution');
+          }
+          if (!classification.canonicalClaimsAllowed || !claimStoryResolution) {
+            throw new Error('Story rewards are forbidden for ' + classification.reason);
+          }
+          var source = object(input);
+          if (source.matchId !== session.request.matchId) {
+            throw new RangeError('Story reward command does not match the active request');
+          }
+          var ordinary = source.ordinaryRewardsEligible === true;
+          var payload = Object.assign({}, clone(source));
+          if (ordinary) payload.matchClaimToken = requireBoundToken('Story match reward consumption');
+          else if (session.matchClaimToken) {
+            throw new Error('A reserved Story match cannot omit its ordinary reward disposition');
+          }
+          return mutationSucceeded(claimStoryResolution.call(rewardAuthority, payload),
+            'Story reward claim');
+        },
+        abandon: function (reason) { return abandonToken(session, reason); },
+      });
+    }
 
     function start(input, sessionHooks) {
       var request = MatchRequestV2(input);
@@ -250,12 +549,47 @@
         resolution: null,
         outcome: null,
         activityResolution: null,
+        matchClaimToken: null,
+        rewardPolicy: null,
+        rewardClassification: null,
+        finalRewardClassification: null,
       };
       var initialActivityState = readSessionActivityState(session, 'prepare');
-      var prepared = registry.prepare(request.activityId, {
-        request: request, activityState: initialActivityState,
-      });
-      session.prepared = deepFreeze(clone(prepared || {}));
+      session.rewardPolicy = currentRewardPolicy(request);
+      session.rewardClassification = classifyRewards(request, initialActivityState,
+        session.rewardPolicy, null);
+      assertNoUnresolvedFinalization(request);
+      reconcilePersistedReservation(request, session.rewardClassification);
+      var prepared;
+      try {
+        if (session.rewardClassification.eligible) {
+          var reservation = reserveRewardMatch.call(rewardAuthority, request.matchId,
+            request.activityId);
+          if (!reservation || (!reservation.applied && !reservation.resumed)) {
+            throw new Error('Match reward reservation failed' +
+              (reservation && reservation.reason ? ': ' + reservation.reason : ''));
+          }
+          session.matchClaimToken = exactToken(reservation.token);
+          if (tokenStatus(session.matchClaimToken, request) !== 'active') {
+            throw new Error('Match reward reservation was not durably active');
+          }
+        }
+        prepared = registry.prepare(request.activityId, {
+          request: request, activityState: initialActivityState,
+        });
+        session.prepared = deepFreeze(clone(prepared || {}));
+      } catch (error) {
+        if (session.matchClaimToken) {
+          try { abandonToken(session, 'start-failed'); }
+          catch (cleanupError) {
+            var wrapped = new Error('Match start failed and reward reservation cleanup failed');
+            wrapped.cause = error;
+            wrapped.cleanupError = cleanupError;
+            throw wrapped;
+          }
+        }
+        throw error;
+      }
       sessions.set(request.matchId, session);
       return deepFreeze({
         schema: 'MatchSessionV1',
@@ -290,9 +624,23 @@
       } catch (error) {
         return Promise.reject(error);
       }
-      var outcome = dynamicActivityState ? MatchOutcomeV2(Object.assign({}, clone(suppliedOutcome), {
-        activityState: Object.assign({}, clone(suppliedOutcome.activityState), dynamicActivityState),
-      })) : suppliedOutcome;
+      var suppliedActivityState = object(suppliedOutcome.activityState);
+      var publicActivityState = sanitizeSuppliedActivityState(suppliedActivityState);
+      if (dynamicActivityState) {
+        publicActivityState = Object.assign(publicActivityState, clone(dynamicActivityState));
+      }
+      var outcome = MatchOutcomeV2(Object.assign({}, clone(suppliedOutcome), {
+        activityState: publicActivityState,
+      }));
+      var trustedRewardState = Object.assign({}, clone(object(session.prepared)),
+        clone(object(dynamicActivityState)));
+      var untrustedRewardState = Object.assign({}, clone(object(suppliedOutcome.telemetry)),
+        clone(suppliedActivityState));
+      var finalRewardClassification = monotonicRewardClassification(
+        session.rewardClassification,
+        classifyRewards(session.request, trustedRewardState,
+          session.rewardPolicy, untrustedRewardState));
+      outcome = classifiedOutcome(outcome, finalRewardClassification);
       var allowedWinnerIds = new Set();
       session.request.roster.forEach(function (entry) {
         allowedWinnerIds.add(entry.id);
@@ -313,6 +661,7 @@
       }
       if (session.finalPromise) return session.finalPromise;
       session.outcome = outcome;
+      session.finalRewardClassification = finalRewardClassification;
       session.status = 'finalizing';
       session.finalPromise = Promise.resolve().then(function () {
         if (!session.activityResolution) {
@@ -323,6 +672,13 @@
           }) || {}));
         }
         var activityResolution = session.activityResolution;
+        var finalClassification = session.finalRewardClassification;
+        if (session.matchClaimToken &&
+            (outcome.status !== 'completed' || !finalClassification.eligible)) {
+          abandonToken(session, outcome.status !== 'completed'
+            ? (outcome.completionReason || outcome.status) : finalClassification.reason);
+        }
+        var rewards = privateRewardContext(session, finalClassification);
         return Promise.resolve(transaction({
           schema: 'MatchFinalizationCommandV1',
           idempotencyKey: 'match:' + outcome.matchId,
@@ -330,7 +686,11 @@
           request: session.request,
           outcome: outcome,
           activityResolution: deepFreeze(clone(activityResolution)),
-        })).then(function (transactionResult) {
+        }, rewards)).then(function (transactionResult) {
+          if (session.matchClaimToken &&
+              tokenStatus(session.matchClaimToken, session.request) === 'active') {
+            throw new Error('Eligible match transaction did not consume its reserved reward token');
+          }
           session.status = 'finalized';
           var duplicate = !!(transactionResult && transactionResult.duplicate);
           session.resolution = PostMatchResolutionV1({
@@ -363,6 +723,8 @@
       var session = sessions.get(id);
       if (!session) throw new Error('Unknown match: ' + id);
       if (session.status !== 'active') return deepFreeze({ matchId: id, status: session.status });
+      if (session.matchClaimToken) abandonToken(session,
+        reason == null ? 'abandoned' : String(reason));
       var activityState = readSessionActivityState(session, 'abandon');
       var activityResolution = registry.abandon(session.request.activityId, {
         request: session.request,

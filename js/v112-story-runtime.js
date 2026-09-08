@@ -452,10 +452,12 @@ function (Activity, Story, Profile, View, root) {
     });
   }
 
-  function createProfileCommands(command) {
+  function createProfileCommands(command, rewardContext) {
     var resolution = object(command.activityResolution);
     var context = object(command.request && command.request.activityContext);
-    if (resolution.abandoned === true || resolution.duplicate === true || context.replay === true) {
+    var authority = object(rewardContext);
+    if (resolution.abandoned === true || resolution.duplicate === true || context.replay === true ||
+        authority.canonicalClaimsAllowed !== true) {
       return freeze([]);
     }
     return freeze([freeze({
@@ -463,18 +465,25 @@ function (Activity, Story, Profile, View, root) {
       input: freeze({
         matchId: command.matchId,
         ordinaryRewardsEligible: resolution.ordinaryRewardsEligible === true &&
-          command.request.activityId === 'story',
+          command.request.activityId === 'story' && authority.reserved === true &&
+          authority.rewardsEligible === true,
         rewardInput: ordinaryRewardInput(command),
         rewards: freeze((Array.isArray(resolution.rewards) ? resolution.rewards : []).map(clone)),
       }),
     })]);
   }
 
-  function executeProfileCommands(profileStore, commands) {
+  function executeProfileCommands(profileStore, commands, rewardContext) {
     return commands.map(function (command) {
       var result;
       if (command.kind === 'claimStoryMatchResolution') {
-        result = profileStore.claimStoryMatchResolution(command.input);
+        if (!rewardContext || typeof rewardContext.claimStoryMatchResolution !== 'function') {
+          throw new TypeError('Story profile commands require the coordinator reward authority');
+        }
+        // The coordinator injects its private MatchClaimTokenV1 at this exact
+        // call boundary.  It is never copied into MatchRequestV2, telemetry,
+        // statistics, presentation, or the returned command log.
+        result = rewardContext.claimStoryMatchResolution(command.input);
       } else {
         throw new RangeError('Unknown Story profile command: ' + command.kind);
       }
@@ -487,10 +496,14 @@ function (Activity, Story, Profile, View, root) {
 
   function createStoryRuntime(options) {
     var opts = object(options);
-    var profileStore = opts.profileStore || Profile;
+    var profileStore = opts.progressionRuntime || opts.profileStore || Profile;
     if (!profileStore || typeof profileStore.snapshot !== 'function' ||
-        typeof profileStore.claimStoryMatchResolution !== 'function') {
-      throw new TypeError('A v1.12 profile store is required');
+        typeof profileStore.claimStoryMatchResolution !== 'function' ||
+        typeof profileStore.reserveMatch !== 'function' ||
+        typeof profileStore.resumeMatchReservation !== 'function' ||
+        (typeof profileStore.abandonMatch !== 'function' &&
+          typeof profileStore.abandonReservedMatch !== 'function')) {
+      throw new TypeError('A v1.12 progression runtime or profile store is required');
     }
     var browserStorage = null;
     try { browserStorage = root && root.localStorage ? root.localStorage : null; } catch (_) {}
@@ -502,20 +515,32 @@ function (Activity, Story, Profile, View, root) {
     var registry = opts.registry || Activity.createActivityRegistry();
     registerStoryActivities(registry, { storyStore: storyStore });
 
-    function transaction(command) {
+    function transaction(command, rewardContext) {
       var resolution = command.activityResolution;
       var context = object(command.request.activityContext);
-      var commands = createProfileCommands(command);
-      var commandResults = executeProfileCommands(profileStore, commands);
-      var stateResult = resolution.abandoned === true
+      var authority = object(rewardContext);
+      var replay = context.replay === true;
+      if (authority.reserved === true &&
+          (resolution.abandoned === true || resolution.duplicate === true || replay ||
+            authority.rewardsEligible !== true)) {
+        authority.abandon(resolution.abandoned === true ? 'abandoned'
+          : (resolution.duplicate === true ? 'duplicate' : (replay ? 'replay' : 'test-data')));
+      }
+      var commands = createProfileCommands(command, authority);
+      var commandResults = executeProfileCommands(profileStore, commands, authority);
+      // Story and rival progression is itself a reward.  Only the coordinator's
+      // positive canonical-claim authority may advance it; replay, owner/test,
+      // import, AI-only, unmanaged, and unknown activities all deny by default.
+      var storyStateBlocked = authority.canonicalClaimsAllowed !== true;
+      var stateResult = resolution.abandoned === true || storyStateBlocked
         ? freeze({ applied: false, duplicate: false, reason: 'abandoned', state: storyStore.snapshot() })
         : storyStore.commitResolution(resolution);
-      var replay = context.replay === true;
       var duplicate = resolution.duplicate === true || stateResult.duplicate === true;
       var presentation = View.postMatch({ resolution: resolution, replay: replay });
       return freeze({
         schema: 'StoryProfileTransactionV1', duplicate: duplicate,
-        replay: replay, noRewardsReason: duplicate ? 'duplicate' : (replay ? 'replay' : null),
+        replay: replay, noRewardsReason: duplicate ? 'duplicate'
+          : (replay ? 'replay' : (authority.noRewardsReason || null)),
         profileCommands: commands, commandResults: commandResults,
         storyState: stateResult.state, storyCommit: stateResult,
         presentation: presentation,
@@ -525,6 +550,7 @@ function (Activity, Story, Profile, View, root) {
     var coordinator = Activity.createMatchSessionCoordinator({
       registry: registry,
       transaction: transaction,
+      rewardAuthority: profileStore,
       statsSink: typeof opts.statsSink === 'function' ? opts.statsSink : function () {},
     });
     var activeMatchIds = new Set();
