@@ -6,14 +6,26 @@
 // authored v1.12 additions here, and issues identity-bound reward evidence.
 (function (root, factory) {
   'use strict';
+  var commonJs = typeof module === 'object' && !!module && !!module.exports &&
+    typeof require === 'function' && typeof process === 'object' && !!process &&
+    !!process.versions && typeof process.versions.node === 'string';
+  if (!commonJs && root && Object.prototype.hasOwnProperty.call(
+    root, 'FlipgameV112Achievements')) {
+    throw new Error('FlipgameV112Achievements is already defined');
+  }
   var Legacy = root && root.Achievements;
-  if (typeof module === 'object' && module.exports) Legacy = require('./achievements.js');
-  var api = factory(Legacy);
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  if (root) root.FlipgameV112Achievements = api;
+  if (commonJs) Legacy = require('./achievements.js');
+  var api = factory(Legacy, commonJs);
+  if (commonJs) {
+    module.exports = api;
+  } else if (root) {
+    Object.defineProperty(root, 'FlipgameV112Achievements', {
+      value: api, enumerable: true, writable: false, configurable: false,
+    });
+  }
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Legacy) {
+  : (typeof window !== 'undefined' ? window : this)), function (Legacy, trustedComposition) {
   'use strict';
 
   if (!Legacy || typeof Legacy.createStore !== 'function' ||
@@ -593,13 +605,8 @@
       categoryCounts: categories, rarityCounts: rarities });
   }
 
-  var defaultEvaluator = createEvaluator();
-  return deepFreeze({
+  var catalogFacade = deepFreeze({
     schema: 'AchievementCatalogV1', version: 1,
-    evaluate: defaultEvaluator.evaluate,
-    rewardAuthority: defaultEvaluator.rewardAuthority,
-    createEvaluator: createEvaluator,
-    AchievementEvaluationV1: AchievementEvaluationV1,
     lookupForMigration: lookupForMigration,
     isKnownId: isKnownId,
     listViews: listViews,
@@ -608,5 +615,26 @@
       var id = exactString(rarity, 'achievement rarity', 16).toLowerCase();
       return REWARD_BY_RARITY[id] || null;
     },
+  });
+  if (!trustedComposition) return catalogFacade;
+
+  // Evaluation and its identity-bound reward authority are trusted
+  // composition capabilities. They are intentionally available to CommonJS
+  // integration code only; a browser global receives the read-only catalog
+  // facade above and therefore cannot mint Profile-acceptable evidence from
+  // caller-fabricated facts.
+  var defaultEvaluator = createEvaluator();
+  return deepFreeze({
+    schema: catalogFacade.schema,
+    version: catalogFacade.version,
+    evaluate: defaultEvaluator.evaluate,
+    rewardAuthority: defaultEvaluator.rewardAuthority,
+    createEvaluator: createEvaluator,
+    AchievementEvaluationV1: AchievementEvaluationV1,
+    lookupForMigration: catalogFacade.lookupForMigration,
+    isKnownId: catalogFacade.isKnownId,
+    listViews: catalogFacade.listViews,
+    catalogSummary: catalogFacade.catalogSummary,
+    rewardForRarity: catalogFacade.rewardForRarity,
   });
 });

@@ -395,7 +395,7 @@ function testNoRngAndDeterministicOrdering() {
   }
 }
 
-function testBrowserCommonJsParity() {
+function testBrowserReadOnlyCatalogBoundary() {
   const context = vm.createContext({ console });
   const run = (name) => vm.runInContext(
     fs.readFileSync(path.join(__dirname, '..', 'js', name), 'utf8'), context, { filename: name });
@@ -406,19 +406,100 @@ function testBrowserCommonJsParity() {
   const browserSummary = JSON.parse(vm.runInContext(
     'JSON.stringify(FlipgameV112Achievements.catalogSummary())', context));
   assert.deepEqual(browserSummary, Achievements.catalogSummary());
-  const browserResult = JSON.parse(vm.runInContext(`JSON.stringify(
-    FlipgameV112Achievements.evaluate({
-      schema: 'AchievementEvaluationV1', version: 1,
-      earnedIds: ${JSON.stringify(ALL_IDS.filter((id) => id !== 'battle-duel-win'))},
-      context: { qualifying: true, humanParticipant: true, format: 'battle',
-        won: true, battleFormatId: 'duel' }
-    }).awards.map(function (award) { return award.achievement.id; }))`, context));
-  assert.deepEqual(browserResult, ['battle-duel-win']);
+  assert.deepEqual(JSON.parse(vm.runInContext(
+    'JSON.stringify(Object.keys(FlipgameV112Achievements).sort())', context)), [
+    'catalogSummary', 'isKnownId', 'listViews', 'lookupForMigration',
+    'rewardForRarity', 'schema', 'version',
+  ]);
+  assert.equal(vm.runInContext('Object.isFrozen(FlipgameV112Achievements)', context), true);
   assert.equal(vm.runInContext(`(function () {
-    try { FlipgameV112Achievements.rewardAuthority.verify(Object.freeze({
-      schema: 'AchievementRewardEvidenceV1', version: 1 })); return false; }
+    var descriptor = Object.getOwnPropertyDescriptor(globalThis, 'FlipgameV112Achievements');
+    return !!descriptor && descriptor.writable === false && descriptor.configurable === false;
+  })()`, context), true, 'the browser capability boundary cannot be replaced in place');
+
+  const forbidden = [
+    'evaluate', 'createEvaluator', 'AchievementEvaluationV1', 'rewardAuthority',
+    'connectProductionRuntime', 'installRewardAuthority',
+  ];
+  forbidden.forEach((name) => {
+    assert.equal(vm.runInContext(
+      `Object.prototype.hasOwnProperty.call(FlipgameV112Achievements, ${JSON.stringify(name)})`,
+      context), false, `browser achievement facade must not expose ${name}`);
+    assert.equal(vm.runInContext(
+      `typeof FlipgameV112Achievements[${JSON.stringify(name)}]`, context), 'undefined');
+  });
+
+  assert.equal(vm.runInContext(`(function () {
+    'use strict';
+    var fabricated = Object.freeze({
+      schema: 'AchievementEvaluationV1', version: 1,
+      earnedIds: [], context: Object.freeze({ storeAction: true, storePurchaseCount: 40 })
+    });
+    var publicResults = [
+      FlipgameV112Achievements.lookupForMigration('store-all-cosmetics'),
+      FlipgameV112Achievements.listViews(['store-all-cosmetics']),
+      FlipgameV112Achievements.catalogSummary(),
+      FlipgameV112Achievements.rewardForRarity('legendary')
+    ];
+    if (typeof FlipgameV112Achievements.evaluate === 'function') {
+      publicResults.push(FlipgameV112Achievements.evaluate(fabricated));
+    }
+    return JSON.stringify(publicResults).indexOf('AchievementRewardEvidenceV1') === -1 &&
+      JSON.stringify(publicResults).indexOf('rewardEvidence') === -1;
+  })()`, context), true,
+  'fabricated browser facts cannot obtain identity-bound reward evidence');
+
+  assert.equal(vm.runInContext(`(function () {
+    'use strict';
+    try { FlipgameV112Achievements.evaluate = function () {}; return false; }
     catch (_) { return true; }
-  })()`, context), true);
+  })()`, context), true, 'the frozen facade rejects evaluator injection');
+  assert.throws(() => run('v112-achievements.js'), /already defined/,
+    'duplicate browser execution cannot silently replace the catalog boundary');
+
+  const preseed = vm.createContext({ console,
+    FlipgameV112Achievements: Object.freeze({ schema: 'AchievementCatalogV1', version: 1 }) });
+  const runPreseed = (name) => vm.runInContext(
+    fs.readFileSync(path.join(__dirname, '..', 'js', name), 'utf8'), preseed, { filename: name });
+  runPreseed('v111-interfaces.js');
+  vm.runInContext('FlipgameV111Progression = { addAchievement: function () {} };', preseed);
+  runPreseed('achievements.js');
+  assert.throws(() => runPreseed('v112-achievements.js'), /already defined/,
+    'a schema-only preseed is rejected rather than trusted or overwritten');
+
+  const shimmedModule = vm.createContext({ console });
+  const runShimmed = (name) => vm.runInContext(
+    fs.readFileSync(path.join(__dirname, '..', 'js', name), 'utf8'), shimmedModule,
+    { filename: name });
+  runShimmed('v111-interfaces.js');
+  vm.runInContext('FlipgameV111Progression = { addAchievement: function () {} };', shimmedModule);
+  runShimmed('achievements.js');
+  shimmedModule.module = { exports: {} };
+  shimmedModule.require = function () { throw new Error('browser shim require must not run'); };
+  runShimmed('v112-achievements.js');
+  assert.equal(Object.prototype.hasOwnProperty.call(
+    shimmedModule.module.exports, 'createEvaluator'), false,
+  'a browser module shim without a Node runtime cannot select the trusted export');
+  assert.equal(vm.runInContext(
+    'typeof FlipgameV112Achievements.createEvaluator', shimmedModule), 'undefined');
+}
+
+function testCommonJsRetainsTrustedEvaluatorBoundary() {
+  assert.equal(Object.prototype.hasOwnProperty.call(
+    globalThis, 'FlipgameV112Achievements'), false,
+  'CommonJS loading must not publish the trusted evaluator on the global object');
+  assert.equal(typeof Achievements.evaluate, 'function');
+  assert.equal(typeof Achievements.createEvaluator, 'function');
+  assert.equal(typeof Achievements.AchievementEvaluationV1, 'function');
+  assert.equal(typeof Achievements.rewardAuthority.verify, 'function');
+  const result = Achievements.evaluate(input({
+    qualifying: true, humanParticipant: true, format: 'battle', won: true,
+    battleFormatId: 'duel',
+  }, ALL_IDS.filter((id) => id !== 'battle-duel-win')));
+  assert.deepEqual(awardIds(result), ['battle-duel-win']);
+  assert.deepEqual(Achievements.rewardAuthority.verify(result.awards[0].rewardEvidence), {
+    id: 'battle-duel-win', rarity: Achievements.lookupForMigration('battle-duel-win').rarity,
+  });
 }
 
 const tests = [
@@ -431,7 +512,8 @@ const tests = [
   testExactSchemaAndBounds,
   testEvidenceAuthorityAndProfileIntegration,
   testNoRngAndDeterministicOrdering,
-  testBrowserCommonJsParity,
+  testBrowserReadOnlyCatalogBoundary,
+  testCommonJsRetainsTrustedEvaluatorBoundary,
 ];
 
 for (const test of tests) {
