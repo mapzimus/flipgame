@@ -854,3 +854,43 @@ log, and defect ledger remain release history and are not rewritten.
   round-trips, hostile imports, cross-context writer exclusion, authority
   forgery, Owner Test bypass attempts, exact schemas and bounded traversal
   before any progression or Activity/Story commit is eligible to merge.
+
+## Revision 48 — distributed CPU candidate rejected by unseen corpus
+
+- Candidate `ce41470` remains outside integration. Compatibility, primary 960,
+  named holdout 960, aggregate bands, tier ordering and Classic direction cells
+  passed, but those authored corpora were not independent after tuning.
+- A third disjoint 960-seed corpus contained no overlaps with either named set
+  and found two raw directional failures: Native Alien Easy/right at
+  1920x1080 was 142/484 (29.34%, below 30%), and Hard/right at 3840x2160 was
+  294/494 (59.51%, below 60%). V112-022 therefore remains open.
+- Remediation must be minimal and physics-based. Qualification restarts with a
+  fourth unseen corpus and ultimately >=10,000 physical shots per direction,
+  viewport, difficulty and enumerated player-count cell. Aggregate success may
+  not hide a failing directional cell.
+
+## Revision 49 — rules-owned event remediation integrated
+
+- The complete event authority chain is integrated through `61f88c5` after the
+  rejected `3e9b324`/`76d5ba7` foundations were rewritten and retested.
+  V112-067 through V112-075 now have passing local reproductions; an independent
+  post-integration audit is still required before physical event packs may ship.
+- The root is Rules-owned and format-bound. Runtime, renderer, selection, launch,
+  frame, outcome and terminal evidence use identity-bearing private brands;
+  one live high-water transition consumes one claim. Geometry/sensors derive
+  Roulette and Plinko results, and rendering cannot advance gameplay RNG.
+- Plinko now represents clean 9–18-second drops, recovery beginning at 22
+  seconds, and a 30-second same-turn no-contest. Classic, Cup and Team terminal
+  paths are explicit. Cup Automatic Loss deterministically awards the heat to
+  the next surviving seat in configured rotation; this is now frozen in the
+  contract.
+- Integrator review found and fixed three additional authority defects:
+  V112-082 hid the Rules event capability behind a one-shot handoff; V112-083
+  made duplicate deferred outputs inert; V112-084 prevents ordinary live flips
+  from supplying event rewards, raw points or forced elimination.
+- Candidate evidence: event-kernel adversarial suite, complete Rules suite,
+  fourteen subsystem/regression scripts, 49 inherited Node tests, syntax/static
+  checks, Alien calibration and the legacy physical CPU calibration all pass.
+- Two downstream gates remain explicit: V112-085 requires crash-safe Mirror
+  obligation persistence, and V112-086 requires a branded settled
+  `LandingVerdict` at the ordinary physics-to-rules boundary.

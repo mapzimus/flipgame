@@ -261,6 +261,13 @@ leaving discards it.
   `Lives Doubled | Everyone Else Halved | Always Magnet | Automatic Loss |
   Automatic Win | Automatic Loss | Always Magnet | Everyone Else Halved |
   Lives Doubled`. It remains the only automatic-win event.
+- A Plinko Automatic Win ends the current Classic match, Cup heat or Team Clash
+  match for the flipper's side. Classic Automatic Loss eliminates the flipper;
+  Cup Automatic Loss awards that heat to the next surviving seat in the
+  configured rotation; Team Clash Automatic Loss awards the match to the other
+  team. A 30-second unresolved anti-wedge timeout is a no-contest: it advances
+  only replay-protection/diagnostic accounting and retries the same competitive
+  turn without changing lives, stake, score, rotation or sudden death.
 - Exact `Mr. Howe` multiplies Normal weights tenfold. Insane overrides it, rolls
   internally one-in-three, weights eligible events equally except Plinko 1.25x,
   and excludes Life Drain. Programmed values never appear player-facing.
