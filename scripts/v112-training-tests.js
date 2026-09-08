@@ -65,6 +65,18 @@ function testFeatureEligibilityAndMigrationFacingState() {
     flipLevel: 1, featureIds: ['physics-lab'],
   });
   assert.equal(migratedAuthorization.entitlementSource, 'migrated-feature');
+  const forgedAuthorization = Object.assign({}, migratedAuthorization);
+  assert.throws(() => Training.createMatchRequest({
+    activityId: 'physics-lab', matchId: 'forged-lab-request',
+    physicsLabAuthorization: forgedAuthorization,
+  }), (error) => error.code === 'PHYSICS_LAB_LOCKED',
+  'a structurally identical hand-built authorization is not issuer authority');
+  const restoredAuthorization = JSON.parse(JSON.stringify(migratedAuthorization));
+  assert.throws(() => Training.createMatchRequest({
+    activityId: 'physics-lab', matchId: 'restored-auth-request',
+    physicsLabAuthorization: restoredAuthorization,
+  }), (error) => error.code === 'PHYSICS_LAB_LOCKED',
+  'serialized authorization metadata cannot be replayed as a capability');
   const authorizedRequest = Training.createMatchRequest({
     activityId: 'physics-lab', matchId: 'authorized-lab-request',
     physicsLabAuthorization: migratedAuthorization,
@@ -83,8 +95,14 @@ function testFeatureEligibilityAndMigrationFacingState() {
 
 async function testActivityAdaptersAndNoRewardPath() {
   const registry = Activity.createActivityRegistry();
-  assert.equal(Training.registerActivities(registry), registry);
-  Training.registerActivities(registry); // Registration is deliberately idempotent.
+  let currentProfile = { flipLevel: 49 };
+  const profileProvider = Training.createPhysicsLabProfileProvider(() => currentProfile);
+  assert.equal(Training.registerActivities(registry, {
+    physicsLabProfileProvider: profileProvider,
+  }), registry);
+  Training.registerActivities(registry, {
+    physicsLabProfileProvider: profileProvider,
+  }); // Registration is deliberately idempotent with the same authority.
   assert.deepEqual([...registry.ids()].sort(), ['physics-lab', 'practice', 'tutorial']);
   const directUnauthorized = Activity.MatchRequestV2({
     matchId: 'direct-unauthorized-lab', activityId: 'physics-lab', formatId: 'classic',
@@ -93,6 +111,24 @@ async function testActivityAdaptersAndNoRewardPath() {
   assert.throws(() => registry.prepare('physics-lab', { request: directUnauthorized }),
     (error) => error.code === 'PHYSICS_LAB_LOCKED',
     'the registered adapter independently enforces Lab authorization');
+  currentProfile = { flipLevel: 50 };
+
+  const unboundRegistry = Activity.createActivityRegistry();
+  Training.registerActivities(unboundRegistry);
+  const structuralRequest = Activity.MatchRequestV2({
+    matchId: 'structural-lab-request', activityId: 'physics-lab', formatId: 'classic',
+    physicsModeId: 'normal', roster: [{ id: 'student' }],
+    activityContext: { physicsLabAuthorization: {
+      schema: 'PhysicsLabAuthorizationV1', featureId: 'physics-lab',
+      authorized: true, entitlementSource: 'flip-level',
+    } },
+  });
+  assert.throws(() => unboundRegistry.prepare('physics-lab', { request: structuralRequest }),
+    (error) => error.code === 'PHYSICS_LAB_LOCKED',
+    'serialized or hand-built request metadata never substitutes for a current-profile provider');
+  assert.throws(() => Training.registerActivities(Activity.createActivityRegistry(), {
+    physicsLabProfileProvider: { schema: 'PhysicsLabProfileProviderV1', read: () => ({ flipLevel: 100 }) },
+  }), /Invalid PhysicsLabProfileProviderV1/);
 
   for (const activityId of registry.ids()) {
     const request = Training.createMatchRequest({
@@ -120,6 +156,22 @@ async function testActivityAdaptersAndNoRewardPath() {
     assert.equal(abandoned.status, 'abandoned');
     assert.deepEqual(abandoned.awards, []);
   }
+
+  const recheckRequest = Training.createMatchRequest({
+    activityId: 'physics-lab', matchId: 'lab-live-profile-recheck', profile: { flipLevel: 50 },
+  });
+  registry.prepare('physics-lab', { request: recheckRequest });
+  currentProfile = { flipLevel: 49 };
+  assert.throws(() => registry.resolve('physics-lab', {
+    request: recheckRequest,
+    outcome: Activity.MatchOutcomeV2({ matchId: recheckRequest.matchId, status: 'completed' }),
+  }), (error) => error.code === 'PHYSICS_LAB_LOCKED',
+  'the registered adapter rechecks current entitlement on resolve');
+  assert.throws(() => registry.abandon('physics-lab', {
+    request: recheckRequest, reason: 'back',
+  }), (error) => error.code === 'PHYSICS_LAB_LOCKED',
+  'the registered adapter rechecks current entitlement on abandon');
+  currentProfile = { flipLevel: 50 };
 
   let transactionCommands = 0;
   let statsPayload = null;
@@ -158,6 +210,84 @@ async function testActivityAdaptersAndNoRewardPath() {
   });
   assertIsolated(nestedForcedResolution, 'practice', true,
     'nested forced-attempt markers cannot leak into default session statistics');
+}
+
+async function testRuntimeCoordinatorDynamicClassification() {
+  const registry = Activity.createActivityRegistry();
+  Training.registerActivities(registry);
+  const commands = new Map();
+  const stats = new Map();
+  const coordinator = Activity.createMatchSessionCoordinator({
+    registry,
+    transaction(command) {
+      commands.set(command.matchId, command);
+      return { duplicate: false, fxp: 0, fc: 0 };
+    },
+    statsSink(payload) { stats.set(payload.request.matchId, payload); },
+  });
+
+  const mixed = Training.createRuntime({
+    activityId: 'practice', sessionId: 'coordinator-mixed', seed: 441,
+  });
+  assert.equal(mixed.request.activityContext.dynamicActivityState, true);
+  assertIsolated(mixed.request.activityContext, 'practice', false,
+    'a mutable Practice runtime opens with ordinary classification');
+  assert.equal(mixed.startSession(coordinator).hasActivityStateProvider, true);
+  let attempt = mixed.prepareAttempt();
+  mixed.qualifyLaunch(attempt.attemptId, signal(), 900);
+  const ordinary = mixed.resolveAttempt(attempt.attemptId, verdict('MAKE'));
+  assertIsolated(ordinary, 'practice', false);
+  mixed.setForcedEvent('Wind Tunnel');
+  attempt = mixed.prepareAttempt();
+  mixed.qualifyLaunch(attempt.attemptId, signal(), 900);
+  const forced = mixed.resolveAttempt(attempt.attemptId, verdict('MISS'));
+  assertIsolated(forced, 'practice', true);
+  const mixedResolution = await coordinator.finalize({
+    matchId: mixed.request.matchId, status: 'completed',
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assertIsolated(mixedResolution.activityResolution, 'practice', true,
+    'the coordinator automatically reads latest mixed/forced state at finalize');
+  assert.equal(commands.get('coordinator-mixed').outcome.activityState.forcedAttemptSeen, true);
+  assert.equal(stats.get('coordinator-mixed').outcome.activityState.testData, true);
+  assert.equal(stats.get('coordinator-mixed').outcome.activityState.statisticsDefaultEligible, false);
+
+  const forceCleared = Training.createRuntime({
+    activityId: 'practice', sessionId: 'coordinator-force-cleared', seed: 9,
+    forceName: 'Trampoline',
+  });
+  assertIsolated(forceCleared.request.activityContext, 'practice', false,
+    'configured force does not taint a dynamic session before a qualified launch');
+  forceCleared.setForcedEvent(null);
+  forceCleared.startSession(coordinator);
+  const clearedResolution = await coordinator.finalize({
+    matchId: forceCleared.request.matchId, status: 'completed',
+  });
+  assertIsolated(clearedResolution.activityResolution, 'practice', false,
+    'setting then clearing a force without launching remains ordinary Practice');
+
+  const abandonedRuntime = Training.createRuntime({
+    activityId: 'practice', sessionId: 'coordinator-forced-abandon', seed: 18,
+  });
+  abandonedRuntime.startSession(coordinator);
+  abandonedRuntime.setForcedEvent('Earthquake');
+  attempt = abandonedRuntime.prepareAttempt();
+  abandonedRuntime.qualifyLaunch(attempt.attemptId, signal(), 900);
+  const abandoned = coordinator.abandon(abandonedRuntime.request.matchId, 'menu-exit');
+  assertIsolated(abandoned.activityResolution, 'practice', true,
+    'abandon automatically reads a qualified forced attempt from the runtime provider');
+  assert.equal(abandoned.activityResolution.status, 'abandoned');
+
+  const unqualifiedRuntime = Training.createRuntime({
+    activityId: 'practice', sessionId: 'coordinator-unqualified-abandon', seed: 20,
+    forceName: 'Ice Slide',
+  });
+  unqualifiedRuntime.startSession(coordinator);
+  attempt = unqualifiedRuntime.prepareAttempt();
+  unqualifiedRuntime.qualifyLaunch(attempt.attemptId, { qualifiedManual: false }, 900);
+  const unqualifiedAbandon = coordinator.abandon(unqualifiedRuntime.request.matchId, 'menu-exit');
+  assertIsolated(unqualifiedAbandon.activityResolution, 'practice', false,
+    'an unqualified forced gesture does not leak Test Data into match-level statistics');
 }
 
 function testRosterDrivenForcingAndMrHowe() {
@@ -589,6 +719,8 @@ function testTutorialDeterminismSkipAndRestoredState() {
   const restored = Training.createTutorialSession({ sessionId: 'tour-restored', seed: 999, state });
   assert.equal(restored.snapshot().state.baseSeed, 73,
     'migration/restoration uses the persisted Tour seed rather than a new constructor seed');
+  assert.equal(restored.request.seed, 73,
+    'the restored MatchRequestV2 uses the normalized persisted base seed');
   assert.equal(restored.prepareAttempt().turnSeed, first.prepareAttempt().turnSeed);
   const skipped = restored.skip();
   assert.equal(skipped.skipped, true);
@@ -596,6 +728,14 @@ function testTutorialDeterminismSkipAndRestoredState() {
   assert.equal(skipped.history.length, 0);
   assertIsolated(skipped.isolation, 'tutorial');
   assert.throws(() => restored.prepareAttempt(), /skipped/);
+
+  const zeroState = Training.createTutorialSession({ sessionId: 'zero-state-source', seed: 0 })
+    .snapshot().state;
+  const restoredZero = Training.createTutorialSession({
+    sessionId: 'zero-state-restored', seed: 888, state: zeroState,
+  });
+  assert.equal(restoredZero.request.seed, 0,
+    'persisted seed zero remains distinct when a different constructor seed is supplied');
 }
 
 function testCatalogSecrecyAndDeterministicPracticeSeeds() {
@@ -634,6 +774,7 @@ function testBrowserExportsAndDependencyOrder() {
 async function run() {
   testFeatureEligibilityAndMigrationFacingState();
   await testActivityAdaptersAndNoRewardPath();
+  await testRuntimeCoordinatorDynamicClassification();
   testRosterDrivenForcingAndMrHowe();
   testPracticeBindingTelegraphAndIsolation();
   testLabControlsGhostAndExactReplay();

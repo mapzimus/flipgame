@@ -61,6 +61,38 @@
     return Math.floor(number);
   }
 
+  // SessionActivityStateProviderV1 is deliberately registered out-of-band from
+  // MatchRequestV2: request records stay serializable while coordinators can
+  // obtain authoritative, current activity state at prepare/finalize/abandon.
+  function createSessionActivityStateProvider(reader) {
+    if (typeof reader !== 'function') throw new TypeError('Activity-state reader is required');
+    return Object.freeze({ schema: 'SessionActivityStateProviderV1', read: reader });
+  }
+
+  function MatchSessionHooksV1(value) {
+    var source = object(value);
+    var provider = source.activityStateProvider || null;
+    if (provider && (provider.schema !== 'SessionActivityStateProviderV1' ||
+        typeof provider.read !== 'function')) {
+      throw new TypeError('Invalid SessionActivityStateProviderV1');
+    }
+    return Object.freeze({ schema: 'MatchSessionHooksV1', activityStateProvider: provider });
+  }
+
+  function readSessionActivityState(session, phase) {
+    var provider = session && session.hooks && session.hooks.activityStateProvider;
+    if (!provider) return null;
+    var state = provider.read(Object.freeze({
+      schema: 'SessionActivityStateReadV1', phase: String(phase),
+      request: session.request, prepared: session.prepared || null,
+    }));
+    if (state == null) return null;
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      throw new TypeError('Session activity-state provider must return an object or null');
+    }
+    return deepFreeze(clone(state));
+  }
+
   function validateRoster(value) {
     if (!Array.isArray(value) || value.length < 1 || value.length > 16) {
       throw new TypeError('roster must contain 1–16 entries');
@@ -203,36 +235,60 @@
     var statsSink = typeof opts.statsSink === 'function' ? opts.statsSink : function () {};
     var sessions = new Map();
 
-    function start(input) {
+    function start(input, sessionHooks) {
       var request = MatchRequestV2(input);
       if (sessions.has(request.matchId)) throw new Error('Match already started: ' + request.matchId);
-      var prepared = registry.prepare(request.activityId, { request: request });
+      var hooks = MatchSessionHooksV1(sessionHooks);
       var session = {
-        request: request,
-        prepared: deepFreeze(clone(prepared || {})),
+        request: request, hooks: hooks, prepared: null,
         status: 'active',
         finalPromise: null,
         resolution: null,
         outcome: null,
         activityResolution: null,
       };
+      var initialActivityState = readSessionActivityState(session, 'prepare');
+      var prepared = registry.prepare(request.activityId, {
+        request: request, activityState: initialActivityState,
+      });
+      session.prepared = deepFreeze(clone(prepared || {}));
       sessions.set(request.matchId, session);
       return deepFreeze({
         schema: 'MatchSessionV1',
         matchId: request.matchId,
         request: request,
         prepared: session.prepared,
-        status: session.status,
+        status: session.status, hasActivityStateProvider: !!hooks.activityStateProvider,
       });
     }
 
     function finalize(input) {
-      var outcome = MatchOutcomeV2(input);
-      var session = sessions.get(outcome.matchId);
-      if (!session) return Promise.reject(new Error('Unknown match: ' + outcome.matchId));
-      if (session.status !== 'active' && session.status !== 'finalizing') {
-        return Promise.reject(new Error('Match is not active: ' + outcome.matchId));
+      var suppliedOutcome = MatchOutcomeV2(input);
+      var session = sessions.get(suppliedOutcome.matchId);
+      if (!session) return Promise.reject(new Error('Unknown match: ' + suppliedOutcome.matchId));
+      // The first finalize call freezes the provider snapshot. Concurrent calls
+      // compare against that snapshot rather than re-reading mutable activity state.
+      if (session.status === 'finalizing' && session.finalPromise) {
+        var repeatedOutcome = MatchOutcomeV2(Object.assign({}, clone(suppliedOutcome), {
+          activityState: clone(session.outcome.activityState),
+        }));
+        if (JSON.stringify(session.outcome) !== JSON.stringify(repeatedOutcome)) {
+          return Promise.reject(new Error('Conflicting final outcome for match: ' + suppliedOutcome.matchId));
+        }
+        return session.finalPromise;
       }
+      if (session.status !== 'active') {
+        return Promise.reject(new Error('Match is not active: ' + suppliedOutcome.matchId));
+      }
+      var dynamicActivityState;
+      try {
+        dynamicActivityState = readSessionActivityState(session, 'finalize');
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      var outcome = dynamicActivityState ? MatchOutcomeV2(Object.assign({}, clone(suppliedOutcome), {
+        activityState: Object.assign({}, clone(suppliedOutcome.activityState), dynamicActivityState),
+      })) : suppliedOutcome;
       var allowedWinnerIds = new Set();
       session.request.roster.forEach(function (entry) {
         allowedWinnerIds.add(entry.id);
@@ -303,9 +359,11 @@
       var session = sessions.get(id);
       if (!session) throw new Error('Unknown match: ' + id);
       if (session.status !== 'active') return deepFreeze({ matchId: id, status: session.status });
+      var activityState = readSessionActivityState(session, 'abandon');
       var activityResolution = registry.abandon(session.request.activityId, {
         request: session.request,
         prepared: session.prepared,
+        activityState: activityState,
         reason: reason == null ? 'abandoned' : String(reason),
       }) || {};
       session.status = 'abandoned';
@@ -318,7 +376,8 @@
       if (!session) return null;
       return deepFreeze({ matchId: session.request.matchId, status: session.status,
         request: session.request, prepared: session.prepared,
-        resolution: session.resolution });
+        resolution: session.resolution,
+        hasActivityStateProvider: !!session.hooks.activityStateProvider });
     }
 
     return Object.freeze({ start: start, finalize: finalize, abandon: abandon, snapshot: snapshot });
@@ -421,6 +480,8 @@
     MatchRequestV2: MatchRequestV2,
     MatchOutcomeV2: MatchOutcomeV2,
     PostMatchResolutionV1: PostMatchResolutionV1,
+    createSessionActivityStateProvider: createSessionActivityStateProvider,
+    MatchSessionHooksV1: MatchSessionHooksV1,
     createActivityRegistry: createActivityRegistry,
     createMatchSessionCoordinator: createMatchSessionCoordinator,
     createLaneRuntime: createLaneRuntime,

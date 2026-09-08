@@ -105,6 +105,94 @@ function testAbandon() {
   assert.equal(coordinator.abandon('story-1').status, 'abandoned');
 }
 
+async function testVersionedDynamicActivityStateBridge() {
+  const phases = [];
+  let current = {
+    schema: 'TrainingActivityStateV1', testData: false,
+    statisticsDefaultEligible: true, forcedAttemptSeen: false,
+  };
+  let preparedState = null;
+  let resolvedState = null;
+  let transactionState = null;
+  let statsState = null;
+  const registry = Activity.createActivityRegistry([{
+    id: 'practice',
+    prepare({ activityState }) { preparedState = activityState; return { ready: true }; },
+    resolve({ outcome }) { resolvedState = outcome.activityState; return outcome.activityState; },
+  }]);
+  const coordinator = Activity.createMatchSessionCoordinator({
+    registry,
+    transaction(command) {
+      transactionState = command.outcome.activityState;
+      return { duplicate: false };
+    },
+    statsSink(payload) { statsState = payload.outcome.activityState; },
+  });
+  const provider = Activity.createSessionActivityStateProvider(({ schema, phase }) => {
+    assert.equal(schema, 'SessionActivityStateReadV1');
+    phases.push(phase);
+    return current;
+  });
+  const hooks = Activity.MatchSessionHooksV1({ activityStateProvider: provider });
+  const opened = coordinator.start(request({ matchId: 'dynamic-finalize',
+    activityId: 'practice' }), hooks);
+  assert.equal(opened.hasActivityStateProvider, true);
+  assert.equal(preparedState.testData, false);
+  current = {
+    schema: 'TrainingActivityStateV1', testData: true,
+    statisticsDefaultEligible: false, forcedAttemptSeen: true,
+  };
+  const finalPromise = coordinator.finalize({
+    matchId: 'dynamic-finalize', status: 'completed', winnerIds: ['p1'],
+    // Callers cannot downgrade the authoritative provider classification.
+    activityState: { testData: false, statisticsDefaultEligible: true },
+  });
+  current = { schema: 'TrainingActivityStateV1', testData: false,
+    statisticsDefaultEligible: true, forcedAttemptSeen: false };
+  const duplicatePromise = coordinator.finalize({
+    matchId: 'dynamic-finalize', status: 'completed', winnerIds: ['p1'],
+  });
+  const [resolution, duplicate] = await Promise.all([finalPromise, duplicatePromise]);
+  assert.equal(resolution, duplicate);
+  assert.equal(resolvedState.testData, true);
+  assert.equal(transactionState.testData, true);
+  assert.equal(transactionState.statisticsDefaultEligible, false);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(statsState.testData, true);
+  assert.deepEqual(phases, ['prepare', 'finalize'],
+    'finalize freezes one authoritative provider snapshot even across concurrent calls');
+
+  let abandonState = { schema: 'TrainingActivityStateV1', testData: false,
+    statisticsDefaultEligible: true };
+  let abandonedPayload = null;
+  const abandonRegistry = Activity.createActivityRegistry([{
+    id: 'practice',
+    abandon(payload) { abandonedPayload = payload; return payload.activityState; },
+  }]);
+  const abandonCoordinator = Activity.createMatchSessionCoordinator({ registry: abandonRegistry });
+  const abandonProvider = Activity.createSessionActivityStateProvider(() => abandonState);
+  abandonCoordinator.start(request({ matchId: 'dynamic-abandon',
+    activityId: 'practice' }), Activity.MatchSessionHooksV1({
+    activityStateProvider: abandonProvider,
+  }));
+  abandonState = { schema: 'TrainingActivityStateV1', testData: true,
+    statisticsDefaultEligible: false, forcedAttemptSeen: true };
+  const abandoned = abandonCoordinator.abandon('dynamic-abandon', 'back');
+  assert.equal(abandoned.activityResolution.testData, true);
+  assert.equal(abandonedPayload.activityState.statisticsDefaultEligible, false);
+
+  assert.throws(() => Activity.createSessionActivityStateProvider(null), /reader is required/);
+  assert.throws(() => Activity.MatchSessionHooksV1({
+    activityStateProvider: { schema: 'SessionActivityStateProviderV1' },
+  }), /Invalid/);
+  const invalidRegistry = Activity.createActivityRegistry([{ id: 'practice' }]);
+  const invalidCoordinator = Activity.createMatchSessionCoordinator({ registry: invalidRegistry });
+  assert.throws(() => invalidCoordinator.start(request({ matchId: 'bad-state-provider',
+    activityId: 'practice' }), Activity.MatchSessionHooksV1({
+    activityStateProvider: Activity.createSessionActivityStateProvider(() => 'bad'),
+  })), /object or null/);
+}
+
 function testLaneIsolationAndTransitions() {
   const left = Activity.createLaneRuntime({ laneId: 'left', ownerId: 'p1' });
   const right = Activity.createLaneRuntime({ laneId: 'right', ownerId: 'p2' });
@@ -131,6 +219,7 @@ async function run() {
   await testCoordinatorExactlyOnceAndStatsFailure();
   await testCoordinatorValidationAndSafeRetry();
   testAbandon();
+  await testVersionedDynamicActivityStateBridge();
   testLaneIsolationAndTransitions();
   console.log('v1.12 activity/session tests passed.');
 }

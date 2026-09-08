@@ -86,6 +86,13 @@
   var MAX_RESOLVED_ATTEMPTS = 256;
   var MAX_TRAJECTORY_SAMPLES = 480;
   var MAX_SUCCESSFUL_GHOSTS = 24;
+  // PhysicsLabAuthorizationV1 and PhysicsLabProfileProviderV1 are capabilities,
+  // not serializable claims. Their WeakSet identity prevents look-alike objects
+  // (including JSON-restored request metadata) from authorizing Lab access.
+  var ISSUED_LAB_AUTHORIZATIONS = new WeakSet();
+  var ISSUED_LAB_PROFILE_PROVIDERS = new WeakSet();
+  var REGISTERED_LAB_PROFILE_PROVIDERS = new WeakMap();
+  var DYNAMIC_PRACTICE_CLASSIFICATION = Object.freeze({});
   var FORCEABLE_EVENT_NAMES = freeze(Events.definitions.map(function (entry) { return entry.displayName; }));
   var LANDING_LABELS = freeze({
     upright: 'Stable upright landing', cap: 'Stable cap landing', 'cap-settled': 'Detachable top settled',
@@ -132,25 +139,54 @@
       : (featureIds.indexOf('physics-lab') >= 0 ? 'migrated-feature'
       : (claimed.indexOf('level.50.feature.physics-lab') >= 0 ? 'migrated-level-claim'
       : 'migrated-feature-claim'));
-    return freeze({ schema: 'PhysicsLabAuthorizationV1', featureId: 'physics-lab',
+    var authorization = freeze({ schema: 'PhysicsLabAuthorizationV1', featureId: 'physics-lab',
       authorized: true, entitlementSource: entitlementSource });
+    ISSUED_LAB_AUTHORIZATIONS.add(authorization);
+    return authorization;
   }
 
   function validLabAuthorization(value) {
-    var source = object(value);
-    return source.schema === 'PhysicsLabAuthorizationV1' &&
-      source.featureId === 'physics-lab' && source.authorized === true &&
-      ['flip-level', 'migrated-feature', 'migrated-level-claim',
-        'migrated-feature-claim'].indexOf(source.entitlementSource) >= 0;
+    return !!value && (typeof value === 'object' || typeof value === 'function') &&
+      ISSUED_LAB_AUTHORIZATIONS.has(value);
   }
 
   function resolveLabAuthorization(source) {
     var value = object(source);
     var supplied = value.physicsLabAuthorization || value.authorization ||
       object(value.activityContext).physicsLabAuthorization;
-    if (validLabAuthorization(supplied)) return freeze(clone(supplied));
+    if (validLabAuthorization(supplied)) return supplied;
     if (value.profile != null) return authorizePhysicsLab(value.profile);
     throw labLockedError();
+  }
+
+  function createPhysicsLabProfileProvider(reader) {
+    if (typeof reader !== 'function') throw new TypeError('Physics Lab profile reader is required');
+    var provider = freeze({ schema: 'PhysicsLabProfileProviderV1', read: reader });
+    ISSUED_LAB_PROFILE_PROVIDERS.add(provider);
+    return provider;
+  }
+
+  function installLabProfileProvider(registry, value) {
+    if (value == null) return;
+    if (!value || (typeof value !== 'object' && typeof value !== 'function') ||
+        !ISSUED_LAB_PROFILE_PROVIDERS.has(value)) {
+      throw new TypeError('Invalid PhysicsLabProfileProviderV1');
+    }
+    var existing = REGISTERED_LAB_PROFILE_PROVIDERS.get(registry);
+    if (existing && existing !== value) {
+      throw new Error('Physics Lab profile provider is already registered');
+    }
+    REGISTERED_LAB_PROFILE_PROVIDERS.set(registry, value);
+  }
+
+  function requireCurrentLabEntitlement(registry, phase, payload) {
+    var provider = REGISTERED_LAB_PROFILE_PROVIDERS.get(registry);
+    if (!provider) throw labLockedError();
+    var profile = provider.read(freeze({
+      schema: 'PhysicsLabProfileReadV1', phase: String(phase),
+      request: object(payload).request || null,
+    }));
+    if (!hasPhysicsLabEntitlement(profile)) throw labLockedError();
   }
 
   function rosterDisplayName(roster, activePlayerId) {
@@ -236,8 +272,11 @@
     if (requestedForceName && !Events.forcedId(requestedForceName, activityId)) {
       throw new TypeError('Unknown forced event display name');
     }
+    var dynamicPractice = activityId === 'practice' &&
+      source.dynamicClassificationToken === DYNAMIC_PRACTICE_CLASSIFICATION;
     var sessionPolicy = isolation(activityId, {
-      forced: forcedContext(source) || forcedContext(source.activityContext) || namedForce,
+      forced: !dynamicPractice &&
+        (forcedContext(source) || forcedContext(source.activityContext) || namedForce),
     });
     var labAuthorization = activityId === 'physics-lab' ? resolveLabAuthorization(source) : null;
     return Activity.MatchRequestV2({
@@ -249,6 +288,7 @@
       activityContext: Object.assign({}, clone(object(source.activityContext)), sessionPolicy, {
         trainingSessionId: String(source.sessionId || matchId), activePlayerId: activePlayerId,
         physicsLabAuthorization: labAuthorization,
+        dynamicActivityState: dynamicPractice,
       }),
     });
   }
@@ -265,13 +305,12 @@
     });
   }
 
-  function validateRegisteredRequest(activityId, request) {
+  function validateRegisteredRequest(registry, activityId, request, phase, payload) {
     var value = object(request);
     if (value.activityId !== activityId) throw new TypeError('Training activity request mismatch');
-    if (activityId === 'physics-lab' &&
-        !validLabAuthorization(object(value.activityContext).physicsLabAuthorization)) {
-      throw labLockedError();
-    }
+    // Serialized MatchRequestV2 metadata is intentionally insufficient here.
+    // Every adapter entry re-reads the authoritative current profile.
+    if (activityId === 'physics-lab') requireCurrentLabEntitlement(registry, phase, payload);
     return value;
   }
 
@@ -280,27 +319,30 @@
     var request = object(value.request);
     var outcome = object(value.outcome);
     var forced = containsForcedMarker(request.activityContext) ||
-      containsForcedMarker(outcome) || containsForcedMarker(value.detail);
+      containsForcedMarker(outcome) || containsForcedMarker(value.activityState) ||
+      containsForcedMarker(value.detail);
     return isolation(activityId, { forced: forced });
   }
 
-  function registerActivities(registry) {
+  function registerActivities(registry, options) {
     if (!registry || typeof registry.register !== 'function' || typeof registry.has !== 'function') {
       throw new TypeError('Activity registry is required');
     }
+    installLabProfileProvider(registry, object(options).physicsLabProfileProvider);
     ['practice', 'physics-lab', 'tutorial'].forEach(function (activityId) {
       if (registry.has(activityId)) return;
       registry.register({
         id: activityId,
         prepare: function (payload) {
-          var request = validateRegisteredRequest(activityId, object(payload).request);
+          var request = validateRegisteredRequest(registry, activityId,
+            object(payload).request, 'prepare', payload);
           var policy = payloadPolicy(activityId, payload);
           return freeze({ schema: 'TrainingActivityPreparationV1', activityId: activityId,
             matchId: request.matchId || null, isolation: policy });
         },
         resolve: function (payload) {
           var value = object(payload);
-          validateRegisteredRequest(activityId, value.request);
+          validateRegisteredRequest(registry, activityId, value.request, 'resolve', value);
           var policy = payloadPolicy(activityId, value);
           return trainingResolution(activityId, value.outcome && value.outcome.status,
             { matchId: value.request && value.request.matchId || null,
@@ -308,7 +350,7 @@
         },
         abandon: function (payload) {
           var value = object(payload);
-          validateRegisteredRequest(activityId, value.request);
+          validateRegisteredRequest(registry, activityId, value.request, 'abandon', value);
           var policy = payloadPolicy(activityId, value);
           return trainingResolution(activityId, 'abandoned',
             { reason: value.reason || 'abandoned', forced: policy.testData }, policy);
@@ -719,15 +761,28 @@
       matchId: sessionId, sessionId: sessionId, activityId: activityId,
       roster: options.roster, seed: baseSeed, activePlayerId: options.activePlayerId,
       forceName: forceName, physicsLabAuthorization: labAuthorization,
+      dynamicClassificationToken: activityId === 'practice'
+        ? DYNAMIC_PRACTICE_CLASSIFICATION : null,
       activityContext: { selectedFlipperId: selectedFlipper },
     });
     activeDisplayName = rosterDisplayName(request.roster, request.activityContext.activePlayerId);
     rosterForceName = activityId === 'practice' && Events.forcedId(activeDisplayName, activityId)
       ? activeDisplayName : null;
     sessionHasTestData = request.activityContext.testData;
+    var activityStateProvider = Activity.createSessionActivityStateProvider(activityState);
+    var sessionHooks = Activity.MatchSessionHooksV1({
+      activityStateProvider: activityStateProvider,
+    });
+    function startSession(coordinator) {
+      if (!coordinator || typeof coordinator.start !== 'function') {
+        throw new TypeError('Match session coordinator is required');
+      }
+      return coordinator.start(request, sessionHooks);
+    }
     return freeze({
       schema: 'TrainingRuntimeV1', request: request, snapshot: snapshot,
-      activityState: activityState,
+      activityState: activityState, activityStateProvider: activityStateProvider,
+      sessionHooks: sessionHooks, startSession: startSession,
       prepareAttempt: prepareAttempt, eventPhase: eventPhase, cancelGesture: cancelGesture,
       qualifyLaunch: qualifyLaunch, resolveAttempt: resolveAttempt, replayAttempt: replayAttempt,
       setFlipper: setFlipper, setViewportPreset: setViewport, setSlowMotion: setSlowMotion,
@@ -888,7 +943,7 @@
 
     var request = createMatchRequest({
       matchId: sessionId, sessionId: sessionId, activityId: 'tutorial',
-      roster: options.roster, seed: baseSeed,
+      roster: options.roster, seed: state.baseSeed,
     });
     return freeze({
       schema: 'FirstFlipTourRuntimeV1', request: request, snapshot: snapshot,
@@ -905,7 +960,9 @@
     MAX_TRAJECTORY_SAMPLES: MAX_TRAJECTORY_SAMPLES,
     MAX_SUCCESSFUL_GHOSTS: MAX_SUCCESSFUL_GHOSTS,
     featureState: featureState, hasPhysicsLabEntitlement: hasPhysicsLabEntitlement,
-    authorizePhysicsLab: authorizePhysicsLab, isolation: isolation,
+    authorizePhysicsLab: authorizePhysicsLab,
+    createPhysicsLabProfileProvider: createPhysicsLabProfileProvider,
+    isolation: isolation,
     createMatchRequest: createMatchRequest,
     registerActivities: registerActivities, launchSignal: launchSignal,
     outcome: outcome, landingReason: landingReason,
