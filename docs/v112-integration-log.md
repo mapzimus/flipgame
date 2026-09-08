@@ -818,3 +818,39 @@ log, and defect ledger remain release history and are not rewritten.
 - No hazard, wildcard or assist pack may begin integration until the corrected
   kernel and explicit Classic/Cup/Team terminal-event path pass a third
   independent adversarial audit.
+
+## Revision 47 — exact progression candidate rejected at second adversarial gate
+
+- Candidates `3cbf6718` and `951ca52` remain outside the integration branch.
+  The separate Activity/Story reservation wiring at `42cc54b` is also held even
+  though its focused and inherited suites pass; it cannot be trusted until the
+  profile authority underneath it is accepted.
+- The second independent audit confirms that notification ordering, ordinary
+  monotonic refresh, consumed-reveal identity, sequential exact retention,
+  unsafe-key rejection and wrapper-only Owner Test behavior were repaired.
+  Those passes do not override the remaining release blockers.
+- V112-059 and V112-061 remain open. A write that stores the candidate and then
+  throws can still leave a ghost reward after a failed rollback, while imported
+  achievement or rival claim evidence can suppress the corresponding genuine
+  reward without carrying its value.
+- New defects V112-076 through V112-081 record the additional findings: Store
+  purchases create an invalid dual reveal namespace; Rival Board reservations
+  can receive ordinary rewards; concurrent writers can issue the same ordinal
+  and diverge at one revision; public reward mutators bypass gameplay and Owner
+  Test; conflicting reservations leak their bearer token; and unbounded clone
+  or array inputs can exhaust the stack or memory.
+- Production progression will use one lifetime-held exclusive Web Lock per
+  origin. The acquired writer capability is private and branded; a busy or
+  unsupported environment remains explicitly read-only for progression rather
+  than falling back to a racy localStorage lease. An in-realm storage mutex and
+  equal-revision divergence poisoning remain defense-in-depth.
+- Achievement rarity must come from the canonical 120-ID catalog, never a
+  caller string. Story/rival/achievement rewards require coordinator-bound
+  evidence. Raw/default reward mutators are not part of the browser-facing
+  profile surface. Reservation activity is immutable, so Rival Board can never
+  earn ordinary match FXP or FC.
+- The owner must add each independent reproduction before resubmission. A clean
+  third audit must cover persistence uncertainty and restart, canonical Store
+  round-trips, hostile imports, cross-context writer exclusion, authority
+  forgery, Owner Test bypass attempts, exact schemas and bounded traversal
+  before any progression or Activity/Story commit is eligible to merge.
