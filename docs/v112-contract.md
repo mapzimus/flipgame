@@ -56,30 +56,35 @@ owners, accompanied by migration/test changes, and acknowledged before merge.
 - The **Table** is the regulation field of play. A **Lane** is one isolated play
   zone on a multi-Entry Battle table.
 - The physical call sequence is **Set → Release → Flight → Contact → Settle**.
+  **Set** is never used as the name of a match segment.
 - A valid make is a **Hold**; upright is a **Stand**; cap is a **Crown**; a miss
   is **No Hold**. A first-contact landing with no bounce or slide is a **Clean
   Hold**; a valid landing recovered after physical movement is a **Recovery
-  Hold**. Functional and accessible surfaces always retain the plain make/miss
-  meaning alongside broadcast flavor.
+  Hold**. Clean/Recovery are replay tags, not replacements for the existing
+  Perfect Landing statistic. Functional and accessible surfaces always retain
+  the plain make/miss meaning alongside broadcast flavor.
 - **Stake** is the exact number of lives currently at risk. **Pressure** is the
   broadcast condition created by that risk, especially near elimination. A
   potentially eliminating attempt is a **Pressure Shot**; making it is a
-  **Pressure Save**. Sudden Death may be introduced as **Sudden Death · Open
+  **Pressure Save**. Sudden Death may be introduced as **Sudden Death · Rising
   Stake**. Once a plain winner result is confirmed, the broadcast may call
   `{Winner} Takes the Table`.
-- A **Rotation** gives every active Entry one allocated turn; retained ON FIRE
-  attempts do not advance it. ON FIRE presentation may call its start
+- A **Lineup Rotation** gives every active Entry one allocated turn; retained ON
+  FIRE attempts do not advance it. **Object Rotations** are physical revolutions
+  of a Flipper, keeping the two statistics unambiguous. ON FIRE presentation may call its start
   **Ignition**, reaching the additive cap **Full Burn**, and a miss-ending run
   **Burnout**.
 - Rare physical events are **Signal Events**, announced with **Signal
   Detected**. Their ordinary event names remain visible and no odds appear.
-- **Form Line** is the recent result strip; **Arc Trace** is trajectory replay;
+- **Recent Form** is the recent result strip; **Arc Trace** is trajectory replay;
   **Hold Rate**, **Crown Rate**, and **Pressure Save Rate** are plain observed
   broadcast-overlay statistics. Stats Lab, exports, instructions, and accessible
   names retain conventional labels such as Make Rate and Cap Landing Rate.
-  **Table Judge**, **Replay Desk**, and **Arc Analyst** are presentation roles
+  **Table Judge**, **Replay Desk**, and **Trajectory Analyst** are presentation roles
   only. **Hold** is never used as an input instruction because it could be
   mistaken for a press-and-hold gesture.
+- WFF appears in Story, signage, and sanctioning flavor; WFC remains the primary
+  public acronym. Battle power cards are never described as Signal Events.
 - The **Fair-Form Standard** is the in-world rule explaining the shared
   competitive collider/contact plane. It never implies that visual variants or
   internal secondary motion change gameplay physics.

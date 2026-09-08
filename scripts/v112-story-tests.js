@@ -31,6 +31,10 @@ function testCatalogAndCanon() {
   assert.equal(Urth.broadcastTerms.flipper, 'Flipper');
   assert.equal(Urth.broadcastTerms.crown, 'Crown');
   assert.equal(Urth.broadcastTerms.signalEvent, 'Signal Event');
+  assert.equal(Urth.broadcastTerms.risingStake, 'Rising Stake');
+  assert.equal(Urth.broadcastTerms.recentForm, 'Recent Form');
+  assert.equal(Urth.broadcastTerms.rotation, 'Lineup Rotation');
+  assert.equal(Urth.broadcastTerms.trajectoryAnalyst, 'Trajectory Analyst');
   assert.equal(Urth.broadcastTerms.pressureSaveRate, 'Pressure Save Rate');
   assert.equal(Urth.broadcastDefinitions.hold, 'Any valid settled make.');
   assert.deepEqual(Object.keys(Urth.broadcastTerms).sort(),

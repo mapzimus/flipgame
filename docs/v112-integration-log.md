@@ -623,9 +623,9 @@ log, and defect ledger remain release history and are not rewritten.
   broadcast terms cover Flipper/Entry/Lineup/Table/Lane; Set/Release/Flight/
   Contact/Settle; Hold/Stand/Crown/No Hold/
   Clean Hold/Recovery Hold; Stake/Pressure/Pressure Shot/Pressure Save;
-  Rotation; Ignition/Full Burn/Burnout; Signal Event/Signal Detected; Form Line/
+  Lineup Rotation/Object Rotations; Ignition/Full Burn/Burnout; Signal Event/Signal Detected; Recent Form/
   Arc Trace; Hold Rate/Crown Rate/Pressure Save Rate; Table Judge/Replay Desk/
-  Arc Analyst; Open Stake/Takes the Table; and Fair-Form Standard/Certified. The
+  Trajectory Analyst; Rising Stake/Takes the Table; and Fair-Form Standard/Certified. The
   Wurld Flip Federation (WFF) sanctions the sport; WFC names its premier event.
 - Migration action: this is presentation-only. Persisted IDs, Story progress,
   statistics keys, WFC abbreviation, rules, and physics do not change. Replace
