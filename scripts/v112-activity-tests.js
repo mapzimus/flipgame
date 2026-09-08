@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const Activity = require('../js/v112-activity.js');
+const Rules = require('../js/v112-rules.js');
 const Profile = require('../js/v112-profile.js');
 const ProgressionRuntime = require('../js/v112-progression-runtime.js');
 
@@ -26,6 +27,22 @@ function humanRequest(patch = {}) {
   }, patch));
 }
 
+function completedClassicOutcome(matchId, winnerId = 'p1', roster = [
+  { id: 'p1', human: true }, { id: 'p2', human: true },
+], patch = {}) {
+  const state = Rules.createClassicState({
+    matchId,
+    players: roster,
+    startingLives: 3,
+    seed: 7,
+  });
+  const loserIds = roster.map((entry) => String(entry.id))
+    .filter((id) => id !== String(winnerId));
+  const terminal = Rules.forceEliminate(state, loserIds, 'forced-elimination').state;
+  assert.equal(terminal.phase, 'complete', 'fixture must produce a terminal Rules state');
+  return Object.assign({}, Rules.toMatchOutcomeV2(terminal), patch);
+}
+
 function testContractsAndValidation() {
   const value = Activity.MatchRequestV2(request());
   assert.equal(value.schema, 'MatchRequestV2');
@@ -47,6 +64,89 @@ function testContractsAndValidation() {
     /normal physics/);
   assert.throws(() => Activity.MatchRequestV2(request({ activityId: 'practice', formatId: 'battle' })),
     /free-play format/);
+}
+
+function testOutcomeStatusAndRulesAuthorityContracts() {
+  const active = Rules.createClassicState({
+    matchId: 'active-rules-outcome', players: [{ id: 'p1' }, { id: 'p2' }],
+  });
+  assert.throws(() => Activity.MatchOutcomeV2({
+    matchId: active.matchId, status: 'completed', rulesState: active,
+  }), /rules phase|contradicts/i,
+  'an active Rules state cannot be relabeled as completed');
+
+  const terminal = completedClassicOutcome('terminal-rules-outcome');
+  assert.throws(() => Activity.MatchOutcomeV2(Object.assign({}, terminal, {
+    status: 'abandoned', completed: false,
+  })), /rules phase|contradicts/i,
+  'a terminal Rules state cannot be relabeled as abandoned');
+
+  const abandoned = Activity.MatchOutcomeV2({
+    matchId: 'ordinary-abandon', status: 'abandoned', completed: false,
+    winnerIds: ['p1'], completionReason: '<caller-controlled reason>',
+  });
+  assert.deepEqual(abandoned.winnerIds, []);
+  assert.equal(abandoned.completionReason, 'abandoned');
+  assert.throws(() => Activity.MatchOutcomeV2({
+    matchId: 'boolean-contradiction', status: 'completed', completed: false,
+  }), /completed flag contradicts/i);
+}
+
+async function testManagedCompletionRequiresCanonicalTerminalRules() {
+  const profile = Profile.createTestStore({
+    storage: Profile.createMemoryStorage(), now: () => 4001,
+  });
+  let transactions = 0;
+  const registry = Activity.createActivityRegistry([{
+    id: 'free-play', resolve({ outcome }) { return { winners: outcome.winnerIds }; },
+  }]);
+  const coordinator = Activity.createMatchSessionCoordinator({
+    registry,
+    rewardAuthority: profile,
+    transaction(_command, rewards) {
+      transactions += 1;
+      const result = rewards.consumeMatch(rewardInput({ humanWon: true }));
+      return { duplicate: result.duplicate };
+    },
+  });
+  coordinator.start(humanRequest({ matchId: 'proof-required' }));
+  await assert.rejects(() => coordinator.finalize({
+    matchId: 'proof-required', status: 'completed', winnerIds: ['p1'],
+  }), /terminal Rules-issued outcome|rules state/i);
+  assert.equal(transactions, 0, 'an unproved terminal claim cannot reach the reward transaction');
+  assert.equal(profile.snapshot().activeMatchReservation.matchId, 'proof-required',
+    'rejection leaves the exact entitlement available for a valid retry');
+
+  const active = Rules.createClassicState({
+    matchId: 'proof-required', players: [{ id: 'p1' }, { id: 'p2' }],
+  });
+  await assert.rejects(() => coordinator.finalize({
+    matchId: 'proof-required', status: 'completed', winnerIds: ['p1'], rulesState: active,
+  }), /rules phase|contradicts/i);
+  assert.equal(transactions, 0);
+
+  const resolution = await coordinator.finalize(
+    completedClassicOutcome('proof-required'));
+  assert.equal(resolution.status, 'completed');
+  assert.equal(transactions, 1);
+
+  const wrongRoster = Activity.createMatchSessionCoordinator({ registry });
+  wrongRoster.start(request({ matchId: 'wrong-rules-roster' }));
+  await assert.rejects(() => wrongRoster.finalize(completedClassicOutcome(
+    'wrong-rules-roster', 'p1', [{ id: 'p1' }, { id: 'p3' }],
+  )), /roster/i);
+
+  const wrongWinner = completedClassicOutcome('wrong-rules-winner');
+  assert.throws(() => Activity.MatchOutcomeV2(Object.assign({}, wrongWinner, {
+    winnerIds: ['p2'],
+  })), /winner/i,
+  'caller-supplied winners cannot override the Rules-owned terminal result');
+
+  const wrongParticipants = completedClassicOutcome('wrong-participants');
+  assert.throws(() => Activity.MatchOutcomeV2(Object.assign({}, wrongParticipants, {
+    participantResults: [{ playerId: 'outsider' }],
+  })), /participant/i,
+  'caller-supplied participant results cannot override Rules-owned results');
 }
 
 async function testCoordinatorExactlyOnceAndStatsFailure() {
@@ -122,7 +222,7 @@ function testAbandon() {
 }
 
 async function testManagedFreePlayClaimIsPrivateAndExactlyOnce() {
-  const profile = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 401 });
+  const profile = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 401 });
   const registry = Activity.createActivityRegistry([{
     id: 'free-play', resolve({ outcome }) { return { winner: outcome.winnerIds[0] }; },
   }]);
@@ -148,7 +248,7 @@ async function testManagedFreePlayClaimIsPrivateAndExactlyOnce() {
   activeNonce = profile.snapshot().activeMatchReservation.nonce;
   assert.doesNotMatch(JSON.stringify(opened), new RegExp(activeNonce));
   assert.doesNotMatch(JSON.stringify(coordinator.snapshot(opened.matchId)), new RegExp(activeNonce));
-  const outcome = { matchId: opened.matchId, status: 'completed', winnerIds: ['p1'] };
+  const outcome = completedClassicOutcome(opened.matchId);
   const [first, second] = await Promise.all([
     coordinator.finalize(outcome), coordinator.finalize(outcome),
   ]);
@@ -163,7 +263,7 @@ async function testManagedFreePlayClaimIsPrivateAndExactlyOnce() {
 }
 
 async function testManagedRetryAfterConsumeNeverReawards() {
-  const profile = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 402 });
+  const profile = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 402 });
   const registry = Activity.createActivityRegistry([{
     id: 'free-play', resolve() { return { stable: true }; },
   }]);
@@ -184,7 +284,7 @@ async function testManagedRetryAfterConsumeNeverReawards() {
     },
   });
   coordinator.start(humanRequest({ matchId: 'consume-then-retry' }));
-  const outcome = { matchId: 'consume-then-retry', status: 'completed', winnerIds: ['p1'] };
+  const outcome = completedClassicOutcome('consume-then-retry');
   await assert.rejects(() => coordinator.finalize(outcome), /downstream/);
   const once = profile.snapshot();
   assert.equal(firstClaim.applied, true);
@@ -207,7 +307,7 @@ async function testManagedRetryAfterConsumeNeverReawards() {
 }
 
 async function testRewardEligibilityAndZeroRewardAbandonment() {
-  const profile = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 403 });
+  const profile = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 403 });
   const definitions = ['free-play', 'rival-board', 'practice', 'physics-lab', 'tutorial']
     .map((id) => ({ id, resolve() { return {}; } }));
   const registry = Activity.createActivityRegistry(definitions);
@@ -232,7 +332,8 @@ async function testRewardEligibilityAndZeroRewardAbandonment() {
   for (const value of cases) {
     coordinator.start(value);
     assert.equal(profile.snapshot().activeMatchReservation, null);
-    await coordinator.finalize({ matchId: value.matchId, status: 'completed', winnerIds: [] });
+    await coordinator.finalize({ matchId: value.matchId,
+      status: value.activityId === 'rival-board' ? 'cancelled' : 'completed', winnerIds: [] });
   }
   assert.equal(observed.every((entry) => !entry.reserved && !entry.eligible), true);
   assert.equal(profile.snapshot().consumedMatchOrdinal, 0);
@@ -250,7 +351,7 @@ async function testRewardEligibilityAndZeroRewardAbandonment() {
 
 function testAbandonPersistenceFailureRetainsReservation() {
   const storage = Profile.createMemoryStorage();
-  const profile = Profile.createStore({ storage, now: () => 4031 });
+  const profile = Profile.createTestStore({ storage, now: () => 4031 });
   const registry = Activity.createActivityRegistry([{ id: 'free-play' }]);
   const coordinator = Activity.createMatchSessionCoordinator({ registry,
     rewardAuthority: profile });
@@ -271,7 +372,7 @@ function testAbandonPersistenceFailureRetainsReservation() {
 
 async function testStartFailureCleansOrResumesTheExactReservation() {
   const storage = Profile.createMemoryStorage();
-  const profile = Profile.createStore({ storage, now: () => 404 });
+  const profile = Profile.createTestStore({ storage, now: () => 404 });
   let prepareMode = 'ordinary-failure';
   const registry = Activity.createActivityRegistry([{
     id: 'free-play',
@@ -305,13 +406,13 @@ async function testStartFailureCleansOrResumesTheExactReservation() {
   const resumed = coordinator.start(humanRequest({ matchId: 'start-failed-resume' }));
   assert.equal(profile.snapshot().activeMatchReservation.nonce, retained.nonce,
     'retry resumes the same private token rather than creating another entitlement');
-  await coordinator.finalize({ matchId: resumed.matchId, status: 'completed', winnerIds: ['p1'] });
+  await coordinator.finalize(completedClassicOutcome(resumed.matchId));
   assert.equal(profile.snapshot().consumedMatchOrdinal, 2);
   assert.equal(profile.snapshot().activeMatchReservation, null);
 }
 
 async function testFinalizeTimeTestDataAbandonsReservation() {
-  const profile = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 405 });
+  const profile = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 405 });
   let state = { testData: false, rewardsEligible: true };
   const provider = Activity.createSessionActivityStateProvider(() => state);
   const registry = Activity.createActivityRegistry([{
@@ -345,7 +446,7 @@ async function testFinalizeTimeTestDataAbandonsReservation() {
 }
 
 async function testRewardEligibilityIsMonotonicDeny() {
-  const profile = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 4051 });
+  const profile = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 4051 });
   let state = { testData: true, rewardsEligible: false, forcedAttemptSeen: true };
   const provider = Activity.createSessionActivityStateProvider(() => state);
   const registry = Activity.createActivityRegistry([{
@@ -410,16 +511,15 @@ async function testPersistedReservationRestartRecovery() {
   }
 
   const sameStorage = Profile.createMemoryStorage();
-  const firstStore = Profile.createStore({ storage: sameStorage, now: () => 407 });
+  const firstStore = Profile.createTestStore({ storage: sameStorage, now: () => 407 });
   coordinator(firstStore).start(humanRequest({ matchId: 'restart-same-match' }));
   const persistedToken = firstStore.snapshot().activeMatchReservation;
-  const resumedStore = Profile.createStore({ storage: sameStorage, now: () => 408 });
+  const resumedStore = Profile.createTestStore({ storage: sameStorage, now: () => 408 });
   const resumedCoordinator = coordinator(resumedStore);
   const resumedSession = resumedCoordinator.start(
     humanRequest({ matchId: 'restart-same-match' }));
   assert.equal(resumedStore.snapshot().activeMatchReservation.nonce, persistedToken.nonce);
-  await resumedCoordinator.finalize({ matchId: resumedSession.matchId,
-    status: 'completed', winnerIds: ['p1'] });
+  await resumedCoordinator.finalize(completedClassicOutcome(resumedSession.matchId));
   assert.equal(resumedStore.snapshot().consumedMatchOrdinal, 1);
   const afterOneReward = resumedStore.snapshot();
 
@@ -430,10 +530,10 @@ async function testPersistedReservationRestartRecovery() {
   assert.equal(resumedStore.snapshot().fcBalance, afterOneReward.fcBalance);
 
   const orphanStorage = Profile.createMemoryStorage();
-  const orphanStore = Profile.createStore({ storage: orphanStorage, now: () => 409 });
+  const orphanStore = Profile.createTestStore({ storage: orphanStorage, now: () => 409 });
   coordinator(orphanStore).start(humanRequest({ matchId: 'orphaned-old-match' }));
   const orphan = orphanStore.snapshot().activeMatchReservation;
-  const recoveredStore = Profile.createStore({ storage: orphanStorage, now: () => 410 });
+  const recoveredStore = Profile.createTestStore({ storage: orphanStorage, now: () => 410 });
   const recoveredCoordinator = coordinator(recoveredStore);
   const replacement = recoveredCoordinator.start(humanRequest({ matchId: 'replacement-match' }));
   assert.equal(orphan.ordinal, 1);
@@ -447,8 +547,8 @@ async function testPersistedReservationRestartRecovery() {
 }
 
 async function testOwnerPolicyCannotReserveOrBeForged() {
-  const store = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 406 });
-  const progression = ProgressionRuntime.createRuntime({ profileStore: store });
+  const store = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 406 });
+  const progression = ProgressionRuntime.createTestRuntime({ profileStore: store });
   progression.activateOwnerTestMode('Howe Test Mode');
   const registry = Activity.createActivityRegistry([{
     id: 'free-play', resolve() { return {}; },
@@ -617,6 +717,53 @@ async function testVersionedDynamicActivityStateBridge() {
   })), /object or null/);
 }
 
+async function testBoundedCoordinatorRetentionAndRecentIdempotency() {
+  let transactionCalls = 0;
+  const registry = Activity.createActivityRegistry([{
+    id: 'free-play', resolve({ outcome }) { return { matchId: outcome.matchId }; },
+  }]);
+  const coordinator = Activity.createMatchSessionCoordinator({
+    registry,
+    maxRetainedSessions: 3,
+    transaction() { transactionCalls += 1; return { duplicate: false }; },
+  });
+  const outcomes = [];
+  const resolutions = [];
+  for (let index = 0; index < 6; index += 1) {
+    const matchId = `retained-${index}`;
+    coordinator.start(request({ matchId }));
+    const outcome = { matchId, status: 'completed', winnerIds: ['p1'] };
+    outcomes.push(outcome);
+    resolutions.push(await coordinator.finalize(outcome));
+    assert.ok(coordinator.snapshots().length <= 3,
+      'terminal-session history must never grow beyond its configured bound');
+  }
+  assert.equal(coordinator.snapshot('retained-0'), null,
+    'the oldest terminal payload is evicted before accepting later work');
+  assert.deepEqual(coordinator.snapshots().map((entry) => entry.matchId),
+    ['retained-3', 'retained-4', 'retained-5']);
+  const repeated = await coordinator.finalize(outcomes[5]);
+  assert.equal(repeated, resolutions[5],
+    'an exact retry of a retained final outcome returns the same resolution');
+  assert.equal(transactionCalls, 6, 'an exact retry cannot rerun its transaction');
+  await assert.rejects(() => coordinator.finalize(Object.assign({}, outcomes[5], {
+    winnerIds: ['p2'],
+  })), /Conflicting final outcome/);
+
+  const activeBound = Activity.createMatchSessionCoordinator({
+    registry, maxRetainedSessions: 2,
+  });
+  activeBound.start(request({ matchId: 'active-one' }));
+  activeBound.start(request({ matchId: 'active-two' }));
+  assert.throws(() => activeBound.start(request({ matchId: 'active-three' })),
+    /capacity/i, 'active sessions are never evicted to make room');
+  activeBound.abandon('active-one', 'fixture');
+  activeBound.start(request({ matchId: 'active-three' }));
+  assert.equal(activeBound.snapshot('active-one'), null);
+  assert.deepEqual(activeBound.snapshots().map((entry) => entry.matchId),
+    ['active-two', 'active-three']);
+}
+
 function testLaneIsolationAndTransitions() {
   const left = Activity.createLaneRuntime({ laneId: 'left', ownerId: 'p1' });
   const right = Activity.createLaneRuntime({ laneId: 'right', ownerId: 'p2' });
@@ -640,6 +787,8 @@ function testLaneIsolationAndTransitions() {
 
 async function run() {
   testContractsAndValidation();
+  testOutcomeStatusAndRulesAuthorityContracts();
+  await testManagedCompletionRequiresCanonicalTerminalRules();
   await testCoordinatorExactlyOnceAndStatsFailure();
   await testCoordinatorValidationAndSafeRetry();
   testAbandon();
@@ -654,6 +803,7 @@ async function run() {
   await testOwnerPolicyCannotReserveOrBeForged();
   testMismatchedReservationIsRejectedBeforePrepare();
   await testVersionedDynamicActivityStateBridge();
+  await testBoundedCoordinatorRetentionAndRecentIdempotency();
   testLaneIsolationAndTransitions();
   console.log('v1.12 activity/session tests passed.');
 }

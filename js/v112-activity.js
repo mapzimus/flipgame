@@ -2,13 +2,30 @@
 // free play, and Battle. This module owns no DOM, physics, progression, or stats.
 (function (root, factory) {
   'use strict';
-  var api = factory();
+  var api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.FlipgameV112Activity = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function () {
+  : (typeof window !== 'undefined' ? window : this)), function (root) {
   'use strict';
+
+  var cachedRulesAuthority = null;
+
+  function rulesAuthority() {
+    if (root && root.FlipgameV112Rules &&
+        typeof root.FlipgameV112Rules.toMatchOutcomeV2 === 'function') {
+      cachedRulesAuthority = root.FlipgameV112Rules;
+    }
+    if (!cachedRulesAuthority && typeof module === 'object' && module.exports &&
+        typeof require === 'function') {
+      cachedRulesAuthority = require('./v112-rules.js');
+    }
+    if (!cachedRulesAuthority || typeof cachedRulesAuthority.toMatchOutcomeV2 !== 'function') {
+      throw new Error('FlipgameV112Rules must load before Rules-state outcomes are accepted');
+    }
+    return cachedRulesAuthority;
+  }
 
   var ACTIVITY_IDS = Object.freeze([
     'free-play', 'story', 'rival-board', 'practice', 'physics-lab', 'tutorial',
@@ -59,6 +76,70 @@
     var number = Number(value);
     if (!Number.isFinite(number)) return fallback;
     return Math.floor(number);
+  }
+
+  function hasOwn(value, key) {
+    return Object.prototype.hasOwnProperty.call(value, key);
+  }
+
+  function sameCanonicalValue(left, right) {
+    if (left === right) return true;
+    if (left == null || right == null || typeof left !== 'object' || typeof right !== 'object') {
+      return false;
+    }
+    if (Array.isArray(left) || Array.isArray(right)) {
+      return Array.isArray(left) && Array.isArray(right) && left.length === right.length &&
+        left.every(function (value, index) { return sameCanonicalValue(value, right[index]); });
+    }
+    var leftKeys = Object.keys(left).sort();
+    var rightKeys = Object.keys(right).sort();
+    return leftKeys.length === rightKeys.length && leftKeys.every(function (key, index) {
+      return key === rightKeys[index] && sameCanonicalValue(left[key], right[key]);
+    });
+  }
+
+  function supportedRulesState(value) {
+    var schema = object(value).schema;
+    return schema === 'ClassicRulesStateV1' || schema === 'CupRulesStateV1' ||
+      schema === 'TeamClashRulesStateV1';
+  }
+
+  function canonicalRulesOutcome(source, status) {
+    var state = object(source.rulesState);
+    if (!Object.keys(state).length) return null;
+    if (!supportedRulesState(state)) {
+      throw new TypeError('A supported Rules state is required');
+    }
+    var canonical = rulesAuthority().toMatchOutcomeV2(state, {
+      status: status,
+      activityState: clone(object(source.activityState)),
+      telemetry: clone(object(source.telemetry)),
+      endedAt: source.endedAt == null ? null : String(source.endedAt),
+    });
+    if (String(source.matchId == null ? '' : source.matchId).trim() !== canonical.matchId) {
+      throw new RangeError('Match outcome identity contradicts its Rules state');
+    }
+    if (hasOwn(source, 'winnerIds')) {
+      var suppliedWinners = Array.from(new Set(Array.isArray(source.winnerIds)
+        ? source.winnerIds.map(String) : []));
+      if (!sameCanonicalValue(suppliedWinners, canonical.winnerIds)) {
+        throw new RangeError('Match outcome winners contradict the Rules-owned result');
+      }
+    }
+    if (hasOwn(source, 'participantResults') &&
+        !sameCanonicalValue(clone(Array.isArray(source.participantResults)
+          ? source.participantResults : []), canonical.participantResults)) {
+      throw new RangeError('Match outcome participants contradict the Rules-owned result');
+    }
+    if (source.completionReason != null &&
+        String(source.completionReason) !== canonical.completionReason) {
+      throw new RangeError('Match completion reason contradicts the Rules-owned result');
+    }
+    if (hasOwn(source, 'resolutionIdentity') &&
+        !sameCanonicalValue(clone(object(source.resolutionIdentity)), canonical.resolutionIdentity)) {
+      throw new RangeError('Match resolution identity contradicts the Rules-owned result');
+    }
+    return canonical;
   }
 
   // SessionActivityStateProviderV1 is deliberately registered out-of-band from
@@ -157,17 +238,29 @@
     if (['completed', 'abandoned', 'cancelled'].indexOf(status) < 0) {
       throw new TypeError('Unsupported outcome status: ' + status);
     }
+    if (hasOwn(source, 'completed') && source.completed !== (status === 'completed')) {
+      throw new TypeError('Match outcome completed flag contradicts its status');
+    }
+    var canonical = canonicalRulesOutcome(source, status);
+    var completed = status === 'completed';
     return deepFreeze({
       schema: 'MatchOutcomeV2',
       matchId: nonEmpty(source.matchId, 'matchId'),
       status: status,
-      completed: status === 'completed',
-      winnerIds: Array.from(new Set(Array.isArray(source.winnerIds) ? source.winnerIds.map(String) : [])),
-      participantResults: clone(Array.isArray(source.participantResults) ? source.participantResults : []),
-      rulesState: clone(object(source.rulesState)),
+      completed: completed,
+      winnerIds: completed ? clone(canonical ? canonical.winnerIds
+        : Array.from(new Set(Array.isArray(source.winnerIds) ? source.winnerIds.map(String) : []))) : [],
+      participantResults: clone(canonical ? canonical.participantResults
+        : (Array.isArray(source.participantResults) ? source.participantResults : [])),
+      rulesState: clone(canonical ? canonical.rulesState : object(source.rulesState)),
+      resolutionIdentity: clone(canonical ? canonical.resolutionIdentity
+        : object(source.resolutionIdentity)),
       activityState: clone(object(source.activityState)),
       telemetry: clone(object(source.telemetry)),
-      completionReason: source.completionReason == null ? null : String(source.completionReason),
+      completionReason: completed
+        ? (canonical ? canonical.completionReason
+          : (source.completionReason == null ? 'completed' : String(source.completionReason)))
+        : status,
       endedAt: source.endedAt == null ? null : String(source.endedAt),
     });
   }
@@ -235,6 +328,39 @@
     var statsSink = typeof opts.statsSink === 'function' ? opts.statsSink : function () {};
     var rewardAuthority = opts.rewardAuthority || null;
     var sessions = new Map();
+    var maxRetainedSessions = finiteInteger(opts.maxRetainedSessions, 128);
+    if (!Number.isSafeInteger(maxRetainedSessions) || maxRetainedSessions < 2 ||
+        maxRetainedSessions > 4096) {
+      throw new RangeError('maxRetainedSessions must be a safe integer from 2 through 4096');
+    }
+    var terminalSequence = 0;
+
+    function sessionSnapshot(session) {
+      return deepFreeze({ matchId: session.request.matchId, status: session.status,
+        request: session.request, prepared: session.prepared,
+        resolution: session.resolution,
+        hasActivityStateProvider: !!session.hooks.activityStateProvider });
+    }
+
+    function markTerminal(session) {
+      if (!session.terminalSequence) session.terminalSequence = ++terminalSequence;
+    }
+
+    function pruneTerminalSessions(requiredSlots) {
+      var slots = Math.max(0, finiteInteger(requiredSlots, 0));
+      while (sessions.size + slots > maxRetainedSessions) {
+        var oldest = null;
+        sessions.forEach(function (candidate) {
+          if (!candidate.terminalSequence) return;
+          if (!oldest || candidate.terminalSequence < oldest.terminalSequence) oldest = candidate;
+        });
+        if (!oldest) break;
+        sessions.delete(oldest.request.matchId);
+      }
+      if (sessions.size + slots > maxRetainedSessions) {
+        throw new Error('Match session coordinator capacity reached; active sessions cannot be evicted');
+      }
+    }
 
     function authorityMethod(primary, fallback) {
       if (!rewardAuthority) return null;
@@ -420,6 +546,70 @@
       return rewardAuthority.activityPolicy({ activityId: request.activityId });
     }
 
+    function expectedRulesSchema(formatId) {
+      if (formatId === 'classic') return 'ClassicRulesStateV1';
+      if (formatId === 'cup') return 'CupRulesStateV1';
+      if (formatId === 'team-clash') return 'TeamClashRulesStateV1';
+      return null;
+    }
+
+    function assertOutcomeMatchesRequest(outcome, request, requireCanonicalRules) {
+      if (outcome.matchId !== request.matchId) {
+        throw new RangeError('Match outcome does not match the active request identity');
+      }
+      var requestIds = request.roster.map(function (entry) { return entry.id; });
+      var requestIdSet = new Set(requestIds);
+      if (outcome.winnerIds.some(function (id) { return !requestIdSet.has(id); })) {
+        throw new TypeError('Outcome contains a winner outside the match roster');
+      }
+      var participantIds = [];
+      outcome.participantResults.forEach(function (entry) {
+        var source = object(entry);
+        var id = source.playerId == null ? source.id : source.playerId;
+        if (id == null || !String(id).trim()) {
+          throw new TypeError('Outcome participant result requires a roster identity');
+        }
+        id = String(id);
+        if (!requestIdSet.has(id)) {
+          throw new TypeError('Outcome contains a participant outside the match roster');
+        }
+        if (participantIds.indexOf(id) >= 0) {
+          throw new TypeError('Outcome contains a duplicate participant result');
+        }
+        participantIds.push(id);
+      });
+
+      var state = object(outcome.rulesState);
+      var hasRulesState = Object.keys(state).length > 0;
+      if (requireCanonicalRules && !hasRulesState) {
+        throw new TypeError('Reward-bearing completion requires a terminal Rules-issued outcome');
+      }
+      if (!hasRulesState) return true;
+
+      var expectedSchema = expectedRulesSchema(request.formatId);
+      if (!expectedSchema || state.schema !== expectedSchema) {
+        throw new TypeError('Outcome Rules state does not match the requested format');
+      }
+      if (state.matchId !== request.matchId || state.formatId !== request.formatId) {
+        throw new RangeError('Outcome Rules state does not match the active match identity');
+      }
+      var config = object(state.config);
+      if (config.matchId !== request.matchId || config.formatId !== request.formatId ||
+          (config.physicsModeId != null && config.physicsModeId !== request.physicsModeId) ||
+          (config.seed != null && (Number(config.seed) >>> 0) !== request.seed)) {
+        throw new RangeError('Outcome Rules configuration contradicts its MatchRequestV2');
+      }
+      var rulesPlayers = Array.isArray(config.players) ? config.players : [];
+      var rulesIds = rulesPlayers.map(function (entry) { return String(object(entry).id || ''); });
+      if (!sameCanonicalValue(rulesIds, requestIds)) {
+        throw new RangeError('Outcome Rules roster does not match the MatchRequestV2 roster');
+      }
+      if (requireCanonicalRules && !sameCanonicalValue(participantIds, requestIds)) {
+        throw new RangeError('Rules-owned participant results do not cover the requested roster');
+      }
+      return true;
+    }
+
     function mutationSucceeded(result, operation) {
       if (result && (result.applied === true || result.reason === 'duplicate')) return result;
       var reason = result && result.reason ? ': ' + result.reason : '';
@@ -537,6 +727,7 @@
     function start(input, sessionHooks) {
       var request = MatchRequestV2(input);
       if (sessions.has(request.matchId)) throw new Error('Match already started: ' + request.matchId);
+      pruneTerminalSessions(1);
       var hooks = MatchSessionHooksV1(sessionHooks);
       if (object(request.activityContext).dynamicActivityState === true &&
           !hooks.activityStateProvider) {
@@ -553,6 +744,7 @@
         rewardPolicy: null,
         rewardClassification: null,
         finalRewardClassification: null,
+        terminalSequence: 0,
       };
       var initialActivityState = readSessionActivityState(session, 'prepare');
       session.rewardPolicy = currentRewardPolicy(request);
@@ -601,7 +793,9 @@
     }
 
     function finalize(input) {
-      var suppliedOutcome = MatchOutcomeV2(input);
+      var suppliedOutcome;
+      try { suppliedOutcome = MatchOutcomeV2(input); }
+      catch (error) { return Promise.reject(error); }
       var session = sessions.get(suppliedOutcome.matchId);
       if (!session) return Promise.reject(new Error('Unknown match: ' + suppliedOutcome.matchId));
       // The first finalize call freezes the provider snapshot. Concurrent calls
@@ -614,6 +808,16 @@
           return Promise.reject(new Error('Conflicting final outcome for match: ' + suppliedOutcome.matchId));
         }
         return session.finalPromise;
+      }
+      if (session.status === 'finalized' && session.resolution && session.outcome) {
+        var finalizedOutcome = MatchOutcomeV2(Object.assign({}, clone(suppliedOutcome), {
+          activityState: clone(session.outcome.activityState),
+        }));
+        if (JSON.stringify(session.outcome) !== JSON.stringify(finalizedOutcome)) {
+          return Promise.reject(new Error('Conflicting final outcome for match: ' +
+            suppliedOutcome.matchId));
+        }
+        return Promise.resolve(session.resolution);
       }
       if (session.status !== 'active') {
         return Promise.reject(new Error('Match is not active: ' + suppliedOutcome.matchId));
@@ -640,22 +844,16 @@
         session.rewardClassification,
         classifyRewards(session.request, trustedRewardState,
           session.rewardPolicy, untrustedRewardState));
+      var requiresRulesProof = outcome.status === 'completed' &&
+        finalRewardClassification.managed === true &&
+        (finalRewardClassification.eligible === true ||
+          finalRewardClassification.canonicalClaimsAllowed === true);
+      try {
+        assertOutcomeMatchesRequest(outcome, session.request, requiresRulesProof);
+      } catch (error) {
+        return Promise.reject(error);
+      }
       outcome = classifiedOutcome(outcome, finalRewardClassification);
-      var allowedWinnerIds = new Set();
-      session.request.roster.forEach(function (entry) {
-        allowedWinnerIds.add(entry.id);
-        if (entry.teamId != null) allowedWinnerIds.add(String(entry.teamId));
-      });
-      if (outcome.winnerIds.some(function (id) { return !allowedWinnerIds.has(id); })) {
-        return Promise.reject(new TypeError('Outcome contains a winner outside the match roster'));
-      }
-      if (outcome.participantResults.some(function (entry) {
-        var source = object(entry);
-        var id = source.playerId == null ? source.id : source.playerId;
-        return id != null && !allowedWinnerIds.has(String(id));
-      })) {
-        return Promise.reject(new TypeError('Outcome contains a participant outside the match roster'));
-      }
       if (session.outcome && JSON.stringify(session.outcome) !== JSON.stringify(outcome)) {
         return Promise.reject(new Error('Conflicting final outcome for match: ' + outcome.matchId));
       }
@@ -692,6 +890,7 @@
             throw new Error('Eligible match transaction did not consume its reserved reward token');
           }
           session.status = 'finalized';
+          markTerminal(session);
           var duplicate = !!(transactionResult && transactionResult.duplicate);
           session.resolution = PostMatchResolutionV1({
             matchId: outcome.matchId,
@@ -733,6 +932,7 @@
         reason: reason == null ? 'abandoned' : String(reason),
       }) || {};
       session.status = 'abandoned';
+      markTerminal(session);
       return deepFreeze({ matchId: id, status: 'abandoned',
         activityResolution: clone(activityResolution) });
     }
@@ -740,13 +940,15 @@
     function snapshot(matchId) {
       var session = sessions.get(String(matchId));
       if (!session) return null;
-      return deepFreeze({ matchId: session.request.matchId, status: session.status,
-        request: session.request, prepared: session.prepared,
-        resolution: session.resolution,
-        hasActivityStateProvider: !!session.hooks.activityStateProvider });
+      return sessionSnapshot(session);
     }
 
-    return Object.freeze({ start: start, finalize: finalize, abandon: abandon, snapshot: snapshot });
+    function snapshots() {
+      return Object.freeze(Array.from(sessions.values()).map(sessionSnapshot));
+    }
+
+    return Object.freeze({ start: start, finalize: finalize, abandon: abandon,
+      snapshot: snapshot, snapshots: snapshots });
   }
 
   function createLaneRuntime(input) {
