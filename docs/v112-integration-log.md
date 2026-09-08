@@ -288,7 +288,7 @@ log, and defect ledger remain release history and are not rewritten.
 
 ## Revision 23 — realistic rotating Desk Globe sphere
 
-- Product decision: only the literal Earth sphere on Desk Globe is realistic
+- Product decision: only the literal Urth sphere on Desk Globe is realistic
   and visibly three-dimensional. The stand, meridian, base, and surrounding art
   remain in the shared authored Flipgame style.
 - New behavior: a complete offline world surface rotates through all 360
@@ -464,8 +464,8 @@ log, and defect ledger remain release history and are not rewritten.
   Physics Lab is FL50. Fresh saves require both FL100 and an Alien victory for
   Alien and `INSANE MODE`; legitimate v1.11 ownership remains grandfathered.
 - Story Mode `Pressure Signal` ships in v1.12 with four acts, twelve chapters,
-  shared Rival Board clears, solo and two-human co-op, and the Whirled Flip
-  Champyunship canon on present-day Urth.
+  shared Rival Board clears, solo and two-human co-op, and the Wurld Flip
+  Championship canon on present-day Urth.
 - Canon additions: friendly sentient dinosaurs live normally alongside humans;
   the protected playable T-Rex remains a vintage molded figure; flavor-only
   altered spellings come from an authored lexicon and never affect functional
@@ -607,3 +607,29 @@ log, and defect ledger remain release history and are not rewritten.
   forged Lab tokens/direct Activity entry; restored Tutorial seeds; 10,000
   monotonic resolutions without growing payload; stale/duplicate callbacks;
   human- and CPU-actor co-op effects; and two-allies-surviving Story clear.
+
+## Revision 39 — WFC name and broadcast language
+
+- Affected interfaces: `UrthLexiconV1`, Story broadcast cards, future menu/HUD,
+  commentary, replays, and Stats presentation labels.
+- Old behavior: the event name was `Whirled Flip Champyunship`, with additional
+  alterations inside the official title, and the sport had no frozen vocabulary
+  separating physical phases, landing calls, pressure, or broadcast roles. The
+  prior flavor lexicon also used unrelated phonetic joke spellings.
+- New behavior: the exact name is **Wurld Flip Championship** and the format is
+  **WFC Standard**. `Wurld` is the title's only altered word. The authored
+  only optional spelling pattern is the /ɜr/ sound rendered as `ur` when standard
+  spelling uses another form; unrelated joke spellings are removed. The authored
+  broadcast terms cover Flipper/Entry/Lineup/Table/Lane; Set/Release/Flight/
+  Contact/Settle; Hold/Stand/Crown/No Hold/
+  Clean Hold/Recovery Hold; Stake/Pressure/Pressure Shot/Pressure Save;
+  Rotation; Ignition/Full Burn/Burnout; Signal Event/Signal Detected; Form Line/
+  Arc Trace; Hold Rate/Crown Rate/Pressure Save Rate; Table Judge/Replay Desk/
+  Arc Analyst; Open Stake/Takes the Table; and Fair-Form Standard/Certified. The
+  Wurld Flip Federation (WFF) sanctions the sport; WFC names its premier event.
+- Migration action: this is presentation-only. Persisted IDs, Story progress,
+  statistics keys, WFC abbreviation, rules, and physics do not change. Replace
+  old title strings in authored copy; never rewrite imported historical text.
+- Required tests: exact canon string, absence of prior title in shipped authored
+  surfaces, one-to-one term definitions, conventional functional/accessibility
+  copy, and unchanged IDs/rules/physics.

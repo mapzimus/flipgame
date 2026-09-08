@@ -523,7 +523,7 @@ a flat wallpaper or a sterile settings theme.
 | Movie Soundstage | Visible flats, practical lights, camera rails, props, and crew silhouettes; successful shots cue a clapboard and lighting change. |
 
 - The existing Space Station is upgraded as the flagship zero-window-view
-  stage with a rotating Earth view, station structure, moving equipment, and
+  stage with a rotating Urth view, station structure, moving equipment, and
   physically readable table lighting; it is not duplicated by Mars Outpost.
 - Arena animation, sound, and camera response may celebrate or react, but cannot
   alter gravity, collision, input, scoring, visibility of the landing plane, or
@@ -597,7 +597,7 @@ flip seed and physics state, does not consume gameplay RNG, and replays exactly.
 - Snow Globe snow responds to flight/impact and settles around an anchored,
   working miniature scene. The house does not float as a loose particle.
 - Desk Globe contains recognizable real-world geography and a full 360-degree
-  rotating globe. Only the literal Earth sphere uses realistic three-dimensional
+  rotating globe. Only the literal Urth sphere uses realistic three-dimensional
   rendering: complete high-detail geography, curvature, atmosphere, directional
   light, limb shading, and specular ocean response. Its stand, meridian, base,
   and all surrounding object art retain the approved authored Flipgame style.
@@ -632,7 +632,7 @@ flip seed and physics state, does not consume gameplay RNG, and replays exactly.
 - Smoothie: stronger cup/liquid rendering plus per-flip liquid color.
 - Gumball Machine: retain approved direction and working contents.
 - Microscope: significant visual upgrade and a flat, readable base.
-- Desk Globe: only its literal Earth sphere is realistically rendered in 3D;
+- Desk Globe: only its literal Urth sphere is realistically rendered in 3D;
   it shows the complete rotating world and supports the post-make globe-focus
   showcase while its stable stand stays in the shared illustrated style.
 - Microphone on a Stand: unmistakably tall with a weighted landing base.

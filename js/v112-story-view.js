@@ -45,7 +45,7 @@
     'broadcast-heat': 'WFC Broadcast Heat',
     'instrumented-heat': 'Instrumented WFC Heat',
     'wfc-semifinal': 'WFC Semifinal',
-    'wfc-final': 'Whirled Flip Champyunship Final',
+    'wfc-final': 'Wurld Flip Championship Final',
   });
   var FIELD_NOTES = freeze({
     'field-note-act-1': {

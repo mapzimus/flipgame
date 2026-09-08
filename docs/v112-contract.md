@@ -26,12 +26,17 @@ owners, accompanied by migration/test changes, and acknowledged before merge.
   appear as restrained everyday cameos, never monsters or the theme of every
   scene.
 - Flipgame is Urth's dominant pressure sport. Its premier event is the
-  **Whirled Flip Champyunship** (WFC); **Whirled Standard** is Normal physics,
+  **Wurld Flip Championship** (WFC); **WFC Standard** is Normal physics,
   eight entries and ten lives. Refrain: **Ten lives. Every one public.**
-- `Urth`, `Whirled` and `Champyunship` are fixed canon spellings. Other altered
-  spellings come only from `UrthLexiconV1`, at most one conspicuous spelling per
-  short flavor unit. Rules, controls, errors, stats, exports and accessibility
-  copy use conventional spelling.
+- `Urth` and `Wurld` are fixed canon spellings. In the championship name,
+  `Wurld` is the only altered word: `Flip Championship` uses normal spelling.
+  Other altered spellings use one narrow timeline quirk: a word whose standard
+  spelling represents the /ɜr/ sound without `ur` may occasionally spell that
+  sound with `ur` in authored flavor copy (for example `first` → `furst` or
+  `perfect` → `purfect`). They come only from `UrthLexiconV1`, at most one per
+  short flavor unit. The quirk is never applied as a text transform. Rules,
+  controls, errors, stats, exports and accessibility copy use conventional
+  spelling except for fixed proper nouns such as Urth and Wurld.
 - Player-facing selection is **Choose Your Flipper**. Living mascots are willing
   competitors who become `available` or `join the roster`; they are never owned
   in lore-facing copy.
@@ -40,6 +45,44 @@ owners, accompanied by migration/test changes, and acknowledged before merge.
   immutable. Living dinosaur cameos never replace it.
 - Replace Tall Buildings with `mechanical-metronome` and Giraffe with
   `desk-gyroscope`. New IDs are never aliases for historical stats.
+
+### WFC broadcast vocabulary
+
+- The **Wurld Flip Federation** (**WFF**) sanctions organized play; the **Wurld
+  Flip Championship** (**WFC**) is its premier event. **Fair-Form Certified** is
+  the equipment badge for compliance with the shared competitive physics rule.
+- A **Flipper** is the selected competition object or character; an **Entry** is
+  the player and Flipper presented together; the **Lineup** is every active Entry.
+- The **Table** is the regulation field of play. A **Lane** is one isolated play
+  zone on a multi-Entry Battle table.
+- The physical call sequence is **Set → Release → Flight → Contact → Settle**.
+- A valid make is a **Hold**; upright is a **Stand**; cap is a **Crown**; a miss
+  is **No Hold**. A first-contact landing with no bounce or slide is a **Clean
+  Hold**; a valid landing recovered after physical movement is a **Recovery
+  Hold**. Functional and accessible surfaces always retain the plain make/miss
+  meaning alongside broadcast flavor.
+- **Stake** is the exact number of lives currently at risk. **Pressure** is the
+  broadcast condition created by that risk, especially near elimination. A
+  potentially eliminating attempt is a **Pressure Shot**; making it is a
+  **Pressure Save**. Sudden Death may be introduced as **Sudden Death · Open
+  Stake**. Once a plain winner result is confirmed, the broadcast may call
+  `{Winner} Takes the Table`.
+- A **Rotation** gives every active Entry one allocated turn; retained ON FIRE
+  attempts do not advance it. ON FIRE presentation may call its start
+  **Ignition**, reaching the additive cap **Full Burn**, and a miss-ending run
+  **Burnout**.
+- Rare physical events are **Signal Events**, announced with **Signal
+  Detected**. Their ordinary event names remain visible and no odds appear.
+- **Form Line** is the recent result strip; **Arc Trace** is trajectory replay;
+  **Hold Rate**, **Crown Rate**, and **Pressure Save Rate** are plain observed
+  broadcast-overlay statistics. Stats Lab, exports, instructions, and accessible
+  names retain conventional labels such as Make Rate and Cap Landing Rate.
+  **Table Judge**, **Replay Desk**, and **Arc Analyst** are presentation roles
+  only. **Hold** is never used as an input instruction because it could be
+  mistaken for a press-and-hold gesture.
+- The **Fair-Form Standard** is the in-world rule explaining the shared
+  competitive collider/contact plane. It never implies that visual variants or
+  internal secondary motion change gameplay physics.
 
 ## 2. Core physics and mode rules
 
@@ -80,7 +123,7 @@ owners, accompanied by migration/test changes, and acknowledged before merge.
 ## 3. Story and rival contract
 
 `STORY — PRESSURE SIGNAL` is optional, available on a fresh save and replayable.
-It has four acts, twelve ordered chapters, five Whirled Standard matches and
+It has four acts, twelve ordered chapters, five WFC Standard matches and
 twelve signature encounters:
 
 | # | Act | Chapter | Preliminary match | Rival / callsign | Flipper | Tier |
@@ -113,7 +156,7 @@ twelve signature encounters:
 - Normal Story odds and exact `Mr. Howe` boosting apply. Native Alien suppresses
   nested events. Rival tiers map to CPU profiles `1,2,2,3,3,4,5,5,6,6,7,8`
   with physical target rates of roughly 32–60%.
-- Eligible Story matches receive ordinary FXP/FC once. First Earth-rival defeat
+- Eligible Story matches receive ordinary FXP/FC once. First Urth-rival defeat
   grants its Flipper +25 FXP/+15 FC; Alien +75/+50. Each act first clear grants
   +50 FXP/+25 FC and an optional Field Note.
 - Story may finish before FL100. Early Alien victory is banked. Fresh saves make
@@ -122,7 +165,7 @@ twelve signature encounters:
   `Final Challenger waiting`.
 - Rival Board invitations: FL5 Coffee Mug, 13 Gumball Machine, 21 Desk Globe,
   29 Penguin, 37 Desk Gyroscope, 45 Trophy Cup, 50 Microscope, 61 Snow Globe,
-  71 Huge Rubber Duck, 81 Action Figures, 91 T-Rex, 100 Alien. Earth challenges
+  71 Huge Rubber Duck, 81 Action Figures, 91 T-Rex, 100 Alien. Urth challenges
   are permanent, free, solo three-life duels. Attempts grant no ordinary FXP/FC.
 - Narrative is short broadcast cards, signage, replay monitors, environmental
   detail and optional Field Notes—no required voice or long cutscenes. Veyr has
@@ -226,7 +269,7 @@ leaving discards it.
   shop, premium track, wagering or pay-to-win. A future provider-neutral grant
   port may exist but no provider, receipt, UI or external mutation is active.
 - Fresh save: Bottle, plain presentation, noncollectible Baseline Table.
-- Final catalog: 51 Flippers (Bottle +38 direct +11 Earth-rival +Alien), 23
+- Final catalog: 51 Flippers (Bottle +38 direct +11 Urth-rival +Alien), 23
   arenas (Baseline +22 collectible), 40 Store cosmetics, 120 achievements.
 - Direct Flipper levels: FL4 Milk Carton; 6 Ketchup; 8 Soup Can; 10 Soda Can;
   12 Salt/Pepper Shaker; 14 Maple Syrup; 16 Honey Bear; 18 Baby Bottle; 20 Soap

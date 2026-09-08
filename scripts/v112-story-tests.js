@@ -25,7 +25,23 @@ function testCatalogAndCanon() {
   assert.equal(Story.chapters.find((c) => c.id === 'deep-time').flipperId, 'trex');
   assert.equal(Story.chapters.find((c) => c.id === 'true-axis').flipperId, 'desk-gyroscope');
   assert.equal(Urth.canon.planet, 'Urth');
-  assert.equal(Urth.canon.championship, 'Whirled Flip Champyunship');
+  assert.equal(Urth.canon.championship, 'Wurld Flip Championship');
+  assert.equal(Urth.canon.standardFormat, 'WFC Standard');
+  assert.equal(Urth.broadcastTerms.federation, 'Wurld Flip Federation');
+  assert.equal(Urth.broadcastTerms.flipper, 'Flipper');
+  assert.equal(Urth.broadcastTerms.crown, 'Crown');
+  assert.equal(Urth.broadcastTerms.signalEvent, 'Signal Event');
+  assert.equal(Urth.broadcastTerms.pressureSaveRate, 'Pressure Save Rate');
+  assert.equal(Urth.broadcastDefinitions.hold, 'Any valid settled make.');
+  assert.deepEqual(Object.keys(Urth.broadcastTerms).sort(),
+    Object.keys(Urth.broadcastDefinitions).sort());
+  assert.equal(Story.chapters[0].clue, Urth.authoredLines.qualifierPoster);
+  assert.deepEqual(Urth.flavorSpellings, {
+    earth: 'urth', world: 'wurld', first: 'furst', perfect: 'purfect',
+    work: 'wurk', early: 'urly', learn: 'lurn', heard: 'hurd',
+    person: 'purson', journey: 'jurney',
+  });
+  Object.values(Urth.flavorSpellings).forEach((word) => assert(word.includes('ur')));
   assert(!Object.values(Urth.authoredLines).some((line) =>
     Object.values(Urth.flavorSpellings).filter((word) => line.toLowerCase().includes(word)).length > 1));
 }

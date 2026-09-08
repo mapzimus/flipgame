@@ -22,7 +22,7 @@
   var CHAPTERS = freeze([
     { id: 'first-broadcast', act: 1, order: 1, title: 'The First Broadcast', arenaId: 'rooftop',
       preliminaryId: 'wfc-qualifier', rivalId: 'first-light', rivalName: 'Mara Venn', callsign: 'First Light',
-      flipperId: 'coffee-mug', cpuTier: 1, clue: 'Offishul WFC Qualifier — doors at seven.' },
+      flipperId: 'coffee-mug', cpuTier: 1, clue: 'Furst WFC Qualifier — doors at seven.' },
     { id: 'scatterline', act: 1, order: 2, title: 'Scatterline', arenaId: 'arcade',
       rivalId: 'scatterline', rivalName: 'Ivo Bell', callsign: 'Scatterline',
       flipperId: 'gumball-machine', cpuTier: 2, clue: 'Geometry is just timing with corners.' },

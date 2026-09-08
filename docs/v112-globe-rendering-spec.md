@@ -18,12 +18,12 @@ unchanged. Retain the current Natural-Earth vector orthographic renderer as the
 automatic no-WebGL/context-loss fallback.
 
 Do **not** embed MapLibre and do not request maps, tiles, styles, fonts, APIs, or
-imagery at runtime. The two checked-in Earth textures and the renderer are part
+imagery at runtime. The two checked-in Urth textures and the renderer are part
 of the atomic PWA/APK release.
 
 This is a deliberately hybrid result:
 
-- realistic, shaded, fully rotating Earth **sphere**;
+- realistic, shaded, fully rotating Urth **sphere**;
 - authored Flipgame 2D frame, stand, meridian, stem, base, and variant accents;
 - one unchanged Matter body, landing envelope, mass, pivot, and score path;
 - deterministic presentation inputs with a separate cosmetic RNG domain; and
@@ -117,11 +117,11 @@ Create these release assets during implementation:
 
 Generate both 2:1, power-of-two textures offline from Natural Earth II with
 shaded relief and water. The RGB channels contain a restrained, brand-free
-physical Earth albedo. The alpha channel is a binary/soft ocean mask derived
+physical Urth albedo. The alpha channel is a binary/soft ocean mask derived
 from Natural Earth land/ocean geometry; the shader consumes it for ocean
 specular and writes its own circular output alpha. Do not put labels, borders,
 logos, flags, ads, or user data on the texture. All twelve Desk Globe variants
-share this same true-color Earth; variant colors affect only authored frame and
+share this same true-color Urth; variant colors affect only authored frame and
 base art.
 
 The asset README must record source product/version, source URLs, processing
@@ -442,11 +442,11 @@ No bulk art or camera rollout should bypass a failed earlier gate.
 
 | Area | Required acceptance |
 |---|---|
-| Source coverage | Parse the shipped source/texture manifest and prove a 2:1 complete Earth, longitude seam continuity, both polar rows, and known visible features in Africa/Europe, the Americas, Asia-Pacific, Australia, and Antarctica. No quadrant may be blank or a duplicate of another. |
+| Source coverage | Parse the shipped source/texture manifest and prove a 2:1 complete Urth, longitude seam continuity, both polar rows, and known visible features in Africa/Europe, the Americas, Asia-Pacific, Australia, and Antarctica. No quadrant may be blank or a duplicate of another. |
 | Full turn | At 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°, and 360°, compare the logical orientation and approved screenshots. `360°` equals `0°` within visual tolerance; every longitude crosses the center meridian during one approximately 18.48-second cycle. |
 | Actual picker | Open the real object and variant picker on phone and 4K layouts. The selected/focused Desk Globe preview changes at two sampled timestamps without input, completes a turn, stops when hidden, and remains pixel-stable under reduced motion. Static/offscreen tiles schedule no frame work. |
 | Gameplay/replay | Fixed flip seeds at upright, quarter-turn, inverted, airborne, impact, settle, and result states produce identical logical globe phases/focus states on replay. Vary browser frame cadence while keeping recorded physics/presentation elapsed input fixed; orientation does not drift. |
-| Art boundary | All twelve variants use the same untinted Earth and retain distinct authored 2D frames. Only the sphere has realistic raster/shader treatment. Desk Globe keeps `face: null`; Bottle and T-Rex source/render/physics golden hashes remain unchanged. |
+| Art boundary | All twelve variants use the same untinted Urth and retain distinct authored 2D frames. Only the sphere has realistic raster/shader treatment. Desk Globe keeps `face: null`; Bottle and T-Rex source/render/physics golden hashes remain unchanged. |
 | Physics isolation | Before/after fixed corpora have identical body vertices, mass, friction, restitution, pivot/contact offset, trajectories, contacts, landing metadata, MAKE/MISS, score, life, reward, event, progression, and stats hashes with the sphere enabled, disabled, skipped, reduced, context-lost, and fallback. |
 | WebGL fallback | Simulate unavailable WebGL, major-performance-caveat rejection, shader compile/link error, 1K/2K texture decode error, `webglcontextlost`, failed restore, and mid-showcase loss. Every case paints complete vector geography, keeps the result readable, emits no uncaught error, and never retries per frame. |
 | Shader pixels | In headless Chromium run with `--use-angle=swiftshader --enable-unsafe-swiftshader`; block all non-app requests. Capture approved pixel references for the eight longitudes, limb, atmosphere, daylight, ocean highlight, alpha edge, seam, both texture tiers, and showcase zoom. Use perceptual/tolerance comparison, not cross-GPU byte equality. |
