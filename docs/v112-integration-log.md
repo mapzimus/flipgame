@@ -739,3 +739,26 @@ log, and defect ledger remain release history and are not rewritten.
   then integrator-owned boot insertion. Owner Test Mode is ephemeral, exact and
   case-sensitive, makes all resulting activity Test Data, grants nothing, and
   leaves the serialized earned profile unchanged.
+
+## Revision 44 — strict seed and Alien lifecycle hardening
+
+- Affected interfaces: public Physics seed entry points, `CpuLaunchIntentV1`,
+  direct event cleanup, Alien bank telemetry, replay/resize qualification and
+  CPU calibration methodology.
+- New behavior in `e599ce6`: explicit seeds must be primitive uint32 numbers;
+  valid zero and maximum seeds remain exact, while an omitted human seed still
+  requests local randomness. Alien cleanup immediately clears bank counts,
+  step ticks, pending contacts, cooldowns and trace data, and restores the
+  temporary Invasion profile before a next shot or replay.
+- Independent verification passes hostile seed types, RNG endpoints, same-
+  engine next-shot isolation, fresh-engine replay parity, in-flight deferred
+  resize, human-trajectory isolation, native/Invasion equality and six-
+  viewport Alien calibration. V112-057 and V112-058 are closed.
+- CPU calibration uses distributed non-prefix seed streams. The phone Hard and
+  portrait-tablet Easy corrections are isolated to CPU intent; player physics,
+  the target ring and tractor field do not change. Holdout results are stable,
+  but one frozen 4K Hard corpus remains 59.2 percent against the literal
+  60-percent floor.
+- No confidence-interval overlap may replace the raw contract band. V112-022
+  remains open pending a margin-bearing 4K retune, raw-band assertions and the
+  release-scale difficulty-by-direction-by-viewport-by-player-count corpus.
