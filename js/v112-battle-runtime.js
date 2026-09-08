@@ -201,6 +201,8 @@
     var heatStartedAt = null;
     var heatDeadlineAt = null;
     var hornGraceDeadlineAt = null;
+    var clockCursorAt = null;
+    var lastInputNowAt = null;
     var runtimeErrors = [];
     var destroyed = false;
 
@@ -273,11 +275,16 @@
     function isCpu(playerId) {
       var entry = player(playerId);
       return !!(entry && (entry.cpu === true || entry.isCpu === true || entry.ai === true ||
-        String(entry.type || '').toLowerCase() === 'cpu'));
+        entry.isAI === true || ['cpu', 'ai'].indexOf(
+          String(entry.type || '').toLowerCase()) >= 0));
+    }
+
+    function findLane(laneId) {
+      return lanes.find(function (entry) { return entry.id === String(laneId); }) || null;
     }
 
     function laneForId(laneId) {
-      var lane = lanes.find(function (entry) { return entry.id === String(laneId); });
+      var lane = findLane(laneId);
       if (!lane) throw new TypeError('Unknown lane: ' + laneId);
       return lane;
     }
@@ -360,9 +367,17 @@
     }
 
     function startAim(payload) {
-      if (destroyed || battleState.phase !== 'active' ||
+      if (destroyed) return false;
+      var lane = findLane(payload.laneId);
+      if (!lane) return false;
+      var assignedBeforeClock = lane.playerId;
+      var timedEntry = battleState.phase === 'active' && config.paceId === 'rush' &&
+        !battleState.suddenDeath;
+      reconcileRushClock(0, payload.startedAt);
+      lane = findLane(payload.laneId);
+      if ((timedEntry && hornExpired) || !lane || assignedBeforeClock !== lane.playerId ||
+          battleState.phase !== 'active' ||
           (hornExpired && !battleState.suddenDeath)) return false;
-      var lane = laneForId(payload.laneId);
       if (!lane.playerId || isCpu(lane.playerId) || lane.control.snapshot().state !== 'ready') return false;
       if (!lane.control.claimPointer(payload.pointerId)) return false;
       lane.lockedPowers = takePowers(lane.playerId);
@@ -434,6 +449,84 @@
       return pointerRouter.snapshot().activeGestures.length;
     }
 
+    function peekInputClock(extraAt) {
+      var fallback = clockCursorAt == null ? 0 : clockCursorAt;
+      return Math.max(fallback, finite(inputNow(), fallback), finite(extraAt, fallback));
+    }
+
+    function observeClock(deltaHint, extraAt) {
+      if (clockCursorAt == null) return 0;
+      var raw = Math.max(lastInputNowAt == null ? clockCursorAt : lastInputNowAt,
+        finite(inputNow(), lastInputNowAt == null ? clockCursorAt : lastInputNowAt));
+      var absolute = Math.max(raw, finite(extraAt, raw));
+      var nextCursor = absolute > (lastInputNowAt == null ? clockCursorAt : lastInputNowAt)
+        ? Math.max(clockCursorAt, absolute)
+        : clockCursorAt + Math.max(0, finite(deltaHint, 0));
+      lastInputNowAt = raw;
+      var delta = Math.max(0, nextCursor - clockCursorAt);
+      clockCursorAt = nextCursor;
+      wallElapsedMs = Math.max(0, clockCursorAt - heatStartedAt);
+      return delta;
+    }
+
+    function extendHornDeadline(amount) {
+      var extension = Math.max(0, finite(amount, 0));
+      if (!extension || heatDeadlineAt == null) return;
+      heatDeadlineAt += extension;
+      hornGraceDeadlineAt = heatDeadlineAt + inputDeliveryGraceMs;
+    }
+
+    function oneLaneOpportunityIsControllable() {
+      if (physicalLaneCount !== 1) return true;
+      var lane = lanes[0];
+      var state = lane.control.snapshot().state;
+      return !!(lane.playerId && battleState.activePlayerIds.indexOf(lane.playerId) >= 0 &&
+        !lane.prepared && !lane.inflight && (state === 'ready' || state === 'aiming'));
+    }
+
+    function timeToRushHandoff() {
+      var interval = typeof Battle.rushRotationIntervalMs === 'function'
+        ? Battle.rushRotationIntervalMs(config) : config.rotationIntervalMs;
+      var remainder = battleState.elapsedMs % interval;
+      return remainder > 1e-7 ? interval - remainder : interval;
+    }
+
+    function reconcileRushClock(deltaHint, extraAt, preserveAimAtHorn) {
+      if (battleState.phase !== 'active' || config.paceId !== 'rush' ||
+          battleState.suddenDeath || battleState.clockExpired) return 0;
+      var wallDelta = observeClock(deltaHint, extraAt);
+      if (!(wallDelta > 0)) return 0;
+      var oneLane = physicalLaneCount === 1;
+      if (oneLane && !oneLaneOpportunityIsControllable()) {
+        // An airborne/settling relay attempt belongs to the outgoing player.
+        // It may finish, but none of that wall time consumes the incoming
+        // player's ready-and-assigned opportunity.
+        extendHornDeadline(wallDelta);
+        return 0;
+      }
+      var remaining = Math.max(0, config.rushDurationMs - battleState.elapsedMs);
+      var handoff = oneLane ? timeToRushHandoff() : Number.POSITIVE_INFINITY;
+      var reachesIntermediateHandoff = oneLane && handoff < remaining - 1e-7 &&
+        wallDelta > handoff + 1e-7;
+      var advance = Math.min(wallDelta, remaining, handoff);
+      var reachesHorn = advance >= remaining - 1e-7;
+      if (reachesHorn && (activeGestureCount() > 0 || preserveAimAtHorn === true)) {
+        advance = Math.max(0, remaining - 0.001);
+      }
+      var before = battleState.elapsedMs;
+      if (advance > 0) battleState = Battle.advanceClock(battleState, advance);
+      var advanced = Math.max(0, battleState.elapsedMs - before);
+      if (reachesIntermediateHandoff && !battleState.clockExpired) {
+        // Never consume more than the first handoff in a batched timer tick.
+        // Dropped catch-up time is converted into an equal deadline extension.
+        extendHornDeadline(Math.max(0, wallDelta - advanced));
+      }
+      hornExpired = heatDeadlineAt != null && clockCursorAt >= heatDeadlineAt - 1e-7;
+      cancelRotatedAims();
+      configureAssignments();
+      return advanced;
+    }
+
     function advanceBattleToHorn(deferForGestures) {
       if (battleState.phase !== 'active' || config.paceId !== 'rush' || battleState.suddenDeath ||
           battleState.clockExpired) return;
@@ -449,28 +542,33 @@
       configureAssignments();
     }
 
-    function markHornFromInput() {
-      hornExpired = true;
-      wallElapsedMs = config.rushDurationMs;
-      advanceBattleToHorn(activeGestureCount() > 0);
-    }
-
     function releaseGesture(gesture) {
-      var lane = laneForId(gesture.laneId);
+      if (destroyed) return;
+      var lane = findLane(gesture.laneId);
+      if (!lane || lane.control.snapshot().state !== 'aiming') return;
       var timedRush = config.paceId === 'rush' && !battleState.suddenDeath;
-      var deliveryGraceExpired = timedRush && hornGraceDeadlineAt != null &&
-        finite(inputNow(), heatDeadlineAt) > hornGraceDeadlineAt;
-      if (deliveryGraceExpired &&
-          finite(gesture.endedAt, Number.POSITIVE_INFINITY) <= heatDeadlineAt) {
-        markHornFromInput();
+      var endedAt = finite(gesture.endedAt, Number.POSITIVE_INFINITY);
+      var deadlineAtRelease = heatDeadlineAt;
+      var deliveryAt = peekInputClock(endedAt);
+      if (timedRush) {
+        reconcileRushClock(0, endedAt, true);
+        lane = findLane(gesture.laneId);
+        if (!lane || battleState.activePlayerIds.indexOf(lane.playerId) < 0) {
+          if (lane) cancelAim(lane, gesture, 'rotation');
+          return;
+        }
+      }
+      var deliveryGraceExpired = timedRush && deadlineAtRelease != null &&
+        deliveryAt > deadlineAtRelease + inputDeliveryGraceMs;
+      if (deliveryGraceExpired && endedAt <= deadlineAtRelease) {
+        reconcileRushClock(0, deliveryAt);
         cancelAim(lane, gesture, 'horn-delivery-timeout');
         return;
       }
-      if (timedRush && heatDeadlineAt != null &&
-          finite(gesture.endedAt, Number.POSITIVE_INFINITY) > heatDeadlineAt) {
+      if (timedRush && deadlineAtRelease != null && endedAt > deadlineAtRelease) {
         // PointerEvent.timeStamp is authoritative. A delayed rAF/tick cannot
         // turn a post-horn release into a qualified pre-horn launch.
-        markHornFromInput();
+        reconcileRushClock(0, deliveryAt);
         cancelAim(lane, gesture, 'horn');
         return;
       }
@@ -492,6 +590,7 @@
         return;
       }
       prepareLane(lane, gesture, qualified);
+      if (timedRush) reconcileRushClock(0, deliveryAt);
       // A release timestamped before the deadline is admitted even if the
       // visual horn tick ran first. Only after it is marked pending may the
       // rules clock close the heat.
@@ -660,11 +759,15 @@
     }
 
     function resolveAttempt(laneId, attemptId, value) {
-      var lane = laneForId(laneId);
-      var id = required(attemptId, 'attemptId');
-      if (!lane.inflight || lane.inflight.attemptId !== id) {
-        throw new Error('Attempt is not active in lane ' + lane.id + ': ' + id);
-      }
+      if (destroyed) return snapshot();
+      reconcileRushClock(0);
+      var lane = findLane(laneId);
+      var id = String(attemptId == null ? '' : attemptId).trim();
+      if (!lane || !id || !lane.inflight || lane.inflight.attemptId !== id) return snapshot();
+      var gateId = lane.inflight.gateId;
+      var gate = gateId ? gates.get(gateId) : null;
+      if ((gateId && (!gate || gate.outcomes.has(id))) ||
+          lane.control.snapshot().state === 'resolved') return snapshot();
       var outcome = freeze(Object.assign({}, clone(object(value)), {
         pose: ['upright', 'cap', 'miss'].indexOf(String(value && value.pose)) >= 0
           ? String(value.pose) : 'miss',
@@ -676,10 +779,7 @@
           playerId: lane.playerId, attemptId: id, outcome: outcome }));
       } catch (error) { errors.push({ error: error, context: { phase: 'adapter-onResolve',
         laneId: lane.id, attemptId: id } }); }
-      var gateId = lane.inflight.gateId;
       if (gateId) {
-        var gate = gates.get(gateId);
-        if (!gate) throw new Error('Unknown synchronized gate: ' + gateId);
         gate.outcomes.set(id, outcome);
         if (gate.outcomes.size === gate.attempts.length) finishVolleyGate(gate, errors);
         else flushErrors(errors);
@@ -693,43 +793,61 @@
     }
 
     function reportContact(laneId, attemptId) {
-      var lane = laneForId(laneId);
+      if (destroyed) return false;
+      var lane = findLane(laneId);
+      if (!lane) return false;
       if (!lane.inflight || lane.inflight.attemptId !== String(attemptId)) return false;
       var state = lane.control.snapshot().state;
       if (state === 'airborne') lane.control.transition('contact');
       else if (state === 'settling') lane.control.transition('contact');
-      if (lane.adapter.onContact) lane.adapter.onContact(freeze({ laneId: lane.id,
-        playerId: lane.playerId, attemptId: String(attemptId) }));
+      else return false;
+      try {
+        if (lane.adapter.onContact) lane.adapter.onContact(freeze({ laneId: lane.id,
+          playerId: lane.playerId, attemptId: String(attemptId) }));
+      } catch (error) { reportError(error, { phase: 'adapter-onContact', laneId: lane.id,
+        attemptId: String(attemptId) }); }
       return true;
     }
 
     function reportAirborne(laneId, attemptId) {
-      var lane = laneForId(laneId);
+      if (destroyed) return false;
+      var lane = findLane(laneId);
+      if (!lane) return false;
       if (!lane.inflight || lane.inflight.attemptId !== String(attemptId)) return false;
       var state = lane.control.snapshot().state;
       if (state === 'contact' || state === 'settling') lane.control.transition('airborne');
+      else return false;
       return true;
     }
 
     function reportSettling(laneId, attemptId) {
-      var lane = laneForId(laneId);
+      if (destroyed) return false;
+      var lane = findLane(laneId);
+      if (!lane) return false;
       if (!lane.inflight || lane.inflight.attemptId !== String(attemptId)) return false;
       var state = lane.control.snapshot().state;
       if (state === 'airborne' || state === 'contact') lane.control.transition('settling');
+      else return false;
       return true;
     }
 
     function prepareCpuLaunch(playerId, input) {
-      var id = required(playerId, 'playerId');
+      if (destroyed) return null;
+      var id = String(playerId == null ? '' : playerId).trim();
+      if (!id) return null;
+      var source = object(input);
+      var timedEntry = battleState.phase === 'active' && config.paceId === 'rush' &&
+        !battleState.suddenDeath;
+      reconcileRushClock(0, source.startedAt == null ? source.timeStamp : source.startedAt);
+      if (timedEntry && hornExpired) return null;
       var lane = laneForPlayer(id);
-      if (!lane || !isCpu(id)) throw new Error('CPU is not assigned an active lane: ' + id);
+      if (!lane || !isCpu(id)) return null;
       if (battleState.phase !== 'active' || (hornExpired && !battleState.suddenDeath) ||
           lane.control.snapshot().state !== 'ready') {
-        throw new Error('CPU lane is not ready');
+        return null;
       }
       lane.lockedPowers = takePowers(id);
       var rect = rectByLane.get(lane.id);
-      var source = object(input);
       var gesture = freeze({ laneId: lane.id, playerId: id, pointerId: null,
         pointerType: 'cpu', geometry: clone(rect), samples: clone(source.samples || []),
         launchSignal: clone(source.launchSignal || {}), powerEffects: clone(lane.lockedPowers),
@@ -813,6 +931,17 @@
       }
       recipients = unique(recipients);
       if (!recipients.length) throw new Error('Power has no eligible not-yet-armed recipient');
+      var oneLaneVolleyInProgress = physicalLaneCount === 1 && phaseIsVolley() &&
+        (battleState.volleyPlayerIds.length > 0 || lanes.some(laneBusy));
+      if (oneLaneVolleyInProgress) {
+        throw new Error('Power deployment waits for the paired Volley to resolve');
+      }
+      if (recipients.some(function (recipientId) {
+        var pending = pendingPowers.get(recipientId);
+        return !!(pending && pending.length);
+      })) {
+        throw new Error('Recipient already has a pending Battle modifier');
+      }
       var consumed = Battle.consumePower(battleState, id);
       battleState = consumed.state;
       recipients.forEach(function (recipientId) {
@@ -831,6 +960,8 @@
       wallElapsedMs = 0;
       hornExpired = false;
       heatStartedAt = finite(inputNow(), 0);
+      clockCursorAt = heatStartedAt;
+      lastInputNowAt = heatStartedAt;
       heatDeadlineAt = config.paceId === 'rush'
         ? heatStartedAt + config.rushDurationMs : null;
       hornGraceDeadlineAt = heatDeadlineAt == null ? null
@@ -854,7 +985,7 @@
 
     function cancelExpiredHornAims() {
       if (!hornExpired || hornGraceDeadlineAt == null ||
-          finite(inputNow(), heatDeadlineAt) <= hornGraceDeadlineAt) return;
+          peekInputClock() <= hornGraceDeadlineAt) return;
       pointerRouter.snapshot().activeGestures.slice().forEach(function (gesture) {
         pointerRouter.cancelPointer(gesture.pointerId, 'horn-delivery-timeout');
       });
@@ -866,19 +997,7 @@
       if (battleState.phase !== 'active' || config.paceId !== 'rush' || battleState.suddenDeath) {
         return snapshot();
       }
-      var beforeWall = wallElapsedMs;
-      wallElapsedMs = Math.min(config.rushDurationMs, wallElapsedMs + delta);
-      var reachesHorn = beforeWall < config.rushDurationMs &&
-        wallElapsedMs >= config.rushDurationMs;
-      if (reachesHorn) hornExpired = true;
-      var stateDelta = delta;
-      if (hornExpired && activeGestureCount() > 0) {
-        stateDelta = Math.max(0, config.rushDurationMs - 0.001 - battleState.elapsedMs);
-      }
-      battleState = Battle.advanceClock(battleState, stateDelta);
-      // An aim is not a launch lease. When a 15-second owner window changes,
-      // cancel it, restore its locked power, and assign the new representative.
-      cancelRotatedAims();
+      reconcileRushClock(delta);
       cancelExpiredHornAims();
       configureAssignments();
       finalizeHornIfReady();

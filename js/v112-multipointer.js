@@ -257,7 +257,8 @@
         lastTimeStamp: startedAt,
       };
       var accepted = onStart(freeze({ laneId: laneId, pointerId: pointerId,
-        pointerType: gesture.pointerType, geometry: geometry })) !== false;
+        pointerType: gesture.pointerType, geometry: geometry,
+        startedAt: startedAt })) !== false;
       if (!accepted) return false;
       gestures.set(pointerId, gesture);
       pointerByLane.set(laneId, pointerId);

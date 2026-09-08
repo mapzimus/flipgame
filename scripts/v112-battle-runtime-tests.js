@@ -277,6 +277,9 @@ function testSynchronizedTwoPointerVolleyAndResultOrdering() {
   runtime.resolveAttempt('lane-2', right.attemptId, { pose: 'miss' });
   assert.equal(runtime.snapshot().battle.resolvedAttemptIds.length, 0,
     'Volley outcomes remain buffered until the synchronized gate settles');
+  assert.doesNotThrow(() => runtime.resolveAttempt('lane-2', right.attemptId, { pose: 'cap' }));
+  assert.equal(runtime.snapshot().battle.resolvedAttemptIds.length, 0,
+    'a duplicate synchronized callback cannot overwrite its buffered outcome');
   runtime.resolveAttempt('lane-1', left.attemptId, { pose: 'upright' });
   assert.deepEqual(runtime.snapshot().battle.resolvedAttemptIds, [left.attemptId, right.attemptId],
     'different settle times cannot change deterministic lane order');
@@ -738,15 +741,230 @@ function testLegacyAiFlagsAtRuntimeBoundary() {
     matchId: 'mixed-ai-flags',
     config: { formatId: 'four-way', paceId: 'rush', players: [
       { id: 'p1', cpu: true }, { id: 'p2', ai: true },
-      { id: 'p3', isCpu: true }, { id: 'p4', type: 'human' },
+      { id: 'p3', isAI: true }, { id: 'p4', type: 'ai' },
     ], hardware: { width: 1600, verifiedContacts: 4 } },
     laneRects: laneRects(4, 1600), laneAdapterFactory: harness.factory,
     inputNow: () => 0,
   });
   runtime.startHeat();
-  assert.deepEqual(runtime.snapshot().lanes.map((lane) => lane.cpu), [true, true, true, false]);
+  assert.deepEqual(runtime.snapshot().lanes.map((lane) => lane.cpu), [true, true, true, true]);
   assert.doesNotThrow(() => runtime.prepareCpuLaunch('p2', { launchSignal: { scripted: true } }));
-  assert.throws(() => runtime.prepareCpuLaunch('p4', {}), /CPU is not assigned/);
+
+  const humanHarness = adapterHarness();
+  const human = Runtime.createBattleRuntime({
+    matchId: 'human-not-cpu',
+    config: { formatId: 'duel', paceId: 'rush', players: [
+      { id: 'human', type: 'human' }, { id: 'cpu', isCpu: true },
+    ], hardware: { width: 1200, verifiedContacts: 2 } },
+    laneRects: laneRects(2), laneAdapterFactory: humanHarness.factory,
+    inputNow: () => 0,
+  });
+  human.startHeat();
+  assert.equal(human.prepareCpuLaunch('human', {}), null,
+    'a non-CPU or stale CPU request is a safe no-op at the public boundary');
+}
+
+function testDestroyAndDuplicateLifecycleCallsAreSafe() {
+  const harness = { launches: [], factory(context) { return {
+    resources: context.resources,
+    launch(value) { harness.launches.push(value); },
+    onContact() { throw new Error('contact hook failed'); },
+    reset() {},
+  }; } };
+  const { runtime, rects } = createRuntime({ paceId: 'rush', harness });
+  successfulGesture(runtime, 0, 1100, 0, rects);
+  const launch = harness.launches.at(-1);
+  assert.equal(runtime.reportContact(launch.laneId, launch.attemptId), true);
+  assert.equal(runtime.reportContact(launch.laneId, launch.attemptId), false,
+    'duplicate contact callbacks are harmless no-ops');
+  assert(runtime.snapshot().errors.some((entry) => entry.phase === 'adapter-onContact'));
+  assert.equal(runtime.reportSettling(launch.laneId, launch.attemptId), true);
+  assert.equal(runtime.reportSettling(launch.laneId, launch.attemptId), false);
+  assert.equal(runtime.reportAirborne(launch.laneId, launch.attemptId), true);
+  assert.equal(runtime.reportAirborne('missing-lane', launch.attemptId), false);
+
+  runtime.resolveAttempt(launch.laneId, launch.attemptId, { pose: 'upright' });
+  const resolved = runtime.snapshot().battle;
+  assert.doesNotThrow(() => runtime.resolveAttempt(launch.laneId, launch.attemptId,
+    { pose: 'cap' }));
+  assert.doesNotThrow(() => runtime.resolveAttempt('missing-lane', 'stale', { pose: 'cap' }));
+  assert.deepEqual(runtime.snapshot().battle, resolved,
+    'duplicate and stale resolutions cannot score twice');
+
+  runtime.destroy();
+  assert.equal(runtime.prepareCpuLaunch('p1', {}), null);
+  assert.equal(runtime.reportContact(launch.laneId, launch.attemptId), false);
+  assert.equal(runtime.reportAirborne(launch.laneId, launch.attemptId), false);
+  assert.equal(runtime.reportSettling(launch.laneId, launch.attemptId), false);
+  assert.doesNotThrow(() => runtime.resolveAttempt(launch.laneId, launch.attemptId,
+    { pose: 'cap' }));
+  assert.deepEqual(runtime.snapshot().battle, resolved,
+    'all late public callbacks remain read-only after destroy');
+}
+
+function testAbsoluteHornRejectsEntryWithoutVisualTick() {
+  let inputClock = 0;
+  const humanHarness = adapterHarness();
+  const { runtime } = createRuntime({ paceId: 'rush', harness: humanHarness,
+    inputNow: () => inputClock });
+  inputClock = 60001;
+  assert.equal(runtime.handlePointerDown(pointer(1200, 250, 420, 60001)), false);
+  assert.equal(humanHarness.launches.length, 0);
+  assert.equal(runtime.snapshot().hornExpired, true);
+  assert.equal(runtime.snapshot().battle.clockExpired, true,
+    'pointer entry reconciles the absolute horn before the next visual tick');
+
+  inputClock = 0;
+  const cpuHarness = adapterHarness();
+  const cpu = createRuntime({ paceId: 'rush', cpu: true, harness: cpuHarness,
+    inputNow: () => inputClock }).runtime;
+  inputClock = 60001;
+  assert.equal(cpu.prepareCpuLaunch('p1', { timeStamp: 60001 }), null);
+  assert.equal(cpuHarness.launches.length, 0);
+  assert.equal(cpu.snapshot().battle.clockExpired, true,
+    'CPU entry uses the same absolute deadline as manual entry');
+
+  inputClock = 0;
+  const monotonic = createRuntime({ paceId: 'rush', inputNow: () => inputClock }).runtime;
+  inputClock = 1000;
+  monotonic.tick(0);
+  inputClock = 900;
+  monotonic.tick(0);
+  assert.equal(monotonic.snapshot().battle.elapsedMs, 1000,
+    'a backwards input clock sample cannot rewind or add game time');
+  inputClock = 2000;
+  monotonic.tick(0);
+  assert.equal(monotonic.snapshot().battle.elapsedMs, 2000,
+    'the monotonic clock resumes from the last accepted absolute sample');
+}
+
+function testOneLaneRushOpportunityClockAndBatchedHandoff() {
+  let inputClock = 0;
+  const harness = adapterHarness();
+  const { runtime } = createRuntime({ paceId: 'rush', width: 600, contacts: 1,
+    cpu: true, harness, inputNow: () => inputClock });
+  const attemptId = runtime.prepareCpuLaunch('p1', { timeStamp: 0 });
+  assert(attemptId);
+  inputClock = 5000;
+  runtime.tick(0);
+  assert.equal(runtime.snapshot().battle.elapsedMs, 0,
+    'airborne relay wall time does not consume controllable game time');
+  assert.equal(runtime.snapshot().heatDeadlineAt, 65000);
+  runtime.resolveAttempt('lane-1', attemptId, { pose: 'miss' });
+
+  inputClock = 35000;
+  runtime.tick(0);
+  let snapshot = runtime.snapshot();
+  assert.equal(snapshot.battle.elapsedMs, 7500,
+    'a batched timer delivery stops at the first one-lane handoff');
+  assert.equal(snapshot.lanes[0].playerId, 'p2');
+  const extendedDeadline = snapshot.heatDeadlineAt;
+  inputClock += 7499;
+  runtime.tick(0);
+  snapshot = runtime.snapshot();
+  assert.equal(snapshot.lanes[0].playerId, 'p2');
+  assert.equal(snapshot.battle.elapsedMs, 14999,
+    'the incoming relay player receives a real full opportunity window');
+  inputClock += 1;
+  runtime.tick(0);
+  assert.equal(runtime.snapshot().lanes[0].playerId, 'p1');
+  assert.equal(runtime.snapshot().heatDeadlineAt, extendedDeadline,
+    'normal controllable time does not further stretch the heat');
+
+  for (let boundary = 2; boundary < 8; boundary += 1) {
+    inputClock += 7500;
+    runtime.tick(0);
+  }
+  snapshot = runtime.snapshot();
+  assert.equal(snapshot.battle.elapsedMs, 60000);
+  assert.equal(snapshot.hornExpired, true);
+  assert(snapshot.wallElapsedMs > 60000,
+    '60 seconds means controllable game-clock time, so paused wall time may extend');
+
+  const held = createRuntime({ paceId: 'rush', width: 600, contacts: 1 }).runtime;
+  assert.equal(held.handlePointerDown(pointer(1250, 300, 420, 0)), true);
+  held.tick(30000);
+  assert.equal(held.snapshot().battle.elapsedMs, 7500);
+  assert.equal(held.snapshot().lanes[0].playerId, 'p2');
+  assert.equal(held.handlePointerUp(pointer(1250, 300, 220, 30000)), false,
+    'the first batched handoff cancels an outgoing held aim before assignment');
+}
+
+function playOneLaneVolleyAttempt(runtime, harness, rects, pointerId, time) {
+  successfulGesture(runtime, 0, pointerId, time, rects);
+  const launch = harness.launches.at(-1);
+  runtime.resolveAttempt(launch.laneId, launch.attemptId, { pose: 'miss' });
+  return launch.playerId;
+}
+
+function testOneLaneVolleyDefersOfferAndDeployment() {
+  const offers = [];
+  const harness = adapterHarness();
+  const { runtime, rects } = createRuntime({ paceId: 'volley', width: 600, contacts: 1,
+    seed: 31, harness, onPowerOffer(value) { offers.push(value); } });
+  let pointerId = 1300;
+  const openers = [];
+  for (let volley = 0; volley < 2; volley += 1) {
+    openers.push(runtime.snapshot().lanes[0].playerId);
+    playOneLaneVolleyAttempt(runtime, harness, rects, pointerId++, volley * 300, rects);
+    playOneLaneVolleyAttempt(runtime, harness, rects, pointerId++, volley * 300 + 100, rects);
+  }
+  openers.push(runtime.snapshot().lanes[0].playerId);
+  assert.deepEqual(openers, ['p1', 'p2', 'p1']);
+
+  playOneLaneVolleyAttempt(runtime, harness, rects, pointerId++, 700, rects);
+  assert.equal(runtime.snapshot().battle.powerOffers.p1, null);
+  assert.equal(offers.length, 0,
+    'the opener cannot see or deploy an earned offer before its opponent resolves');
+  playOneLaneVolleyAttempt(runtime, harness, rects, pointerId++, 800, rects);
+  assert.equal(offers.length, 2,
+    'both competitors cross the charge threshold and publish together after the pair');
+
+  const offer = runtime.snapshot().battle.powerOffers.p1;
+  const selection = { playerId: 'p1', index: 0 };
+  if (offer[0].scope === 'target') selection.targetId = 'p2';
+  runtime.choosePower(selection);
+  playOneLaneVolleyAttempt(runtime, harness, rects, pointerId++, 900, rects);
+  const storedBefore = runtime.snapshot().battle.storedPowers.p1;
+  assert.throws(() => runtime.deployPower('p1'), /paired Volley/);
+  assert.deepEqual(runtime.snapshot().battle.storedPowers.p1, storedBefore,
+    'a mid-pair deployment barrier preserves the stored card');
+  playOneLaneVolleyAttempt(runtime, harness, rects, pointerId++, 1000, rects);
+  assert.doesNotThrow(() => runtime.deployPower('p1'));
+}
+
+function testModifierConflictRejectsAtomically() {
+  const harness = adapterHarness();
+  const { runtime, rects } = createRuntime({ paceId: 'rush', powerProfileId: 'mayhem',
+    seed: 1, harness });
+  let pointerId = 1400;
+  for (let index = 0; index < 3; index += 1) {
+    successfulGesture(runtime, 0, pointerId++, index * 100, rects);
+    const launch = harness.launches.at(-1);
+    runtime.resolveAttempt(launch.laneId, launch.attemptId, { pose: 'miss' });
+  }
+  const firstOffer = runtime.snapshot().battle.powerOffers.p1;
+  const firstTarget = firstOffer.findIndex((card) => card.scope === 'target');
+  assert(firstTarget >= 0);
+  runtime.choosePower({ playerId: 'p1', index: firstTarget, targetId: 'p2' });
+  runtime.deployPower('p1');
+  assert.equal(runtime.snapshot().pendingPowers.p2.length, 1);
+
+  for (let index = 0; index < 3; index += 1) {
+    successfulGesture(runtime, 0, pointerId++, 500 + index * 100, rects);
+    const launch = harness.launches.at(-1);
+    runtime.resolveAttempt(launch.laneId, launch.attemptId, { pose: 'miss' });
+  }
+  const secondOffer = runtime.snapshot().battle.powerOffers.p1;
+  const secondTarget = secondOffer.findIndex((card) => card.scope === 'target');
+  assert(secondTarget >= 0);
+  runtime.choosePower({ playerId: 'p1', index: secondTarget, targetId: 'p2' });
+  const storedBefore = runtime.snapshot().battle.storedPowers.p1;
+  const pendingBefore = runtime.snapshot().pendingPowers;
+  assert.throws(() => runtime.deployPower('p1'), /pending Battle modifier/);
+  assert.deepEqual(runtime.snapshot().battle.storedPowers.p1, storedBefore);
+  assert.deepEqual(runtime.snapshot().pendingPowers, pendingBefore,
+    'conflicting deployment is atomic and cannot partially mutate recipients');
 }
 
 async function testFailureRecoveryAndStaleAsyncIsolation() {
@@ -852,6 +1070,11 @@ async function run() {
   testPreBoundaryLaunchKeepsOwnerLease();
   testHornUsesReleaseTimestampWithBoundedGrace();
   testLegacyAiFlagsAtRuntimeBoundary();
+  testDestroyAndDuplicateLifecycleCallsAreSafe();
+  testAbsoluteHornRejectsEntryWithoutVisualTick();
+  testOneLaneRushOpportunityClockAndBatchedHandoff();
+  testOneLaneVolleyDefersOfferAndDeployment();
+  testModifierConflictRejectsAtomically();
   await testFailureRecoveryAndStaleAsyncIsolation();
   console.log('v1.12 Battle simultaneous-lane runtime tests passed.');
 }

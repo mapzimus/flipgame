@@ -24,10 +24,15 @@ function testConfigurationAndHardware() {
 
   const mixedCpu = Battle.normalizeConfig({ formatId: 'four-way', players: [
     { id: 'cpu-current', cpu: true }, { id: 'cpu-legacy', ai: true },
-    { id: 'cpu-alias', isCpu: true }, { id: 'human', type: 'human' },
+    { id: 'cpu-capital-alias', isAI: true }, { id: 'cpu-type-alias', type: 'ai' },
   ] });
-  assert.deepEqual(mixedCpu.players.map((player) => player.cpu), [true, true, true, false],
-    'legacy ai/isCpu and current cpu flags normalize at the Battle boundary');
+  assert.deepEqual(mixedCpu.players.map((player) => player.cpu), [true, true, true, true],
+    'legacy ai/isAI/type-ai and current cpu flags normalize at the Battle boundary');
+  const otherAliases = Battle.normalizeConfig({ formatId: 'four-way', players: [
+    { id: 'is-cpu', isCpu: true }, { id: 'cpu-type', type: 'cpu' },
+    { id: 'human-a', type: 'human' }, { id: 'human-b' },
+  ] });
+  assert.deepEqual(otherAliases.players.map((player) => player.cpu), [true, true, false, false]);
 }
 
 function testVolleyScoringTieAndHeat() {
@@ -303,7 +308,37 @@ function testVolleyFallbackCompletesEqualOpportunityBeforeClosing() {
   assert.deepEqual(teams.activePlayerIds, ['p5']);
   teams = Battle.recordAttempt(teams, { attemptId: 'team-relay-b', playerId: 'p5', pose: 'upright' });
   assert.equal(teams.volleyIndex, 1);
-  assert.deepEqual(teams.activePlayerIds, ['p2'], 'larger-team representative rotates next volley');
+  assert.deepEqual(teams.activePlayerIds, ['p6'],
+    'the one-lane opener alternates teams while the representative cursor advances');
+  teams = Battle.recordAttempt(teams, { attemptId: 'team-relay-b-opener', playerId: 'p6', pose: 'miss' });
+  assert.deepEqual(teams.activePlayerIds, ['p2']);
+}
+
+function testOneLaneVolleyOpenerAndPowerOfferBarrier() {
+  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'volley',
+    players: players(2), seed: 31, hardware: { width: 600, verifiedContacts: 1 } }));
+  assert.deepEqual(state.activePlayerIds, ['p1']);
+  for (let volley = 0; volley < 2; volley += 1) {
+    const order = state.volleyParticipantIds.slice();
+    assert.equal(order[0], volley === 0 ? 'p1' : 'p2',
+      'the fallback opener rotates every logical volley');
+    for (const playerId of order) {
+      state = Battle.recordAttempt(state, { attemptId: `barrier-${volley}-${playerId}`,
+        playerId, pose: 'miss' });
+    }
+  }
+  assert.deepEqual(state.volleyParticipantIds, ['p1', 'p2']);
+  state = Battle.recordAttempt(state, { attemptId: 'barrier-third-p1',
+    playerId: 'p1', pose: 'miss' });
+  assert.equal(state.powerOffers.p1, null,
+    'an offer earned by the opener stays private during the paired logical volley');
+  assert.equal(state.deferredPowerOffers.p1.length, 2);
+  assert.throws(() => Battle.choosePower(state, { playerId: 'p1', index: 0 }), /No power offer/);
+  state = Battle.recordAttempt(state, { attemptId: 'barrier-third-p2',
+    playerId: 'p2', pose: 'miss' });
+  assert.equal(state.deferredPowerOffers.p1, null);
+  assert.equal(state.powerOffers.p1.length, 2,
+    'the offer publishes only after both sides resolve the logical volley');
 }
 
 function testRushTieEntersPairedSuddenDeath() {
@@ -334,6 +369,7 @@ function run() {
   testFourWaySuddenDeathOnlyUsesTiedLeadersInPairs();
   testLargeTeamRotationCoverageAndFairness();
   testVolleyFallbackCompletesEqualOpportunityBeforeClosing();
+  testOneLaneVolleyOpenerAndPowerOfferBarrier();
   testRushTieEntersPairedSuddenDeath();
   console.log('v1.12 Battle rules tests passed.');
 }

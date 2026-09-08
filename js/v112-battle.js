@@ -76,8 +76,9 @@
       var id = required(source.id || source.playerId, 'player id');
       if (ids.has(id)) throw new TypeError('Duplicate player id: ' + id);
       ids.add(id);
+      var normalizedType = String(source.type || '').toLowerCase();
       var cpu = source.cpu === true || source.isCpu === true || source.ai === true ||
-        String(source.type || '').toLowerCase() === 'cpu';
+        source.isAI === true || normalizedType === 'cpu' || normalizedType === 'ai';
       return freeze(Object.assign({}, clone(source), { id: id, seat: seat,
         teamId: source.teamId == null ? null : String(source.teamId), cpu: cpu }));
     });
@@ -168,7 +169,13 @@
     var eligible = unique(eligibleCompetitorIds && eligibleCompetitorIds.length
       ? eligibleCompetitorIds : competitors(config));
     if (config.formatId === 'duel') {
-      return config.players.filter(function (player) {
+      var duelPlayers = config.players;
+      if (config.hardware.activeLaneLimit === 1) {
+        duelPlayers = config.players.map(function (_, index) {
+          return config.players[(rotationIndex + index) % config.players.length];
+        });
+      }
+      return duelPlayers.filter(function (player) {
         return eligible.indexOf(player.id) >= 0;
       }).map(function (player) { return player.id; });
     }
@@ -177,7 +184,13 @@
         return config.players[(rotationIndex + index) % config.players.length].id;
       }).filter(function (id) { return eligible.indexOf(id) >= 0; });
     }
-    var teamIds = competitors(config).filter(function (id) { return eligible.indexOf(id) >= 0; });
+    var allTeamIds = competitors(config);
+    if (config.hardware.activeLaneLimit === 1 && allTeamIds.length > 1) {
+      allTeamIds = allTeamIds.map(function (_, index) {
+        return allTeamIds[(rotationIndex + index) % allTeamIds.length];
+      });
+    }
+    var teamIds = allTeamIds.filter(function (id) { return eligible.indexOf(id) >= 0; });
     var perTeam = config.hardware.activeLaneLimit >= 4 ? 2 : 1;
     var selected = teamIds.map(function (teamId) {
       var team = members(config, teamId);
@@ -289,7 +302,8 @@
       : selectRushActive(config, 0);
     return freeze({ schema: 'BattleStateV1', config: config, phase: 'ready',
       heatNumber: 1, heatWins: blankMap(ids, 0), scores: blankMap(ids, 0),
-      charges: blankMap(ids, 0), powerOffers: blankMap(ids, null), storedPowers: blankMap(ids, null),
+      charges: blankMap(ids, 0), powerOffers: blankMap(ids, null),
+      deferredPowerOffers: blankMap(ids, null), storedPowers: blankMap(ids, null),
       powerOfferSequences: blankMap(ids, 0),
       activePlayerIds: initialActive, rotationIndex: 0, heatStarterIndex: 0, volleyIndex: 0,
       suddenDeath: false, suddenDeathCompetitorIds: [], elapsedMs: 0, clockExpired: false,
@@ -380,6 +394,14 @@
   }
 
   function closeVolley(next) {
+    next.deferredPowerOffers = next.deferredPowerOffers ||
+      blankMap(competitors(next.config), null);
+    Object.keys(next.deferredPowerOffers).forEach(function (key) {
+      if (!next.powerOffers[key] && next.deferredPowerOffers[key]) {
+        next.powerOffers[key] = next.deferredPowerOffers[key];
+      }
+      next.deferredPowerOffers[key] = null;
+    });
     next.volleyIndex += 1;
     next.volleyPlayerIds = [];
     if (next.volleyIndex < next.config.volleyCount && !next.suddenDeath) {
@@ -407,10 +429,19 @@
     next.scores[key] += scoreForPose(String(source.pose || 'miss'));
     if (source.qualifiedManual !== false) {
       next.charges[key] = Math.min(3, next.charges[key] + 1);
-      if (next.charges[key] === 3 && !next.powerOffers[key]) {
+      next.deferredPowerOffers = next.deferredPowerOffers ||
+        blankMap(competitors(next.config), null);
+      if (next.charges[key] === 3 && !next.powerOffers[key] &&
+          !next.deferredPowerOffers[key]) {
         next.powerOfferSequences = next.powerOfferSequences || blankMap(competitors(next.config), 0);
         next.powerOfferSequences[key] = (next.powerOfferSequences[key] || 0) + 1;
-        next.powerOffers[key] = offerCards(next, key, next.powerOfferSequences[key]);
+        var cards = offerCards(next, key, next.powerOfferSequences[key]);
+        if (next.config.paceId === 'volley' &&
+            next.config.hardware.activeLaneLimit === 1) {
+          next.deferredPowerOffers[key] = cards;
+        } else {
+          next.powerOffers[key] = cards;
+        }
         next.charges[key] = 0;
       }
     }
@@ -497,5 +528,6 @@
     startHeat: startHeat, markLaunch: markLaunch, recordAttempt: recordAttempt,
     advanceClock: advanceClock, choosePower: choosePower,
     consumePower: consumePower, scoreForPose: scoreForPose,
-    powerRoundPlayerIds: powerRoundPlayerIds });
+    powerRoundPlayerIds: powerRoundPlayerIds,
+    rushRotationIntervalMs: rushRotationInterval });
 });
