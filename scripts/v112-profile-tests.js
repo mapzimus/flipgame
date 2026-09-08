@@ -158,7 +158,7 @@ function storeWithFc(amount, label = 'profile-fc-fixture') {
     fcBalance: amount,
     legacy: { reconciledV111: true, qualifyingWins: 0, sourceRelease: 'test-fixture' },
   });
-  return Profile.createStore({
+  return Profile.createTestStore({
     storage: Profile.createMemoryStorage({ [Profile.storageKey]: JSON.stringify(state) }),
     now: () => 99,
   });
@@ -292,7 +292,7 @@ function testSetupAliasesDoNotRewriteHistoricalStats() {
 
 function testAtomicMatchClaimAndLiveSnapshot() {
   const storage = Profile.createMemoryStorage();
-  const store = Profile.createStore({ storage, now: () => 1234 });
+  const store = Profile.createTestStore({ storage, now: () => 1234 });
   const reservation = store.reserveMatch('match-1', 'free-play');
   let notifications = 0;
   const unsubscribe = store.subscribe(() => { notifications++; });
@@ -313,14 +313,14 @@ function testAtomicMatchClaimAndLiveSnapshot() {
   assert.equal(notifications, 1);
   unsubscribe();
 
-  const reloaded = Profile.createStore({ storage });
+  const reloaded = Profile.createTestStore({ storage });
   assert.deepEqual(reloaded.snapshot(), after, 'V4 load must not remigrate or duplicate level FC');
 }
 
 function testSequentialStoreRefreshAndPersistenceRollback() {
   const storage = Profile.createMemoryStorage();
-  const first = Profile.createStore({ storage, now: () => 1 });
-  const second = Profile.createStore({ storage, now: () => 2 });
+  const first = Profile.createTestStore({ storage, now: () => 1 });
+  const second = Profile.createTestStore({ storage, now: () => 2 });
   const firstToken = first.reserveMatch('sequential-a', 'free-play').token;
   assert.equal(first.consumeReservedMatch(firstToken, rewardInput()).applied, true);
   second.refresh();
@@ -359,23 +359,23 @@ function testAchievementAndStoryIdempotency() {
   const storage = Profile.createMemoryStorage({
     'flipgame.achievements.v3': JSON.stringify({ earned: [{ id: 'first_flip' }] }),
   });
-  const store = Profile.createStore({ storage, now: () => 77 });
+  const store = Profile.createTestStore({ storage, now: () => 77 });
   assert.ok(store.snapshot().achievementIds.includes('first_flip'));
   const achievement = store.claimAchievement('first_flip', 'common');
   assert.equal(achievement.applied, true, 'migrated achievement receives its V4 reward once');
   assert.equal(store.claimAchievement('first_flip', 'common').reason, 'duplicate');
-  const act = store.claimStoryAct(1, 'field-note-act-1');
+  const act = store.claimStoryAct('1', 'field-note-act-1');
   assert.equal(act.applied, true);
   assert.equal(act.claimId, 'story.act.1.first-clear');
   assert.equal(store.claimStoryAct('1').reason, 'duplicate');
   assert.ok(store.snapshot().completedActIds.includes('1'));
   assert.ok(store.snapshot().fieldNoteIds.includes('field-note-act-1'));
   assert.throws(() => store.claimStoryAct('act-i'), /Unknown Story act/);
-  assert.throws(() => store.claimStoryAct(2, 'wrong-note'), /field note ID/);
+  assert.throws(() => store.claimStoryAct('2', 'wrong-note'), /field note ID/);
 }
 
 function testExactStoryRewardInterface() {
-  const store = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 81 });
+  const store = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 81 });
   const rival = store.claimStoryReward({
     claimId: 'rival.first-light.first-clear', type: 'rival-first-clear',
     rivalId: 'first-light', objectId: 'coffee-mug', fxp: 25, fc: 15,
@@ -386,13 +386,13 @@ function testExactStoryRewardInterface() {
     rivalId: 'first-light', objectId: 'coffee-mug', fxp: 25, fc: 15,
   }).reason, 'duplicate');
   const act = store.claimStoryReward({
-    claimId: 'story.act.2.first-clear', type: 'act-first-clear', actId: 2,
+    claimId: 'story.act.2.first-clear', type: 'act-first-clear', actId: '2',
     fxp: 50, fc: 25, fieldNoteId: 'field-note-act-2',
   });
   assert.equal(act.applied, true);
   assert.ok(store.snapshot().completedActIds.includes('2'));
   assert.throws(() => store.claimStoryReward({
-    claimId: 'story.act.3.first-clear', type: 'act-first-clear', actId: 3,
+    claimId: 'story.act.3.first-clear', type: 'act-first-clear', actId: '3',
     fxp: 51, fc: 25, fieldNoteId: 'field-note-act-3',
   }), /amount/);
   assert.throws(() => store.claimRivalVictory('scatterline', 'unstable-id'), /claim ID/);
@@ -400,7 +400,7 @@ function testExactStoryRewardInterface() {
 
 function testAtomicStoryMatchResolution() {
   const storage = Profile.createMemoryStorage();
-  const store = Profile.createStore({ storage, now: () => 91 });
+  const store = Profile.createTestStore({ storage, now: () => 91 });
   const input = {
     matchId: 'story:first-broadcast:signature',
     ordinaryRewardsEligible: true,
@@ -408,7 +408,7 @@ function testAtomicStoryMatchResolution() {
     rewards: [
       { claimId: 'rival.first-light.first-clear', type: 'rival-first-clear',
         rivalId: 'first-light', objectId: 'coffee-mug', fxp: 25, fc: 15 },
-      { claimId: 'story.act.1.first-clear', type: 'act-first-clear', actId: 1,
+      { claimId: 'story.act.1.first-clear', type: 'act-first-clear', actId: '1',
         fxp: 50, fc: 25, fieldNoteId: 'field-note-act-1' },
     ],
   };
@@ -443,7 +443,7 @@ function testAtomicStoryMatchResolution() {
 }
 
 function testRivalAndAlienGate() {
-  const store = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 55 });
+  const store = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 55 });
   const earth = store.claimRivalVictory('first-light');
   assert.equal(earth.applied, true);
   assert.ok(store.snapshot().ownedObjectIds.includes('coffee-mug'));
@@ -494,7 +494,7 @@ function testAlienAndInsaneGateIsNotEntitlementGuessing() {
 }
 
 function testEveryPrimaryRewardAndRivalIsReachable() {
-  const store = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 88 });
+  const store = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 88 });
   reachFixtureLevel(store, 100, 'primary-max');
   let state = store.snapshot();
   assert.equal(state.flipLevel, 100);
@@ -519,9 +519,15 @@ function testEveryPrimaryRewardAndRivalIsReachable() {
 }
 
 function testNormalizationAndTransactionValidation() {
-  const normalized = Profile.ProgressionStateV4({
+  assert.throws(() => Profile.ProgressionStateV4({
     fxp: Infinity, fcBalance: 25,
     ownedObjectIds: ['tall-buildings', 'giraffe', 'future-object', 'future-object'],
+    ownedArenaIds: ['arena.rooftop', 'future-arena'],
+    ownedCosmeticIds: ['future-cosmetic'],
+  }), /exact non-negative integer/);
+  const normalized = Profile.ProgressionStateV4({
+    fxp: 0, fcBalance: 25,
+    ownedObjectIds: ['tall-buildings', 'giraffe', 'future-object'],
     ownedArenaIds: ['arena.rooftop', 'future-arena'],
     ownedCosmeticIds: ['future-cosmetic'],
   });
@@ -534,14 +540,43 @@ function testNormalizationAndTransactionValidation() {
   assert.ok(normalized.ownedArenaIds.includes('future-arena'));
   assert.ok(normalized.ownedCosmeticIds.includes('future-cosmetic'));
   assert.throws(() => Profile.FcTransactionV1({ txId: 'bad', sourceId: 'bad',
-    kind: 'spend', sourceType: 'cosmetic-purchase', signedAmount: 1, balanceAfter: 1 }),
+    kind: 'spend', sourceType: 'cosmetic-purchase', signedAmount: 1, balanceAfter: 1,
+    timestamp: 0 }),
   /must be negative/);
-  const store = Profile.createStore({ storage: Profile.createMemoryStorage() });
+  const store = Profile.createTestStore({ storage: Profile.createMemoryStorage() });
   assert.equal(typeof store.claimBundle, 'undefined',
     'unrestricted reward bundles are not exposed by a Profile store');
   assert.equal(typeof Profile.claimBundle, 'undefined',
     'the default browser API does not expose unrestricted reward bundles');
   assert.equal(store.purchaseCosmetic('finish.chrome').reason, 'insufficient-fc');
+}
+
+function testBrandedAchievementAuthority() {
+  const issued = new WeakSet();
+  const definitions = Object.freeze({
+    first_flip: Object.freeze({ id: 'first_flip', rarity: 'common' }),
+  });
+  const authority = Object.freeze({ schema: 'AchievementRewardAuthorityV1', version: 1,
+    verify(evidence) {
+      if (!issued.has(evidence)) throw new TypeError('Achievement evidence is not evaluator-issued');
+      return definitions[evidence.id];
+    },
+  });
+  const store = Profile.createTestStore({ storage: Profile.createMemoryStorage(),
+    productionSemantics: true, achievementAuthority: authority });
+  const evidence = Object.freeze({ id: 'first_flip' });
+  issued.add(evidence);
+  assert.equal(store.claimAchievement(evidence).applied, true);
+  const before = store.snapshot();
+  assert.throws(() => store.claimAchievement(Object.freeze({ id: 'first_flip' })),
+    /evaluator-issued/);
+  assert.throws(() => store.claimAchievement('first_flip', { toString: () => 'legendary' }),
+    /evaluator-issued/);
+  assert.deepEqual(store.snapshot(), before,
+    'caller-selected IDs, rarity objects, and forged evidence cannot award value');
+  assert.throws(() => Profile.createTestStore({ productionSemantics: true,
+    achievementAuthority: { schema: 'AchievementRewardAuthorityV1', version: 1,
+      verify() { return definitions.first_flip; } } }), /must be frozen/);
 }
 
 function testBrowserExports() {
@@ -554,10 +589,17 @@ function testBrowserExports() {
   context.FlipgameV111Progression = {
     migrate() { return { qualifyingWins: 0, ownedObjectIds: ['bottle'], ownedCosmeticIds: [], achievementIds: [], claimedRewardIds: ['object.bottle'] }; },
   };
+  context.Achievements = require('../js/achievements.js');
+  run('v112-achievements.js');
   run('v112-profile.js');
   assert.equal(context.FlipgameV112ProgressionCatalog.counts.objects, 51);
   assert.equal(context.FlipgameV112Economy.MAX_LEVEL_FXP, 3705);
   assert.equal(context.FlipgameV112Profile.snapshot().schema, 'ProgressionStateV4');
+  ['defaultStore', 'createStore', 'createTestStore', 'reserveMatch', 'claimMatch',
+    'claimAchievement', 'claimRivalVictory', 'claimStoryAct', 'claimStoryReward',
+    'claimStoryMatchResolution', 'purchaseCosmetic', 'mergeImportedState']
+    .forEach((name) => assert.equal(typeof context.FlipgameV112Profile[name], 'undefined',
+      `browser Profile must not expose raw ${name}`));
 }
 
 const tests = [
@@ -580,6 +622,7 @@ const tests = [
   testAlienAndInsaneGateIsNotEntitlementGuessing,
   testEveryPrimaryRewardAndRivalIsReachable,
   testNormalizationAndTransactionValidation,
+  testBrandedAchievementAuthority,
   testBrowserExports,
 ];
 
