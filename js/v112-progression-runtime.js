@@ -6,28 +6,31 @@
     if (typeof module === 'object' && module.exports) module.exports = root.FlipgameV112ProgressionRuntime;
     return;
   }
+  var commonJs = typeof module === 'object' && module.exports;
   var Catalog = root && root.FlipgameV112ProgressionCatalog;
   var Economy = root && root.FlipgameV112Economy;
   var Profile = root && root.FlipgameV112Profile;
   var Backup = root && root.FlipgameV112ProfileBackup;
-  if (typeof module === 'object' && module.exports) {
+  if (commonJs) {
     Catalog = require('./v112-progression-catalog.js');
     Economy = require('./v112-economy.js');
     Profile = require('./v112-profile.js');
     try { Backup = require('./v112-profile-backup.js'); } catch (_) { Backup = null; }
   }
-  var api = factory(Catalog, Economy, Profile, Backup);
-  if (typeof module === 'object' && module.exports) module.exports = api;
+  var api = factory(Catalog, Economy, Profile, Backup, root, commonJs);
+  if (commonJs) module.exports = api;
   if (root) root.FlipgameV112ProgressionRuntime = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Catalog, Economy, Profile, Backup) {
+  : (typeof window !== 'undefined' ? window : this)), function (Catalog, Economy, Profile, Backup, root, commonJs) {
   'use strict';
   if (!Catalog || !Economy || !Profile) {
     throw new Error('v1.12 catalog, economy, and profile must load before progression runtime');
   }
 
   var OWNER_CODE = 'Howe Test Mode';
+  var WRITER_LOCK_NAME = 'flipgame.profile.v4.writer';
+  var LIVE_WRITER_CAPABILITIES = new WeakSet();
   var LOCKED = Object.freeze({ locked: true, symbol: '🔒', ariaLabel: 'Locked' });
   var FEATURE_NAMES = Object.freeze({
     'physics-lab': 'Physics Lab',
@@ -65,12 +68,12 @@
 
   function createRuntime(options) {
     var opts = options || {};
-    // Production uses Profile.defaultStore.  Tests may inject exactly one store;
-    // this runtime never constructs or mirrors a second progression store.
-    var store = opts.profileStore || Profile.defaultStore;
+    var store = opts.profileStore;
     if (!store || typeof store.snapshot !== 'function' || typeof store.subscribe !== 'function') {
       throw new TypeError('progression runtime requires one authoritative V4 profile store');
     }
+    var writerControl = opts.writerControl || { status: 'test-writer', capability: null };
+    var testOnly = opts.testOnly === true;
     var backup = opts.backupAdapter || Backup;
     var ownerActive = false;
     var ownerGeneration = 0;
@@ -79,10 +82,40 @@
     var notificationQueue = [];
     var deliveringNotifications = false;
     var detach = store.subscribe(function (state, result) {
-      emit({ type: 'profile-commit', result: result, earnedState: state });
+      var safeResult = result && typeof result === 'object' ? clone(result) : result;
+      if (safeResult && typeof safeResult === 'object') {
+        delete safeResult.token;
+        if (safeResult.state && typeof safeResult.state === 'object') {
+          safeResult.state.activeMatchReservation = null;
+        }
+      }
+      emit({ type: 'profile-commit', result: safeResult,
+        earnedState: publicProfileProjection(state) });
     });
 
-    function earnedSnapshot() { return store.snapshot(); }
+    function writerStatus() {
+      var status = String(writerControl.status || 'read-only');
+      return freeze({ writable: testOnly || (status === 'active' &&
+        LIVE_WRITER_CAPABILITIES.has(writerControl.capability)), status: status,
+        reason: writerControl.reason || null });
+    }
+    function writableMutation() {
+      var status = writerStatus();
+      return status.writable ? null : noMutation(earnedSnapshot(),
+        status.status === 'busy' ? 'writer-busy' : 'writer-read-only',
+        { writerStatus: status.status });
+    }
+
+    function privateSnapshot() { return store.snapshot(); }
+    function publicProfileProjection(value) {
+      var projection = clone(value || privateSnapshot());
+      // MatchClaimTokenV1 is a private bearer capability. Public ownership,
+      // UI and backup callers may observe that no usable token is available;
+      // the coordinator-only authority below retains the raw projection.
+      projection.activeMatchReservation = null;
+      return freeze(projection);
+    }
+    function earnedSnapshot() { return publicProfileProjection(privateSnapshot()); }
     function isObjectAvailable(id) {
       var objectId = Catalog.canonicalObjectId(id);
       if (!Catalog.object(objectId)) return false;
@@ -218,9 +251,13 @@
       }));
     }
     function validateOwnerTestGuard(guard, activityId) {
-      return ownerActive && !!guard && typeof guard === 'object' && issuedGuards.has(guard) &&
+      // A guard binds the session to Test Data permanently.  Toggling the
+      // owner preview off must not strand a match that already started, and
+      // retaining this negative-only capability can never make rewards
+      // eligible.  Object identity still prevents a structural forgery.
+      return !!guard && typeof guard === 'object' && issuedGuards.has(guard) &&
         typeof activityId === 'string' && ACTIVITY_IDS.has(activityId) && guard.activityId === activityId &&
-        guard.generation === ownerGeneration &&
+        Number.isSafeInteger(guard.generation) && guard.generation >= 0 &&
         guard.testData === true && guard.rewardsEligible === false;
     }
     function emit(event) {
@@ -265,35 +302,45 @@
       return freeze({ deactivated: changed, active: false });
     }
     function blocked() { return noMutation(earnedSnapshot(), 'owner-test-mode'); }
+    function mutationBlock() { return ownerActive ? blocked() : writableMutation(); }
     function reserveMatch(matchId, activityId) {
-      return ownerActive ? blocked() : store.reserveMatch(matchId, activityId);
+      var denied = mutationBlock();
+      return denied || store.reserveMatch(matchId, activityId);
     }
     function resumeMatchReservation() {
       return ownerActive ? null : store.resumeMatchReservation();
     }
     function claimMatch(matchToken, rewardInput) {
-      return ownerActive ? blocked() : store.consumeReservedMatch(matchToken, rewardInput);
+      var denied = mutationBlock();
+      return denied || store.consumeReservedMatch(matchToken, rewardInput);
     }
     function abandonMatch(matchToken, reason) {
-      return ownerActive ? blocked() : store.abandonReservedMatch(matchToken, reason);
+      var denied = mutationBlock();
+      return denied || store.abandonReservedMatch(matchToken, reason);
     }
     function claimAchievement(id, rarity) {
-      return ownerActive ? blocked() : store.claimAchievement(id, rarity);
+      var denied = mutationBlock();
+      return denied || store.claimAchievement(id, rarity);
     }
     function claimRivalVictory(id, claimId) {
-      return ownerActive ? blocked() : store.claimRivalVictory(id, claimId);
+      var denied = mutationBlock();
+      return denied || store.claimRivalVictory(id, claimId);
     }
     function claimStoryAct(id, noteId, claimId) {
-      return ownerActive ? blocked() : store.claimStoryAct(id, noteId, claimId);
+      var denied = mutationBlock();
+      return denied || store.claimStoryAct(id, noteId, claimId);
     }
     function claimStoryReward(reward) {
-      return ownerActive ? blocked() : store.claimStoryReward(reward);
+      var denied = mutationBlock();
+      return denied || store.claimStoryReward(reward);
     }
     function claimStoryMatchResolution(resolution) {
-      return ownerActive ? blocked() : store.claimStoryMatchResolution(resolution);
+      var denied = mutationBlock();
+      return denied || store.claimStoryMatchResolution(resolution);
     }
     function purchaseCosmetic(id) {
-      return ownerActive ? blocked() : store.purchaseCosmetic(id);
+      var denied = mutationBlock();
+      return denied || store.purchaseCosmetic(id);
     }
     function revealDescriptor(id) {
       var value = String(id || '');
@@ -330,11 +377,13 @@
       return freeze(state.pendingRevealIds.map(revealDescriptor).filter(Boolean));
     }
     function dismissReveal(id) {
-      if (ownerActive) return blocked();
+      var denied = mutationBlock();
+      if (denied) return denied;
       return store.dismissReveals([id]);
     }
     function dismissAllReveals() {
-      if (ownerActive) return blocked();
+      var denied = mutationBlock();
+      if (denied) return denied;
       return store.dismissReveals();
     }
     function exportBackup(setupSelection, options) {
@@ -342,19 +391,38 @@
       return backup.serialize(store, setupSelection, options);
     }
     function importBackup(value, currentSetup, options) {
-      if (ownerActive) return blocked();
+      var denied = mutationBlock();
+      if (denied) return denied;
       if (!backup || typeof backup.importInto !== 'function') throw new Error('v1.12 profile backup is unavailable');
       return backup.importInto(value, store, currentSetup, options);
     }
     function close() {
       if (typeof detach === 'function') detach();
       listeners.clear(); ownerActive = false;
+      if (typeof opts.onClose === 'function') opts.onClose();
     }
 
-    return freeze({
+    var rewardAuthority = {
+      snapshot: privateSnapshot, earnedSnapshot: privateSnapshot,
+      activityPolicy: activityPolicy, validateOwnerTestGuard: validateOwnerTestGuard,
+      reserveMatch: reserveMatch, resumeMatchReservation: resumeMatchReservation,
+      claimMatch: claimMatch, abandonMatch: abandonMatch,
+      claimAchievement: claimAchievement,
+      claimStoryMatchResolution: claimStoryMatchResolution,
+    };
+    if (testOnly) Object.assign(rewardAuthority, {
+      claimRivalVictory: claimRivalVictory, claimStoryAct: claimStoryAct,
+      claimStoryReward: claimStoryReward,
+    });
+    rewardAuthority = freeze(rewardAuthority);
+    if (typeof opts.installRewardAuthority === 'function') {
+      opts.installRewardAuthority(rewardAuthority);
+    }
+    var runtimeApi = {
       schema: 'ProgressionRuntimeV1', version: 1,
       snapshot: effectiveSnapshot, earnedSnapshot: earnedSnapshot,
       refresh: store.refresh, subscribe: subscribe, close: close,
+      writerStatus: writerStatus,
       listObjects: listObjects, viewObject: viewObject, viewVariant: viewVariant,
       listArenas: listArenas, viewArena: viewArena, viewFeature: viewFeature,
       viewStore: viewStore, isObjectAvailable: isObjectAvailable,
@@ -365,23 +433,130 @@
       ownerProjection: ownerProjection, activityPolicy: activityPolicy,
       validateOwnerTestGuard: validateOwnerTestGuard,
       ownerTestIntegration: OWNER_INTEGRATION,
-      reserveMatch: reserveMatch, resumeMatchReservation: resumeMatchReservation,
-      claimMatch: claimMatch, abandonMatch: abandonMatch,
-      claimAchievement: claimAchievement,
-      claimRivalVictory: claimRivalVictory, claimStoryAct: claimStoryAct,
-      claimStoryReward: claimStoryReward,
-      claimStoryMatchResolution: claimStoryMatchResolution,
       purchaseCosmetic: purchaseCosmetic,
       pendingReveals: pendingReveals, dismissReveal: dismissReveal,
       dismissAllReveals: dismissAllReveals,
       exportState: earnedSnapshot, exportBackup: exportBackup, importBackup: importBackup,
-    });
+    };
+    if (testOnly) {
+      // Test runtimes expose the mutation verbs used by headless fixtures,
+      // but must retain the same public/effective projection as production.
+      // In particular, never overwrite snapshot() with the private earned
+      // snapshot or Owner Test Data would disappear from activity policy.
+      [
+        'reserveMatch', 'resumeMatchReservation', 'claimMatch', 'abandonMatch',
+        'claimAchievement', 'claimStoryMatchResolution', 'claimRivalVictory',
+        'claimStoryAct', 'claimStoryReward',
+      ].forEach(function (name) { runtimeApi[name] = rewardAuthority[name]; });
+    }
+    return freeze(runtimeApi);
   }
 
-  var defaultRuntime = createRuntime({ profileStore: Profile.defaultStore, backupAdapter: Backup });
-  return freeze({
-    schema: 'ProgressionRuntimeV1', version: 1,
-    createRuntime: createRuntime, defaultRuntime: defaultRuntime,
-    ownerTestIntegration: OWNER_INTEGRATION,
+  function createTestRuntime(options) {
+    return createRuntime(Object.assign({}, options || {}, { testOnly: true,
+      writerControl: { status: 'test-writer', capability: null } }));
+  }
+
+  function beginLiveRuntime(options) {
+    var opts = options || {};
+    var lockManager = opts.lockManager;
+    var setWriterEnabled = typeof opts.setWriterEnabled === 'function'
+      ? opts.setWriterEnabled : function () {};
+    var writer = { status: 'acquiring', reason: null, capability: null,
+      release: null, closed: false };
+    var resolveReady;
+    var ready = new Promise(function (resolve) { resolveReady = resolve; });
+    var runtime = createRuntime({ profileStore: opts.profileStore,
+      backupAdapter: opts.backupAdapter || Backup, writerControl: writer,
+      installRewardAuthority: opts.installRewardAuthority,
+      onClose: function () {
+        writer.closed = true;
+        if (typeof writer.release === 'function') writer.release();
+      } });
+    if (!lockManager || typeof lockManager.request !== 'function') {
+      writer.status = 'unavailable';
+      writer.reason = 'web-locks-unavailable';
+      resolveReady(runtime);
+      return { runtime: runtime, ready: ready };
+    }
+    var settled = false;
+    function settle() {
+      if (settled) return;
+      settled = true;
+      resolveReady(runtime);
+    }
+    try {
+      Promise.resolve(lockManager.request(WRITER_LOCK_NAME,
+        { mode: 'exclusive', ifAvailable: true }, function (lock) {
+          if (!lock || writer.closed) {
+            writer.status = writer.closed ? 'closed' : 'busy';
+            writer.reason = writer.closed ? 'runtime-closed' : 'writer-held-elsewhere';
+            settle();
+            return undefined;
+          }
+          writer.capability = Object.freeze({});
+          LIVE_WRITER_CAPABILITIES.add(writer.capability);
+          // Reconcile any state written while this tab was waiting before it
+          // receives mutation authority.  This is essential on a legitimate
+          // Web Lock handoff and lets a pristine tab adopt the durable lineage.
+          if (opts.profileStore && typeof opts.profileStore.refresh === 'function') {
+            opts.profileStore.refresh();
+          }
+          if (opts.profileStore && typeof opts.profileStore.persistenceStatus === 'function' &&
+              opts.profileStore.persistenceStatus().closed) {
+            writer.capability = null;
+            writer.status = 'unavailable';
+            writer.reason = 'profile-persistence-closed';
+            settle();
+            return undefined;
+          }
+          writer.status = 'active';
+          writer.reason = null;
+          setWriterEnabled(true);
+          settle();
+          return new Promise(function (release) {
+            writer.release = function () {
+              writer.release = null;
+              setWriterEnabled(false);
+              writer.capability = null;
+              writer.status = 'closed';
+              writer.reason = 'runtime-closed';
+              release();
+            };
+            if (writer.closed) writer.release();
+          });
+        })).catch(function (error) {
+          setWriterEnabled(false);
+          writer.capability = null;
+          writer.status = 'unavailable';
+          writer.reason = error && error.message ? error.message : 'writer-lock-failed';
+          settle();
+        });
+    } catch (error) {
+      writer.status = 'unavailable';
+      writer.reason = error && error.message ? error.message : 'writer-lock-failed';
+      settle();
+    }
+    return { runtime: runtime, ready: ready };
+  }
+
+  function acquireLiveRuntime(options) {
+    return beginLiveRuntime(options).ready;
+  }
+
+  var browserLockManager = null;
+  try { browserLockManager = root && root.navigator ? root.navigator.locks : null; } catch (_) {}
+  var defaultHandle = Profile.connectProductionRuntime(function (connection) {
+    return beginLiveRuntime({ profileStore: connection.profileStore,
+      setWriterEnabled: connection.setWriterEnabled,
+      lockManager: browserLockManager, backupAdapter: Backup });
   });
+  var moduleApi = {
+    schema: 'ProgressionRuntimeV1', version: 1,
+    defaultRuntime: defaultHandle.runtime, defaultRuntimeReady: defaultHandle.ready,
+    acquireLiveRuntime: acquireLiveRuntime, writerLockName: WRITER_LOCK_NAME,
+    ownerTestIntegration: OWNER_INTEGRATION,
+  };
+  if (commonJs) moduleApi.createTestRuntime = createTestRuntime;
+  return freeze(moduleApi);
 });
