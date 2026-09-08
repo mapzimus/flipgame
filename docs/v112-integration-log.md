@@ -713,3 +713,29 @@ log, and defect ledger remain release history and are not rewritten.
   therefore remains open until the representative phone retune and full
   viewport qualification pass. The final v1.12 service-worker/cache/version
   update remains release-owned and intentionally deferred.
+
+## Revision 43 — one live V4 progression and variant namespace
+
+- Affected interfaces: browser boot order, progression ownership checks,
+  `ProgressionStateV4`, setup migration, reward reveals, Customize variants,
+  save backup/import, and exact owner-test classification.
+- Audit evidence at `e938af2`: the V4 catalog, economy, profile and art modules
+  pass isolated tests but are absent from the browser graph. Live gameplay and
+  Customize still read the V3 win store. A deterministic reproduction can own
+  Milk Carton in V4 while the live V3 picker continues to show it locked.
+- The V3 recovery fix remains valid for v1.11 state, but it is a migration
+  source only. Once V4 is connected, all rewards and reads must use one live V4
+  store; no dual writes or fallback ownership decisions are allowed.
+- The twelve-variant art calibration and live flavor map currently disagree on
+  eleven IDs and all twelve colors. Before renderer/UI rollout, the art owner
+  and Customize owner must consume one frozen canonical variant ID, palette,
+  authored display-name and migration mapping. A color index is not identity.
+- Confirmed UI gaps: the closed reveal does not clear/hide prior canvas pixels;
+  notifications filter to objects only; variants are swatches rather than live
+  previews; exact `Howe Test Mode` has no implementation; V4/setup migrations
+  are omitted from the current save surface.
+- Required ownership order: progression runtime and backup adapter first;
+  canonical art/variant mapping second; Customize/reveal/owner-test UI third;
+  then integrator-owned boot insertion. Owner Test Mode is ephemeral, exact and
+  case-sensitive, makes all resulting activity Test Data, grants nothing, and
+  leaves the serialized earned profile unchanged.

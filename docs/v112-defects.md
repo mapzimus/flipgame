@@ -5,13 +5,13 @@ is part of v1.12 and is not yet eligible for release.
 
 | ID | Severity | Subsystem | Reproduction | Status | Verification required |
 |---|---|---|---|---|---|
-| V112-001 | P1 | Progression/UI | Win and receive an object reveal, then open Customize without reloading; the item can remain absent | Fixed in recovery baseline (`4349a62`); independent QA pending | Shared live state, FL1–100 migration/no-relock |
+| V112-001 | P1 | Progression/UI | Win and receive an object reveal, then open Customize without reloading; the item can remain absent | V3 recovery fixed (`4349a62`); audit confirms V4 is not live-wired and remains open | One authoritative V4 live store, immediate selection, FL1–100 migration/no-relock |
 | V112-002 | P1 | Input/Physics | A short fast flick displays near 25% while launching with peak velocity/full rotation | Fixed (`d765973`, `193f819`); independent QA passed at `af6c4c4` | Meter/launch signal parity across pointer types |
 | V112-003 | P1 | Physics | Ordinary playtest objects rotate substantially faster and feel harder than intended | Fixed (`d765973`); independent QA passed at `af6c4c4` | Deterministic low/mid/high calibration and event regression |
-| V112-004 | P2 | Unlock UI | Locked/reveal tile retains the prior selected object's pixels beneath `?`/`🔒` | Pending | Clean canvas lifecycle, queue, secrecy screenshots |
-| V112-005 | P2 | Progression/UI | Odd-win visual/cosmetic reward is persisted but produces no reveal notification | Pending | All five cosmetic types and queued mixed rewards |
-| V112-006 | P2 | Customize | Variant tab shows color dots/generic names; actual cast appears only after returning to Setup | Pending | All objects/variants, names, immediate art preview |
-| V112-007 | P2 | Owner testing | No safe way exists to preview all locked content without changing earned progression | Pending | Exact temporary code and Test Data boundaries |
+| V112-004 | P2 | Unlock UI | Locked/reveal tile retains the prior selected object's pixels beneath `?`/`🔒` | Independently reproduced; implementation pending | Clean canvas lifecycle, queue, secrecy screenshots |
+| V112-005 | P2 | Progression/UI | Odd-win visual/cosmetic reward is persisted but produces no reveal notification | Independently reproduced; object-only filter must be replaced | Every reward type and queued mixed rewards |
+| V112-006 | P2 | Customize | Variant tab shows color dots/generic names; actual cast appears only after returning to Setup | Independently reproduced; canonical V111/V112 variant mapping must be frozen first | All objects/variants, unique names, immediate art preview |
+| V112-007 | P2 | Owner testing | No safe way exists to preview all locked content without changing earned progression | Audit confirms exact mode has no runtime implementation | Exact temporary code, immutable earned profile and Test Data boundaries |
 | V112-008 | P2 | Plinko | Playtest view appears seven slots wide and the fall is too short for the expanded board | Pending | Nine-slot render, longer board, tracked camera, deterministic outcomes |
 | V112-009 | P1 | Physics/Alien | Classic calibrates near 32.5% while temporary Alien is near 68% and native Alien reaches about 82% before dropping at 4K | Fixed (`d765973`, `2996a8c`, `af6c4c4`); independent QA passed | Alien within ±10pp of matched Classic per viewport; Alien viewport spread ≤10pp; CPU bands ordered |
 | V112-010 | P1 | Events | Some events are visually too subtle to understand during play | Audit assigned | 30-event physical/visual/audio/camera matrix and owner approval |
