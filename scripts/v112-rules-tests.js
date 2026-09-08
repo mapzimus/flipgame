@@ -25,6 +25,13 @@ function stepTeam(state, input = { result: 'MISS' }) {
   return Rules.resolveTeamFlip(state, input).state;
 }
 
+function withResolution(state, callerId, input = {}) {
+  return Object.assign({}, input, {
+    flipId: callerId,
+    resolutionIdentity: Rules.nextResolutionIdentity(state, callerId),
+  });
+}
+
 function resolveClassicTurns(state, count, inputFactory) {
   for (let index = 0; index < count; index += 1) {
     const input = inputFactory ? inputFactory(state, index) : { result: 'MISS' };
@@ -58,6 +65,8 @@ function testPublicContract() {
   assert.equal(Rules.schema, 'FlipgameV112RulesV1');
   assert.equal(Rules.version, 1);
   assert.equal(Rules.OUTCOME_SCHEMA, 'RulesOutcomeV1');
+  assert.equal(Rules.RESOLUTION_IDENTITY_SCHEMA, 'ResolutionIdentityV1');
+  assert.equal(Rules.MAX_CALLER_FLIP_ID_LENGTH, 96);
   assert.deepEqual(Rules.STARTING_LIFE_PRESETS, [3, 5, 10, 20, 100]);
   assert.equal(Object.isFrozen(Rules), true);
   assert.equal(Object.isFrozen(Rules.CUP_FORMATS), true);
@@ -355,6 +364,15 @@ function testCupLimitsResetsRotationAndBestOfThree() {
   pressure = stepCup(pressure, { playerId: 'p1', result: 'MAKE', pose: 'cap' });
   assert.ok(pressure.turn.signals.includes('heat-point'));
   assert.ok(pressure.turn.signals.includes('match-point'));
+
+  let magnet = Rules.createCupState({ matchId: 'cup-earned-magnet', cupLength: 'short',
+    players: players(2) });
+  magnet = stepCup(magnet, { playerId: 'p1', result: 'MAKE',
+    effects: { grantAlwaysMagnet: true } });
+  assert.deepEqual(magnet.persistentMagnetIds, ['p1']);
+  assert.equal(magnet.currentHeat.config.players[0].alwaysMagnet, true);
+  assert.doesNotThrow(() => Rules.resolveCupFlip(magnet,
+    { playerId: magnet.turn.current, result: 'MISS' }));
 }
 
 function testCupMultiWinnerShootoutAndRematches() {
@@ -617,25 +635,57 @@ function testV111CompatibilitySurface() {
   assert.equal(legacy.players.length, 5);
 }
 
-function testMatchScopedFlipIdReplayProtection() {
+function testCompactMonotonicResolutionIdentity() {
   let classic = Rules.createClassicState({ matchId: 'dedup-classic', players: players(3) });
-  classic = Rules.resolveClassicFlip(classic, { flipId: 'classic-a', result: 'MAKE' }).state;
-  classic = Rules.resolveClassicFlip(classic, { flipId: 'classic-b', result: 'MISS' }).state;
+  assert.equal('resolvedFlipIds' in classic, false);
+  const classicA = withResolution(classic, 'classic-a', { result: 'MAKE' });
+  let transition = Rules.resolveClassicFlip(classic, classicA);
+  assert.equal(transition.outcome.resolutionIdentity.ordinal, 1);
+  assert.equal(transition.outcome.outcomeId, classicA.resolutionIdentity.id);
+  classic = transition.state;
+  const classicB = withResolution(classic, 'classic-b', { result: 'MISS' });
+  classic = Rules.resolveClassicFlip(classic, classicB).state;
   const classicBefore = JSON.stringify(classic);
-  assert.throws(() => Rules.resolveClassicFlip(classic,
-    { flipId: 'classic-a', result: 'MAKE' }), /Duplicate flipId/);
-  assert.equal(JSON.stringify(classic), classicBefore);
+  assert.throws(() => Rules.resolveClassicFlip(classic, classicA),
+    /stale|foreign|Duplicate/i);
+  assert.equal(JSON.stringify(classic), classicBefore, 'stale callback rejection is atomic');
+  assert.throws(() => Rules.resolveClassicFlip(classic, { flipId: 'unbound-caller-id',
+    result: 'MISS' }), /ResolutionIdentityV1/);
+  assert.throws(() => Rules.nextResolutionIdentity(classic, 'x'.repeat(97)), /exceeds 96/);
+  const tampered = structuredClone(Rules.nextResolutionIdentity(classic, 'tampered'));
+  tampered.token = tampered.token.replace(/^./, tampered.token[0] === '0' ? '1' : '0');
+  assert.throws(() => Rules.resolveClassicFlip(classic, {
+    result: 'MISS', resolutionIdentity: tampered,
+  }), /payload is invalid/);
+  assert.throws(() => Rules.resolveClassicFlip(classic, {
+    result: 'MISS', flipId: 'different-caller',
+    resolutionIdentity: Rules.nextResolutionIdentity(classic, 'bound-caller'),
+  }), /does not match/);
+
+  const restored = JSON.parse(JSON.stringify(classic));
+  const restoredIdentity = Rules.nextResolutionIdentity(restored, 'after-restore');
+  transition = Rules.resolveClassicFlip(restored, { result: 'MISS',
+    flipId: restoredIdentity.id });
+  assert.equal(transition.state.sequence, 3);
+  assert.equal(transition.outcome.resolutionIdentity.callerId, 'after-restore');
+
+  const foreign = Rules.createClassicState({ matchId: 'other-match', players: players(3) });
+  assert.throws(() => Rules.resolveClassicFlip(foreign, Object.assign({}, classicB,
+    { playerId: foreign.turn.current })), /stale|foreign/i);
 
   let cup = Rules.createCupState({ matchId: 'dedup-cup', cupLength: 'short', players: players(2) });
-  let transition = Rules.resolveCupFlip(cup, { flipId: 'cup-across-heats', result: 'MAKE',
+  cup = JSON.parse(JSON.stringify(cup));
+  const cupIdentity = withResolution(cup, 'cup-across-heats', { result: 'MAKE',
     effects: { forceEliminateIds: ['p2'] } });
+  transition = Rules.resolveCupFlip(cup, cupIdentity);
   cup = transition.state;
-  assert.deepEqual(cup.resolvedFlipIds, ['cup-across-heats']);
-  assert.deepEqual(transition.outcome.innerOutcome.outcomeId, 'cup-across-heats');
+  assert.equal(transition.outcome.resolutionIdentity.namespace,
+    cupIdentity.resolutionIdentity.namespace);
+  assert.notEqual(transition.outcome.innerOutcome.resolutionIdentity.namespace,
+    transition.outcome.resolutionIdentity.namespace, 'Cup inner and outer namespaces cannot collide');
   cup = Rules.beginNextCupHeat(cup);
   const cupBefore = JSON.stringify(cup);
-  assert.throws(() => Rules.resolveCupFlip(cup,
-    { flipId: 'cup-across-heats', result: 'MISS' }), /Duplicate flipId/);
+  assert.throws(() => Rules.resolveCupFlip(cup, cupIdentity), /stale|foreign/i);
   assert.equal(JSON.stringify(cup), cupBefore);
 
   let shootout = Rules.createCupState({ matchId: 'dedup-shootout', cupLength: 'short',
@@ -646,31 +696,63 @@ function testMatchScopedFlipIdReplayProtection() {
   shootout = Rules.beginNextCupHeat(shootout);
   shootout = closeCupHeatFor(shootout, 'p3');
   assert.equal(shootout.phase, 'shootout');
-  shootout = stepCup(shootout, { flipId: 'shootout-old', playerId: shootout.turn.current,
-    result: 'MISS' });
-  shootout = stepCup(shootout, { flipId: 'shootout-middle', playerId: shootout.turn.current,
-    result: 'MISS' });
-  shootout = stepCup(shootout, { flipId: 'shootout-new', playerId: shootout.turn.current,
-    result: 'MISS' });
+  shootout = JSON.parse(JSON.stringify(shootout));
+  const shootoutOld = withResolution(shootout, 'shootout-old', {
+    playerId: shootout.turn.current, result: 'MISS' });
+  shootout = stepCup(shootout, shootoutOld);
+  shootout = stepCup(shootout, { playerId: shootout.turn.current, result: 'MISS' });
+  shootout = stepCup(shootout, { playerId: shootout.turn.current, result: 'MISS' });
   assert.equal(shootout.shootout.round, 2);
   const shootoutBefore = JSON.stringify(shootout);
-  assert.throws(() => Rules.resolveCupFlip(shootout, { flipId: 'shootout-old',
-    playerId: shootout.turn.current, result: 'MAKE' }), /Duplicate flipId/);
+  assert.throws(() => Rules.resolveCupFlip(shootout, shootoutOld), /stale|foreign/i);
   assert.equal(JSON.stringify(shootout), shootoutBefore);
 
   let team = Rules.createTeamClashState({ matchId: 'dedup-team', players: players(4) });
-  team = stepTeam(team, { flipId: 'team-a', playerId: team.turn.current, result: 'MAKE' });
-  team = stepTeam(team, { flipId: 'team-b', playerId: team.turn.current, result: 'MISS' });
+  team = JSON.parse(JSON.stringify(team));
+  const teamOld = withResolution(team, 'team-a', {
+    playerId: team.turn.current, result: 'MAKE' });
+  team = stepTeam(team, teamOld);
+  team = stepTeam(team, { playerId: team.turn.current, result: 'MISS' });
   const teamBefore = JSON.stringify(team);
-  assert.throws(() => Rules.resolveTeamFlip(team, { flipId: 'team-a',
-    playerId: team.turn.current, result: 'MAKE' }), /Duplicate flipId/);
+  assert.throws(() => Rules.resolveTeamFlip(team, teamOld), /stale|foreign/i);
   assert.equal(JSON.stringify(team), teamBefore);
+
+  const delimitersA = Rules.createClassicState({ matchId: 'match|encoded', players: players(2) });
+  const delimitersB = Rules.createClassicState({ matchId: 'match%7Cencoded', players: players(2) });
+  const identityA = Rules.nextResolutionIdentity(delimitersA, 'caller|encoded');
+  const identityB = Rules.nextResolutionIdentity(delimitersB, 'caller%7Cencoded');
+  assert.notEqual(identityA.namespace, identityB.namespace);
+  assert.notEqual(identityA.id, identityB.id);
+}
+
+function testTenThousandResolutionHighWaterIsCompact() {
+  let state = Rules.createClassicState({ matchId: 'ten-thousand-resolutions',
+    players: players(2), startingLives: 3, suddenDeathEnabled: false });
+  const initialBytes = JSON.stringify(state).length;
+  let firstIdentity = null;
+  for (let index = 0; index < 10000; index += 1) {
+    const input = withResolution(state, `bench-${index}`, { result: 'MISS' });
+    if (index === 0) firstIdentity = input;
+    state = Rules.resolveClassicFlip(state, input).state;
+  }
+  assert.equal(state.sequence, 10000);
+  assert.equal(state.resolutionIdentity.resolvedThrough, 10000);
+  assert.equal(state.resolutionIdentity.nextOrdinal, 10001);
+  assert.equal('resolvedFlipIds' in state, false);
+  assert.ok(JSON.stringify(state).length < initialBytes + 256,
+    '10,000 resolutions retain constant-size integrity state');
+  const before = JSON.stringify(state);
+  assert.throws(() => Rules.resolveClassicFlip(state, firstIdentity), /stale|foreign/i);
+  assert.equal(JSON.stringify(state), before);
+  const outcome = Rules.toMatchOutcomeV2(state, { status: 'abandoned' });
+  assert.equal(JSON.stringify(outcome).includes('resolvedFlipIds'), false);
+  assert.deepEqual(outcome.resolutionIdentity, state.resolutionIdentity);
 }
 
 function testOutcomeStatusCannotSpoofAWin() {
   const active = Rules.createClassicState({ matchId: 'active-outcome', players: players(2) });
   assert.throws(() => Rules.toMatchOutcomeV2(active, { status: 'completed' }),
-    /cannot produce a completed outcome/);
+    /contradicts the rules phase/);
   const abandoned = Rules.toMatchOutcomeV2(active, {
     status: 'abandoned', completionReason: 'last-player-standing',
   });
@@ -678,24 +760,42 @@ function testOutcomeStatusCannotSpoofAWin() {
   assert.deepEqual(abandoned.winnerIds, []);
   assert.equal(abandoned.completionReason, 'abandoned');
   assert.deepEqual(abandoned.rulesState.winnerIds, []);
-  assert.equal(abandoned.rulesState.completionReason, 'abandoned');
+  assert.equal(abandoned.rulesState.completionReason, null);
+  assert.doesNotThrow(() => Rules.toMatchOutcomeV2(abandoned.rulesState,
+    { status: 'cancelled' }), 'embedded active state remains self-validating');
 
   const complete = Rules.resolveClassicFlip(active, { result: 'MAKE',
     effects: { forceEliminateIds: ['p2'] } }).state;
   const accepted = Rules.toMatchOutcomeV2(complete);
   assert.equal(accepted.status, 'completed');
   assert.deepEqual(accepted.winnerIds, ['p1']);
-  const cancelled = Rules.toMatchOutcomeV2(complete, {
-    status: 'cancelled', completionReason: 'last-player-standing',
-  });
-  assert.equal(cancelled.completed, false);
-  assert.deepEqual(cancelled.winnerIds, []);
-  assert.equal(cancelled.completionReason, 'cancelled');
-  assert.deepEqual(cancelled.rulesState.winnerIds, []);
-  assert.equal(cancelled.rulesState.completionReason, 'cancelled');
+  assert.throws(() => Rules.toMatchOutcomeV2(complete, { status: 'cancelled' }),
+    /contradicts the rules phase/);
+  assert.throws(() => Rules.toMatchOutcomeV2(complete, { status: 'abandoned' }),
+    /contradicts the rules phase/);
+
+  const activeCup = Rules.createCupState({ matchId: 'active-cup-outcome', cupLength: 'short',
+    players: players(2) });
+  assert.throws(() => Rules.toMatchOutcomeV2(activeCup, { status: 'completed' }),
+    /contradicts/);
+  assert.equal(Rules.toMatchOutcomeV2(activeCup, { status: 'cancelled' }).status, 'cancelled');
+  let completeCup = closeCupHeatFor(activeCup, 'p1');
+  completeCup = Rules.beginNextCupHeat(completeCup);
+  completeCup = closeCupHeatFor(completeCup, 'p1');
+  assert.equal(Rules.toMatchOutcomeV2(completeCup, { status: 'completed' }).completed, true);
+  assert.throws(() => Rules.toMatchOutcomeV2(completeCup, { status: 'cancelled' }), /contradicts/);
+
+  const activeTeam = Rules.createTeamClashState({ matchId: 'active-team-outcome',
+    players: players(4) });
+  assert.throws(() => Rules.toMatchOutcomeV2(activeTeam, { status: 'completed' }), /contradicts/);
+  assert.equal(Rules.toMatchOutcomeV2(activeTeam, { status: 'abandoned' }).status, 'abandoned');
+  const completeTeam = Rules.resolveTeamFlip(activeTeam, { playerId: activeTeam.turn.current,
+    result: 'MAKE', effects: { automaticWinner: 'current' } }).state;
+  assert.equal(Rules.toMatchOutcomeV2(completeTeam).completed, true);
+  assert.throws(() => Rules.toMatchOutcomeV2(completeTeam, { status: 'abandoned' }), /contradicts/);
 }
 
-function storyRulesRequest(matchId) {
+function storyRulesRequest(matchId, startIndex = 0) {
   return Activity.MatchRequestV2({
     matchId, activityId: 'story', formatId: 'classic', physicsModeId: 'normal',
     roster: [
@@ -707,7 +807,8 @@ function storyRulesRequest(matchId) {
         flipperId: 'gumball-machine' },
     ],
     rulesOptions: {
-      startingLives: 10,
+      startingLives: 10, startIndex,
+      clearCondition: { anyWinnerId: ['human-1', 'human-2'] },
       opponentTargeting: { excludeAlliedHumans: true,
         alliedHumanIds: ['human-1', 'human-2'] },
     },
@@ -731,12 +832,14 @@ function testStoryCpuShapeAndAutomaticAllyProtection() {
     excludeAlliedHumans: true, alliedHumanIds: ['human-1', 'human-2'],
   });
   assert.deepEqual(state.config.alliedHumanIds, ['human-1', 'human-2']);
+  assert.deepEqual(state.config.clearCondition,
+    { anyWinnerId: ['human-1', 'human-2'] });
 
   let transition = Rules.resolveClassicFlip(state, { playerId: 'human-1', result: 'MAKE',
-    effects: { halveOpponents: true } });
+    effects: { halveOpponents: true, excludedTargetIds: ['cpu-1'] } });
   assert.deepEqual(transition.state.players.map(player => player.lives), [10, 10, 5, 5]);
   assert.deepEqual(transition.outcome.effects.protectedTargetIds,
-    ['human-1', 'human-2']);
+    ['human-2']);
 
   state = Rules.createClassicState(storyRulesRequest('story-set'));
   transition = Rules.resolveClassicFlip(state, { playerId: 'human-1', result: 'MAKE',
@@ -751,12 +854,37 @@ function testStoryCpuShapeAndAutomaticAllyProtection() {
   assert.equal(transition.state.players[1].lives, 10);
   assert.equal(transition.state.players[2].eliminated, true);
   assert.equal(transition.state.players[2].lives, 0);
+
+  state = Rules.createClassicState(storyRulesRequest('story-cpu-targets-humans', 2));
+  transition = Rules.resolveClassicFlip(state, { playerId: 'cpu-1', result: 'MAKE',
+    effects: { halveOpponents: true, excludedTargetIds: ['human-1', 'human-2'] } });
+  assert.deepEqual(transition.outcome.effects.protectedTargetIds, [],
+    'CPU actor shares no human alliance and protects no human target');
+  assert.deepEqual(transition.state.players.map(player => player.lives), [5, 5, 10, 5],
+    'CPU actor can target both allied humans normally');
+
+  state = Rules.createClassicState(storyRulesRequest('story-cpu-force-humans', 2));
+  transition = Rules.resolveClassicFlip(state, { playerId: 'cpu-1', result: 'MAKE',
+    effects: { forceEliminateIds: ['human-1', 'human-2'] } });
+  assert.equal(transition.state.players[0].eliminated, true);
+  assert.equal(transition.state.players[1].eliminated, true);
+  assert.equal(transition.state.phase, 'active', 'two CPU survivors keep the match active');
+
+  state = Rules.createClassicState(storyRulesRequest('story-two-allies-clear'));
+  transition = Rules.resolveClassicFlip(state, { playerId: 'human-1', result: 'MAKE',
+    effects: { forceEliminateIds: ['cpu-1', 'cpu-2'] } });
+  assert.equal(transition.state.phase, 'complete');
+  assert.deepEqual(transition.state.winnerIds, ['human-1', 'human-2']);
+  assert.equal(transition.state.completionReason, 'allied-survivors');
+  assert.deepEqual(transition.outcome.winnerIds, ['human-1', 'human-2']);
+  assert.deepEqual(Rules.toMatchOutcomeV2(transition.state).winnerIds,
+    ['human-1', 'human-2']);
 }
 
 function testCupPresentationAndZeroSurvivorResolver() {
   let cup = Rules.createCupState({ matchId: 'cup-cue', cupLength: 'short', players: players(2) });
-  let transition = Rules.resolveCupFlip(cup, { flipId: 'heat-one-win', result: 'MAKE',
-    effects: { forceEliminateIds: ['p2'] } });
+  let transition = Rules.resolveCupFlip(cup, withResolution(cup, 'heat-one-win', {
+    result: 'MAKE', effects: { forceEliminateIds: ['p2'] } }));
   cup = transition.state;
   assert.equal(cup.phase, 'between-heats');
   assert.ok(transition.outcome.presentation.cues.includes('heat-win'));
@@ -766,8 +894,8 @@ function testCupPresentationAndZeroSurvivorResolver() {
 
   cup = Rules.createCupState({ matchId: 'cup-no-survivors', cupLength: 'short',
     players: players(2), startIndex: 0 });
-  transition = Rules.resolveCupFlip(cup, { flipId: 'zero-heat-1', playerId: 'p1',
-    result: 'MAKE', effects: { forceEliminateActor: true, forceEliminateIds: ['p2'] } });
+  transition = Rules.resolveCupFlip(cup, withResolution(cup, 'zero-heat-1', { playerId: 'p1',
+    result: 'MAKE', effects: { forceEliminateActor: true, forceEliminateIds: ['p2'] } }));
   cup = transition.state;
   assert.equal(cup.phase, 'shootout');
   assert.equal(cup.shootout.purpose, 'heat');
@@ -777,8 +905,9 @@ function testCupPresentationAndZeroSurvivorResolver() {
   assert.equal(transition.outcome.zeroSurvivorTie, true);
   assert.equal(transition.outcome.heatResolved, false);
 
-  cup = stepCup(cup, { flipId: 'heat-tie-p2', playerId: 'p2', result: 'MAKE' });
-  transition = Rules.resolveCupFlip(cup, { flipId: 'heat-tie-p1', playerId: 'p1', result: 'MISS' });
+  cup = stepCup(cup, withResolution(cup, 'heat-tie-p2', { playerId: 'p2', result: 'MAKE' }));
+  transition = Rules.resolveCupFlip(cup,
+    withResolution(cup, 'heat-tie-p1', { playerId: 'p1', result: 'MISS' }));
   cup = transition.state;
   assert.equal(cup.phase, 'between-heats');
   assert.equal(cup.heatWins.p2, 1);
@@ -788,13 +917,15 @@ function testCupPresentationAndZeroSurvivorResolver() {
   assert.ok(!transition.outcome.presentation.cues.includes('match-win'));
 
   cup = Rules.beginNextCupHeat(cup);
-  transition = Rules.resolveCupFlip(cup, { flipId: 'zero-heat-2', playerId: 'p2',
-    result: 'MAKE', effects: { forceEliminateActor: true, forceEliminateIds: ['p1'] } });
+  transition = Rules.resolveCupFlip(cup, withResolution(cup, 'zero-heat-2', { playerId: 'p2',
+    result: 'MAKE', effects: { forceEliminateActor: true, forceEliminateIds: ['p1'] } }));
   cup = transition.state;
   assert.equal(cup.phase, 'shootout');
   assert.equal(cup.turn.current, 'p1');
-  cup = stepCup(cup, { flipId: 'second-tie-p1', playerId: 'p1', result: 'MISS' });
-  transition = Rules.resolveCupFlip(cup, { flipId: 'second-tie-p2', playerId: 'p2', result: 'MAKE' });
+  cup = stepCup(cup,
+    withResolution(cup, 'second-tie-p1', { playerId: 'p1', result: 'MISS' }));
+  transition = Rules.resolveCupFlip(cup,
+    withResolution(cup, 'second-tie-p2', { playerId: 'p2', result: 'MAKE' }));
   cup = transition.state;
   assert.equal(cup.phase, 'complete');
   assert.deepEqual(cup.winnerIds, ['p2']);
@@ -830,6 +961,8 @@ function testForceEliminateSuddenDeathReconciliation() {
 function testForgedSchemaTagsAreNeverTrusted() {
   assert.throws(() => Rules.createClassicState({ schema: 'ClassicRulesConfigV1',
     matchId: 'forged-classic-config', players: [], startingLives: 10 }), /between 2 and 16/);
+  assert.throws(() => Rules.createClassicState({ matchId: 'unsafe-starting-lives',
+    players: players(2), startingLives: Number.MAX_SAFE_INTEGER }), /safe integer range/);
   assert.throws(() => Rules.createCupState({ schema: 'CupRulesConfigV1',
     matchId: 'forged-cup-config', cupLength: 'short', players: [] }), /between 2 and 12/);
   assert.throws(() => Rules.createTeamClashState({ schema: 'TeamClashRulesConfigV1',
@@ -839,16 +972,33 @@ function testForgedSchemaTagsAreNeverTrusted() {
   const noRoster = structuredClone(valid);
   noRoster.config.players = [];
   assert.throws(() => Rules.resolveClassicFlip(noRoster, { result: 'MISS' }), /between 2 and 16/);
-  const duplicateLedger = structuredClone(valid);
-  duplicateLedger.sequence = 2;
-  duplicateLedger.resolvedFlipIds = ['same', 'same'];
-  duplicateLedger.lastOutcomeId = 'same';
-  assert.throws(() => Rules.resolveClassicFlip(duplicateLedger, { result: 'MISS' }),
-    /ledger contains a duplicate/);
+  const forgedHighWater = structuredClone(valid);
+  forgedHighWater.resolutionIdentity.nextOrdinal = 7;
+  assert.throws(() => Rules.resolveClassicFlip(forgedHighWater, { result: 'MISS' }),
+    /high-water/);
+  const legacyUnboundedLedger = structuredClone(valid);
+  legacyUnboundedLedger.resolvedFlipIds = [];
+  assert.throws(() => Rules.toMatchOutcomeV2(legacyUnboundedLedger,
+    { status: 'abandoned' }), /Unbounded resolved flip histories/);
   const forgedLifeCap = structuredClone(valid);
   forgedLifeCap.config.additiveLifeCap = 999999;
   assert.throws(() => Rules.resolveClassicFlip(forgedLifeCap, { result: 'MAKE' }),
     /config is not canonical/);
+  const forgedTurn = structuredClone(valid);
+  forgedTurn.turn.current = 'p2';
+  assert.throws(() => Rules.resolveClassicFlip(forgedTurn, { result: 'MISS' }),
+    /turn metadata/);
+  const unsafeLives = structuredClone(valid);
+  unsafeLives.players[0].lives = Number.MAX_SAFE_INTEGER + 1;
+  assert.throws(() => Rules.resolveClassicFlip(unsafeLives, { result: 'MISS' }),
+    /safe whole number/);
+  const forgedFire = structuredClone(valid);
+  forgedFire.players[0].onFire = true;
+  forgedFire.players[0].streak = 3;
+  forgedFire.players[0].bestStreak = 3;
+  forgedFire.onFirePlayerId = null;
+  assert.throws(() => Rules.resolveClassicFlip(forgedFire, { result: 'MAKE' }),
+    /owner/);
 
   const cup = Rules.createCupState({ matchId: 'forged-cup-state', cupLength: 'short',
     players: players(2) });
@@ -859,6 +1009,45 @@ function testForgedSchemaTagsAreNeverTrusted() {
   forgedCupWinTarget.config.winsNeeded = 99;
   assert.throws(() => Rules.resolveCupFlip(forgedCupWinTarget, { result: 'MISS' }),
     /config is not canonical/);
+  const forgedInnerSeed = structuredClone(cup);
+  forgedInnerSeed.currentHeat.config.seed ^= 1;
+  assert.throws(() => Rules.resolveCupFlip(forgedInnerSeed, { result: 'MISS' }),
+    /parent-derived/);
+  const baseInner = {
+    matchId: `${cup.matchId}:heat:1`, players: cup.config.players,
+    startingLives: 3, direction: 1, startIndex: 0,
+    suddenDeathAfterRotations: 3, seed: cup.config.seed ^ 1,
+  };
+  for (const override of [
+    { matchId: 'foreign-inner-match' },
+    { players: cup.config.players.slice().reverse() },
+    { startingLives: 10 },
+    { direction: -1 },
+    { startIndex: 1 },
+    { suddenDeathAfterRotations: 4 },
+    { seed: 982451653 },
+  ]) {
+    const forgedParentContract = structuredClone(cup);
+    forgedParentContract.currentHeat = Rules.createClassicState({ ...baseInner, ...override });
+    assert.throws(() => Rules.resolveCupFlip(forgedParentContract, { result: 'MISS' }),
+      /parent-derived/, `inner override must reject: ${JSON.stringify(override)}`);
+  }
+  let between = closeCupHeatFor(cup, 'p1');
+  const forgedHeatWins = structuredClone(between);
+  forgedHeatWins.heatWins.p2 = 1;
+  assert.throws(() => Rules.beginNextCupHeat(forgedHeatWins), /do not match heat history/);
+  const forgedHistoryStarter = structuredClone(between);
+  forgedHistoryStarter.heatResults[0].starterId = 'p2';
+  assert.throws(() => Rules.beginNextCupHeat(forgedHistoryStarter), /history is not reachable/);
+  const forgedHeatNumber = structuredClone(between);
+  forgedHeatNumber.heatNumber = 3;
+  assert.throws(() => Rules.beginNextCupHeat(forgedHeatNumber), /history, and phase/);
+  const magnetCup = Rules.createCupState({ matchId: 'forged-cup-magnet', cupLength: 'short',
+    players: [{ id: 'p1', alwaysMagnet: true }, { id: 'p2' }] });
+  const lostMagnet = structuredClone(magnetCup);
+  lostMagnet.persistentMagnetIds = [];
+  assert.throws(() => Rules.resolveCupFlip(lostMagnet, { result: 'MISS' }),
+    /lost an initial permanent magnet/);
   const team = Rules.createTeamClashState({ matchId: 'forged-team-state', players: players(4) });
   const teamNoRoster = structuredClone(team);
   teamNoRoster.config.players = [];
@@ -867,6 +1056,15 @@ function testForgedSchemaTagsAreNeverTrusted() {
   forgedTeamTarget.config.targetScore = 1;
   assert.throws(() => Rules.resolveTeamFlip(forgedTeamTarget, { result: 'MAKE' }),
     /config is not canonical/);
+  const reassignedTeamActor = structuredClone(team);
+  reassignedTeamActor.queue[0].playerId = reassignedTeamActor.queue[1].playerId;
+  assert.throws(() => Rules.resolveTeamFlip(reassignedTeamActor, { result: 'MAKE' }),
+    /canonically derived/);
+  const duplicateTeamActor = structuredClone(team);
+  duplicateTeamActor.queue[2] = structuredClone(duplicateTeamActor.queue[0]);
+  duplicateTeamActor.queue[2].position = 2;
+  assert.throws(() => Rules.resolveTeamFlip(duplicateTeamActor, { result: 'MAKE' }),
+    /canonically derived/);
 }
 
 function run() {
@@ -888,7 +1086,8 @@ function run() {
   testAdapterMatchRequestAndOutcomeCompatibility();
   testDeterminismAndInputImmutability();
   testV111CompatibilitySurface();
-  testMatchScopedFlipIdReplayProtection();
+  testCompactMonotonicResolutionIdentity();
+  testTenThousandResolutionHighWaterIsCompact();
   testOutcomeStatusCannotSpoofAWin();
   testStoryCpuShapeAndAutomaticAllyProtection();
   testCupPresentationAndZeroSurvivorResolver();
