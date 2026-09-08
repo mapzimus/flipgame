@@ -30,28 +30,61 @@
   var V4_KEY = 'flipgame.profile.v4';
   var SETUP_KEY = 'flipgame.setup.v2';
   var UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+  var SAFE_CLONE_MAX_DEPTH = 64;
+  var SAFE_CLONE_MAX_NODES = 100000;
+  var PAYLOAD_FIELDS = new Set([
+    'schema', 'version', 'profileV4', 'setupSelection', 'sections',
+  ]);
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
-  function safeClone(value, seen) {
+  function safeClone(value, context, depth) {
+    var tracker = context && context.active instanceof Set ? context : {
+      active: new Set(), nodes: 0,
+    };
+    var level = depth == null ? 0 : depth;
+    if (level > SAFE_CLONE_MAX_DEPTH) throw new RangeError('Safe save nesting limit exceeded');
+    tracker.nodes++;
+    if (tracker.nodes > SAFE_CLONE_MAX_NODES) throw new RangeError('Safe save node limit exceeded');
     if (value == null || typeof value === 'string' || typeof value === 'boolean') return value;
     if (typeof value === 'number') {
       if (!Number.isFinite(value)) throw new TypeError('Unsafe non-finite number');
       return value;
     }
     if (typeof value !== 'object') throw new TypeError('Unsafe save value type');
-    var active = seen || new Set();
-    if (active.has(value)) throw new TypeError('Cyclic save values are not supported');
-    active.add(value);
+    var prototype = Object.getPrototypeOf(value);
+    var crossRealmPlain = !Array.isArray(value) && prototype &&
+      Object.getPrototypeOf(prototype) === null;
+    if (prototype !== null && prototype !== Object.prototype &&
+        !crossRealmPlain && !Array.isArray(value)) {
+      throw new TypeError('Unsafe save object prototype');
+    }
+    if (typeof Object.getOwnPropertySymbols === 'function' &&
+        Object.getOwnPropertySymbols(value).length) throw new TypeError('Unsafe save symbol key');
+    if (tracker.active.has(value)) throw new TypeError('Cyclic save values are not supported');
+    tracker.active.add(value);
     var output;
-    if (Array.isArray(value)) output = value.map(function (entry) { return safeClone(entry, active); });
-    else {
+    if (Array.isArray(value)) {
+      if (value.length > SAFE_CLONE_MAX_NODES) throw new RangeError('Safe save array limit exceeded');
+      output = [];
+      for (var index = 0; index < value.length; index++) {
+        var arrayDescriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!arrayDescriptor || !Object.prototype.hasOwnProperty.call(arrayDescriptor, 'value')) {
+          throw new TypeError('Sparse or accessor save arrays are not supported');
+        }
+        output.push(safeClone(arrayDescriptor.value, tracker, level + 1));
+      }
+    } else {
       output = Object.create(null);
-      Object.keys(value).forEach(function (key) {
+      Object.getOwnPropertyNames(value).forEach(function (key) {
         if (UNSAFE_KEYS.has(key)) throw new TypeError('Unsafe save key: ' + key);
-        output[key] = safeClone(value[key], active);
+        var descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+          throw new TypeError('Accessor save properties are not supported');
+        }
+        output[key] = safeClone(descriptor.value, tracker, level + 1);
       });
     }
-    active.delete(value);
+    tracker.active.delete(value);
     return output;
   }
   function safeMerge() {
@@ -146,6 +179,14 @@
     if (payload.schema !== PAYLOAD_SCHEMA) return legacyPayload(payload);
     if (typeof payload.version !== 'number' || payload.version !== PAYLOAD_VERSION) {
       throw new RangeError('Unsupported FlipgameLocalSaveV2 version');
+    }
+    Object.keys(payload).forEach(function (key) {
+      if (!PAYLOAD_FIELDS.has(key)) {
+        throw new TypeError('Unsupported FlipgameLocalSaveV2 field: ' + key);
+      }
+    });
+    if (!Object.prototype.hasOwnProperty.call(payload, 'profileV4')) {
+      throw new TypeError('FlipgameLocalSaveV2 profileV4 is required');
     }
     return freeze({ schema: PAYLOAD_SCHEMA, version: PAYLOAD_VERSION,
       profileV4: Profile.validateImportedState(payload.profileV4),
@@ -256,16 +297,25 @@
       throw new TypeError('Profile backup import requires the authoritative V4 store');
     }
     var parsed = parse(input);
+    // Preflight every caller-controlled non-profile section before committing
+    // the authoritative profile.  Profile import is intentionally monotonic
+    // and cannot be rolled back, so no validation that can still throw may be
+    // deferred until after mergeImportedState changes durable state.
+    var safeCurrentSetup = Profile.migrateSetupSelection(currentSetup || {});
+    var safeImportedSetup = Profile.migrateSetupSelection(
+      parsed.payload.setupSelection || {});
+    var safeSections = safeClone(parsed.payload.sections);
+    mergeSetupSelection(safeCurrentSetup, safeImportedSetup, store.snapshot());
     var importId = 'save-' + parsed.checksum.value;
     var profileResult = store.mergeImportedState(parsed.payload.profileV4, importId);
     if (!profileResult.applied && profileResult.reason !== 'duplicate') {
       return freeze({ imported: false, reason: profileResult.reason,
         profileResult: profileResult, setupSelection: null });
     }
-    var setup = mergeSetupSelection(currentSetup, parsed.payload.setupSelection, store.snapshot());
+    var setup = mergeSetupSelection(safeCurrentSetup, safeImportedSetup, store.snapshot());
     return freeze({ imported: true, duplicate: profileResult.reason === 'duplicate',
       checksum: parsed.checksum.value, profileResult: profileResult,
-      setupSelection: setup, sections: safeClone(parsed.payload.sections),
+      setupSelection: setup, sections: safeSections,
       state: store.snapshot() });
   }
 
