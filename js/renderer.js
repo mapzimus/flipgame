@@ -1185,7 +1185,9 @@ const Renderer = (() => {
     for (const s of obstacles.saucers || []) {
       ctx.save();
       ctx.translate(s.x, s.y);
-      ctx.rotate(s.angle * 0.35);
+      // Physics owns the saucer transform. Paint at that exact angle so the
+      // visible bank surface and its authoritative collider cannot diverge.
+      ctx.rotate(s.angle);
       ctx.beginPath();
       ctx.ellipse(0, -s.ry * 0.55, s.rx * 0.46, s.ry * 0.85, 0, Math.PI, 0);
       ctx.fillStyle = '#bfe7ff';

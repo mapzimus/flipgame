@@ -1606,29 +1606,67 @@
     if (!handled) game.advanceTurn();
   }
 
-  // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
-  // Alien bank-shot skins get a sideways aim instead of a pure vertical flip.
+  function predictedCpuEvent(seed) {
+    if (currentMatchOptions.eventsDisabled) return null;
+    if (currentMatchOptions.lab && currentMatchOptions.labEventId) {
+      return String(currentMatchOptions.labEventId);
+    }
+    if (currentMatchOptions.arenaProfile?.physicsProfileId) {
+      return String(currentMatchOptions.arenaProfile.physicsProfileId);
+    }
+    const excludedEventIds = Array.isArray(currentMatchOptions.excludedEventIds)
+      ? currentMatchOptions.excludedEventIds.map((id) => String(id)) : [];
+    if (game.insanity && Physics.insanityEventForSeed) {
+      return Physics.insanityEventForSeed(seed, excludedEventIds);
+    }
+    if (!Physics.rareEventForSeed) return null;
+    const eventMultiplier = isMrHoweName(game.currentPlayer()?.name) ? 10 : 1;
+    return Physics.rareEventForSeed(seed, false, eventMultiplier, excludedEventIds);
+  }
+
+  // CPU intent is selected before release from the same deterministic seed
+  // that places Alien's tractor ring and later drives applyFlick. This keeps
+  // native Alien and a preselected Alien Invasion on the identical physical
+  // bank-and-ring challenge, without peeking at (or forcing) a verdict.
   function aiFlick() {
     if (game.state !== GAME_STATES.TURN_START && game.state !== GAME_STATES.ON_FIRE) return;
-    const sigma = { easy: 1000, medium: 400, hard: 220 }[game.difficulty] || 400;
-    const u1 = Math.random() || 1e-6, u2 = Math.random();
-    const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    const skin = game.currentPlayer()?.skin || BASE_SKIN;
-    const bank = window.Skins && Skins.physicsFor && Skins.physicsFor(skin);
-    if (bank && bank.floorResolve) {
-      const side = Math.random() < 0.5 ? -1 : 1;
-      const vx = side * (1100 + Math.abs(gauss) * sigma * 0.9 + Math.random() * 500);
-      const up = Math.max(900, 1700 + gauss * sigma * 0.55);
-      onFlick(vx, -up);
-      return;
+    const cpu = window.FlipgameV112Cpu;
+    if (!cpu || typeof cpu.createLaunch !== 'function') {
+      throw new Error('FlipgameV112Cpu must load before a CPU turn');
     }
-    // Aim at the measured sweet spot. This drifted out of date when POWER_SPEED
-    // was retuned: at the stale 2100 the CPU sat on the slope, so hard (63%)
-    // was barely better than medium (60%). At 2500 the tiers separate properly
-    // — easy 45% / medium 74% / hard 85%.
-    const up = Math.max(500, 2500 + gauss * sigma);   // sweet spot ~2500 px/s
-    const vx = (Math.random() - 0.5) * 420;           // slight lean
-    onFlick(vx, -up);
+    const seed = turnArenaSeed();
+    const skin = game.currentPlayer()?.skin || BASE_SKIN;
+    const profile = (window.Skins && Skins.physicsFor && Skins.physicsFor(skin)) || {};
+    const eventId = predictedCpuEvent(seed);
+    const alien = !!profile.floorResolve || eventId === 'alien-invasion';
+    const target = alien && Physics.alienTargetForSeed
+      ? Physics.alienTargetForSeed(seed) : null;
+    const view = Physics.getViewHint ? Physics.getViewHint() : null;
+    const intent = cpu.createLaunch({
+      seed,
+      difficulty: game.difficulty,
+      physicsModeId: alien ? 'alien' : 'normal',
+      target,
+      arena: {
+        worldW: target?.worldW || view?.worldW || window.innerWidth,
+        viewW: target?.viewW || window.innerWidth,
+        viewH: target?.viewH || window.innerHeight,
+      },
+    });
+    onFlick(intent.vx, intent.vy, {
+      seed: intent.seed,
+      inputFeelMode: intent.inputFeelMode,
+      source: 'cpu',
+    });
+  }
+
+  function cpuLaunchPolicy(value) {
+    if (!value || typeof value !== 'object' || value.source !== 'cpu') return null;
+    return {
+      seed: Number(value.seed) >>> 0,
+      // Keep difficulty independent from the human accessibility/input choice.
+      inputFeelMode: 'standard',
+    };
   }
 
   // Deterministic turn seed shared by all online peers (same turnCounter + seat).
@@ -3128,7 +3166,7 @@
   });
 
   // ── Flick ──────────────────────────────────────────────────────────────────
-  function launchFlick(vx, vy, seed, asAuthority, mirrorClaim = null) {
+  function launchFlick(vx, vy, seed, asAuthority, mirrorClaim = null, launchPolicy = null) {
     if (evaluating) return;
     if (game.state !== GAME_STATES.TURN_START &&
         game.state !== GAME_STATES.ON_FIRE) return;
@@ -3190,7 +3228,10 @@
     Physics.applyFlick(vx, vy, seed, eventMultiplier,
       mirrorEventsDisabled ? 'disabled' : (currentMatchOptions.eventsDisabled ? 'disabled' : (!onlineMode && game.insanity ? 'insanity' : 'normal')),
       mirrorClaim ? false : !!game.currentPlayer()?.alwaysMagnet,
-      { excludedEventIds: mirrorPolicy?.eventPolicy?.excludedEventIds || currentMatchOptions.excludedEventIds || [] });
+      {
+        excludedEventIds: mirrorPolicy?.eventPolicy?.excludedEventIds || currentMatchOptions.excludedEventIds || [],
+        inputFeelMode: launchPolicy?.inputFeelMode,
+      });
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     if (activeLaunchInput) activeLaunchInput.seed = fi?.seed ?? activeLaunchInput.seed;
     rareEventActive = (fi && fi.rareEvent) || null;
@@ -3330,7 +3371,8 @@
     return { upSpeed: Math.max(0, -signal.vy), vx: signal.vx, vy: signal.vy };
   }
 
-  function onFlick(vx, vy) {
+  function onFlick(vx, vy, source = null) {
+    const cpuPolicy = cpuLaunchPolicy(source);
     // Online: only the current player may flick, and only on their device.
     if (onlineMode && window.Net) {
       const cur = game.currentPlayer();
@@ -3340,7 +3382,7 @@
       vy = copied.vy;
       const seed = copied.claim ? copied.seed : Math.floor(Math.random() * 0xffffffff) >>> 0;
       if (!Net.sendFlick({ vx, vy, seed, playerId: Net.selfId })) return;
-      launchFlick(vx, vy, seed, true, copied.claim);
+      launchFlick(vx, vy, seed, true, copied.claim, cpuPolicy);
       return;
     }
     const copied = mirrorLaunch(claimMirrorCopy(), vx, vy, undefined);
@@ -3348,7 +3390,8 @@
     vy = copied.vy;
     const labSeed = currentMatchOptions.lab && currentMatchOptions.labSeed != null
       ? Number(currentMatchOptions.labSeed) >>> 0 : undefined;
-    launchFlick(vx, vy, copied.claim ? copied.seed : labSeed, false, copied.claim);
+    const launchSeed = copied.claim ? copied.seed : (cpuPolicy ? cpuPolicy.seed : labSeed);
+    launchFlick(vx, vy, launchSeed, false, copied.claim, cpuPolicy);
   }
 
   // ── HUD ────────────────────────────────────────────────────────────────────

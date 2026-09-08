@@ -31,6 +31,9 @@
     'js/v111-mirror-match.js?v=111',
     'js/game.js?v=111',
     'js/physics.js?v=111',
+    // Staged v1.12 development dependency. The release integrator will fold
+    // this into the v1.12 cache identity and precache at the release gate.
+    'js/v112-cpu.js?v=' + VERSION,
     'js/input.js?v=111',
     'js/renderer.js?v=111',
     'js/audio.js?v=111',
