@@ -196,6 +196,7 @@
     var pendingPowers = new Map();
     var adapterResources = new WeakSet();
     var gateSequence = 0;
+    var assignmentEpoch = 0;
     var wallElapsedMs = 0;
     var hornExpired = false;
     var heatStartedAt = null;
@@ -258,7 +259,7 @@
       lanes.push({ id: rect.laneId, index: index, resources: resources, adapter: adapter,
         playerId: null, control: Activity.createLaneRuntime({ laneId: rect.laneId, state: 'disabled' }),
         prepared: null, inflight: null, lockedPowers: [], lastResult: null,
-        attemptSequence: 0 });
+        aimAssignmentEpoch: null, attemptSequence: 0 });
     });
 
     function player(playerId) {
@@ -325,6 +326,7 @@
       lane.prepared = null;
       lane.inflight = null;
       lane.lockedPowers = [];
+      lane.aimAssignmentEpoch = null;
       try {
         if (lane.adapter.reset) lane.adapter.reset(freeze({ laneId: lane.id, playerId: lane.playerId }));
       } catch (error) { reportError(error, { phase: 'adapter-reset', laneId: lane.id }); }
@@ -380,6 +382,7 @@
           (hornExpired && !battleState.suddenDeath)) return false;
       if (!lane.playerId || isCpu(lane.playerId) || lane.control.snapshot().state !== 'ready') return false;
       if (!lane.control.claimPointer(payload.pointerId)) return false;
+      lane.aimAssignmentEpoch = assignmentEpoch;
       lane.lockedPowers = takePowers(lane.playerId);
       try {
         if (lane.adapter.beginAim) lane.adapter.beginAim(freeze({ laneId: lane.id,
@@ -390,6 +393,7 @@
         if (lane.control.snapshot().state === 'aiming') lane.control.transition('ready');
         restorePowers(lane.playerId, lane.lockedPowers);
         lane.lockedPowers = [];
+        lane.aimAssignmentEpoch = null;
         reportError(error, { phase: 'adapter-beginAim', laneId: lane.id });
         return false;
       }
@@ -408,6 +412,7 @@
       if (lane.control.snapshot().state === 'aiming') lane.control.transition('ready');
       restorePowers(lane.playerId, lane.lockedPowers);
       lane.lockedPowers = [];
+      lane.aimAssignmentEpoch = null;
       try {
         if (lane.adapter.cancelAim) lane.adapter.cancelAim(freeze({ laneId: lane.id,
           playerId: lane.playerId, reason: reason || 'cancelled' }));
@@ -440,6 +445,7 @@
       lane.prepared = { attemptId: attemptId, playerId: lane.playerId,
         gesture: immutableGesture(gesture, qualified, lane), gateId: null };
       lane.lockedPowers = [];
+      lane.aimAssignmentEpoch = null;
       if (phaseIsVolley()) tryOpenVolleyGate();
       else launchPrepared([lane], null);
     }
@@ -504,27 +510,47 @@
         extendHornDeadline(wallDelta);
         return 0;
       }
-      var remaining = Math.max(0, config.rushDurationMs - battleState.elapsedMs);
-      var handoff = oneLane ? timeToRushHandoff() : Number.POSITIVE_INFINITY;
-      var reachesIntermediateHandoff = oneLane && handoff < remaining - 1e-7 &&
-        wallDelta > handoff + 1e-7;
-      var advance = Math.min(wallDelta, remaining, handoff);
-      var reachesHorn = advance >= remaining - 1e-7;
-      if (reachesHorn && (activeGestureCount() > 0 || preserveAimAtHorn === true)) {
-        advance = Math.max(0, remaining - 0.001);
-      }
-      var before = battleState.elapsedMs;
-      if (advance > 0) battleState = Battle.advanceClock(battleState, advance);
-      var advanced = Math.max(0, battleState.elapsedMs - before);
-      if (reachesIntermediateHandoff && !battleState.clockExpired) {
-        // Never consume more than the first handoff in a batched timer tick.
-        // Dropped catch-up time is converted into an equal deadline extension.
-        extendHornDeadline(Math.max(0, wallDelta - advanced));
+      var wallRemaining = wallDelta;
+      var totalAdvanced = 0;
+      while (wallRemaining > 1e-7 && battleState.phase === 'active' &&
+          !battleState.suddenDeath && !battleState.clockExpired) {
+        var remaining = Math.max(0, config.rushDurationMs - battleState.elapsedMs);
+        var handoff = timeToRushHandoff();
+        var intermediateHandoff = handoff < remaining - 1e-7;
+        var advance = Math.min(wallRemaining, remaining, handoff);
+        var reachesHorn = advance >= remaining - 1e-7;
+        if (reachesHorn && (activeGestureCount() > 0 || preserveAimAtHorn === true)) {
+          advance = Math.max(0, remaining - 0.001);
+        }
+        var before = battleState.elapsedMs;
+        if (advance > 0) battleState = Battle.advanceClock(battleState, advance);
+        var advanced = Math.max(0, battleState.elapsedMs - before);
+        totalAdvanced += advanced;
+        wallRemaining = Math.max(0, wallRemaining - advanced);
+        var crossedHandoff = intermediateHandoff && advanced >= handoff - 1e-7;
+        if (crossedHandoff) {
+          // Ownership is lost at the boundary itself. Cancel against that
+          // intermediate state rather than comparing only the final owner,
+          // which may cycle back after a delayed multi-boundary timer tick.
+          assignmentEpoch += 1;
+          cancelAimsAtAssignmentBoundary();
+          configureAssignments();
+          if (oneLane) {
+            // A one-lane relay must expose the incoming side for a real frame;
+            // discard catch-up time beyond this first handoff.
+            extendHornDeadline(wallRemaining);
+            wallRemaining = 0;
+          }
+          continue;
+        }
+        // A partial opportunity, the horn hold epsilon, or completed heat has
+        // no further assignment boundary to process in this observation.
+        break;
       }
       hornExpired = heatDeadlineAt != null && clockCursorAt >= heatDeadlineAt - 1e-7;
       cancelRotatedAims();
       configureAssignments();
-      return advanced;
+      return totalAdvanced;
     }
 
     function advanceBattleToHorn(deferForGestures) {
@@ -553,7 +579,8 @@
       if (timedRush) {
         reconcileRushClock(0, endedAt, true);
         lane = findLane(gesture.laneId);
-        if (!lane || battleState.activePlayerIds.indexOf(lane.playerId) < 0) {
+        if (!lane || lane.aimAssignmentEpoch !== assignmentEpoch ||
+            battleState.activePlayerIds.indexOf(lane.playerId) < 0) {
           if (lane) cancelAim(lane, gesture, 'rotation');
           return;
         }
@@ -654,8 +681,21 @@
             phase: 'adapter-launch' });
           return;
         }
-        if (returned && typeof returned.then === 'function') {
-          returned.then(function (outcome) {
+        var thenMethod = null;
+        try { thenMethod = returned && returned.then; }
+        catch (error) {
+          immediate.push({ laneId: lane.id, attemptId: prepared.attemptId, error: error,
+            phase: 'adapter-launch-promise' });
+          return;
+        }
+        if (typeof thenMethod === 'function') {
+          // Assimilate through a native Promise. The wrapper has a safe `then`
+          // property, while invocation of an adversarial captured method runs
+          // inside Promise resolution and becomes a rejection rather than an
+          // exception escaping after the lane was marked airborne.
+          Promise.resolve({ then: function (resolve, reject) {
+            return thenMethod.call(returned, resolve, reject);
+          } }).then(function (outcome) {
             if (destroyed || !lane.inflight ||
                 lane.inflight.attemptId !== prepared.attemptId) return;
             if (!outcome) return;
@@ -957,6 +997,7 @@
     function startHeat() {
       if (destroyed) throw new Error('Battle runtime is destroyed');
       battleState = Battle.startHeat(battleState);
+      assignmentEpoch += 1;
       wallElapsedMs = 0;
       hornExpired = false;
       heatStartedAt = finite(inputNow(), 0);
@@ -980,6 +1021,12 @@
       });
       pointerIds.forEach(function (pointerId) {
         pointerRouter.cancelPointer(pointerId, 'rotation');
+      });
+    }
+
+    function cancelAimsAtAssignmentBoundary() {
+      pointerRouter.snapshot().activeGestures.slice().forEach(function (gesture) {
+        pointerRouter.cancelPointer(gesture.pointerId, 'rotation');
       });
     }
 

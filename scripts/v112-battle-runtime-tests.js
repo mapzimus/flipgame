@@ -967,6 +967,87 @@ function testModifierConflictRejectsAtomically() {
     'conflicting deployment is atomic and cannot partially mutate recipients');
 }
 
+function testEveryRushBoundaryInvalidatesHeldAim() {
+  function heldAcross(options, jump, label) {
+    const { runtime, rects } = createRuntime(options);
+    const rect = rects[0];
+    const x = rect.left + rect.width / 2;
+    assert.equal(runtime.handlePointerDown(pointer(1500, x, 420, 0)), true, label);
+    runtime.tick(jump);
+    assert.equal(runtime.handlePointerUp(pointer(1500, x, 220, jump)), false,
+      `${label}: pointerup cannot launch after an assignment boundary`);
+    assert.notEqual(runtime.snapshot().lanes[0].state, 'aiming', label);
+  }
+
+  heldAcross({ paceId: 'rush', width: 600, contacts: 1 }, 15000,
+    'one-lane multi-boundary relay');
+  heldAcross({ formatId: 'doubles', paceId: 'rush', count: 4, teams: true,
+    width: 900, contacts: 2 }, 30000,
+  'two-lane full-cycle tick');
+  heldAcross({ formatId: 'four-way', paceId: 'rush', count: 4,
+    width: 1600, contacts: 4 }, 15000,
+  'four-lane exact boundary with same final lineup');
+
+  for (let teamSize = 3; teamSize <= 8; teamSize += 1) {
+    for (const profile of [{ width: 900, contacts: 2 }, { width: 1600, contacts: 4 }]) {
+      heldAcross({ formatId: 'team', paceId: 'rush', count: teamSize * 2, teams: true,
+        width: profile.width, contacts: profile.contacts }, 45000,
+      `${teamSize}v${teamSize} ${profile.contacts}-touch delayed tick`);
+    }
+  }
+
+  const harness = adapterHarness();
+  const powered = createRuntime({ formatId: 'doubles', paceId: 'rush', count: 4,
+    teams: true, width: 900, contacts: 2, seed: 1, harness });
+  let pointerId = 1600;
+  for (let charge = 0; charge < 3; charge += 1) {
+    successfulGesture(powered.runtime, 0, pointerId++, charge * 100, powered.rects);
+    const launch = harness.launches.at(-1);
+    powered.runtime.resolveAttempt(launch.laneId, launch.attemptId, { pose: 'miss' });
+  }
+  const offer = powered.runtime.snapshot().battle.powerOffers.a;
+  const selfIndex = offer.findIndex((card) => card.scope === 'self');
+  assert(selfIndex >= 0);
+  powered.runtime.choosePower({ playerId: 'p1', index: selfIndex });
+  powered.runtime.deployPower('p1');
+  assert.equal(powered.runtime.snapshot().pendingPowers.p1.length, 1);
+  assert.equal(powered.runtime.handlePointerDown(pointer(pointerId, 225, 420, 1000)), true);
+  assert.equal(powered.runtime.snapshot().pendingPowers.p1.length, 0);
+  powered.runtime.tick(30000);
+  assert.equal(powered.runtime.handlePointerUp(pointer(pointerId, 225, 220, 31000)), false);
+  assert.equal(powered.runtime.snapshot().pendingPowers.p1.length, 1,
+    'a full-cycle delayed tick restores the cancelled aim power exactly once');
+  powered.runtime.tick(1000);
+  assert.equal(powered.runtime.snapshot().pendingPowers.p1.length, 1);
+}
+
+async function testHostileThenableRecovery() {
+  const cases = [
+    { name: 'throwing then getter', value() {
+      return Object.defineProperty({}, 'then', { get() { throw new Error('then getter failed'); } });
+    } },
+    { name: 'throwing then method', value() {
+      return { then() { throw new Error('then method failed'); } };
+    } },
+  ];
+  for (const hostile of cases) {
+    const harness = { launches: [], factory(context) { return {
+      resources: context.resources,
+      launch(value) { harness.launches.push(value); return hostile.value(); },
+      reset() {},
+    }; } };
+    const { runtime, rects } = createRuntime({ paceId: 'rush', harness });
+    successfulGesture(runtime, 0, 1700, 0, rects);
+    await new Promise((resolve) => setImmediate(resolve));
+    const snapshot = runtime.snapshot();
+    assert.equal(snapshot.lanes[0].state, 'ready',
+      `${hostile.name} cannot strand an airborne lane`);
+    assert.equal(snapshot.battle.resolvedAttemptIds.length, 1);
+    assert(snapshot.errors.some((entry) => entry.phase === 'adapter-launch-promise'),
+      `${hostile.name} is surfaced through the recovered error ledger`);
+  }
+}
+
 async function testFailureRecoveryAndStaleAsyncIsolation() {
   const callbackErrors = [];
   const syncHarness = { launches: [], factory(context) {
@@ -1075,6 +1156,8 @@ async function run() {
   testOneLaneRushOpportunityClockAndBatchedHandoff();
   testOneLaneVolleyDefersOfferAndDeployment();
   testModifierConflictRejectsAtomically();
+  testEveryRushBoundaryInvalidatesHeldAim();
+  await testHostileThenableRecovery();
   await testFailureRecoveryAndStaleAsyncIsolation();
   console.log('v1.12 Battle simultaneous-lane runtime tests passed.');
 }
