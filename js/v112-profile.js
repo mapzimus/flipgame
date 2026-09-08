@@ -1,6 +1,11 @@
 // v112-profile.js -- canonical transactional local profile and v1.11 migration.
 (function (root, factory) {
   'use strict';
+  if (root && root.FlipgameV112Profile &&
+      root.FlipgameV112Profile.schema === 'ProgressionStateV4') {
+    if (typeof module === 'object' && module.exports) module.exports = root.FlipgameV112Profile;
+    return;
+  }
   var Catalog = root && root.FlipgameV112ProgressionCatalog;
   var Economy = root && root.FlipgameV112Economy;
   var LegacyProgression = root && root.FlipgameV111Progression;
@@ -72,6 +77,12 @@
       throw new TypeError((label || 'id') + ' must be a non-empty safe identifier');
     }
     return id;
+  }
+  function exactId(value, label) {
+    if (typeof value !== 'string' || value !== value.trim()) {
+      throw new TypeError((label || 'id') + ' must be an exact string identifier');
+    }
+    return validId(value, label);
   }
   function storyActId(value) {
     var id = String(value == null ? '' : value);
@@ -301,10 +312,10 @@
           kind: opts.migration ? 'migration' : 'earn', sourceType: 'level', sourceId: 'level:' + level,
           signedAmount: reward.amount, timestamp: opts.now,
         });
+        granted.push(reward.id);
       }
     });
     draft.flipLevel = Economy.flipLevelForFxp(draft.fxp);
-    granted = granted.concat(grantAlienGate(draft, opts.reveal));
     if (opts.reveal) granted.forEach(function (id) { addUnique(draft.pendingRevealIds, id); });
     return granted;
   }
@@ -363,22 +374,107 @@
     return ProgressionStateV4(draft);
   }
 
+  function validateImportedState(value) {
+    var source = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    if (!source || source.schema !== 'ProgressionStateV4' || source.version !== 4 ||
+        source.ownerTestMode === true || source.testData === true) {
+      throw new TypeError('Imported profile must use ProgressionStateV4');
+    }
+    ['revision', 'fxp', 'fcBalance'].forEach(function (key) {
+      if (!Number.isSafeInteger(source[key]) || source[key] < 0) {
+        throw new TypeError('Imported profile has an invalid ' + key);
+      }
+    });
+    var arrays = [
+      'ownedObjectIds', 'ownedArenaIds', 'ownedCosmeticIds', 'featureIds',
+      'achievementIds', 'defeatedRivalIds', 'completedActIds', 'fieldNoteIds',
+      'claimedRewardIds', 'processedClaimIds', 'pendingRevealIds',
+    ];
+    arrays.forEach(function (key) {
+      if (!Array.isArray(source[key]) || source[key].length > 25000) {
+        throw new TypeError('Imported profile has an invalid ' + key);
+      }
+      var seen = new Set();
+      source[key].forEach(function (id) {
+        var valid = exactId(id, 'Imported ' + key + ' entry');
+        if (seen.has(valid)) throw new TypeError('Imported profile has duplicate ' + key + ' entries');
+        seen.add(valid);
+      });
+    });
+    if (!Array.isArray(source.fcTransactions) || source.fcTransactions.length > 100000) {
+      throw new TypeError('Imported profile has an invalid FC ledger');
+    }
+    var txIds = new Set();
+    var keys = new Set();
+    var balance = 0;
+    source.fcTransactions.forEach(function (entry) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
+          entry.schema !== 'FcTransactionV1' || entry.version !== 1 ||
+          !Number.isSafeInteger(entry.timestamp) || entry.timestamp < 0) {
+        throw new TypeError('Imported profile contains an invalid FC transaction');
+      }
+      exactId(entry.txId, 'Imported FC transaction ID');
+      exactId(entry.idempotencyKey, 'Imported FC idempotency key');
+      exactId(entry.sourceId, 'Imported FC source ID');
+      var tx = FcTransactionV1(entry);
+      if (txIds.has(tx.txId) || keys.has(tx.idempotencyKey)) {
+        throw new TypeError('Imported profile contains a duplicate FC transaction');
+      }
+      txIds.add(tx.txId); keys.add(tx.idempotencyKey);
+      balance += tx.signedAmount;
+      if (balance < 0 || tx.balanceAfter !== balance) {
+        throw new TypeError('Imported profile FC ledger is inconsistent');
+      }
+    });
+    if (balance !== source.fcBalance) {
+      throw new TypeError('Imported profile FC balance does not match its ledger');
+    }
+    if (source.flipLevel != null && source.flipLevel !== Economy.flipLevelForFxp(source.fxp)) {
+      throw new TypeError('Imported profile Flip Level does not match FXP');
+    }
+    return ProgressionStateV4(source);
+  }
+
   function createStore(options) {
     var opts = options || {};
     var storage = opts.storage || null;
     var now = typeof opts.now === 'function' ? opts.now : function () { return Date.now(); };
     var listeners = new Set();
     var persisted = readStorage(storage, KEY, null);
-    var state = persisted && persisted.schema === 'ProgressionStateV4' && Number(persisted.version) === 4
-      ? ProgressionStateV4(persisted) : migrateV111(Object.assign({}, opts.legacy || {}, { storage: storage }));
+    if (persisted && persisted.schema === 'ProgressionStateV4' && persisted.version !== 4) {
+      throw new RangeError('Unsupported persisted ProgressionStateV4 version');
+    }
+    var loadedV4 = !!(persisted && persisted.schema === 'ProgressionStateV4' && persisted.version === 4);
+    var state = loadedV4 ? ProgressionStateV4(persisted)
+      : migrateV111(Object.assign({}, opts.legacy || {}, { storage: storage }));
     var persistenceError = null;
 
     function persist(candidate) {
       if (!storage || typeof storage.setItem !== 'function') return true;
-      try { storage.setItem(KEY, JSON.stringify(candidate)); persistenceError = null; return true; }
-      catch (error) { persistenceError = error; return false; }
+      var previous = null;
+      var wrote = false;
+      try {
+        previous = typeof storage.getItem === 'function' ? storage.getItem(KEY) : null;
+        var encoded = JSON.stringify(candidate);
+        storage.setItem(KEY, encoded);
+        wrote = true;
+        if (typeof storage.getItem === 'function' && storage.getItem(KEY) !== encoded) {
+          throw new Error('Profile persistence verification failed');
+        }
+        persistenceError = null;
+        return true;
+      } catch (error) {
+        if (wrote) {
+          try {
+            if (previous == null && typeof storage.removeItem === 'function') storage.removeItem(KEY);
+            else storage.setItem(KEY, previous);
+          } catch (_) {}
+        }
+        persistenceError = error;
+        return false;
+      }
     }
-    if (!persisted) persist(state);
+    if (!loadedV4 || JSON.stringify(persisted) !== JSON.stringify(state)) persist(state);
 
     function snapshot() { return ProgressionStateV4(state); }
     function notify(result) {
@@ -392,7 +488,7 @@
     }
     function refresh() {
       var external = readStorage(storage, KEY, null);
-      if (external && external.schema === 'ProgressionStateV4' && Number(external.version) === 4 &&
+      if (external && external.schema === 'ProgressionStateV4' && external.version === 4 &&
           finiteInteger(external.revision) > state.revision) state = ProgressionStateV4(external);
       return snapshot();
     }
@@ -403,7 +499,7 @@
       var draft = clone(state);
       var details = updater(draft) || {};
       addUnique(draft.processedClaimIds, id);
-      draft.revision = state.revision + 1;
+      draft.revision = Math.max(state.revision + 1, finiteInteger(draft.revision) + 1);
       draft.flipLevel = Economy.flipLevelForFxp(draft.fxp);
       var next = ProgressionStateV4(draft);
       if (!persist(next)) return result(false, null, { duplicate: false, reason: 'persistence-failed' });
@@ -451,14 +547,17 @@
         uniqueStrings(source.fieldNoteIds).forEach(function (id) { addUnique(draft.fieldNoteIds, id); });
         granted = granted.concat(grantLevelsCrossed(draft, beforeLevel, { reveal: source.reveal !== false, now: now() }));
         granted = granted.concat(grantAlienGate(draft, source.reveal !== false));
-        if (source.reveal !== false) granted.forEach(function (id) { addUnique(draft.pendingRevealIds, id); });
+        var feedback = uniqueStrings(source.feedbackIds);
+        if (source.reveal !== false) granted.concat(feedback).forEach(function (id) {
+          addUnique(draft.pendingRevealIds, id);
+        });
         return { fxpAwarded: fxp, fcAwarded: draft.fcBalance - beforeBalance,
           baseFcAwarded: fc, levelsCrossed: Math.max(0, draft.flipLevel - beforeLevel),
-          granted: uniqueStrings(granted) };
+          granted: uniqueStrings(granted), feedback: feedback };
       });
     }
     function claimMatch(matchId, rewardInput) {
-      var id = validId(matchId, 'matchId');
+      var id = exactId(matchId, 'matchId');
       var reward = Economy.calculateMatchReward(rewardInput || {});
       if (!reward.eligible) return result(false, null, { duplicate: false, reason: reward.reason, reward: reward });
       var claimed = claimBundle({ claimId: 'match:' + id, sourceType: 'match', sourceId: id,
@@ -470,7 +569,7 @@
       var reward = Economy.achievementReward(rarity);
       return claimBundle({ claimId: 'achievement:' + achievementId, sourceType: 'achievement',
         sourceId: achievementId, fxp: reward.fxp, fc: reward.fc,
-        achievementIds: [achievementId], reveal: false });
+        achievementIds: [achievementId], feedbackIds: ['achievement.' + achievementId], reveal: true });
     }
     function claimRivalVictory(idOrObjectId, immutableClaimId) {
       refresh();
@@ -547,7 +646,7 @@
     }
     function claimStoryMatchResolution(input) {
       var source = input && typeof input === 'object' ? input : {};
-      var matchId = validId(source.matchId, 'Story matchId');
+      var matchId = exactId(source.matchId, 'Story matchId');
       var componentRewards = (Array.isArray(source.rewards) ? source.rewards : [])
         .map(normalizeStoryReward);
       var componentIds = new Set();
@@ -641,7 +740,103 @@
       if (state.fcBalance < cosmetic.price) return result(false, null, { duplicate: false, reason: 'insufficient-fc' });
       return claimBundle({ claimId: 'cosmetic-purchase:' + cosmetic.id,
         sourceType: 'cosmetic-purchase', sourceId: cosmetic.id,
-        fc: -cosmetic.price, cosmeticIds: [cosmetic.id], reveal: false });
+        fc: -cosmetic.price, cosmeticIds: [cosmetic.id],
+        feedbackIds: ['store.' + cosmetic.id], reveal: true });
+    }
+    function mergeImportedState(importedState, immutableImportId) {
+      var incoming = validateImportedState(importedState);
+      var importId = exactId(immutableImportId, 'importId');
+      var outerClaimId = 'profile-import:' + importId;
+      return commit(outerClaimId, function (draft) {
+        var beforeLevel = draft.flipLevel;
+        var beforeBalance = draft.fcBalance;
+        function sameTransaction(a, b) {
+          var compatibleKind = a.kind === b.kind ||
+            (a.kind !== 'spend' && b.kind !== 'spend');
+          return a.txId === b.txId && a.idempotencyKey === b.idempotencyKey &&
+            compatibleKind && a.sourceType === b.sourceType &&
+            a.sourceId === b.sourceId && a.signedAmount === b.signedAmount;
+        }
+        draft.fxp = Math.max(draft.fxp, incoming.fxp);
+        draft.flipLevel = Economy.flipLevelForFxp(draft.fxp);
+        // Reconcile the canonical level ladder from FXP before accepting claim
+        // evidence from the imported file.  A partial or old V4 snapshot can
+        // therefore add ownership but can never suppress an earned level grant.
+        var granted = grantLevelsCrossed(draft, beforeLevel, { reveal: false, now: now() });
+
+        var importedTransactions = [];
+        var txById = new Map();
+        var txByKey = new Map();
+        draft.fcTransactions.forEach(function (tx) {
+          txById.set(tx.txId, tx); txByKey.set(tx.idempotencyKey, tx);
+        });
+        incoming.fcTransactions.forEach(function (tx) {
+          var idMatch = txById.get(tx.txId);
+          var keyMatch = txByKey.get(tx.idempotencyKey);
+          if (idMatch || keyMatch) {
+            if (!idMatch || !keyMatch || idMatch !== keyMatch || !sameTransaction(idMatch, tx)) {
+              throw new TypeError('Imported profile conflicts with the local FC ledger');
+            }
+            return;
+          }
+          importedTransactions.push(tx);
+          txById.set(tx.txId, tx); txByKey.set(tx.idempotencyKey, tx);
+        });
+
+        var prefix = 0;
+        var minimumPrefix = 0;
+        importedTransactions.forEach(function (tx) {
+          prefix += tx.signedAmount;
+          minimumPrefix = Math.min(minimumPrefix, prefix);
+        });
+        var targetFloor = Math.max(beforeBalance, incoming.fcBalance);
+        var floorAmount = Math.max(0, targetFloor - (draft.fcBalance + prefix),
+          -(draft.fcBalance + minimumPrefix));
+        if (floorAmount) appendFc(draft, {
+          txId: outerClaimId + ':balance-floor',
+          idempotencyKey: outerClaimId + ':balance-floor',
+          kind: 'migration', sourceType: 'migration', sourceId: importId,
+          signedAmount: floorAmount, timestamp: now(),
+        });
+        importedTransactions.forEach(function (tx) {
+          appendFc(draft, {
+            txId: tx.txId, idempotencyKey: tx.idempotencyKey,
+            kind: tx.kind, sourceType: tx.sourceType, sourceId: tx.sourceId,
+            signedAmount: tx.signedAmount, timestamp: tx.timestamp,
+          });
+        });
+
+        [
+          ['ownedObjectIds', Catalog.canonicalObjectId],
+          ['ownedArenaIds', Catalog.canonicalArenaId],
+          ['ownedCosmeticIds', null], ['featureIds', null],
+          ['achievementIds', null], ['defeatedRivalIds', null],
+          ['completedActIds', null], ['fieldNoteIds', null],
+          ['claimedRewardIds', null], ['processedClaimIds', null],
+          ['pendingRevealIds', null],
+        ].forEach(function (definition) {
+          uniqueStrings(incoming[definition[0]], definition[1]).forEach(function (id) {
+            addUnique(draft[definition[0]], id);
+          });
+        });
+        draft.legacy = {
+          reconciledV111: !!(draft.legacy.reconciledV111 || incoming.legacy.reconciledV111),
+          qualifyingWins: Math.max(finiteInteger(draft.legacy.qualifyingWins),
+            finiteInteger(incoming.legacy.qualifyingWins)),
+          sourceRelease: draft.legacy.sourceRelease || incoming.legacy.sourceRelease,
+          grandfatheredAlien: !!(draft.legacy.grandfatheredAlien || incoming.legacy.grandfatheredAlien),
+          grandfatheredInsane: !!(draft.legacy.grandfatheredInsane || incoming.legacy.grandfatheredInsane),
+        };
+        draft.revision = Math.max(draft.revision, incoming.revision);
+        granted = granted.concat(grantAlienGate(draft, false));
+        return {
+          imported: true,
+          importedRevision: incoming.revision,
+          fxpAdded: draft.fxp - state.fxp,
+          fcAdded: draft.fcBalance - beforeBalance,
+          granted: uniqueStrings(granted),
+        };
+      });
     }
     function dismissReveals(ids) {
       refresh();
@@ -666,7 +861,8 @@
       claimBundle: claimBundle, claimMatch: claimMatch, claimAchievement: claimAchievement,
       claimRivalVictory: claimRivalVictory, claimStoryAct: claimStoryAct,
       claimStoryReward: claimStoryReward, claimStoryMatchResolution: claimStoryMatchResolution,
-      purchaseCosmetic: purchaseCosmetic, dismissReveals: dismissReveals,
+      purchaseCosmetic: purchaseCosmetic, mergeImportedState: mergeImportedState,
+      dismissReveals: dismissReveals,
       lastPersistenceError: lastPersistenceError,
     });
   }
@@ -678,6 +874,7 @@
   return freeze({
     schema: 'ProgressionStateV4', version: 4, storageKey: KEY, legacyKeys: clone(LEGACY_KEYS),
     ProgressionStateV4: ProgressionStateV4, FcTransactionV1: FcTransactionV1,
+    validateImportedState: validateImportedState,
     migrateV111: migrateV111, migrateSetupSelection: migrateSetupSelection,
     storyActIds: STORY_ACT_IDS.slice(), alienGateSatisfied: alienGateSatisfied,
     isAlienUsable: isAlienUsable, isInsaneUsable: isInsaneUsable,
@@ -688,7 +885,10 @@
     claimRivalVictory: defaultStore.claimRivalVictory, claimStoryAct: defaultStore.claimStoryAct,
     claimStoryReward: defaultStore.claimStoryReward,
     claimStoryMatchResolution: defaultStore.claimStoryMatchResolution,
-    purchaseCosmetic: defaultStore.purchaseCosmetic, dismissReveals: defaultStore.dismissReveals,
+    purchaseCosmetic: defaultStore.purchaseCosmetic,
+    mergeImportedState: defaultStore.mergeImportedState,
+    dismissReveals: defaultStore.dismissReveals,
     lastPersistenceError: defaultStore.lastPersistenceError,
+    defaultStore: defaultStore,
   });
 });

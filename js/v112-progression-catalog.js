@@ -22,6 +22,24 @@
     return { level: level, id: id, displayName: displayName };
   }
 
+  // Variant identity is deliberately independent from a color value.  Art may
+  // supply an object-specific authored label/cast for any of these stable IDs,
+  // while saves and progression only persist the canonical identity.
+  var VARIANT_FLAVORS = freeze([
+    { id: 'blue-steel', displayName: 'Blue Steel', color: '#1f9bff' },
+    { id: 'sucker-punch', displayName: 'Sucker Punch', color: '#e3263c' },
+    { id: 'lime-light', displayName: 'Lime Light', color: '#8ed11a' },
+    { id: 'orange-crush', displayName: 'Orange Crush', color: '#ff7a00' },
+    { id: 'grape-expectations', displayName: 'Grape Expectations', color: '#8a3ffc' },
+    { id: 'ice-ice-baby', displayName: 'Ice Ice Baby', color: '#5fcfe6' },
+    { id: 'apple-solutely', displayName: 'Apple-solutely', color: '#3fae1a' },
+    { id: 'berry-nice', displayName: 'Berry Nice', color: '#ff5b86' },
+    { id: 'making-waves', displayName: 'Making Waves', color: '#4f63e0' },
+    { id: 'lemon-aid', displayName: 'Lemon Aid', color: '#ffc233' },
+    { id: 'very-cherry', displayName: 'Very Cherry', color: '#c8203a' },
+    { id: 'pink-fluff', displayName: 'Pink Fluff', color: '#ff9ecf' },
+  ]);
+
   var DIRECT_OBJECTS = freeze([
     levelEntry(4, 'milk-carton', 'Milk Carton'),
     levelEntry(6, 'ketchup', 'Ketchup'),
@@ -149,10 +167,24 @@
   var RIVAL_BY_ID = Object.create(null);
   var RIVAL_BY_OBJECT = Object.create(null);
   var STORE_BY_ID = Object.create(null);
+  var OBJECT_BY_ID = Object.create(null);
+  var ARENA_BY_ID = Object.create(null);
   DIRECT_OBJECTS.forEach(function (entry) { DIRECT_BY_LEVEL[entry.level] = entry; });
   ARENAS.forEach(function (entry) { ARENA_BY_LEVEL[entry.level] = entry; });
   RIVALS.forEach(function (entry) { RIVAL_BY_ID[entry.id] = entry; RIVAL_BY_OBJECT[entry.objectId] = entry; });
   STORE_COSMETICS.forEach(function (entry) { STORE_BY_ID[entry.id] = entry; });
+
+  var OBJECTS = [{ id: 'bottle', displayName: 'Bottle', source: 'starter', level: 1 }]
+    .concat(DIRECT_OBJECTS.map(function (entry) {
+      return { id: entry.id, displayName: entry.displayName, source: 'level', level: entry.level };
+    }), RIVALS.map(function (entry) {
+      return { id: entry.objectId, displayName: entry.displayName, source: 'rival',
+        level: entry.level, rivalId: entry.id };
+    }))
+    .sort(function (a, b) { return a.level - b.level || a.id.localeCompare(b.id); });
+  freeze(OBJECTS);
+  OBJECTS.forEach(function (entry) { OBJECT_BY_ID[entry.id] = entry; });
+  ARENAS.forEach(function (entry) { ARENA_BY_ID[entry.id] = entry; });
 
   function integer(value) { return Math.max(0, Math.floor(Number(value) || 0)); }
   function canonicalObjectId(id) {
@@ -170,6 +202,35 @@
     var split = value.indexOf('.');
     if (split < 0) return value;
     return canonicalObjectId(value.slice(0, split)) + value.slice(split);
+  }
+  function object(id) {
+    var entry = OBJECT_BY_ID[canonicalObjectId(id)];
+    return entry ? freeze(clone(entry)) : null;
+  }
+  function arena(id) {
+    var entry = ARENA_BY_ID[canonicalArenaId(id)];
+    if (!entry && canonicalArenaId(id) === 'baseline-table') {
+      entry = { id: 'baseline-table', displayName: 'Baseline Table', level: 1 };
+    }
+    return entry ? freeze(clone(entry)) : null;
+  }
+  function variantIdsFor(objectId) {
+    var id = canonicalObjectId(objectId);
+    if (!OBJECT_BY_ID[id]) return freeze([]);
+    return freeze(VARIANT_FLAVORS.map(function (flavor) { return id + '.' + flavor.id; }));
+  }
+  function variant(objectId, variantId) {
+    var id = canonicalObjectId(objectId);
+    if (!OBJECT_BY_ID[id]) return null;
+    var requested = String(variantId || '');
+    if (requested.indexOf('.') >= 0) {
+      requested = canonicalVariantId(requested);
+      if (requested.indexOf(id + '.') !== 0) return null;
+      requested = requested.slice(id.length + 1);
+    }
+    var flavor = VARIANT_FLAVORS.find(function (entry) { return entry.id === requested; });
+    return flavor ? freeze({ id: id + '.' + flavor.id, objectId: id,
+      variantId: flavor.id, displayName: flavor.displayName, color: flavor.color }) : null;
   }
   function rewardsAtLevel(level) {
     var n = integer(level);
@@ -222,21 +283,26 @@
     RIVALS.map(function (entry) { return entry.objectId; }));
   var uniqueObjects = new Set(objectIds);
   if (DIRECT_OBJECTS.length !== 38 || ARENAS.length !== 22 || RIVALS.length !== 12 ||
-      STORE_COSMETICS.length !== 40 || uniqueObjects.size !== 51 || fcTotal !== 3700) {
+      STORE_COSMETICS.length !== 40 || uniqueObjects.size !== 51 || OBJECTS.length !== 51 ||
+      VARIANT_FLAVORS.length !== 12 || OBJECTS.length * VARIANT_FLAVORS.length !== 612 ||
+      fcTotal !== 3700) {
     throw new Error('v1.12 progression catalog count or FC invariant failed');
   }
 
   return freeze({
     schema: 'ProgressionCatalogV1', version: 1,
     defaults: { objectId: 'bottle', arenaId: 'baseline-table', cosmeticId: null },
+    objects: clone(OBJECTS), variantFlavors: clone(VARIANT_FLAVORS),
     directObjects: clone(DIRECT_OBJECTS), arenas: clone(ARENAS), rivals: clone(RIVALS),
     storeCosmetics: clone(STORE_COSMETICS), levelFc: clone(FC_BY_LEVEL),
     counts: { objects: 51, directObjects: 38, rivalObjects: 12, arenas: 23,
       collectibleArenas: 22, storeCosmetics: 40, levelFcTotal: 3700 },
+    variantCount: 612, variantsPerObject: 12,
     objectIds: Array.from(uniqueObjects), arenaIds: ['baseline-table'].concat(ARENAS.map(function (entry) { return entry.id; })),
     objectAliases: clone(OBJECT_ALIASES),
     canonicalObjectId: canonicalObjectId, canonicalArenaId: canonicalArenaId,
     canonicalVariantId: canonicalVariantId,
+    object: object, arena: arena, variant: variant, variantIdsFor: variantIdsFor,
     rewardsAtLevel: rewardsAtLevel, rewardsThroughLevel: rewardsThroughLevel,
     invitationsAtLevel: invitationsAtLevel, invitationsThroughLevel: invitationsThroughLevel,
     rival: rival, storeCosmetic: storeCosmetic,
