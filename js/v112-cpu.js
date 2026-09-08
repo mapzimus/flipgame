@@ -28,6 +28,14 @@
     return Number.isFinite(number) ? number : fallback;
   }
 
+  function uint32Seed(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) ||
+        !Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+      throw new TypeError('CPU launch requires an unsigned 32-bit seed');
+    }
+    return value;
+  }
+
   function mix32(seed, salt) {
     var value = ((Number(seed) >>> 0) ^ (Number(salt) >>> 0)) >>> 0;
     value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
@@ -78,7 +86,7 @@
   // prior-shot data is involved. Intermediate viewports select the nearest
   // physical court family rather than receiving an invisible tolerance change.
   var ALIEN_AIM_CHART = freeze({
-    phone:   [[700, 600], [700, 1000], [700, 3000], [700, 1800]],
+    phone:   [[700, 600], [700, 1000], [700, 2000], [700, 2200]],
     tablet:  [[700, 1000], [700, 1000], [700, 1600], [700, 1000]],
     desktop: [[700, 2400], [700, 2000], [700, 1400], [700, 2600]],
     wide:    [[700, 2400], [700, 1800], [700, 600], [700, 1200]],
@@ -92,6 +100,12 @@
   });
 
   var ALIEN_EXECUTION = freeze({
+    easy: {
+      // The portrait tablet court otherwise over-penalizes Easy's intentionally
+      // broad aim. Keep the same general (non-ring-reading) shot, but vary its
+      // wall choice more often so its physical make rate remains in the Easy band.
+      tablet: { sideSigma: 300, upSigma: 1100, wrongWay: 0.55, mishit: 0.04 },
+    },
     medium: {
       phone:  { sideSigma: 220, upSigma: 650, wrongWay: 0.30, mishit: 0.18 },
       tablet: { sideSigma: 60,  upSigma: 180, wrongWay: 0.08, mishit: 0.05 },
@@ -101,7 +115,11 @@
       uhd:    { sideSigma: 30,  upSigma: 100, wrongWay: 0.08, mishit: 0.08 },
     },
     hard: {
-      phone:  { sideSigma: 90, upSigma: 260, wrongWay: 0.15, mishit: 0.04 },
+      // The narrow phone court needs a deliberately clean Hard release. The
+      // target and tractor field are unchanged; seeded launch jitter and the
+      // moving physical furniture still leave roughly one shot in three as a
+      // genuine miss over the distributed qualification corpus.
+      phone:  { sideSigma: 30, upSigma: 80, wrongWay: 0.04, mishit: 0.01 },
       tablet: { sideSigma: 2,  upSigma: 2,   wrongWay: 0,    mishit: 0.10 },
       desktop:{ sideSigma: 60, upSigma: 200, wrongWay: 0.10, mishit: 0.03 },
       wide:   { sideSigma: 90, upSigma: 260, wrongWay: 0.15, mishit: 0.04 },
@@ -172,7 +190,8 @@
   function alienLaunch(source, difficulty, seed) {
     var profile = ALIEN[difficulty];
     var family = alienCourtFamily(source);
-    var execution = profile.readsRing ? ALIEN_EXECUTION[difficulty][family] : profile;
+    var familyExecution = ALIEN_EXECUTION[difficulty] && ALIEN_EXECUTION[difficulty][family];
+    var execution = familyExecution || profile;
     var width = arenaWidth(source);
     var targetX = ringX(source, width);
     // Bank off the wall opposite the ring, producing a readable return arc.
@@ -201,10 +220,7 @@
 
   function createLaunch(value) {
     var source = object(value);
-    var seed = finite(source.seed, NaN);
-    if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
-      throw new TypeError('CPU launch requires an unsigned 32-bit seed');
-    }
+    var seed = uint32Seed(source.seed);
     var difficulty = difficultyOf(source.difficulty);
     var mode = modeOf(source);
     var signal = mode === 'alien'

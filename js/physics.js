@@ -73,6 +73,14 @@ const Physics = (() => {
       Math.min(Math.abs(target - upSpeed), maxCorrection);
     return { vx: inputVx, vy: -corrected, mode };
   }
+
+  function requireUint32Seed(value, owner = 'Physics') {
+    if (typeof value !== 'number' || !Number.isFinite(value) ||
+        !Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+      throw new TypeError(`${owner} requires an unsigned 32-bit seed`);
+    }
+    return value;
+  }
   const WALL_INSET  = 14;     // px from each screen edge to the wall's inner face (matches renderer)
   const FIXED_DT    = 1 / 60; // multiplayer-safe fixed physics step
   let acc = 0;
@@ -206,6 +214,7 @@ const Physics = (() => {
     return Math.max(1, Math.floor(odds / boost));
   }
   function rareEventForSeed(seed, plinkoRoll = false, multiplier = 1, excludedEventIds = []) {
+    seed = requireUint32Seed(seed, 'rareEventForSeed');
     if (plinkoRoll) return null;
     const events = eventSystem();
     if (events) {
@@ -234,6 +243,7 @@ const Physics = (() => {
   const INSANITY_EVENT_SALT = 0x6c8e9cf5;
   const INSANITY_PICK_SALT = 0x3d20adea;
   function insanityEventForSeed(seed, excludedEventIds = []) {
+    seed = requireUint32Seed(seed, 'insanityEventForSeed');
     const events = eventSystem();
     if (events) return events.rollId({
       mode: 'insane', oddsProfile: 'normal', seed, excludedEventIds,
@@ -347,6 +357,14 @@ const Physics = (() => {
   let rareEffectFrames = 0; // short-lived Ice Slide surface timer
   let rarePhase = 0;        // seeded wind phase; cosmetic randomness never touches physics RNG
 
+  function clearAlienBankState() {
+    bankHits = 0;
+    alienStepTick = 0;
+    pendingAlienBanks = [];
+    alienBankCooldowns = new Map();
+    alienBankTrace = [];
+  }
+
   function screenW() { return viewW || canvasW || 0; }
 
   // Native Alien and the Alien Invasion event are the same bank-shot game.
@@ -439,6 +457,7 @@ const Physics = (() => {
   // also prevents native Alien and Invasion from duplicating target math.
   function alienTargetForSeed(seed, width = viewW || canvasW, height = viewH || arenaH,
       bottomInset = viewBottomInset) {
+    seed = requireUint32Seed(seed, 'alienTargetForSeed');
     const metrics = alienMetricsForViewport(width, height);
     const worldW = Math.round(metrics.width * metrics.arenaExpandX);
     const floorY = metrics.height - tableInset(metrics.height) -
@@ -1002,7 +1021,8 @@ const Physics = (() => {
 
   function getAlienArenaState(seed) {
     const metrics = alienMetricsForViewport(viewW || canvasW, viewH || arenaH);
-    const preview = seed == null ? null : alienTargetForSeed(seed);
+    const preview = arguments.length === 0
+      ? null : alienTargetForSeed(requireUint32Seed(seed, 'getAlienArenaState'));
     return {
       schema: 'AlienArenaGeometryV1',
       coordinateSpace: 'physics-world-css-px',
@@ -1812,11 +1832,7 @@ const Physics = (() => {
     flightFrames   = 0;
     rareEvent      = null;
     temporaryAlien = false;
-    bankHits       = 0;
-    alienStepTick  = 0;
-    pendingAlienBanks = [];
-    alienBankCooldowns = new Map();
-    alienBankTrace = [];
+    clearAlienBankState();
     rareImpulseUsed = false;
     rareEffectFrames = 0;
     alwaysMagnetActive = false;
@@ -1850,7 +1866,8 @@ const Physics = (() => {
   // AFTER setProfile/resetBottle and BEFORE the player aims, so peers that
   // share turnCounter + playerIndex place the same pad without a net message.
   function seedTurn(seed) {
-    seedRng((seed >>> 0) || 1);
+    seed = requireUint32Seed(seed, 'seedTurn');
+    seedRng(seed || 1);
     arenaTime = 0;
     if (profile.alienPortal) placeAlienTargetForSeed(seed);
     else placeTarget();
@@ -2374,11 +2391,19 @@ const Physics = (() => {
   }
 
   function cleanupActiveEvent(reason) {
+    const restoreTemporaryAlien = temporaryAlien;
     if (eventController && eventController.active()) {
       eventController.cleanup(Object.assign(eventContext(lastFlickInfo && lastFlickInfo.seed), { reason }));
     } else {
       removeEventBodies();
     }
+    if (restoreTemporaryAlien && temporaryAlien) {
+      temporaryAlien = false;
+      if (!profile.landOnTarget) { targetX = null; targetY = null; }
+      layoutArena();
+      buildObstacles(arenaH);
+    }
+    clearAlienBankState();
     eventController = null;
     activeEventDefinition = null;
     activeEventMetadata = null;
@@ -2397,9 +2422,9 @@ const Physics = (() => {
       FEEL_MODES.has(requestedInputFeel) ? requestedInputFeel : feelMode);
     vx = transferredInput.vx;
     vy = transferredInput.vy;
-    const s = (seed !== undefined && seed !== null
-      ? seed
-      : Math.floor(Math.random() * 0xffffffff)) >>> 0;
+    const s = seed === undefined
+      ? Math.floor(Math.random() * 0x100000000)
+      : requireUint32Seed(seed, 'applyFlick');
     seedRng(s);
     seedEventRng(mixSeed(s, 0x51ed270b));
     simElapsedMs = 0;
@@ -2444,12 +2469,8 @@ const Physics = (() => {
     rareImpulseUsed = false;
     rareEffectFrames = 0;
     alwaysMagnetActive = !!alwaysMagnet;
+    clearAlienBankState();
     temporaryAlien = rareEvent === 'alien-invasion';
-    bankHits = 0;
-    alienStepTick = 0;
-    pendingAlienBanks = [];
-    alienBankCooldowns = new Map();
-    alienBankTrace = [];
     if (alienShotActive() && !plinkoRoll) {
       configureAlienArena();
     }
