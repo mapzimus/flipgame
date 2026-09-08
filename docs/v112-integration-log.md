@@ -690,3 +690,26 @@ log, and defect ledger remain release history and are not rewritten.
   transform parity, strict primitive uint32 seed validation, direct Alien
   cleanup telemetry reset, in-flight resize/reflow tests, and larger
   non-prefix calibration windows before V112-016/V112-022 may close.
+
+## Revision 42 — live CPU routing and authoritative UFO rendering
+
+- Affected interfaces: development boot order, `aiFlick`, `onFlick`,
+  `Physics.applyFlick` launch policy, and Alien obstacle rendering.
+- Old behavior: `v112-cpu.js` passed isolated tests but was absent from the
+  browser graph. Live CPUs used `Math.random()`, inherited human Physics Feel,
+  and could choose a different Alien target from the launched seed. UFO art
+  used only 35 percent of the physical collider's angle.
+- New behavior in `e938af2`: the development boot loads the deterministic CPU
+  module after Physics and before main. A single turn seed now drives event
+  prediction, native or Invasion target preview, CPU intent and the final
+  physics launch. CPU input always uses Standard transfer. UFO art consumes
+  the exact authoritative obstacle position and angle.
+- Independent verification: focused live boot/runtime tests plus Alien,
+  input, boot, release, architecture, service-worker, version and regression
+  suites pass. The re-audit found no random fallback and no hidden/filtered UFO
+  path. V112-016 is closed.
+- Calibration remains separate: diverse seed windows exposed a Hard Alien
+  phone-rate deficit that the old sequential 240-seed corpus hid. V112-022
+  therefore remains open until the representative phone retune and full
+  viewport qualification pass. The final v1.12 service-worker/cache/version
+  update remains release-owned and intentionally deferred.
