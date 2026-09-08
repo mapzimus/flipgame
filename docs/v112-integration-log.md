@@ -785,3 +785,36 @@ log, and defect ledger remain release history and are not rewritten.
 - Live V3-to-V4 wiring, Customize/reveal rendering and boot insertion remain
   deliberately deferred until the corrected domain passes a second independent
   gate. Candidate code remains outside the integration branch.
+
+## Revision 46 — shared event-kernel candidate rejected at second adversarial gate
+
+- Candidates `3e9b324` and `76d5ba7` remain outside the integration branch.
+  Their authored suites, syntax checks, regression suite and 49 inherited node
+  tests pass, and the second candidate closes the first audit's settling,
+  cleanup, resource, contact, resize, schema and Team-mapping defects.
+- Independent probes nevertheless found nine release blockers, tracked as
+  V112-067 through V112-075. Structural capability lookalikes can authorize a
+  cloned outcome; a genuine outcome can be consumed by unrelated adapters;
+  format and public checksum identities are not bound to live rules state;
+  launch claims collide; and render callbacks can omit or mutate physics while
+  advancing the gameplay RNG stream.
+- High-value results are also not authoritative yet. Identical Plinko geometry
+  can report Lives Doubled or Automatic Win, identical Roulette geometry can
+  report 1x or 4x, and Classic/Cup Plinko terminal metadata does not produce a
+  real terminal transition through `v112-rules`. The Plinko fact schema omits
+  its contracted clean-tail, recovery and no-contest lifecycle.
+- Required authority chain: rules-owned namespace and immutable format →
+  branded lane capability → branded one-use selection → unique launch
+  claim → collider-derived evidence → claim-bound outcome → atomic
+  root-level consume with the live `ResolutionIdentityV1` high-water.
+- The fixed FNV token remains corruption detection only, never proof of
+  issuance. Trusted coordinator ownership is an application boundary; callers
+  without the genuine root capability must be distinguishable and rejected.
+- Rendering receives one collider-derived mechanics frame. Reduced-motion
+  presentation is derived without a second gameplay callback, and visual RNG
+  cannot advance physics RNG. Because arbitrary JavaScript closures cannot be
+  sandboxed by source inspection, event packs remain authored/trusted modules
+  and require deterministic replay plus lint/qualification evidence.
+- No hazard, wildcard or assist pack may begin integration until the corrected
+  kernel and explicit Classic/Cup/Team terminal-event path pass a third
+  independent adversarial audit.
