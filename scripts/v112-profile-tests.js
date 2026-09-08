@@ -122,6 +122,48 @@ function rewardInput(extra = {}) {
   };
 }
 
+let fixtureAwardSequence = 0;
+function canonicalAward(store, rarity = 'common', label = 'profile-fixture') {
+  const id = `${label}-${++fixtureAwardSequence}`;
+  return { id, result: store.claimAchievement(id, rarity) };
+}
+
+function reachFixtureLevel(store, targetLevel, label = 'profile-level-fixture') {
+  if (store.snapshot().flipLevel >= targetLevel) return [];
+  const minimum = Economy.fxpThresholdForLevel(targetLevel) - store.snapshot().fxp;
+  const upper = targetLevel >= 100 ? minimum + 300
+    : Economy.fxpThresholdForLevel(targetLevel + 1) - 1 - store.snapshot().fxp;
+  const options = [{ rarity: 'legendary', value: 75 }, { rarity: 'rare', value: 50 },
+    { rarity: 'notable', value: 30 }, { rarity: 'common', value: 15 }];
+  const paths = Array(upper + 1).fill(null); paths[0] = [];
+  for (let total = 0; total <= upper; total++) {
+    if (!paths[total]) continue;
+    for (const option of options) {
+      if (total + option.value <= upper && !paths[total + option.value]) {
+        paths[total + option.value] = paths[total].concat(option.rarity);
+      }
+    }
+  }
+  const delta = Array.from({ length: upper - minimum + 1 }, (_, index) => minimum + index)
+    .find((candidate) => paths[candidate]);
+  assert.ok(delta != null, `no canonical achievement path to FL${targetLevel}`);
+  const ids = paths[delta].map((rarity) => canonicalAward(store, rarity, label).id);
+  assert.equal(store.snapshot().flipLevel, targetLevel);
+  return ids;
+}
+
+function storeWithFc(amount, label = 'profile-fc-fixture') {
+  const state = Profile.ProgressionStateV4({
+    lineageId: `${label}-${++fixtureAwardSequence}`,
+    fcBalance: amount,
+    legacy: { reconciledV111: true, qualifyingWins: 0, sourceRelease: 'test-fixture' },
+  });
+  return Profile.createStore({
+    storage: Profile.createMemoryStorage({ [Profile.storageKey]: JSON.stringify(state) }),
+    now: () => 99,
+  });
+}
+
 function testExactMatchRewards() {
   const pure = Economy.calculateRewardFormula({ attempts: 4, setupBonus: 0,
     performanceMultiplier: 1, outcome: 'human-win' });
@@ -211,14 +253,16 @@ function testCompleteV111MigrationAndAliases() {
   assert.equal(migrated.flipLevel, 100);
   assert.equal(migrated.fxp, 3705);
   assert.equal(migrated.fcBalance, 3700);
-  assert.equal(migrated.ownedObjectIds.length, 52, 'unknown owned IDs must also survive');
+  assert.equal(migrated.ownedObjectIds.length, 51,
+    'all legitimate v1.11 objects survive while unsupported future IDs stay inactive');
   assert.ok(migrated.ownedObjectIds.includes('mechanical-metronome'));
   assert.ok(migrated.ownedObjectIds.includes('desk-gyroscope'));
   assert.ok(!migrated.ownedObjectIds.includes('tall-buildings'));
   assert.ok(!migrated.ownedObjectIds.includes('giraffe'));
+  assert.ok(!migrated.ownedObjectIds.includes('future-object'));
   assert.ok(migrated.ownedArenaIds.includes('rooftop'));
   assert.ok(migrated.ownedCosmeticIds.includes('finish.chrome'));
-  assert.ok(migrated.ownedCosmeticIds.includes('future.cosmetic'));
+  assert.ok(!migrated.ownedCosmeticIds.includes('future.cosmetic'));
   assert.ok(migrated.featureIds.includes('insane-mode'));
   assert.ok(migrated.featureIds.includes('physics-lab'));
   assert.ok(migrated.achievementIds.includes('first_flip'));
@@ -249,9 +293,10 @@ function testSetupAliasesDoNotRewriteHistoricalStats() {
 function testAtomicMatchClaimAndLiveSnapshot() {
   const storage = Profile.createMemoryStorage();
   const store = Profile.createStore({ storage, now: () => 1234 });
+  const reservation = store.reserveMatch('match-1', 'free-play');
   let notifications = 0;
   const unsubscribe = store.subscribe(() => { notifications++; });
-  const first = store.claimMatch('match-1', rewardInput({ humanWon: true }));
+  const first = store.claimMatch(reservation.token, rewardInput({ humanWon: true }));
   const after = store.snapshot();
   assert.equal(first.applied, true);
   assert.equal(first.fcAwarded, 66);
@@ -261,7 +306,7 @@ function testAtomicMatchClaimAndLiveSnapshot() {
   assert.equal(after.fcBalance, 66, 'match FC and crossed FL2 grant commit together');
   assert.deepEqual(after.fcTransactions.map((tx) => tx.signedAmount), [16, 50]);
   assert.equal(notifications, 1);
-  const duplicate = store.claimMatch('match-1', rewardInput({ humanWon: true }));
+  const duplicate = store.claimMatch(reservation.token, rewardInput({ humanWon: true }));
   assert.equal(duplicate.applied, false);
   assert.equal(duplicate.reason, 'duplicate');
   assert.deepEqual(store.snapshot(), after);
@@ -276,24 +321,27 @@ function testSequentialStoreRefreshAndPersistenceRollback() {
   const storage = Profile.createMemoryStorage();
   const first = Profile.createStore({ storage, now: () => 1 });
   const second = Profile.createStore({ storage, now: () => 2 });
-  first.claimBundle({ claimId: 'award:a', sourceType: 'match', fxp: 10, fc: 10 });
-  second.claimBundle({ claimId: 'award:b', sourceType: 'match', fxp: 10, fc: 10 });
-  assert.equal(second.snapshot().fxp, 20);
-  assert.ok(second.snapshot().processedClaimIds.includes('award:a'));
-  assert.ok(second.snapshot().processedClaimIds.includes('award:b'));
+  const firstToken = first.reserveMatch('sequential-a', 'free-play').token;
+  assert.equal(first.consumeReservedMatch(firstToken, rewardInput()).applied, true);
+  second.refresh();
+  const secondToken = second.reserveMatch('sequential-b', 'free-play').token;
+  assert.equal(second.consumeReservedMatch(secondToken, rewardInput()).applied, true);
+  assert.equal(second.snapshot().fxp, 92);
+  assert.equal(second.snapshot().consumedMatchOrdinal, 2);
 
+  const failedToken = second.reserveMatch('sequential-failed', 'free-play').token;
   const before = second.snapshot();
   storage.failNextWrite();
-  const failed = second.claimBundle({ claimId: 'award:failed', sourceType: 'match', fxp: 100, fc: 100 });
+  const failed = second.consumeReservedMatch(failedToken, rewardInput());
   assert.equal(failed.applied, false);
   assert.equal(failed.reason, 'persistence-failed');
   assert.deepEqual(second.snapshot(), before);
-  assert.ok(!second.snapshot().processedClaimIds.includes('award:failed'));
+  assert.deepEqual(second.resumeMatchReservation(), failedToken,
+    'failed persistence leaves the exact reservation resumable');
 }
 
 function testStorePurchaseAndFcLedger() {
-  const store = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 99 });
-  store.claimBundle({ claimId: 'seed-fc', sourceType: 'migration', fc: 500, reveal: false });
+  const store = storeWithFc(500);
   const purchase = store.purchaseCosmetic('finish.chrome');
   assert.equal(purchase.applied, true);
   assert.equal(store.snapshot().fcBalance, 300);
@@ -364,6 +412,8 @@ function testAtomicStoryMatchResolution() {
         fxp: 50, fc: 25, fieldNoteId: 'field-note-act-1' },
     ],
   };
+  const reservation = store.reserveMatch(input.matchId, 'story');
+  input.matchClaimToken = reservation.token;
   const before = store.snapshot();
   storage.failNextWrite();
   const failed = store.claimStoryMatchResolution(input);
@@ -375,8 +425,7 @@ function testAtomicStoryMatchResolution() {
   assert.equal(applied.applied, true);
   assert.deepEqual(applied.appliedStoryClaimIds,
     ['rival.first-light.first-clear', 'story.act.1.first-clear']);
-  assert.ok(store.snapshot().processedClaimIds.includes(
-    'story-match:story:first-broadcast:signature'));
+  assert.equal(store.snapshot().consumedMatchOrdinal, reservation.token.ordinal);
   assert.ok(store.snapshot().processedClaimIds.includes('rival.first-light.first-clear'));
   assert.ok(store.snapshot().processedClaimIds.includes('story.act.1.first-clear'));
   assert.ok(store.snapshot().ownedObjectIds.includes('coffee-mug'));
@@ -406,8 +455,7 @@ function testRivalAndAlienGate() {
   assert.ok(!store.snapshot().ownedObjectIds.includes('alien'), 'early victory is banked until FL100');
   assert.equal(Profile.isAlienUsable(store.snapshot()), false);
   assert.equal(Profile.isInsaneUsable(store.snapshot()), false);
-  store.claimBundle({ claimId: 'reach-max', sourceType: 'match',
-    fxp: Economy.MAX_LEVEL_FXP - store.snapshot().fxp, reveal: true });
+  reachFixtureLevel(store, 100, 'alien-gate-max');
   assert.equal(store.snapshot().flipLevel, 100);
   assert.ok(store.snapshot().ownedObjectIds.includes('alien'));
   assert.ok(store.snapshot().featureIds.includes('insane-mode'));
@@ -447,10 +495,11 @@ function testAlienAndInsaneGateIsNotEntitlementGuessing() {
 
 function testEveryPrimaryRewardAndRivalIsReachable() {
   const store = Profile.createStore({ storage: Profile.createMemoryStorage(), now: () => 88 });
-  store.claimBundle({ claimId: 'qualify:max-level', sourceType: 'match', fxp: 3705, reveal: false });
+  reachFixtureLevel(store, 100, 'primary-max');
   let state = store.snapshot();
   assert.equal(state.flipLevel, 100);
-  assert.equal(state.fcBalance, 3700);
+  assert.equal(state.fcBalance, 6170,
+    '3,700 level FC plus 2,470 FC from the canonical achievements used to reach FL100');
   assert.equal(state.ownedObjectIds.length, 39, 'Bottle plus 38 direct Flippers');
   assert.equal(state.ownedArenaIds.length, 23);
   assert.ok(state.featureIds.includes('physics-lab'));
@@ -488,9 +537,11 @@ function testNormalizationAndTransactionValidation() {
     kind: 'spend', sourceType: 'cosmetic-purchase', signedAmount: 1, balanceAfter: 1 }),
   /must be negative/);
   const store = Profile.createStore({ storage: Profile.createMemoryStorage() });
-  assert.throws(() => store.claimBundle({ claimId: 'bad-spend', sourceType: 'match', fc: -1 }),
-    /only be spent/);
-  assert.ok(!store.snapshot().processedClaimIds.includes('bad-spend'));
+  assert.equal(typeof store.claimBundle, 'undefined',
+    'unrestricted reward bundles are not exposed by a Profile store');
+  assert.equal(typeof Profile.claimBundle, 'undefined',
+    'the default browser API does not expose unrestricted reward bundles');
+  assert.equal(store.purchaseCosmetic('finish.chrome').reason, 'insufficient-fc');
 }
 
 function testBrowserExports() {

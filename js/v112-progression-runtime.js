@@ -34,6 +34,15 @@
     alien: 'Alien',
     'insane-mode': 'INSANE MODE',
   });
+  var ACTIVITY_IDS = new Set(['free-play', 'story', 'rival-board', 'practice', 'physics-lab', 'tutorial']);
+  var OWNER_INTEGRATION = Object.freeze({
+    schema: 'OwnerTestIntegrationV1', version: 1,
+    defaultActivityId: 'practice',
+    registeredActivityIds: Array.from(ACTIVITY_IDS),
+    storyInjectionRequired: true,
+    matchReservationRequired: true,
+    rule: 'MatchSessionCoordinator must reserve then consume/abandon one MatchClaimTokenV1. Story and Rival Board must receive this runtime (not the raw profile store) and validate the issued owner guard before resolution.',
+  });
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function freeze(value) {
@@ -64,7 +73,11 @@
     }
     var backup = opts.backupAdapter || Backup;
     var ownerActive = false;
+    var ownerGeneration = 0;
     var listeners = new Set();
+    var issuedGuards = new WeakSet();
+    var notificationQueue = [];
+    var deliveringNotifications = false;
     var detach = store.subscribe(function (state, result) {
       emit({ type: 'profile-commit', result: result, earnedState: state });
     });
@@ -187,44 +200,82 @@
     function activityPolicy(input) {
       var source = input && typeof input === 'object' ? clone(input) : {};
       if (!ownerActive) return freeze(source);
+      var activityId = source.activityId == null ? OWNER_INTEGRATION.defaultActivityId : source.activityId;
+      if (typeof activityId !== 'string' || !ACTIVITY_IDS.has(activityId)) {
+        throw new RangeError('Owner test activity must be a registered ActivityRegistry identity');
+      }
+      var guard = Object.freeze({ schema: 'OwnerTestGuardV1', version: 1,
+        activityId: activityId, generation: ownerGeneration,
+        testData: true, rewardsEligible: false });
+      issuedGuards.add(guard);
       return freeze(Object.assign(source, {
-        activityId: source.activityId || 'owner-test',
+        activityId: activityId,
         ownerTest: true, ownerTestMode: true, testData: true,
         rewardsEligible: false, progressionEligible: false,
         achievementsEligible: false, statisticsDefaultIncluded: false,
+        ownerTestGuard: guard,
+        storyRuntimeInjectionRequired: activityId === 'story' || activityId === 'rival-board',
       }));
     }
+    function validateOwnerTestGuard(guard, activityId) {
+      return ownerActive && !!guard && typeof guard === 'object' && issuedGuards.has(guard) &&
+        typeof activityId === 'string' && ACTIVITY_IDS.has(activityId) && guard.activityId === activityId &&
+        guard.generation === ownerGeneration &&
+        guard.testData === true && guard.rewardsEligible === false;
+    }
     function emit(event) {
-      var snapshot = effectiveSnapshot();
-      listeners.forEach(function (listener) {
-        try { listener(snapshot, freeze(Object.assign({ ownerTestMode: ownerActive }, event))); }
-        catch (_) {}
-      });
+      notificationQueue.push({ snapshot: effectiveSnapshot(),
+        event: freeze(Object.assign({ ownerTestMode: ownerActive }, event)) });
+      if (deliveringNotifications) return;
+      deliveringNotifications = true;
+      try {
+        while (notificationQueue.length) {
+          var deliveryEvent = notificationQueue.shift();
+          var delivery = Array.from(listeners);
+          delivery.forEach(function (listener) {
+            try { listener(deliveryEvent.snapshot, deliveryEvent.event); } catch (_) {}
+          });
+        }
+      } finally { deliveringNotifications = false; }
     }
     function subscribe(listener, options) {
       if (typeof listener !== 'function') throw new TypeError('progression subscriber must be a function');
-      listeners.add(listener);
-      if (!options || options.emitCurrent !== false) {
+      if (!deliveringNotifications && (!options || options.emitCurrent !== false)) {
         listener(effectiveSnapshot(), freeze({ type: 'current', ownerTestMode: ownerActive }));
       }
+      listeners.add(listener);
       return function () { listeners.delete(listener); };
     }
     function activateOwnerTestMode(value) {
       if (typeof value !== 'string' || value !== OWNER_CODE) {
         return freeze({ activated: false, reason: 'exact-code-required', active: ownerActive });
       }
-      if (!ownerActive) { ownerActive = true; emit({ type: 'owner-test-activated' }); }
+      if (!ownerActive) {
+        ownerGeneration++;
+        ownerActive = true;
+        emit({ type: 'owner-test-activated' });
+      }
       return freeze({ activated: true, active: true, projection: ownerProjection() });
     }
     function deactivateOwnerTestMode() {
       var changed = ownerActive;
       ownerActive = false;
+      if (changed) ownerGeneration++;
       if (changed) emit({ type: 'owner-test-deactivated' });
       return freeze({ deactivated: changed, active: false });
     }
     function blocked() { return noMutation(earnedSnapshot(), 'owner-test-mode'); }
-    function claimMatch(matchId, rewardInput) {
-      return ownerActive ? blocked() : store.claimMatch(matchId, rewardInput);
+    function reserveMatch(matchId, activityId) {
+      return ownerActive ? blocked() : store.reserveMatch(matchId, activityId);
+    }
+    function resumeMatchReservation() {
+      return ownerActive ? null : store.resumeMatchReservation();
+    }
+    function claimMatch(matchToken, rewardInput) {
+      return ownerActive ? blocked() : store.consumeReservedMatch(matchToken, rewardInput);
+    }
+    function abandonMatch(matchToken, reason) {
+      return ownerActive ? blocked() : store.abandonReservedMatch(matchToken, reason);
     }
     function claimAchievement(id, rarity) {
       return ownerActive ? blocked() : store.claimAchievement(id, rarity);
@@ -280,7 +331,7 @@
     }
     function dismissReveal(id) {
       if (ownerActive) return blocked();
-      return store.dismissReveals([String(id || '')]);
+      return store.dismissReveals([id]);
     }
     function dismissAllReveals() {
       if (ownerActive) return blocked();
@@ -312,7 +363,11 @@
       activateOwnerTestMode: activateOwnerTestMode,
       deactivateOwnerTestMode: deactivateOwnerTestMode,
       ownerProjection: ownerProjection, activityPolicy: activityPolicy,
-      claimMatch: claimMatch, claimAchievement: claimAchievement,
+      validateOwnerTestGuard: validateOwnerTestGuard,
+      ownerTestIntegration: OWNER_INTEGRATION,
+      reserveMatch: reserveMatch, resumeMatchReservation: resumeMatchReservation,
+      claimMatch: claimMatch, abandonMatch: abandonMatch,
+      claimAchievement: claimAchievement,
       claimRivalVictory: claimRivalVictory, claimStoryAct: claimStoryAct,
       claimStoryReward: claimStoryReward,
       claimStoryMatchResolution: claimStoryMatchResolution,
@@ -327,5 +382,6 @@
   return freeze({
     schema: 'ProgressionRuntimeV1', version: 1,
     createRuntime: createRuntime, defaultRuntime: defaultRuntime,
+    ownerTestIntegration: OWNER_INTEGRATION,
   });
 });

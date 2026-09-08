@@ -29,8 +29,40 @@
   var PAYLOAD_VERSION = 2;
   var V4_KEY = 'flipgame.profile.v4';
   var SETUP_KEY = 'flipgame.setup.v2';
+  var UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
+  function safeClone(value, seen) {
+    if (value == null || typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) throw new TypeError('Unsafe non-finite number');
+      return value;
+    }
+    if (typeof value !== 'object') throw new TypeError('Unsafe save value type');
+    var active = seen || new Set();
+    if (active.has(value)) throw new TypeError('Cyclic save values are not supported');
+    active.add(value);
+    var output;
+    if (Array.isArray(value)) output = value.map(function (entry) { return safeClone(entry, active); });
+    else {
+      output = Object.create(null);
+      Object.keys(value).forEach(function (key) {
+        if (UNSAFE_KEYS.has(key)) throw new TypeError('Unsafe save key: ' + key);
+        output[key] = safeClone(value[key], active);
+      });
+    }
+    active.delete(value);
+    return output;
+  }
+  function safeMerge() {
+    var output = Object.create(null);
+    Array.prototype.slice.call(arguments).forEach(function (source) {
+      if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+      var safe = safeClone(source);
+      Object.keys(safe).forEach(function (key) { output[key] = safe[key]; });
+    });
+    return output;
+  }
   function storedValue(value) {
     if (typeof value !== 'string') return value;
     try { return JSON.parse(value); } catch (_) { return value; }
@@ -48,7 +80,8 @@
     return Profile.validateImportedState(state);
   }
   function sectionCopy(value) {
-    return value && typeof value === 'object' && !Array.isArray(value) ? clone(value) : {};
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? safeClone(value) : Object.create(null);
   }
   function createPayload(profileOrStore, setupSelection, sections) {
     return freeze({
@@ -68,11 +101,11 @@
     return JSON.stringify(createDocument(profileOrStore, setupSelection, options));
   }
   function legacyPayload(value) {
-    var payload = value && typeof value === 'object' ? value : {};
+    var payload = value && typeof value === 'object' ? safeClone(value) : Object.create(null);
     if (payload.schema === 'FlipgameLocalSaveV1' && payload.storage &&
         typeof payload.storage === 'object' && !Array.isArray(payload.storage)) {
       var storage = payload.storage;
-      var sections = {};
+      var sections = Object.create(null);
       Object.keys(storage).forEach(function (key) {
         if (key === V4_KEY || key === SETUP_KEY || key === 'flipgame.progression.v3') return;
         sections[key] = storage[key];
@@ -109,9 +142,9 @@
     throw new TypeError('Unsupported Flipgame save payload');
   }
   function normalizePayload(value) {
-    var payload = value && typeof value === 'object' ? value : {};
+    var payload = value && typeof value === 'object' ? safeClone(value) : Object.create(null);
     if (payload.schema !== PAYLOAD_SCHEMA) return legacyPayload(payload);
-    if (Number(payload.version) !== PAYLOAD_VERSION) {
+    if (typeof payload.version !== 'number' || payload.version !== PAYLOAD_VERSION) {
       throw new RangeError('Unsupported FlipgameLocalSaveV2 version');
     }
     return freeze({ schema: PAYLOAD_SCHEMA, version: PAYLOAD_VERSION,
@@ -168,8 +201,8 @@
     return fallbackVariant ? fallbackVariant.id : Catalog.variantIdsFor(objectId)[0];
   }
   function normalizeParticipant(incoming, current, profile) {
-    var row = Object.assign({}, current && typeof current === 'object' ? clone(current) : {},
-      incoming && typeof incoming === 'object' ? clone(incoming) : {});
+    var row = safeMerge(current && typeof current === 'object' ? current : null,
+      incoming && typeof incoming === 'object' ? incoming : null);
     var requested = row.charId != null ? row.charId : (row.objectId != null ? row.objectId : row.skin);
     var prior = current && (current.charId != null ? current.charId
       : (current.objectId != null ? current.objectId : current.skin));
@@ -190,7 +223,7 @@
     var profile = Profile.ProgressionStateV4(profileValue);
     var current = Profile.migrateSetupSelection(currentValue || {});
     var incoming = Profile.migrateSetupSelection(importedValue || {});
-    var merged = Object.assign({}, clone(current), clone(incoming));
+    var merged = safeMerge(current, incoming);
     ['rows', 'players', 'roster'].forEach(function (key) {
       if (!Array.isArray(incoming[key])) return;
       var currentRows = Array.isArray(current[key]) ? current[key] : [];
@@ -232,7 +265,7 @@
     var setup = mergeSetupSelection(currentSetup, parsed.payload.setupSelection, store.snapshot());
     return freeze({ imported: true, duplicate: profileResult.reason === 'duplicate',
       checksum: parsed.checksum.value, profileResult: profileResult,
-      setupSelection: setup, sections: clone(parsed.payload.sections),
+      setupSelection: setup, sections: safeClone(parsed.payload.sections),
       state: store.snapshot() });
   }
 
