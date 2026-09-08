@@ -46,6 +46,16 @@ function (Activity, Story, Profile, View, root) {
   function unique(values) {
     return Array.from(new Set((Array.isArray(values) ? values : []).map(String).filter(Boolean)));
   }
+  function sameStringSet(actual, expected) {
+    if (!Array.isArray(actual) || !Array.isArray(expected) || actual.length !== expected.length) {
+      return false;
+    }
+    var actualSet = new Set(actual.map(String));
+    var expectedSet = new Set(expected.map(String));
+    if (actualSet.size !== actual.length || expectedSet.size !== expected.length ||
+        actualSet.size !== expectedSet.size) return false;
+    return Array.from(expectedSet).every(function (id) { return actualSet.has(id); });
+  }
   function chapterFor(value) {
     var source = object(value);
     return Story.chapters.find(function (chapter) {
@@ -342,6 +352,12 @@ function (Activity, Story, Profile, View, root) {
     var contextEvents = object(context.events);
     var humans = request.roster.filter(function (entry) { return entry.human === true; });
     var cpus = request.roster.filter(function (entry) { return entry.human !== true; });
+    var humanIds = humans.map(function (entry) { return entry.id; });
+    var alliedHumanIds = Array.isArray(attempt.alliedHumanIds) ? attempt.alliedHumanIds : [];
+    var rulesTargeting = object(rules.opponentTargeting);
+    var contextTargeting = object(context.opponentTargeting);
+    var clearCondition = object(rules.clearCondition);
+    var expectedAllyProtection = attempt.cooperative === true;
     if (request.formatId !== 'classic' || request.physicsModeId !== expectedPhysics ||
         attempt.physicsModeId !== expectedPhysics || attempt.arenaId !== chapter.arenaId ||
         context.arenaId !== chapter.arenaId || rules.arenaId !== chapter.arenaId ||
@@ -357,9 +373,15 @@ function (Activity, Story, Profile, View, root) {
         })) {
       throw new TypeError('Story request violates its prescribed match contract');
     }
-    if (attempt.cooperative &&
-        (!rules.opponentTargeting || rules.opponentTargeting.excludeAlliedHumans !== true)) {
-      throw new TypeError('Co-op Story request must protect the allied human partner');
+    if (!sameStringSet(alliedHumanIds, humanIds) ||
+        !sameStringSet(context.alliedHumanIds, alliedHumanIds) ||
+        !sameStringSet(rulesTargeting.alliedHumanIds, alliedHumanIds) ||
+        !sameStringSet(contextTargeting.alliedHumanIds, alliedHumanIds) ||
+        !sameStringSet(clearCondition.anyWinnerId, alliedHumanIds) ||
+        rulesTargeting.excludeAlliedHumans !== expectedAllyProtection ||
+        contextTargeting.excludeAlliedHumans !== expectedAllyProtection ||
+        context.cooperative !== expectedAllyProtection) {
+      throw new TypeError('Story request has inconsistent allied human protection');
     }
     return freeze({ chapter: chapter, attempt: attempt });
   }

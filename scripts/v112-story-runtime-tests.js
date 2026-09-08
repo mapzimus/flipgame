@@ -459,6 +459,81 @@ function testInvalidFutureRequestDoesNotRevealRival() {
   assert.deepEqual(Object.keys(slot).sort(), ['ariaLabel', 'locked', 'slot', 'symbol']);
 }
 
+function testCoopAlliedHumanSetsAreExactAndConsistent() {
+  const h = harness();
+  const valid = h.runtime.createMatchRequest({
+    matchId: 'story:coop-allies', chapterId: 'first-broadcast', cooperative: true,
+    humans: [human('human-1'), human('human-2')],
+  });
+  const makeRequest = (patch = {}) => Activity.MatchRequestV2({
+    ...valid,
+    rulesOptions: {
+      ...valid.rulesOptions,
+      ...(patch.rulesOptions || {}),
+    },
+    activityContext: {
+      ...valid.activityContext,
+      ...(patch.activityContext || {}),
+    },
+  });
+  const missingRuleAlly = makeRequest({
+    rulesOptions: {
+      opponentTargeting: {
+        ...valid.rulesOptions.opponentTargeting, alliedHumanIds: ['human-1'],
+      },
+    },
+  });
+  assert.throws(() => h.runtime.registry.prepare('story', { request: missingRuleAlly }),
+    /inconsistent allied human protection/);
+
+  const extraContextAlly = makeRequest({
+    activityContext: {
+      opponentTargeting: {
+        ...valid.activityContext.opponentTargeting,
+        alliedHumanIds: ['human-1', 'human-2', 'spectator'],
+      },
+    },
+  });
+  assert.throws(() => h.runtime.registry.prepare('story', { request: extraContextAlly }),
+    /inconsistent allied human protection/);
+
+  const mismatchedAttempt = makeRequest({
+    activityContext: {
+      attempt: { ...valid.activityContext.attempt, alliedHumanIds: ['human-1'] },
+    },
+  });
+  assert.throws(() => h.runtime.registry.prepare('story', { request: mismatchedAttempt }),
+    /inconsistent allied human protection/,
+    'attempt allies must equal the actual human roster rather than merely matching a flag');
+
+  const missingClearWinner = makeRequest({
+    rulesOptions: { clearCondition: { anyWinnerId: ['human-1'] } },
+  });
+  assert.throws(() => h.runtime.registry.prepare('story', { request: missingClearWinner }),
+    /inconsistent allied human protection/);
+
+  const reversed = ['human-2', 'human-1'];
+  const reorderedButEquivalent = makeRequest({
+    rulesOptions: {
+      clearCondition: { anyWinnerId: reversed },
+      opponentTargeting: {
+        ...valid.rulesOptions.opponentTargeting, alliedHumanIds: reversed,
+      },
+    },
+    activityContext: {
+      attempt: { ...valid.activityContext.attempt, alliedHumanIds: reversed },
+      alliedHumanIds: reversed,
+      opponentTargeting: {
+        ...valid.activityContext.opponentTargeting, alliedHumanIds: reversed,
+      },
+    },
+  });
+  assert.equal(h.runtime.registry.prepare('story', {
+    request: reorderedButEquivalent,
+  }).attempt.cooperative, true,
+  'allied identity is an exact set contract; harmless ordering differences are accepted');
+}
+
 function testRegistryAndBrowserExports() {
   const h = harness();
   assert.deepEqual(h.runtime.registry.ids(), ['story', 'rival-board']);
@@ -517,6 +592,7 @@ const tests = [
   testLossAndAbandonmentHaveNoClearPenalty,
   testViewsHideSecretsAndUseAuthoredCopy,
   testInvalidFutureRequestDoesNotRevealRival,
+  testCoopAlliedHumanSetsAreExactAndConsistent,
   testRegistryAndBrowserExports,
 ];
 
