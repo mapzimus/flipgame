@@ -762,3 +762,26 @@ log, and defect ledger remain release history and are not rewritten.
 - No confidence-interval overlap may replace the raw contract band. V112-022
   remains open pending a margin-bearing 4K retune, raw-band assertions and the
   release-scale difficulty-by-direction-by-viewport-by-player-count corpus.
+
+## Revision 45 — V4 progression candidate rejected at adversarial gate
+
+- Candidate `3cbf6718` correctly established an isolated V4 runtime, immediate
+  same-store ownership views, full reward descriptors, canonical 51-by-12
+  variant identity, exact ephemeral owner-test projection and checksummed V4
+  backup shape. Existing authored suites remained green.
+- It is not eligible to merge. Independent probes reproduced a disk-visible
+  ghost commit after write-then-throw storage; revision-regressing reentrant
+  notifications; checksummed claim evidence that suppresses later legitimate
+  grants; stale-import reveal resurrection; higher-revision refresh relocking;
+  unbounded claim/FC growth; coercive public numeric inputs; and prototype-
+  bearing direct setup-helper outputs.
+- New tracked defects V112-059 through V112-066 own those failures. The domain
+  owner must add every reproduction before resubmission. Checksums provide
+  corruption detection, not semantic trust; import is a monotonic merge and
+  never accepts evidence capable of blocking a future local reward.
+- Owner Test Mode remains exact, case-sensitive and ephemeral. Its policy must
+  preserve a registered activity identity and attach non-bypassable Test Data,
+  zero-reward and preview-only authority for later coordinator integration.
+- Live V3-to-V4 wiring, Customize/reveal rendering and boot insertion remain
+  deliberately deferred until the corrected domain passes a second independent
+  gate. Candidate code remains outside the integration branch.
