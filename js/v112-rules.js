@@ -86,8 +86,10 @@
       encodeURIComponent(required(matchId, 'matchId'));
   }
 
-  function resolutionToken(namespace, ordinal) {
-    var material = namespace + '|' + ordinal + '|pressure-signal';
+  function resolutionToken(namespace, ordinal, boundCallerId) {
+    var caller = boundCallerId == null ? '' : callerFlipId(boundCallerId);
+    var material = namespace + '|' + ordinal + '|' + encodeURIComponent(caller) +
+      '|pressure-signal';
     return hex32(stableHash('a|' + material)) + hex32(stableHash('b|' + material));
   }
 
@@ -109,7 +111,7 @@
     var safeOrdinal = integer(ordinal, NaN, 1);
     if (!Number.isSafeInteger(safeOrdinal)) throw new TypeError('resolution ordinal must be a safe integer');
     var safeCallerId = callerFlipId(callerId);
-    var token = resolutionToken(namespace, safeOrdinal);
+    var token = resolutionToken(namespace, safeOrdinal, safeCallerId);
     return freeze({
       schema: RESOLUTION_IDENTITY_SCHEMA,
       namespace: namespace,
@@ -149,7 +151,7 @@
       namespace: namespace,
       resolvedThrough: 0,
       nextOrdinal: 1,
-      expectedToken: resolutionToken(namespace, 1),
+      expectedToken: resolutionToken(namespace, 1, null),
     });
   }
 
@@ -299,7 +301,7 @@
       namespace: namespace,
       resolvedThrough: state.sequence,
       nextOrdinal: state.sequence + 1,
-      expectedToken: resolutionToken(namespace, state.sequence + 1),
+      expectedToken: resolutionToken(namespace, state.sequence + 1, null),
     };
     if (!sameCanonicalValue(highWater, expectedHighWater)) {
       throw new Error('Resolution identity high-water mark or namespace is invalid');
@@ -307,15 +309,14 @@
     if (!Number.isSafeInteger(state.sequence) || state.sequence < 0 ||
         highWater.resolvedThrough !== state.sequence ||
         highWater.nextOrdinal !== state.sequence + 1 ||
-        highWater.expectedToken !== resolutionToken(namespace, state.sequence + 1)) {
+        highWater.expectedToken !== resolutionToken(namespace, state.sequence + 1, null)) {
       throw new Error('Resolution identity high-water mark is invalid');
     }
     if (state.sequence === 0) {
       if (state.lastOutcomeId != null) throw new Error('Unresolved state cannot have a last outcome ID');
     } else {
       var last = parseResolutionId(state.lastOutcomeId);
-      if (last.namespace !== namespace || last.ordinal !== state.sequence ||
-          last.token !== resolutionToken(namespace, state.sequence)) {
+      if (last.namespace !== namespace || last.ordinal !== state.sequence) {
         throw new Error('Last outcome does not match the resolution high-water mark');
       }
     }
@@ -350,7 +351,7 @@
     }
     var highWater = state.resolutionIdentity;
     if (identity.namespace !== highWater.namespace || identity.ordinal !== highWater.nextOrdinal ||
-        identity.token !== highWater.expectedToken) {
+        highWater.expectedToken !== resolutionToken(highWater.namespace, highWater.nextOrdinal, null)) {
       throw new Error('Duplicate, stale, future, or foreign resolution identity');
     }
     return identity;
@@ -364,7 +365,7 @@
       namespace: identity.namespace,
       resolvedThrough: identity.ordinal,
       nextOrdinal: identity.ordinal + 1,
-      expectedToken: resolutionToken(identity.namespace, identity.ordinal + 1),
+      expectedToken: resolutionToken(identity.namespace, identity.ordinal + 1, null),
     };
   }
 
@@ -1751,6 +1752,15 @@
     if (sudden.phase !== 'regulation' && sudden.phase !== 'sudden-death') {
       throw new TypeError('Invalid sudden-death phase');
     }
+    if (!sudden.enabled && (sudden.phase !== 'regulation' || sudden.level !== 0 ||
+        sudden.band != null)) {
+      throw new Error('Disabled sudden death must remain in regulation');
+    }
+    if (sudden.enabled &&
+        (sudden.phase === 'sudden-death') !==
+          (state.rulesTurnCounter >= sudden.activationTurn)) {
+      throw new Error('Sudden-death phase is not reachable from its activation boundary');
+    }
     if (sudden.phase === 'regulation' && sudden.level !== 0) {
       throw new Error('Regulation cannot carry a sudden-death level');
     }
@@ -1765,12 +1775,39 @@
           band.rosterIds.some(function (id) { return expectedIds.indexOf(id) < 0; })) {
         throw new Error('Invalid sudden-death band roster');
       }
+      var bandSet = new Set(band.rosterIds);
+      var bandStartSeat = expectedIds.indexOf(band.rosterIds[0]);
+      var expectedBandOrder = [];
+      for (var bandOffset = 0; bandOffset < expectedIds.length; bandOffset += 1) {
+        var bandPlayerId = expectedIds[modulo(bandStartSeat +
+          bandOffset * config.direction, expectedIds.length)];
+        if (bandSet.has(bandPlayerId)) expectedBandOrder.push(bandPlayerId);
+      }
+      if (!sameIds(band.rosterIds, expectedBandOrder) ||
+          activePlayers(state).some(function (player) { return !bandSet.has(player.id); })) {
+        throw new Error('Sudden-death band order is not reachable');
+      }
       assertWhole(band.targetTurnsPerPlayer, 'band turns per player', 1);
       assertWhole(band.targetTurns, 'band target turns', 1);
       assertWhole(band.countedTurns, 'band counted turns', 0);
       if (band.level !== sudden.level) throw new Error('Sudden-death band level is stale');
-      if (band.targetTurns !== band.targetTurnsPerPlayer * band.rosterIds.length) {
+      var expectedTurnsPerPlayer = Math.max(1,
+        Math.ceil(config.suddenDeathStepTurns / band.rosterIds.length));
+      if (band.targetTurnsPerPlayer !== expectedTurnsPerPlayer ||
+          band.targetTurns !== expectedTurnsPerPlayer * band.rosterIds.length) {
         throw new Error('Sudden-death band target is not a complete seat rotation');
+      }
+      var bandId = /^sd-(\d+)-(\d+)$/.exec(String(band.id || ''));
+      var bandStartTurn = bandId ? integer(bandId[2], NaN, 0) : NaN;
+      if (!bandId || String(sudden.level) !== bandId[1] ||
+          !Number.isSafeInteger(bandStartTurn) || bandStartTurn > state.rulesTurnCounter ||
+          (sudden.level === 1 && bandStartTurn !== sudden.activationTurn) ||
+          (sudden.level > 1 && bandStartTurn <= sudden.activationTurn) ||
+          band.countedTurns !== state.rulesTurnCounter - bandStartTurn) {
+        throw new Error('Sudden-death band identity or age is not reachable');
+      }
+      if (!band.turnsByPlayer || !sameIdSet(Object.keys(band.turnsByPlayer), band.rosterIds)) {
+        throw new Error('Sudden-death turn map does not match its roster');
       }
       var countedInBand = 0;
       band.rosterIds.forEach(function (id) {
@@ -1782,6 +1819,10 @@
       });
       if (countedInBand !== band.countedTurns) {
         throw new Error('Sudden-death band counter does not match its seats');
+      }
+      if (state.phase === 'active' && activePlayers(state).length > 1 &&
+          suddenDeathBandComplete(state)) {
+        throw new Error('Completed sudden-death band was not advanced');
       }
     }
     if (!Array.isArray(state.winnerIds) || new Set(state.winnerIds).size !== state.winnerIds.length ||
@@ -1843,27 +1884,43 @@
       }
     });
     var derivedWins = cupWinsMap(config.players);
+    var historyOutcomeIds = new Set();
+    var prefixClincher = null;
     state.heatResults.forEach(function (result, index) {
       var heat = index + 1;
       var expectedStarter = config.players[modulo(config.startIndex + index * config.direction,
         config.players.length)].id;
       if (!result || result.heatNumber !== heat || ids.indexOf(result.winnerId) < 0 ||
           result.starterId !== expectedStarter || result.outcomeId == null ||
-          result.completionReason == null) {
+          (result.completionReason !== 'last-player-standing' &&
+            result.completionReason !== 'no-survivors')) {
         throw new Error('Cup heat history is not reachable');
       }
+      if (historyOutcomeIds.has(result.outcomeId)) {
+        throw new Error('Cup heat history reuses a resolution identity');
+      }
+      historyOutcomeIds.add(result.outcomeId);
       var resultIdentity = parseResolutionId(result.outcomeId);
       var innerNamespace = resolutionNamespace('classic', config.matchId + ':heat:' + heat);
-      if (resultIdentity.namespace !== innerNamespace &&
-          resultIdentity.namespace !== state.resolutionIdentity.namespace) {
+      var outerNamespace = state.resolutionIdentity.namespace;
+      if ((result.completionReason === 'last-player-standing' &&
+          (resultIdentity.namespace !== innerNamespace || resultIdentity.ordinal !== result.attempts)) ||
+          (result.completionReason === 'no-survivors' &&
+          (resultIdentity.namespace !== outerNamespace || resultIdentity.ordinal > state.sequence))) {
         throw new Error('Cup heat outcome belongs to a foreign namespace');
       }
-      assertWhole(result.rulesTurns, 'Cup heat rules turns', 0);
-      assertWhole(result.attempts, 'Cup heat attempts', 0);
+      assertWhole(result.rulesTurns, 'Cup heat rules turns', 1);
+      assertWhole(result.attempts, 'Cup heat attempts', 1);
       if (result.rulesTurns > result.attempts) {
         throw new Error('Cup heat competitive turns exceed attempts');
       }
       derivedWins[result.winnerId] += 1;
+      if (derivedWins[result.winnerId] >= config.winsNeeded) {
+        if (index !== state.heatResults.length - 1) {
+          throw new Error('Cup heat history continues after a clinching win');
+        }
+        prefixClincher = result.winnerId;
+      }
     });
     if (ids.some(function (id) { return state.heatWins[id] !== derivedWins[id]; })) {
       throw new Error('Cup heat wins do not match heat history');
@@ -1947,7 +2004,8 @@
         throw new Error('Completed Cup requires one valid winner');
       }
       if (state.completionReason === 'cup-won' &&
-          state.heatWins[state.winnerIds[0]] < config.winsNeeded) {
+          (state.heatWins[state.winnerIds[0]] < config.winsNeeded ||
+            prefixClincher !== state.winnerIds[0])) {
         throw new Error('Cup winner has not won enough heats');
       }
       if (state.completionReason === 'cup-shootout') {
@@ -2021,6 +2079,12 @@
         (state.phase === 'active' && state.queuePosition >= state.queue.length)) {
       throw new RangeError('Team Clash queue is exhausted');
     }
+    var completedRoundFlips = (state.roundNumber - 1) * state.queue.length;
+    var expectedSequence = completedRoundFlips + state.queuePosition;
+    if (!Number.isSafeInteger(completedRoundFlips) || !Number.isSafeInteger(expectedSequence) ||
+        state.sequence !== expectedSequence) {
+      throw new Error('Team Clash sequence is not reachable from its round and queue position');
+    }
     var ids = config.players.map(function (player) { return player.id; });
     if (state.queue.some(function (entry) { return !entry || ids.indexOf(entry.playerId) < 0; })) {
       throw new Error('Team Clash queue contains an unknown player');
@@ -2048,6 +2112,22 @@
     if (!state.playerStats || !sameIdSet(Object.keys(state.playerStats), ids)) {
       throw new TypeError('Invalid Team Clash player statistics');
     }
+    var expectedActorFlips = {};
+    ids.forEach(function (id) { expectedActorFlips[id] = 0; });
+    var completedRounds = state.roundNumber - 1;
+    config.teams.forEach(function (roster, teamIndex) {
+      var completedTeamFlips = completedRounds * config.flipsPerTeam;
+      var fullCycles = Math.floor(completedTeamFlips / roster.length);
+      var remainder = completedTeamFlips % roster.length;
+      roster.forEach(function (id) { expectedActorFlips[id] += fullCycles; });
+      for (var actorOffset = 0; actorOffset < remainder; actorOffset += 1) {
+        expectedActorFlips[roster[modulo(config.teammateOffsets[teamIndex] +
+          actorOffset, roster.length)]] += 1;
+      }
+    });
+    state.queue.slice(0, state.queuePosition).forEach(function (entry) {
+      expectedActorFlips[entry.playerId] += 1;
+    });
     var totalFlips = 0;
     ids.forEach(function (id) {
       var stats = object(state.playerStats[id]);
@@ -2057,6 +2137,9 @@
       if (stats.caps > stats.makes || stats.makes > stats.flips ||
           stats.streak > stats.bestStreak || stats.bestStreak > stats.makes) {
         throw new Error('Team Clash player statistics are incoherent');
+      }
+      if (stats.flips !== expectedActorFlips[id]) {
+        throw new Error('Team Clash player flip totals do not match canonical actors');
       }
       totalFlips += stats.flips;
     });
@@ -2076,6 +2159,9 @@
           (state.completionReason !== 'target-score' &&
             state.completionReason !== 'automatic-team-result')) {
         throw new Error('Completed Team Clash requires a winning team');
+      }
+      if (state.completionReason === 'automatic-team-result' && state.sequence < 1) {
+        throw new Error('Automatic Team Clash result requires a resolved flip');
       }
       if (state.completionReason === 'target-score' &&
           state.scores[state.winnerTeamIndex] < config.targetScore) {

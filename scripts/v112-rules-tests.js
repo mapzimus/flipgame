@@ -657,6 +657,13 @@ function testCompactMonotonicResolutionIdentity() {
   assert.throws(() => Rules.resolveClassicFlip(classic, {
     result: 'MISS', resolutionIdentity: tampered,
   }), /payload is invalid/);
+  const rebound = structuredClone(Rules.nextResolutionIdentity(classic, 'original-caller'));
+  rebound.callerId = 'different-caller';
+  rebound.id = rebound.id.slice(0, rebound.id.lastIndexOf('|') + 1) +
+    encodeURIComponent(rebound.callerId);
+  assert.throws(() => Rules.resolveClassicFlip(classic, {
+    result: 'MISS', resolutionIdentity: rebound,
+  }), /payload is invalid/, 'the identity token binds its caller ID');
   assert.throws(() => Rules.resolveClassicFlip(classic, {
     result: 'MISS', flipId: 'different-caller',
     resolutionIdentity: Rules.nextResolutionIdentity(classic, 'bound-caller'),
@@ -999,6 +1006,32 @@ function testForgedSchemaTagsAreNeverTrusted() {
   forgedFire.onFirePlayerId = null;
   assert.throws(() => Rules.resolveClassicFlip(forgedFire, { result: 'MAKE' }),
     /owner/);
+  const disabledSudden = Rules.createClassicState({ matchId: 'forged-disabled-sudden',
+    players: players(2), suddenDeathEnabled: false });
+  const impossibleSudden = structuredClone(disabledSudden);
+  impossibleSudden.suddenDeath.phase = 'sudden-death';
+  impossibleSudden.suddenDeath.level = 1;
+  impossibleSudden.suddenDeath.band = {
+    id: 'sd-1-0', level: 1, rosterIds: ['p1', 'p2'],
+    targetTurnsPerPlayer: 10, targetTurns: 20, countedTurns: 0,
+    turnsByPlayer: { p1: 0, p2: 0 },
+  };
+  assert.throws(() => Rules.toMatchOutcomeV2(impossibleSudden, { status: 'abandoned' }),
+    /Disabled sudden death/);
+  const immediateSudden = Rules.createClassicState({ matchId: 'forged-sudden-band',
+    players: players(4), suddenDeathAfterTurns: 0 });
+  const forgedBandId = structuredClone(immediateSudden);
+  forgedBandId.suddenDeath.band.id = 'sd-1-9';
+  assert.throws(() => Rules.resolveClassicFlip(forgedBandId, { result: 'MISS' }),
+    /identity or age/);
+  const forgedBandOrder = structuredClone(immediateSudden);
+  forgedBandOrder.suddenDeath.band.rosterIds = ['p1', 'p3', 'p2', 'p4'];
+  assert.throws(() => Rules.resolveClassicFlip(forgedBandOrder, { result: 'MISS' }),
+    /band order/);
+  const forgedBandMap = structuredClone(immediateSudden);
+  forgedBandMap.suddenDeath.band.turnsByPlayer.intruder = 0;
+  assert.throws(() => Rules.resolveClassicFlip(forgedBandMap, { result: 'MISS' }),
+    /turn map/);
 
   const cup = Rules.createCupState({ matchId: 'forged-cup-state', cupLength: 'short',
     players: players(2) });
@@ -1042,6 +1075,26 @@ function testForgedSchemaTagsAreNeverTrusted() {
   const forgedHeatNumber = structuredClone(between);
   forgedHeatNumber.heatNumber = 3;
   assert.throws(() => Rules.beginNextCupHeat(forgedHeatNumber), /history, and phase/);
+  const zeroAttemptHistory = structuredClone(between);
+  zeroAttemptHistory.heatResults[0].attempts = 0;
+  zeroAttemptHistory.heatResults[0].rulesTurns = 0;
+  assert.throws(() => Rules.beginNextCupHeat(zeroAttemptHistory),
+    /foreign namespace|at least 1/);
+  let clinched = Rules.beginNextCupHeat(between);
+  clinched = closeCupHeatFor(clinched, 'p1');
+  const postClinch = structuredClone(clinched);
+  postClinch.heatNumber = 3;
+  const forgedThirdHeat = Rules.createClassicState({
+    matchId: `${postClinch.matchId}:heat:3`, players: players(2), startingLives: 3,
+  });
+  postClinch.heatResults.push({
+    heatNumber: 3, winnerId: 'p2', starterId: 'p1', rulesTurns: 1, attempts: 1,
+    completionReason: 'last-player-standing',
+    outcomeId: Rules.nextResolutionIdentity(forgedThirdHeat, 'forged-third').id,
+  });
+  postClinch.heatWins.p2 = 1;
+  assert.throws(() => Rules.toMatchOutcomeV2(postClinch, { status: 'completed' }),
+    /continues after a clinching win/);
   const magnetCup = Rules.createCupState({ matchId: 'forged-cup-magnet', cupLength: 'short',
     players: [{ id: 'p1', alwaysMagnet: true }, { id: 'p2' }] });
   const lostMagnet = structuredClone(magnetCup);
@@ -1065,6 +1118,24 @@ function testForgedSchemaTagsAreNeverTrusted() {
   duplicateTeamActor.queue[2].position = 2;
   assert.throws(() => Rules.resolveTeamFlip(duplicateTeamActor, { result: 'MAKE' }),
     /canonically derived/);
+  let oneTeamFlip = Rules.resolveTeamFlip(team, {
+    playerId: team.turn.current, result: 'MISS',
+  }).state;
+  const reassignedStats = structuredClone(oneTeamFlip);
+  const actualActor = team.turn.current;
+  const otherActor = reassignedStats.config.players.find(player => player.id !== actualActor).id;
+  reassignedStats.playerStats[actualActor].flips = 0;
+  reassignedStats.playerStats[otherActor].flips = 1;
+  assert.throws(() => Rules.toMatchOutcomeV2(reassignedStats, { status: 'abandoned' }),
+    /canonical actors/);
+  const zeroFlipAutomatic = structuredClone(team);
+  zeroFlipAutomatic.phase = 'complete';
+  zeroFlipAutomatic.winnerTeamIndex = 0;
+  zeroFlipAutomatic.winnerIds = zeroFlipAutomatic.config.teams[0].slice();
+  zeroFlipAutomatic.completionReason = 'automatic-team-result';
+  zeroFlipAutomatic.turn = { current: null, onDeck: null, afterThat: null, signals: [] };
+  assert.throws(() => Rules.toMatchOutcomeV2(zeroFlipAutomatic, { status: 'completed' }),
+    /requires a resolved flip/);
 }
 
 function run() {
