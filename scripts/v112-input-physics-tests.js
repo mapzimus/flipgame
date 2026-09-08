@@ -6,6 +6,10 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
+const REQUIRED_VIEWPORTS = Object.freeze([
+  [360, 740], [768, 1024], [1280, 720],
+  [1366, 768], [1920, 1080], [3840, 2160],
+]);
 
 class FakeCanvas {
   constructor(width, height) {
@@ -58,10 +62,9 @@ function runGesture({ width, height, pointerType = 'mouse', start, samples, up }
 }
 
 function testLaneRelativeAndPointerParity() {
-  const viewports = [[360, 640], [1280, 720], [3840, 2160]];
   const pointerTypes = ['touch', 'pen', 'mouse'];
   const results = [];
-  for (const [width, height] of viewports) {
+  for (const [width, height] of REQUIRED_VIEWPORTS) {
     for (const pointerType of pointerTypes) {
       results.push(runGesture({
         width,
@@ -80,6 +83,66 @@ function testLaneRelativeAndPointerParity() {
     assert.ok(Math.abs(result.vy - results[0].vy) <= Math.abs(results[0].vy) * 0.02,
       `vertical launch drifted across device/pointer: ${result.vy} vs ${results[0].vy}`);
   }
+}
+
+function canonicalPoint(width, height, point, timeStamp) {
+  return {
+    clientX: point[0] * width / 1280,
+    clientY: point[1] * height / 720,
+    timeStamp,
+  };
+}
+
+function testLowMidHighGestureCorpusAndSpinParity() {
+  const corpus = [
+    { id: 'low', start: [480, 620], samples: [[488, 562, 100]], up: [496, 520, 200] },
+    { id: 'mid', start: [480, 620], samples: [[500, 520, 50]], up: [520, 420, 100] },
+    { id: 'high', start: [480, 620], samples: [[512, 460, 40]], up: [544, 340, 80] },
+  ];
+  const pointerTypes = ['touch', 'pen', 'mouse'];
+  const byGesture = new Map();
+
+  for (const gesture of corpus) {
+    const outcomes = [];
+    for (const [width, height] of REQUIRED_VIEWPORTS) {
+      for (const pointerType of pointerTypes) {
+        const signal = runGesture({
+          width,
+          height,
+          pointerType,
+          start: canonicalPoint(width, height, gesture.start, 0),
+          samples: gesture.samples.map((sample) =>
+            canonicalPoint(width, height, sample, sample[2])),
+          up: canonicalPoint(width, height, gesture.up, gesture.up[2]),
+        });
+        assert.ok(signal, `${gesture.id} ${pointerType} gesture did not qualify at ${width}x${height}`);
+        const physics = loadPhysics();
+        physics.setProfile(null);
+        physics.init(width, height);
+        physics.setFeel('standard');
+        physics.applyFlick(signal.vx, signal.vy, 9871, 1, 'disabled');
+        outcomes.push({ signal, spin: physics.getLastFlickInfo().spin,
+          pointerType, width, height });
+      }
+    }
+    const reference = outcomes[0];
+    for (const outcome of outcomes) {
+      const velocity = Math.hypot(outcome.signal.vx, outcome.signal.vy);
+      const referenceVelocity = Math.hypot(reference.signal.vx, reference.signal.vy);
+      assert.ok(Math.abs(velocity - referenceVelocity) <= referenceVelocity * 0.02,
+        `${gesture.id} launch velocity drifted at ${outcome.width}x${outcome.height}/${outcome.pointerType}`);
+      assert.ok(Math.abs(outcome.spin - reference.spin) <= 0.03,
+        `${gesture.id} spin drifted at ${outcome.width}x${outcome.height}/${outcome.pointerType}`);
+    }
+    byGesture.set(gesture.id, reference);
+  }
+
+  const powers = corpus.map((gesture) => Math.abs(byGesture.get(gesture.id).signal.vy));
+  assert.ok(powers[0] < powers[1] && powers[1] < powers[2],
+    `low/mid/high launch corpus collapsed: ${powers.join(', ')}`);
+  const spins = corpus.map((gesture) => Math.abs(byGesture.get(gesture.id).spin));
+  assert.ok(spins[0] < spins[1] && spins[1] < spins[2],
+    `low/mid/high spin response collapsed: ${spins.join(', ')}`);
 }
 
 function testCoalescedAndPointerUpSamples() {
@@ -233,6 +296,61 @@ function testFeelIsBoundedPrelaunchTransfer() {
     `ordinary spin curve drifted: ${controlled.spin} vs ${expectedSpin}`);
 }
 
+function resolvePhysicalSignal(vx, vy, seed) {
+  const physics = loadPhysics();
+  physics.setProfile(null);
+  physics.init(1280, 720);
+  physics.setFeel('standard');
+  physics.applyFlick(vx, vy, seed, 1, 'disabled');
+  let sawContact = false;
+  let sawSettling = false;
+  for (let frame = 1; frame <= 1200; frame += 1) {
+    physics.step(1 / 60);
+    const before = physics.getLandingLifecycle();
+    if (before.phase === 'contact') {
+      sawContact = true;
+      assert.equal(physics.checkLanding(), null,
+        'ordinary shot resolved on its first contact frame');
+      continue;
+    }
+    if (before.phase === 'settling') sawSettling = true;
+    const verdict = physics.checkLanding();
+    if (verdict) {
+      const lifecycle = physics.getLandingLifecycle();
+      assert.equal(sawContact, true, 'ordinary verdict skipped contact');
+      assert.equal(sawSettling, true, 'ordinary verdict skipped settling');
+      assert.ok(lifecycle.settleMs <= 4017,
+        `ordinary settle limit exceeded: ${lifecycle.settleMs}ms`);
+      return { verdict, lifecycle };
+    }
+  }
+  throw new Error(`ordinary signal did not resolve for seed ${seed}`);
+}
+
+function testLowMidHighPhysicalOutcomesAndSettlement() {
+  const signals = [
+    { id: 'low', vx: 80, vy: -580 },
+    { id: 'mid', vx: 400, vy: -2000 },
+    { id: 'high', vx: 800, vy: -4000 },
+  ];
+  const rows = [];
+  for (const signal of signals) {
+    for (let seed = 1; seed <= 18; seed += 1) {
+      rows.push({ id: signal.id,
+        ...resolvePhysicalSignal(signal.vx, signal.vy, seed) });
+    }
+  }
+  const low = rows.filter((row) => row.id === 'low');
+  assert.ok(low.every((row) => row.verdict === 'MISS'),
+    'low-power corpus unexpectedly became a full-flip band');
+  assert.ok(low.some((row) => row.lifecycle.reason === 'underrotated'),
+    'low-power misses lost the under-rotation reason');
+  assert.ok(rows.some((row) => row.verdict === 'MAKE'),
+    'controlled corpus contains no physical make path');
+  assert.ok(rows.some((row) => row.verdict === 'MISS'),
+    'controlled corpus contains no physical miss path');
+}
+
 function testPracticeConsumerUsesReleaseSignal() {
   const source = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
   const start = source.indexOf('function practiceMeterFromDrag');
@@ -249,9 +367,11 @@ function testPracticeConsumerUsesReleaseSignal() {
 }
 
 testLaneRelativeAndPointerParity();
+testLowMidHighGestureCorpusAndSpinParity();
 testCoalescedAndPointerUpSamples();
 testThresholdAndCancellation();
 testFeelIsBoundedPrelaunchTransfer();
+testLowMidHighPhysicalOutcomesAndSettlement();
 testPracticeConsumerUsesReleaseSignal();
 
 console.log('v1.12 lane-relative input and prelaunch Feel tests passed.');

@@ -361,6 +361,11 @@ const Physics = (() => {
     wallBounce: 0.96,
     hitRadiusScale: 0.55,
     attractionPerStep: 0.032,
+    captureRadiusScale: 1.42,
+    captureRadiusGrowth: 0.19,
+    captureRadiusMaximum: 1.75,
+    captureDamping: 0.35,
+    capturePullMultiplier: 40.0,
     timeoutFrames: 360,
     deflectorCount: 3,
     saucerCount: 6,
@@ -417,9 +422,43 @@ const Physics = (() => {
       ringRadius: Math.round(Math.max(54, Math.min(210, shortEdge * 0.09))),
       hitRadiusScale,
       attractionPerStep: ALIEN_CONTRACT.attractionPerStep * scale,
+      captureRadiusScale: Math.min(ALIEN_CONTRACT.captureRadiusMaximum,
+        ALIEN_CONTRACT.captureRadiusScale +
+          Math.max(0, scale - 0.90) * ALIEN_CONTRACT.captureRadiusGrowth),
+      captureDamping: ALIEN_CONTRACT.captureDamping,
+      capturePullMultiplier: ALIEN_CONTRACT.capturePullMultiplier,
       timeoutFrames: ALIEN_CONTRACT.timeoutFrames,
       launchScale: scale,
       compact,
+    });
+  }
+
+  // Pure prelaunch geometry query. Alien Invasion is selected before input,
+  // so the renderer and a physical CPU aimer both need the exact ring location
+  // before applyFlick activates the temporary profile. Keeping placement here
+  // also prevents native Alien and Invasion from duplicating target math.
+  function alienTargetForSeed(seed, width = viewW || canvasW, height = viewH || arenaH,
+      bottomInset = viewBottomInset) {
+    const metrics = alienMetricsForViewport(width, height);
+    const worldW = Math.round(metrics.width * metrics.arenaExpandX);
+    const floorY = metrics.height - tableInset(metrics.height) -
+      Math.max(0, Number(bottomInset) || 0);
+    const margin = WALL_INSET + metrics.ringRadius + 32;
+    const xRoll = mixSeed(seed, 0x76a9f4d1) / 4294967296;
+    const yRoll = mixSeed(seed, 0xb5297a4d) / 4294967296;
+    const x = margin + xRoll * Math.max(0, worldW - margin * 2);
+    const y = Math.max(metrics.ringRadius + 60,
+      Math.min(floorY - metrics.ringRadius - 60,
+        floorY * (0.36 + yRoll * 0.24)));
+    return Object.freeze({
+      x,
+      y,
+      halfWidth: metrics.ringRadius,
+      hitHalfWidth: Math.max(8, metrics.ringRadius * metrics.hitRadiusScale),
+      worldW,
+      worldH: floorY + 30,
+      viewW: metrics.width,
+      viewH: metrics.height,
     });
   }
 
@@ -899,15 +938,27 @@ const Physics = (() => {
 
   function getObstacles() {
     return {
+      schema: 'AlienObstacleGeometryV1',
+      coordinateSpace: 'physics-world-css-px',
       theme: 'alien',
-      deflectors: deflectors.map((d) => ({ vertices: d.vertices.map((v) => ({ x: v.x, y: v.y })) })),
+      deflectors: deflectors.map((d) => ({
+        surfaceId: d.id,
+        label: 'deflector',
+        collider: 'polygon',
+        vertices: d.vertices.map((v) => ({ x: v.x, y: v.y })),
+      })),
       // Back-compat single deflector for older renderers
       deflector: deflectors[0]
         ? { vertices: deflectors[0].vertices.map((v) => ({ x: v.x, y: v.y })) }
         : null,
       saucers: saucers.map((s) => ({
+        surfaceId: s.body.id,
+        label: 'saucer',
+        collider: 'rectangle',
         x: s.body.position.x, y: s.body.position.y,
         angle: s.body.angle, rx: s.rx, ry: s.ry,
+        vertices: s.body.vertices.map((v) => ({ x: v.x, y: v.y })),
+        velocity: { x: s.body.velocity.x, y: s.body.velocity.y },
       })),
     };
   }
@@ -932,14 +983,10 @@ const Physics = (() => {
   }
 
   function placeAlienTargetForSeed(seed) {
-    const metrics = alienMetricsForViewport(viewW || canvasW, viewH || arenaH);
-    targetHW = metrics.ringRadius;
-    const margin = WALL_INSET + targetHW + 32;
-    const xRoll = mixSeed(seed, 0x76a9f4d1) / 4294967296;
-    const yRoll = mixSeed(seed, 0xb5297a4d) / 4294967296;
-    targetX = margin + xRoll * Math.max(0, canvasW - margin * 2);
-    targetY = Math.max(metrics.ringRadius + 60,
-      Math.min(groundY - metrics.ringRadius - 60, groundY * (0.36 + yRoll * 0.24)));
+    const target = alienTargetForSeed(seed);
+    targetHW = target.halfWidth;
+    targetX = target.x;
+    targetY = target.y;
   }
 
   function getTarget() {
@@ -950,6 +997,20 @@ const Physics = (() => {
       y: targetY,
       style: alienShotActive() ? 'portal' : 'pad',
       armed: bankHits > 0,
+    };
+  }
+
+  function getAlienArenaState(seed) {
+    const metrics = alienMetricsForViewport(viewW || canvasW, viewH || arenaH);
+    const preview = seed == null ? null : alienTargetForSeed(seed);
+    return {
+      schema: 'AlienArenaGeometryV1',
+      coordinateSpace: 'physics-world-css-px',
+      active: alienShotActive(),
+      metrics: { ...metrics },
+      target: preview || getTarget(),
+      obstacles: getObstacles(),
+      bank: getAlienBankTelemetry(),
     };
   }
 
@@ -2331,7 +2392,9 @@ const Physics = (() => {
   function applyFlick(vx, vy, seed, rareMultiplier = 1, eventMode = 'normal', alwaysMagnet = false, eventPolicy = {}) {
     const rawVx = Number.isFinite(Number(vx)) ? Number(vx) : 0;
     const rawVy = Number.isFinite(Number(vy)) ? Number(vy) : 0;
-    const transferredInput = transferInputForFeel(rawVx, rawVy);
+    const requestedInputFeel = eventPolicy && eventPolicy.inputFeelMode;
+    const transferredInput = transferInputForFeel(rawVx, rawVy,
+      FEEL_MODES.has(requestedInputFeel) ? requestedInputFeel : feelMode);
     vx = transferredInput.vx;
     vy = transferredInput.vy;
     const s = (seed !== undefined && seed !== null
@@ -2589,10 +2652,16 @@ const Physics = (() => {
       const dy = targetY - bottle.position.y;
       const dist = Math.max(1, Math.hypot(dx, dy));
       const metrics = alienMetricsForViewport(viewW || canvasW, viewH || arenaH);
-      const pull = metrics.attractionPerStep;
+      const hitRadius = currentHitHalfWidth();
+      const captureEdge = hitRadius * metrics.captureRadiusScale;
+      const capture = Math.max(0, Math.min(1,
+        (captureEdge - dist) / Math.max(1, captureEdge - hitRadius)));
+      const pull = metrics.attractionPerStep *
+        (1 + capture * metrics.capturePullMultiplier);
+      const damping = 1 - capture * (1 - metrics.captureDamping);
       Body.setVelocity(bottle, {
-        x: bottle.velocity.x + dx / dist * pull,
-        y: bottle.velocity.y + dy / dist * pull,
+        x: bottle.velocity.x * damping + dx / dist * pull,
+        y: bottle.velocity.y * damping + dy / dist * pull,
       });
     }
 
@@ -3100,7 +3169,8 @@ const Physics = (() => {
     getFeel: () => feelMode, setImpactCallback,
     getLandingLifecycle, getEventMetadata, getEventResultMetadata,
     getEventRenderState, getEventBodies, hasDeferredReflow,
-    cleanupEvent: cleanupActiveEvent, alienMetricsForViewport, getAlienBankTelemetry,
+    cleanupEvent: cleanupActiveEvent, alienMetricsForViewport, alienTargetForSeed,
+    getAlienArenaState, getAlienBankTelemetry,
     getArenaProfiles,
   };
 })();

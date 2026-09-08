@@ -7,9 +7,10 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 const VIEWPORTS = Object.freeze([
-  [360, 640],
+  [360, 740],
   [768, 1024],
   [1280, 720],
+  [1366, 768],
   [1920, 1080],
   [3840, 2160],
 ]);
@@ -181,8 +182,11 @@ function snapshotArena(mode, width, height, seed = 37) {
   const hint = active.getViewHint();
   const obstacles = active.getObstacles();
   const target = active.getTarget();
+  const arenaState = active.getAlienArenaState(seed);
   return {
     target: target && {
+      x: target.x,
+      y: target.y,
       halfWidth: target.halfWidth,
       hitHalfWidth: target.hitHalfWidth,
       armed: target.armed,
@@ -197,6 +201,9 @@ function snapshotArena(mode, width, height, seed = 37) {
       rx: item.rx / hint.worldW,
       ry: item.ry / hint.worldH,
     })),
+    obstacleContract: obstacles,
+    arenaState,
+    hint,
   };
 }
 
@@ -212,6 +219,12 @@ function testSharedArenaContract() {
     if (MEASURE_ONLY) continue;
     assert.ok(native.deflectors.length > 0, `Native Alien lost its deflectors at ${width}x${height}`);
     assert.ok(native.saucers.length > 0, `Native Alien lost its UFOs at ${width}x${height}`);
+    assert.equal(native.obstacleContract.schema, 'AlienObstacleGeometryV1');
+    assert.equal(native.obstacleContract.coordinateSpace, 'physics-world-css-px');
+    assert.equal(native.arenaState.schema, 'AlienArenaGeometryV1');
+    assert.equal(native.arenaState.active, true);
+    assert.ok(native.arenaState.metrics.captureRadiusScale > 1,
+      `Alien tractor capture field disappeared at ${width}x${height}`);
     assert.equal(invasion.deflectors.length, native.deflectors.length,
       `Alien Invasion deflector count differs at ${width}x${height}`);
     assert.equal(invasion.saucers.length, native.saucers.length,
@@ -224,6 +237,32 @@ function testSharedArenaContract() {
       `Native Alien ring started armed at ${width}x${height}`);
     assert.equal(invasion.target.armed, false,
       `Alien Invasion ring started armed at ${width}x${height}`);
+    for (const snapshot of [native, invasion]) {
+      const ids = snapshot.obstacleContract.deflectors
+        .concat(snapshot.obstacleContract.saucers)
+        .map((item) => item.surfaceId);
+      assert.equal(new Set(ids).size, ids.length,
+        `Alien surface IDs are not unique at ${width}x${height}`);
+      for (const deflector of snapshot.obstacleContract.deflectors) {
+        assert.equal(deflector.label, 'deflector');
+        assert.equal(deflector.collider, 'polygon');
+        assert.ok(deflector.vertices.length >= 3);
+      }
+      for (const saucer of snapshot.obstacleContract.saucers) {
+        assert.equal(saucer.label, 'saucer');
+        assert.equal(saucer.collider, 'rectangle');
+        assert.equal(saucer.vertices.length, 4);
+        assert.ok(saucer.rx > 0 && saucer.ry > 0);
+        assert.ok(Number.isFinite(saucer.velocity.x) && Number.isFinite(saucer.velocity.y));
+      }
+      const preview = snapshot.arenaState.target;
+      assertNear(preview.x, snapshot.target.x, 1e-9,
+        `Alien preview x differs at ${width}x${height}`);
+      assertNear(preview.y, snapshot.target.y, 1e-9,
+        `Alien preview y differs at ${width}x${height}`);
+      assert.ok(snapshot.hint.zoom > 0 && snapshot.hint.zoom <= 1,
+        `Alien court camera is invalid at ${width}x${height}`);
+    }
     const nativeFlick = startShot({ mode: 'native-alien', width, height,
       seed: 37, ...corpusInput(37) }).getLastFlickInfo();
     const invasionFlick = startShot({ mode: 'alien-invasion', width, height,
