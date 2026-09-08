@@ -660,3 +660,33 @@ log, and defect ledger remain release history and are not rewritten.
   thenables, 18 multi-lane relay-cycle cases, exactly-once power restoration,
   status/phase cross-products, exact Story alliances, forged Classic/Cup/Team
   states, and 10,000 resolutions with only 96 bytes of payload growth.
+
+## Revision 41 — calibrated Alien physics and CPU integration boundary
+
+- Affected interfaces: core input transfer, Alien and Alien Invasion arena
+  geometry, UFO bank response, `CpuLaunchIntentV1`, live CPU launch routing and
+  renderer transforms for physical bank surfaces.
+- Old behavior: Alien success varied sharply by viewport and native versus
+  Invasion paths; repeated banks could preserve excessive motion. The shipped
+  CPU path still used unseeded `Math.random()` aim and inherited the player's
+  Physics Feel. UFO artwork also rotated at 35 percent of its authoritative
+  collider angle.
+- New behavior in `af6c4c4`: native Alien and Alien Invasion share one
+  viewport-scaled target, obstacle and capture contract. The first bank keeps
+  full energy and later banks progressively damp linear and angular motion. A
+  deterministic, result-blind CPU intent module targets Easy 30–40 percent,
+  Medium 45–55 percent and Hard 60–70 percent under Standard input transfer.
+- Independent evidence: player-input defects V112-002, V112-003 and V112-015
+  pass. In a 240-seed corpus at each supported viewport, matched Classic is
+  32.1 percent and Alien is 30.8–40.4 percent; native and Invasion sequences
+  are identical, no scored attempt is bankless, and cross-viewport spread is
+  9.6 percentage points.
+- Integration boundary: the CPU module is calibrated but not yet release-safe
+  until the browser boot graph and live `aiFlick` path consume its seeded
+  intent and pass `inputFeelMode: 'standard'`. UFO rendering must consume the
+  exact authoritative angle and vertices. Final v1.12 cache/version identity
+  remains intentionally release-owned and is not changed in this wave.
+- Required follow-up: live boot/main integration tests, exact physics/render
+  transform parity, strict primitive uint32 seed validation, direct Alien
+  cleanup telemetry reset, in-flight resize/reflow tests, and larger
+  non-prefix calibration windows before V112-016/V112-022 may close.
