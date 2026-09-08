@@ -740,6 +740,53 @@ log, and defect ledger remain release history and are not rewritten.
   case-sensitive, makes all resulting activity Test Data, grants nothing, and
   leaves the serialized earned profile unchanged.
 
+## Revision 44 — bounded Battle series and Pressure Heat
+
+- Affected interfaces: `BattleConfigV1`, `BattleStateV1`, Battle terminal
+  validation, `MatchOutcomeV2.completionReason`, series presentation and all
+  Equal Volley/Timed Rush multi-competitor tests.
+- Old behavior: “best of three” did not define the reachable 1–1–1 or similar
+  multi-competitor result after three completed heats, leaving implementations
+  free to add an unbounded heat or choose an unrelated aggregate tiebreak.
+- New behavior: every Battle series has a hard three-heat ceiling. Two heat wins
+  clinch immediately. If nobody has two after Heat 3, Heat 3 is an announced
+  **Pressure Heat** and its winner wins the series; its terminal reason is
+  `battle-pressure-heat`. A normal two-win clinch remains
+  `battle-heat-target`, and any post-clinch history is invalid.
+- Migration action: Battle state is match-ephemeral and v1.12 is unreleased, so
+  no persisted-state migration is permitted or required. Older structural test
+  fixtures must be rebuilt through the canonical Battle transition API.
+- Required verification: 1v1v1v1 and rotating-team sequences in both Equal
+  Volley and Timed Rush; a Pressure Heat result; an earlier two-win clinch; and
+  rejection of post-clinch, forged-winner and non-final-heat winner histories.
+- Integration commit: pending the isolated Battle outcome-integrity gate.
+
+## Revision 45 — fail-closed browser reward authority
+
+- Affected interfaces: `FlipgameV112Achievements`, `FlipgameV112Profile`,
+  `FlipgameV112ProgressionRuntime`, browser boot/composition, writer locking,
+  Profile import validation and the exact match/achievement receipt ledgers.
+- Audit evidence: the earlier browser scripts exposed a one-shot Profile bridge
+  carrying the raw store/writer toggle and a public evaluator capable of
+  issuing genuine reward evidence from caller-supplied facts. The default live
+  Runtime also failed to install its private reward authority, so the unsafe
+  path was writable while the intended path was unusable.
+- Immediate rule: standalone browser globals are frozen read-only facades. They
+  expose no evaluator, reward authority, raw store, writer toggle, constructor,
+  production connector or mutation verb. Duplicate/preseeded globals fail
+  closed. A temporary `liveAvailable: false` is correct until the trusted
+  composition gate lands; a fake or partially connected live runtime is not.
+- Required live composition: bundle Profile, Progression Runtime, Achievement
+  evaluator and Activity/Story coordinators in one lexical scope. Publish only
+  redacted UI projections. Prove one real match reservation/finalization and
+  achievement claim travel through the private authority before live V4 boot.
+- Persistence rule: consumed match ordinals and compacted rewards retain exact,
+  durable, collision-resistant receipts; no imported or higher-revision state
+  may erase, skip, duplicate or fabricate that correlation. Multi-tab writer
+  handoff must refresh before gaining authority.
+- Integration commits: achievement facade candidate `e425747`; Profile/Runtime
+  remediation and independent re-audit pending.
+
 ## Revision 44 — strict seed and Alien lifecycle hardening
 
 - Affected interfaces: public Physics seed entry points, `CpuLaunchIntentV1`,

@@ -189,6 +189,11 @@ twelve signature encounters:
   independently; launches released before the horn finish; ties use a paired
   sudden-death volley. Horn eligibility uses the monotonic input timestamp and
   absolute deadline rather than depending on animation-frame delivery.
+- A Battle series contains at most three heats. A competitor or team reaching
+  two heat wins clinches immediately and no later heat is legal. In a
+  multi-competitor series where nobody has two wins after Heat 3, Heat 3 is the
+  announced **Pressure Heat** and its winner wins the series; no unbounded
+  fourth heat or arbitrary score tiebreak is added.
 - Larger Volley teams rotate after each volley; Rush teams every 15 seconds.
   Verified four-touch displays may run two representatives/team, two-touch
   displays one/team, and unsupported or <768px layouts announce a fair
