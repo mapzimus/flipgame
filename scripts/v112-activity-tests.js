@@ -128,6 +128,13 @@ async function testVersionedDynamicActivityStateBridge() {
     },
     statsSink(payload) { statsState = payload.outcome.activityState; },
   });
+  assert.throws(() => coordinator.start(request({
+    matchId: 'dynamic-missing-provider', activityId: 'practice',
+    activityContext: { dynamicActivityState: true },
+  })), /require an activity-state provider/,
+  'a serialized dynamic request cannot silently bypass its live session provider');
+  assert.equal(coordinator.snapshot('dynamic-missing-provider'), null,
+    'a rejected provider-less request never opens a coordinator session');
   const provider = Activity.createSessionActivityStateProvider(({ schema, phase }) => {
     assert.equal(schema, 'SessionActivityStateReadV1');
     phases.push(phase);

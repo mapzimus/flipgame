@@ -239,6 +239,10 @@
       var request = MatchRequestV2(input);
       if (sessions.has(request.matchId)) throw new Error('Match already started: ' + request.matchId);
       var hooks = MatchSessionHooksV1(sessionHooks);
+      if (object(request.activityContext).dynamicActivityState === true &&
+          !hooks.activityStateProvider) {
+        throw new TypeError('Dynamic activity-state requests require an activity-state provider');
+      }
       var session = {
         request: request, hooks: hooks, prepared: null,
         status: 'active',
