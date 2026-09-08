@@ -20,10 +20,32 @@ function clone(value) {
   return result;
 }
 
+function assertSameData(actual, expected, message) {
+  assert.equal(JSON.stringify(actual), JSON.stringify(expected), message);
+}
+
 function players(count) {
   return Array.from({ length: count }, (_, index) => ({
     id: `p${index + 1}`, name: `Player ${index + 1}`, isAI: false,
   }));
+}
+
+let authoritySequence = 0;
+const RULES_BY_AUTHORITY = new WeakMap();
+function authorityFor(formatId = 'classic', matchId, count = 2) {
+  const rules = Rules.createRulesAdapter({ formatId,
+    matchId: matchId || `event-authority-${++authoritySequence}`, players: players(count) });
+  const authority = rules.claimEventAuthority();
+  RULES_BY_AUTHORITY.set(authority, rules);
+  return authority;
+}
+function rulesFor(authority) {
+  const rules = RULES_BY_AUTHORITY.get(authority);
+  if (!rules) throw new Error('Test authority has no Rules owner');
+  return rules;
+}
+function liveIdentity(authority, outcome) {
+  return rulesFor(authority).nextResolutionIdentity(outcome.launchClaimId);
 }
 
 function fnv(value) {
@@ -44,7 +66,8 @@ function identity(namespace, ordinal, callerId = null) {
 }
 
 function runtimeOptions(pack, laneId, authority, overrides = {}) {
-  return Object.assign({ laneId, packs: [pack], authority: authority.runtime,
+  const lane = authority.createLane(laneId);
+  return Object.assign({ laneId, packs: [pack], authority: lane.runtime,
     resolveCollider(collider) { return { transform: collider.transform, bounds: collider.bounds }; },
   }, overrides);
 }
@@ -57,6 +80,23 @@ function issue(eventId, options = {}) {
   const driven = Harness.drive(harness.runtime, { probe: options.probe });
   return { outcome: driven.outcome, frame: driven.frame, harness,
     authority: harness.authority };
+}
+
+function plinkoFacts(overrides = {}) {
+  return Object.assign({}, Harness.DEFAULT_FACTS.plinko, overrides);
+}
+
+function drivePlinko(authority, laneId, facts, probe = {}) {
+  const harness = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    authority, laneId, facts,
+    evaluate: facts.completionKind === 'no-contest' ? landing => Kernel.immutableData({
+      result: landing.result, pose: landing.pose, reason: landing.reason, facts,
+    }, 'Plinko no-contest evaluation') : undefined });
+  const outcome = Harness.drive(harness.runtime, {
+    step: Harness.makeStep({ elapsedMs: facts.dropDurationMs }),
+    probe: Object.assign({ elapsedMs: facts.dropDurationMs }, probe),
+  }).outcome;
+  return { harness, outcome };
 }
 
 function testCanonicalContractsAndUntrustedData() {
@@ -93,13 +133,14 @@ function testCanonicalContractsAndUntrustedData() {
   assert.equal(Object.getPrototypeOf(safe.nested), null);
 
   const pack = Harness.makePack({ eventClass: 'assist', ids: ['rainbow-corkscrew'] });
-  const authority = Kernel.createAuthority();
+  const authority = authorityFor();
+  const missingLane = authority.createLane('missing');
   assert.throws(() => Runtime.createEventRuntime({ laneId: 'missing', packs: [pack],
-    authority: authority.runtime }), /collider resolver/);
+    authority: missingLane.runtime }), /collider resolver/);
   const runtime = Runtime.createEventRuntime(runtimeOptions(pack, 'inherited-registry', authority));
   const inheritedSelection = Object.assign({}, Harness.makeSelection('rainbow-corkscrew', 'assist', 1),
     { eventId: 'toString' });
-  assert.throws(() => runtime.bind(inheritedSelection, Harness.makeContext()), /No EventPack/);
+  assert.throws(() => runtime.issueSelection(inheritedSelection), /Unknown canonical/);
 }
 
 function testStrictDeterministicRngAndSelectionConsumption() {
@@ -121,9 +162,10 @@ function testStrictDeterministicRngAndSelectionConsumption() {
   let capturedSelection;
   const pack = Harness.makePack({ eventClass: 'assist', ids: ['rainbow-corkscrew'],
     onCreate(id, context) { capturedSelection = context.selection; } });
-  const authority = Kernel.createAuthority();
+  const authority = authorityFor();
   const runtime = Runtime.createEventRuntime(runtimeOptions(pack, 'selection-lane', authority));
-  runtime.bind(Harness.makeSelection('rainbow-corkscrew', 'assist', 77, { turnSeed: 999 }),
+  runtime.bind(runtime.issueSelection(Harness.makeSelection('rainbow-corkscrew', 'assist', 77,
+    { turnSeed: 999 })),
     Harness.makeContext());
   assert.equal(capturedSelection.eventSeed, 77);
   assert.equal(Object.hasOwn(capturedSelection, 'turnSeed'), false,
@@ -137,26 +179,64 @@ function testStrictDeterministicRngAndSelectionConsumption() {
   runtime.cleanup('done');
 
   const consumed = Harness.makeSelection('rainbow-corkscrew', 'assist', 1, { consumed: true });
-  const consumedRuntime = Runtime.createEventRuntime(runtimeOptions(pack, 'consumed', Kernel.createAuthority()));
-  assert.throws(() => consumedRuntime.bind(consumed, Harness.makeContext()), /Consumed/);
-  const stringSeedRuntime = Runtime.createEventRuntime(runtimeOptions(pack, 'string-seed', Kernel.createAuthority()));
-  assert.throws(() => stringSeedRuntime.bind(
-    Harness.makeSelection('rainbow-corkscrew', 'assist', '12'), Harness.makeContext()),
+  const consumedRuntime = Runtime.createEventRuntime(runtimeOptions(pack, 'consumed', authorityFor()));
+  assert.throws(() => consumedRuntime.issueSelection(consumed), /Consumed/);
+  const stringSeedRuntime = Runtime.createEventRuntime(runtimeOptions(pack, 'string-seed', authorityFor()));
+  assert.throws(() => stringSeedRuntime.issueSelection(
+    Harness.makeSelection('rainbow-corkscrew', 'assist', '12')),
   /number primitive|safe integer/);
-  const stringTurnRuntime = Runtime.createEventRuntime(runtimeOptions(pack, 'string-turn', Kernel.createAuthority()));
-  assert.throws(() => stringTurnRuntime.bind(
-    Harness.makeSelection('rainbow-corkscrew', 'assist', 12, { turnSeed: '1' }), Harness.makeContext()),
+  const stringTurnRuntime = Runtime.createEventRuntime(runtimeOptions(pack, 'string-turn', authorityFor()));
+  assert.throws(() => stringTurnRuntime.issueSelection(
+    Harness.makeSelection('rainbow-corkscrew', 'assist', 12, { turnSeed: '1' })),
   /number primitive|safe integer/);
 
   const selected = ExistingEvents.select({ activityId: 'practice', physicsModeId: 'normal',
     forceName: 'Wind Tunnel', playerName: 'Tester', seed: 42 });
   const compatibility = Harness.makePack({ eventClass: 'hazard', ids: ['wind-tunnel'] });
-  const compatibilityAuthority = Kernel.createAuthority();
+  const compatibilityAuthority = authorityFor();
   const compatibleRuntime = Runtime.createEventRuntime(runtimeOptions(compatibility,
     'actual-event-selection', compatibilityAuthority));
-  compatibleRuntime.bind(selected, Harness.makeContext());
+  compatibleRuntime.bind(compatibleRuntime.issueSelection(selected), Harness.makeContext());
   assert.equal(compatibleRuntime.snapshot().eventId, 'wind-tunnel');
   compatibleRuntime.cleanup('done');
+
+  const duplicateRoot = authorityFor('classic', 'duplicate-lane-root');
+  duplicateRoot.createLane('one-lane');
+  assert.throws(() => duplicateRoot.createLane('one-lane'), /Duplicate lane ID/,
+    'lane IDs are unique within a match root');
+
+  const selectionRoot = authorityFor('classic', 'selection-authority-root');
+  const sourceLane = selectionRoot.createLane('selection-source');
+  const targetLane = selectionRoot.createLane('selection-target');
+  const sourceRuntime = Runtime.createEventRuntime({ laneId: 'selection-source', packs: [pack],
+    authority: sourceLane.runtime, resolveCollider() { return {}; } });
+  const targetRuntime = Runtime.createEventRuntime({ laneId: 'selection-target', packs: [pack],
+    authority: targetLane.runtime, resolveCollider() { return {}; } });
+  const raw = Harness.makeSelection('rainbow-corkscrew', 'assist', 91);
+  assert.throws(() => sourceRuntime.bind(raw, Harness.makeContext()), /not issued/,
+    'a structural EventSelectionV2 is not an authority token');
+  const branded = sourceLane.issueSelection(raw);
+  assert.throws(() => targetRuntime.bind(branded, Harness.makeContext()), /different match or lane/);
+  assert.throws(() => targetLane.issueSelection(raw), /already issued/,
+    'the exact registry selection object can be branded only once');
+  sourceRuntime.bind(branded, Harness.makeContext());
+  assert.throws(() => Kernel.claimSelection(sourceLane.runtime, branded,
+    'rainbow-corkscrew', 'assist'), /already consumed/);
+  sourceRuntime.cleanup('done');
+  targetRuntime.cleanup('done');
+
+  const sameClaimA = Harness.createHarness({ matchId: 'claim-a', laneId: 'same-lane',
+    eventSeed: 444 });
+  const sameClaimB = Harness.createHarness({ matchId: 'claim-b', laneId: 'same-lane',
+    eventSeed: 444 });
+  sameClaimA.runtime.telegraph();
+  sameClaimB.runtime.telegraph();
+  const claimA = sameClaimA.runtime.qualifyLaunch(Harness.makeSignal()).launchClaim;
+  const claimB = sameClaimB.runtime.qualifyLaunch(Harness.makeSignal()).launchClaim;
+  assert.notEqual(claimA.claimId, claimB.claimId,
+    'same event, lane, and seed still receive globally unique opaque launch claims');
+  sameClaimA.runtime.cleanup('done');
+  sameClaimB.runtime.cleanup('done');
 }
 
 function testStaticAndDynamicAmbientRandomProhibition() {
@@ -169,9 +249,10 @@ function testStaticAndDynamicAmbientRandomProhibition() {
       globalThis.Math['ran' + 'dom']();
       return Harness.makePack({ eventClass: 'assist', ids: [eventId] }).create(eventId, context);
     } });
-  const runtime = Runtime.createEventRuntime(runtimeOptions(dynamic, 'random-lane', Kernel.createAuthority()));
-  assert.throws(() => runtime.bind(Harness.makeSelection('rainbow-corkscrew', 'assist', 4),
-    Harness.makeContext()), /attempted ambient random/);
+  const runtime = Runtime.createEventRuntime(runtimeOptions(dynamic, 'random-lane', authorityFor()));
+  assert.throws(() => runtime.bind(runtime.issueSelection(
+    Harness.makeSelection('rainbow-corkscrew', 'assist', 4)),
+  Harness.makeContext()), /attempted ambient random/);
   assert.equal(runtime.snapshot().phase, 'cleaned');
 
   const dynamicBehavior = Harness.createHarness({ launch() {
@@ -184,6 +265,33 @@ function testStaticAndDynamicAmbientRandomProhibition() {
 
   assert.throws(() => EventRenderer.defineRenderPack({ eventClass: 'assist',
     ids: ['rainbow-corkscrew'], render() { return Math.random(); } }), /ambient random/);
+
+  [
+    function () { return Date.now(); },
+    function () { return new Date(); },
+    function () { return performance.now(); },
+    function () { return crypto.getRandomValues(new Uint32Array(1)); },
+  ].forEach((callback, index) => {
+    assert.throws(() => Kernel.definePack({ eventClass: 'assist',
+      ids: ['rainbow-corkscrew'], create: callback }), /ambient random|clock sources/,
+    `ambient clock/random source ${index} is rejected at authoring time`);
+  });
+
+  const deterministic = Harness.makePack({ eventClass: 'assist',
+    ids: ['rainbow-corkscrew'] });
+  assert.equal(Harness.assertDeterministicReplay({ pack: deterministic }).schema,
+    'EventDeterministicReplayV1');
+
+  let capturedClosureState = 0;
+  const closurePack = Harness.makePack({ eventClass: 'assist',
+    ids: ['rainbow-corkscrew'], launch() {
+      capturedClosureState += 1;
+      return { impulses: [{ entityRef: 'body:flipper-main',
+        x: capturedClosureState, y: -1 }] };
+    } });
+  assert.throws(() => Harness.assertDeterministicReplay({ pack: closurePack }),
+    /failed deterministic replay/,
+  'qualification replay detects captured mutable closure state that static inspection cannot sandbox');
 }
 
 function arm(runtime, step = Harness.makeStep()) {
@@ -286,7 +394,7 @@ function testContactOrderingDeduplicationAndBounds() {
   arm(foreign.runtime, Harness.makeStep({ elapsedMs: 2000 }));
   assert.throws(() => foreign.runtime.contact(Harness.makeContact({
     entityARef: 'body:foreign-a', entityBRef: 'body:foreign-b',
-  })), /owned by this event lane/);
+  })), /lane-owned collider/);
   assert.equal(foreign.trace.filter(item => item === 'contact').length, 0);
 
   const reordered = Harness.createHarness({ contact() { calls += 1; return {}; } });
@@ -407,11 +515,11 @@ function testResourceOwnershipAndHostileCleanup() {
       });
       throw new Error('pack-create-failed');
     } });
-  const createAuthority = Kernel.createAuthority();
+  const createAuthority = authorityFor();
   const createFailureRuntime = Runtime.createEventRuntime(runtimeOptions(createFailurePack,
     'create-failure', createAuthority));
-  assert.throws(() => createFailureRuntime.bind(
-    Harness.makeSelection('rainbow-corkscrew', 'assist', 1), Harness.makeContext()), error => {
+  assert.throws(() => createFailureRuntime.bind(createFailureRuntime.issueSelection(
+    Harness.makeSelection('rainbow-corkscrew', 'assist', 1)), Harness.makeContext()), error => {
     assert.equal(error.eventCleanupReport.resources.released.length, 1);
     assert.equal(error.eventCleanupReport.errors.length, 2);
     return true;
@@ -467,7 +575,7 @@ function testResizeSemanticsAndBoundedRetirement() {
 }
 
 function testLaneRuntimeIsolation() {
-  const authority = Kernel.createAuthority();
+  const authority = authorityFor();
   const left = Harness.createHarness({ laneId: 'left-lane', eventSeed: 91, authority });
   const right = Harness.createHarness({ laneId: 'right-lane', eventSeed: 91, authority });
   arm(left.runtime);
@@ -485,9 +593,13 @@ function testColliderBackedFramesReducedMotionAndRenderer() {
   const harness = Harness.createHarness({});
   arm(harness.runtime);
   const full = harness.runtime.frame(false);
-  assert.deepEqual(harness.trace.slice(-2), ['frame:false', 'frame:true'],
-    'both motion variants are checked even when only one was requested');
+  assert.equal(harness.trace.filter(item => item === 'frame:false').length, 1,
+    'event behavior produces one authoritative mechanics frame');
+  assert.equal(harness.trace.some(item => item === 'frame:true'), false,
+    'reduced presentation never invokes a second behavior callback');
   const reduced = harness.runtime.frame(true);
+  assert.equal(harness.trace.filter(item => item.startsWith('frame:')).length, 1,
+    'both render requests reuse the single mechanics frame');
   assert.equal(Kernel.mechanicsSignature(full), Kernel.mechanicsSignature(reduced));
   assert.notDeepEqual(full.cues, reduced.cues);
   assert.equal(Object.isFrozen(full.entities[0].transform), true);
@@ -495,7 +607,7 @@ function testColliderBackedFramesReducedMotionAndRenderer() {
   const renderPack = EventRenderer.defineRenderPack({ eventClass: 'assist',
     ids: ['rainbow-corkscrew'], render() { return {}; } });
   const renderer = EventRenderer.createEventRenderer({ packs: [renderPack],
-    authority: harness.authority.renderer });
+    authority: harness.laneAuthority.renderer });
   const plan = renderer.render(full);
   assert.equal(JSON.stringify(plan.commands[0].transform), JSON.stringify(full.entities[0].transform));
   assert.equal(JSON.stringify(plan.commands[0].bounds), JSON.stringify(full.entities[0].bounds));
@@ -505,7 +617,7 @@ function testColliderBackedFramesReducedMotionAndRenderer() {
   const forged = Harness.makeFrame('rainbow-corkscrew', 'assist', 'lane-a');
   assert.throws(() => renderer.render(forged), /kernel-issued/);
   const otherAuthorityRenderer = EventRenderer.createEventRenderer({ packs: [renderPack],
-    authority: Kernel.createAuthority().renderer });
+    authority: authorityFor().createLane('lane-a').renderer });
   assert.throws(() => otherAuthorityRenderer.render(full), /kernel-issued/);
 
   const badRender = EventRenderer.defineRenderPack({ eventClass: 'assist',
@@ -515,7 +627,7 @@ function testColliderBackedFramesReducedMotionAndRenderer() {
       return { commands };
     } });
   const badRenderer = EventRenderer.createEventRenderer({ packs: [badRender],
-    authority: harness.authority.renderer });
+    authority: harness.laneAuthority.renderer });
   assert.throws(() => badRenderer.render(full), /diverges/);
 
   const mutationPack = EventRenderer.defineRenderPack({ eventClass: 'assist',
@@ -524,7 +636,7 @@ function testColliderBackedFramesReducedMotionAndRenderer() {
       return {};
     } });
   assert.throws(() => EventRenderer.createEventRenderer({ packs: [mutationPack],
-    authority: harness.authority.renderer }).render(full), TypeError);
+    authority: harness.laneAuthority.renderer }).render(full), TypeError);
   assert.equal(full.entities[0].transform.x, 640);
 
   const badCue = EventRenderer.defineRenderPack({ eventClass: 'assist',
@@ -532,16 +644,7 @@ function testColliderBackedFramesReducedMotionAndRenderer() {
       return { cues: [{ cueId: 'reward', bonusLives: 9 }] };
     } });
   assert.throws(() => EventRenderer.createEventRenderer({ packs: [badCue],
-    authority: harness.authority.renderer }).render(full), /unsupported field/);
-
-  const reducedCheat = Harness.createHarness({ frame(reducedMotion, context, sequence) {
-    const frame = Harness.makeFrame('rainbow-corkscrew', 'assist', context.scope.laneId,
-      { sequence, reducedMotion });
-    if (reducedMotion) frame.entities[0].transform.x += 5;
-    return frame;
-  } });
-  arm(reducedCheat.runtime);
-  assert.throws(() => reducedCheat.runtime.frame(true), /Reduced motion changed|authoritative collider/);
+    authority: harness.laneAuthority.renderer }).render(full), /unsupported field/);
 
   const colliderCheat = Harness.createHarness({ resolveCollider(collider) {
     return { transform: Object.assign({}, collider.transform, { x: collider.transform.x + 1 }),
@@ -552,6 +655,72 @@ function testColliderBackedFramesReducedMotionAndRenderer() {
   colliderCheat.runtime.launch(Harness.makeDraft());
   colliderCheat.runtime.step(Harness.makeStep());
   assert.throws(() => colliderCheat.runtime.frame(false), /authoritative collider/);
+
+  const colliderless = Harness.createHarness({ frame(reduced, context, sequence) {
+    const candidate = Harness.makeScopeFrame('rainbow-corkscrew', 'assist', context, sequence);
+    candidate.entities[0].colliderRef = null;
+    return candidate;
+  } });
+  arm(colliderless.runtime);
+  assert.throws(() => colliderless.runtime.frame(false), /Physical EventFrame entity lacks a collider/);
+
+  const omitted = Harness.createHarness({ eventId: 'mitosis', eventClass: 'assist',
+    frame(reduced, context, sequence) {
+      return Harness.makeFrame('mitosis', 'assist', context.scope.laneId,
+        { sequence, entities: [Harness.makeScopeFrame('mitosis', 'assist', context,
+          sequence).entities[0]] });
+    } });
+  arm(omitted.runtime);
+  assert.throws(() => omitted.runtime.frame(false), /omitted an owned physical collider/);
+
+  const duplicateCollider = Harness.createHarness({ frame(reduced, context, sequence) {
+    const candidate = Harness.makeScopeFrame('rainbow-corkscrew', 'assist', context, sequence);
+    const duplicateEntity = clone(candidate.entities[0]);
+    duplicateEntity.entityId = 'duplicate-main';
+    candidate.entities.push(duplicateEntity);
+    return candidate;
+  } });
+  arm(duplicateCollider.runtime);
+  assert.throws(() => duplicateCollider.runtime.frame(false), /duplicates collider-backed entity/);
+
+  const mutatingFrame = Harness.createHarness({ frame(reduced, context, sequence) {
+    context.scope.getCollider('body:flipper-main').transform.x += 1;
+    return Harness.makeScopeFrame('rainbow-corkscrew', 'assist', context, sequence);
+  } });
+  arm(mutatingFrame.runtime);
+  assert.throws(() => mutatingFrame.runtime.frame(false), /mutated authoritative physics state/);
+
+  const gameplayRngFrame = Harness.createHarness({ frame(reduced, context, sequence) {
+    context.rng.sampleUint32(0, 'presentation-cheat');
+    return Harness.makeScopeFrame('rainbow-corkscrew', 'assist', context, sequence);
+  } });
+  arm(gameplayRngFrame.runtime);
+  assert.throws(() => gameplayRngFrame.runtime.frame(false), /Gameplay RNG cannot advance during frame/);
+
+  let isolatedContext;
+  const visualRngFrame = Harness.createHarness({
+    onCreate(eventId, context) { isolatedContext = context; },
+    frame(reduced, context, sequence) {
+      const value = context.visualRng.floatAt(7, 'rainbow-particle');
+      const candidate = Harness.makeScopeFrame('rainbow-corkscrew', 'assist', context, sequence);
+      candidate.cues[0].intensity = value;
+      return candidate;
+    },
+  });
+  arm(visualRngFrame.runtime);
+  const gameplayBeforeRender = isolatedContext.rng.snapshot().counter;
+  const visualFull = visualRngFrame.runtime.frame(false);
+  const visualReduced = visualRngFrame.runtime.frame(true);
+  const isolatedRenderer = EventRenderer.createEventRenderer({ packs: [renderPack],
+    authority: visualRngFrame.laneAuthority.renderer });
+  isolatedRenderer.render(visualFull);
+  isolatedRenderer.render(visualReduced);
+  assert.equal(isolatedContext.rng.snapshot().counter, gameplayBeforeRender,
+    'frame generation and rendering never advance gameplay RNG state');
+  assert.equal(isolatedContext.visualRng.floatAt(7, 'rainbow-particle'),
+    isolatedContext.visualRng.floatAt(7, 'rainbow-particle'),
+  'visual RNG is counterless and explicitly indexed');
+  visualRngFrame.runtime.cleanup('done');
 }
 
 function testNarrowDirectiveFrameFactAndSizeSchemas() {
@@ -567,9 +736,9 @@ function testNarrowDirectiveFrameFactAndSizeSchemas() {
     primaryColliderRef: 'body:a', secondaryColliderRef: 'body:b',
     primaryLanded: true, secondaryLanded: false, landedCopies: 2 }), /conflicts/);
   assert.throws(() => Kernel.normalizeOutcomeFacts('roulette-table', Object.assign({},
-    Harness.DEFAULT_FACTS['roulette-table'], { landingX: 99 })), /settled sector evidence/);
+    Harness.DEFAULT_FACTS['roulette-table'], { settled: false })), /settled sector evidence/);
   assert.throws(() => Kernel.normalizeOutcomeFacts('plinko', Object.assign({},
-    Harness.DEFAULT_FACTS.plinko, { dropDurationMs: 9999 })), /minimum/);
+    Harness.DEFAULT_FACTS.plinko, { dropDurationMs: 8999 })), /minimum/);
   assert.throws(() => Kernel.normalizeOutcomeFacts('cap-toss', {
     bodyColliderRef: 'body:same', topColliderRef: 'body:same',
     bodyLanded: true, topLanded: true }), /distinct/);
@@ -648,19 +817,19 @@ function testHighValueColliderOwnership() {
   const roulette = Harness.createHarness({ eventId: 'roulette-table', eventClass: 'wildcard',
     resolveCollider(collider) {
       const transform = Object.assign({}, collider.transform);
-      if (collider.name === 'object') transform.x += 0.5;
+      if (collider.name === 'object') Object.assign(transform, { x: 740, y: 300 });
       return { transform, bounds: collider.bounds, evidence: collider.evidence };
     } });
   arm(roulette.runtime, Harness.makeStep({ elapsedMs: 2000 }));
   roulette.runtime.contact(Harness.makeContact());
   assert.throws(() => roulette.runtime.evaluate(Harness.makeProbe({ elapsedMs: 2000 })),
-    /wheel\/object transforms/);
+    /authoritative wheel\/object geometry/);
 
   const mistimed = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard' });
   arm(mistimed.runtime, Harness.makeStep({ elapsedMs: 11000 }));
   mistimed.runtime.contact(Harness.makeContact({ elapsedMs: 10000 }));
   assert.throws(() => mistimed.runtime.evaluate(Harness.makeProbe({ elapsedMs: 11000 })),
-    /slot, timing, or transform evidence/);
+    /host timing evidence/);
 
   const mitosis = Harness.createHarness({ eventId: 'mitosis', eventClass: 'assist',
     resolveCollider(collider) {
@@ -683,169 +852,462 @@ function testHighValueColliderOwnership() {
   capToss.runtime.contact(Harness.makeContact());
   assert.throws(() => capToss.runtime.evaluate(Harness.makeProbe({ elapsedMs: 2000 })),
     /collider landing verdicts/);
+
+  [9000, 18000].forEach(duration => {
+    const facts = plinkoFacts({ dropDurationMs: duration });
+    const boundary = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard', facts,
+      laneId: `clean-${duration}` });
+    arm(boundary.runtime, Harness.makeStep({ elapsedMs: duration }));
+    boundary.runtime.contact(Harness.makeContact({ elapsedMs: 800 }));
+    const outcome = boundary.runtime.evaluate(Harness.makeProbe({ elapsedMs: duration }));
+    assert.equal(outcome.facts.values.completionKind, 'clean');
+    boundary.runtime.cleanup('done');
+  });
+
+  const recoveredFacts = plinkoFacts({ completionKind: 'recovered',
+    dropDurationMs: 22000, recoveryStartedMs: 22000, recoveryImpulseCount: 1 });
+  const recovered = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    facts: recoveredFacts, laneId: 'recovered-at-boundary' });
+  arm(recovered.runtime, Harness.makeStep({ elapsedMs: 22000 }));
+  recovered.runtime.contact(Harness.makeContact({ elapsedMs: 1000 }));
+  assert.equal(recovered.runtime.evaluate(Harness.makeProbe({ elapsedMs: 22000 }))
+    .facts.values.completionKind, 'recovered');
+  recovered.runtime.cleanup('done');
+
+  const lateCleanFacts = plinkoFacts({ dropDurationMs: 18001 });
+  const lateClean = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    facts: lateCleanFacts, laneId: 'late-clean' });
+  arm(lateClean.runtime, Harness.makeStep({ elapsedMs: 18001 }));
+  lateClean.runtime.contact(Harness.makeContact({ elapsedMs: 1000 }));
+  assert.throws(() => lateClean.runtime.evaluate(Harness.makeProbe({ elapsedMs: 18001 })),
+    /clean completion requires a settled 9-18 second sensor result/);
+
+  const contradictorySlot = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    laneId: 'contradictory-slot', resolveCollider(collider) {
+      const evidence = Object.assign({}, collider.evidence);
+      if (collider.name === 'slot-4') evidence.sensorIndex = 5;
+      return { transform: collider.transform, bounds: collider.bounds, evidence };
+    } });
+  arm(contradictorySlot.runtime, Harness.makeStep({ elapsedMs: 12000 }));
+  contradictorySlot.runtime.contact(Harness.makeContact({ elapsedMs: 1000 }));
+  assert.throws(() => contradictorySlot.runtime.evaluate(Harness.makeProbe({ elapsedMs: 12000 })),
+    /supplied slot contradicts branded host sensor geometry/);
+
+  const contradictoryRecovery = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    laneId: 'contradictory-recovery', facts: recoveredFacts,
+    resolveCollider(collider) {
+      const evidence = Object.assign({}, collider.evidence);
+      if (collider.name === 'object') evidence.recoveryImpulseCount = 2;
+      return { transform: collider.transform, bounds: collider.bounds, evidence };
+    } });
+  arm(contradictoryRecovery.runtime, Harness.makeStep({ elapsedMs: 22000 }));
+  contradictoryRecovery.runtime.contact(Harness.makeContact({ elapsedMs: 1000 }));
+  assert.throws(() => contradictoryRecovery.runtime.evaluate(
+    Harness.makeProbe({ elapsedMs: 22000 })), /recovery facts contradict host provenance/);
 }
 
-function makeAdapterFor(issued, namespace, resolvedThrough = 0) {
-  return RulesAdapter.createRulesAdapter({ namespace, resolvedThrough,
-    authority: issued.authority.rules });
+function ownerRules(issued) {
+  return issued.harness.rules || rulesFor(issued.authority);
+}
+function makeAdapterFor(issued) {
+  return RulesAdapter.createRulesAdapter({ authority: issued.authority.rules });
+}
+function resolveIssued(issued, adapter) {
+  const identity = ownerRules(issued).nextResolutionIdentity(issued.outcome.launchClaimId);
+  return { identity, resolution: adapter.resolve({ resolutionIdentity: identity,
+    outcome: issued.outcome }) };
 }
 
 function testRulesIdentityAuthorityAndExactTeamMappings() {
+  assert.throws(() => Kernel.createAuthority({ matchCapability: {
+    schema: 'RulesEventMatchCapabilityV1' } }), /Rules-issued/);
+  assert.throws(() => Runtime.createEventRuntime({ laneId: 'fake', packs: [Harness.makePack({})],
+    authority: { schema: 'EventRuntimeAuthorityV2' }, resolveCollider() {} }), /not issued/);
+  assert.throws(() => RulesAdapter.createRulesAdapter({ authority: {
+    schema: 'EventRulesAuthorityV2' } }), /not issued/);
+
   const issued = issue('rainbow-corkscrew');
-  const namespace = 'v112.classic.identity-test';
-  const adapter = makeAdapterFor(issued, namespace);
-  const firstIdentity = identity(namespace, 1, 'flip-a');
-  const first = adapter.resolve({ resolutionIdentity: firstIdentity,
-    formatId: 'classic', outcome: issued.outcome });
-  assert.equal(first.claimed, true);
-  assert.equal(first.rulesInput.effects.additiveLives, 1);
-  const duplicate = adapter.resolve({ resolutionIdentity: firstIdentity,
-    formatId: 'classic', outcome: issued.outcome });
+  const adapter = makeAdapterFor(issued);
+  assert.throws(() => RulesAdapter.createRulesAdapter({ authority: issued.authority.rules }),
+    /already has/);
+  const first = resolveIssued(issued, adapter);
+  assert.equal(first.resolution.claimed, true);
+  assert.equal(first.resolution.rulesInput.effects.additiveLives, 1);
+  assert.equal(first.resolution.transition.state.sequence, 1);
+  const duplicate = adapter.resolve({ resolutionIdentity: first.identity, outcome: issued.outcome });
   assert.equal(duplicate.claimed, false);
   assert.equal(duplicate.rulesInput, null);
-  assert.throws(() => adapter.resolve({ resolutionIdentity: identity(namespace, 3),
-    formatId: 'classic', outcome: issued.outcome }), /future|reordered/);
-  assert.throws(() => adapter.resolve({ resolutionIdentity: Object.freeze(Object.assign({},
-    identity(namespace, 2), { token: '0000000000000000' })),
-    formatId: 'classic', outcome: issued.outcome }), /token or id is invalid/);
-  assert.throws(() => adapter.resolve({ resolutionIdentity: identity('foreign', 2),
-    formatId: 'classic', outcome: issued.outcome }), /Foreign/);
+
+  const corrupt = clone(first.identity);
+  corrupt.token = '0000000000000000';
+  const second = issue('heart-rush');
+  assert.throws(() => adapter.resolve({ resolutionIdentity: corrupt, outcome: second.outcome }),
+    /another match|token|identity|consumed/);
+  assert.throws(() => adapter.resolve({ resolutionIdentity: first.identity,
+    outcome: issued.outcome, formatId: 'team-clash' }), /unsupported field/,
+  'format is immutable and cannot be supplied per resolution');
   issued.harness.runtime.cleanup('done');
+  second.harness.runtime.cleanup('done');
 }
 
 function testRulesAdapterSequentialAndForgedOutcomes() {
-  // One authority must issue both outcomes for a real match; use runtime issuance
-  // directly only through the harness runtimes sharing that authority.
-  const sharedAuthority = Kernel.createAuthority();
-  const a = Harness.createHarness({ eventId: 'rainbow-corkscrew', authority: sharedAuthority });
-  const b = Harness.createHarness({ eventId: 'heart-rush', eventClass: 'assist', authority: sharedAuthority });
+  const sharedAuthority = authorityFor('classic', 'sequential');
+  const a = Harness.createHarness({ eventId: 'rainbow-corkscrew', laneId: 'lane-a',
+    authority: sharedAuthority });
+  const b = Harness.createHarness({ eventId: 'heart-rush', eventClass: 'assist', laneId: 'lane-b',
+    authority: sharedAuthority });
+  const c = Harness.createHarness({ eventId: 'mirror-match', eventClass: 'wildcard', laneId: 'lane-c',
+    authority: sharedAuthority });
   const outA = Harness.drive(a.runtime).outcome;
   const outB = Harness.drive(b.runtime).outcome;
-  const namespace = 'v112.classic.sequential';
-  const adapter = RulesAdapter.createRulesAdapter({ namespace, authority: sharedAuthority.rules });
-  adapter.resolve({ resolutionIdentity: identity(namespace, 1), formatId: 'classic', outcome: outA });
-  assert.throws(() => adapter.resolve({ resolutionIdentity: identity(namespace, 1),
-    formatId: 'classic', outcome: outB }), /stale|reordered/,
-  'the last identity cannot be replayed with a different issued outcome');
-  adapter.resolve({ resolutionIdentity: identity(namespace, 2), formatId: 'classic', outcome: outB });
-  assert.throws(() => adapter.resolve({ resolutionIdentity: identity(namespace, 1),
-    formatId: 'classic', outcome: outA }), /stale|reordered/);
+  const outC = Harness.drive(c.runtime).outcome;
+  const rules = rulesFor(sharedAuthority);
+  const adapter = RulesAdapter.createRulesAdapter({ authority: sharedAuthority.rules });
+  const idA = rules.nextResolutionIdentity(outA.launchClaimId);
+  adapter.resolve({ resolutionIdentity: idA, outcome: outA });
+  const idB = rules.nextResolutionIdentity(outB.launchClaimId);
+  assert.throws(() => adapter.resolve({ resolutionIdentity: idA, outcome: outB }),
+    /not bound|stale|identity/);
+  adapter.resolve({ resolutionIdentity: idB, outcome: outB });
   assert.equal(adapter.snapshot().resolvedThrough, 2);
   assert.equal(adapter.snapshot().nextOrdinal, 3);
-  assert.throws(() => adapter.resolve({ resolutionIdentity: identity(namespace, 3),
-    formatId: 'classic', outcome: outA }), /already consumed/);
+
+  const idC = rules.nextResolutionIdentity(outC.launchClaimId);
+  const firstDeferred = adapter.resolve({ resolutionIdentity: idC, outcome: outC });
+  assert.equal(firstDeferred.deferred.kind, 'mirror-match');
+  const duplicateDeferred = adapter.resolve({ resolutionIdentity: idC, outcome: outC });
+  assert.equal(duplicateDeferred.claimed, false);
+  assert.equal(duplicateDeferred.deferred, null,
+    'duplicate event results must never re-emit an actionable deferred effect');
+  assert.equal(duplicateDeferred.rulesInput, null);
+  assert.equal(duplicateDeferred.terminalOutcome, null);
+  assert.equal(duplicateDeferred.noContest, false);
+  assert.equal(adapter.snapshot().resolvedThrough, 3);
+  assert.equal(adapter.snapshot().nextOrdinal, 4);
+  const replayIdentity = rules.nextResolutionIdentity(outA.launchClaimId);
+  assert.throws(() => adapter.resolve({ resolutionIdentity: replayIdentity, outcome: outA }),
+    /already consumed/);
   const forged = Kernel.immutableData(clone(outA), 'forged runtime outcome');
-  assert.throws(() => adapter.resolve({ resolutionIdentity: identity(namespace, 3),
-    formatId: 'classic', outcome: forged }), /kernel-issued/);
-  assert.throws(() => adapter.resolve({ resolutionIdentity: identity(namespace, 3),
-    formatId: 'classic', outcome: outA, result: 'MAKE' }), /unsupported field/);
+  assert.throws(() => adapter.resolve({ resolutionIdentity: replayIdentity, outcome: forged }),
+    /not issued/);
+
+  const foreignAuthority = authorityFor('classic', 'foreign-match');
+  const foreignAdapter = RulesAdapter.createRulesAdapter({ authority: foreignAuthority.rules });
+  assert.throws(() => foreignAdapter.resolve({
+    resolutionIdentity: rulesFor(foreignAuthority).nextResolutionIdentity(outA.launchClaimId),
+    outcome: outA }), /another match/);
   const closed = adapter.cleanup();
   assert.equal(closed.closed, true);
-  assert.throws(() => adapter.resolve({ resolutionIdentity: identity(namespace, 3),
-    formatId: 'classic', outcome: outA }), /closed/);
+  assert.throws(() => adapter.resolve({ resolutionIdentity: idB, outcome: outB }), /closed/);
 }
 
 function testEveryCanonicalEventRulesBoundary() {
   let terminalCount = 0;
-  Kernel.EVENT_IDS.forEach((eventId, index) => {
+  Kernel.EVENT_IDS.forEach(eventId => {
     const issued = issue(eventId);
-    const namespace = `v112.classic.all-${index}`;
-    const adapter = makeAdapterFor(issued, namespace);
-    const result = adapter.resolve({ resolutionIdentity: identity(namespace, 1),
-      formatId: 'classic', outcome: issued.outcome });
+    const adapter = makeAdapterFor(issued);
+    const result = resolveIssued(issued, adapter).resolution;
     assert.equal(result.claimed, true);
     assert.equal(result.eventId, eventId);
-    assert.equal(result.rulesInput.effects.metadata.eventId, eventId);
+    if (result.rulesInput) assert.equal(result.rulesInput.effects.metadata.eventId, eventId);
     if (result.terminalOutcome) terminalCount += 1;
+    assert.equal(result.transition.schema, 'RulesTransitionV1');
     issued.harness.runtime.cleanup('done');
   });
   assert.equal(terminalCount, 1, 'Plinko is the only event with a terminal automatic result');
 }
 
 function teamMapping(eventId, facts, probe = {}) {
-  const shared = Kernel.createAuthority();
-  const harness = Harness.createHarness({ eventId, eventClass: Kernel.EVENT_CLASS_BY_ID[eventId],
-    facts, authority: shared });
+  const shared = authorityFor('team-clash', `team-${eventId}-${++authoritySequence}`);
+  const harness = Harness.createHarness({ eventId, laneId: `lane-${authoritySequence}`,
+    eventClass: Kernel.EVENT_CLASS_BY_ID[eventId], facts, authority: shared });
   const outcome = Harness.drive(harness.runtime, { probe }).outcome;
-  const namespace = `v112.team-clash.${eventId}`;
-  const adapter = RulesAdapter.createRulesAdapter({ namespace, authority: shared.rules });
-  return adapter.resolve({ resolutionIdentity: identity(namespace, 1),
-    formatId: 'team-clash', outcome });
+  const adapter = RulesAdapter.createRulesAdapter({ authority: shared.rules });
+  return adapter.resolve({ resolutionIdentity: rulesFor(shared).nextResolutionIdentity(
+    outcome.launchClaimId), outcome });
 }
 
 function testTeamRuleCompatibility() {
   const shrinkUpright = teamMapping('shrink-ray', Harness.DEFAULT_FACTS['shrink-ray']);
   assert.equal(shrinkUpright.rulesInput.rawPoints, 2);
-  assert.equal(shrinkUpright.rulesInput.effects.additivePoints, undefined);
+  assert.equal(shrinkUpright.transition.outcome.rawPoints, 2);
   const shrinkCap = teamMapping('shrink-ray', Harness.DEFAULT_FACTS['shrink-ray'], { pose: 'cap' });
-  assert.equal(shrinkCap.rulesInput.rawPoints, 3);
+  assert.equal(shrinkCap.transition.outcome.rawPoints, 3);
 
   const twoCopies = Object.assign({}, Harness.DEFAULT_FACTS.mitosis, {
     primaryLanded: true, secondaryLanded: true, landedCopies: 2,
   });
   const mitosis = teamMapping('mitosis', twoCopies);
-  assert.equal(mitosis.rulesInput.rawPoints, 3);
-  assert.equal(mitosis.rulesInput.effects.additivePoints, undefined);
-
-  function applyOnRealRules(eventId, facts, probe, matchId) {
-    const shared = Kernel.createAuthority();
-    const harness = Harness.createHarness({ eventId,
-      eventClass: Kernel.EVENT_CLASS_BY_ID[eventId], facts, authority: shared });
-    const eventOutcome = Harness.drive(harness.runtime, { probe }).outcome;
-    const initial = Rules.createTeamClashState({ matchId, players: players(2) });
-    const resolutionIdentity = Rules.nextResolutionIdentity(initial, `${eventId}-compat`);
-    const adapter = RulesAdapter.createRulesAdapter({ namespace: initial.resolutionIdentity.namespace,
-      authority: shared.rules });
-    const mapped = adapter.resolve({ resolutionIdentity, formatId: 'team-clash',
-      outcome: eventOutcome });
-    return Rules.resolveTeamFlip(initial, Object.assign({ playerId: initial.turn.current,
-      resolutionIdentity }, mapped.rulesInput));
-  }
-  assert.equal(applyOnRealRules('shrink-ray', Harness.DEFAULT_FACTS['shrink-ray'], {},
-    'shrink-upright').outcome.rawPoints, 2);
-  assert.equal(applyOnRealRules('shrink-ray', Harness.DEFAULT_FACTS['shrink-ray'], { pose: 'cap' },
-    'shrink-cap').outcome.rawPoints, 3);
-  assert.equal(applyOnRealRules('mitosis', twoCopies, {}, 'mitosis-two').outcome.rawPoints, 3);
+  assert.equal(mitosis.transition.outcome.rawPoints, 3);
 
   const plinkoFacts = Object.assign({}, Harness.DEFAULT_FACTS.plinko, { slotIndex: 1 });
   const plinko = teamMapping('plinko', plinkoFacts);
   assert.equal(plinko.rulesInput.effects.halveOpponentScore, true);
-  assert.equal(plinko.rulesInput.effects.halveOpponentRound, undefined);
 
-  let state = Rules.createTeamClashState({ matchId: 'adapter-integration', players: players(2) });
-  // Give team 0 nine match points so the next round begins with team 1, whose
-  // Plinko effect can demonstrate opponent match-score halving through v112-rules.
-  for (let index = 0; index < 6; index += 1) {
+  const teamRules = Rules.createRulesAdapter({ formatId: 'team-clash',
+    matchId: 'adapter-integration', players: players(2) });
+  assert.throws(() => teamRules.resolveFlip({ result: 'MAKE', rawPoints: 99 }),
+    /cannot apply event field/);
+  for (let index = 0; index < 18; index += 1) {
+    const state = teamRules.snapshot();
     const currentTeam = state.queue[state.queuePosition].teamIndex;
-    const transition = Rules.resolveTeamFlip(state, { playerId: state.turn.current,
-      result: currentTeam === 0 ? 'MAKE' : 'MISS', rawPoints: currentTeam === 0 ? 3 : 0 });
-    state = transition.state;
+    teamRules.resolveFlip({ playerId: state.turn.current,
+      result: currentTeam === 0 ? 'MAKE' : 'MISS' });
   }
-  assert.deepEqual(state.scores, [9, 0]);
-  assert.equal(state.queue[state.queuePosition].teamIndex, 1);
-  const shared = Kernel.createAuthority();
+  assert.deepEqual(teamRules.snapshot().scores, [9, 0]);
+  const shared = teamRules.claimEventAuthority();
   const plinkoHarness = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
-    facts: plinkoFacts, authority: shared });
+    facts: plinkoFacts, authority: shared, laneId: 'team-plinko' });
   const outcome = Harness.drive(plinkoHarness.runtime).outcome;
-  const realAdapter = RulesAdapter.createRulesAdapter({ namespace: state.resolutionIdentity.namespace,
-    resolvedThrough: state.sequence, authority: shared.rules });
-  const resolutionIdentity = Rules.nextResolutionIdentity(state, 'plinko-halving');
-  const mapped = realAdapter.resolve({ resolutionIdentity, formatId: 'team-clash', outcome });
-  const applied = Rules.resolveTeamFlip(state, Object.assign({ playerId: state.turn.current,
-    resolutionIdentity }, mapped.rulesInput));
-  assert.equal(applied.state.scores[0], 5, 'opponent match score halves upward through v112-rules');
+  const realAdapter = RulesAdapter.createRulesAdapter({ authority: shared.rules });
+  const mapped = realAdapter.resolve({
+    resolutionIdentity: teamRules.nextResolutionIdentity(outcome.launchClaimId), outcome });
+  assert.equal(mapped.transition.state.scores[0], 5,
+    'opponent match score halves upward through the live v112 rules capability');
 
-  const lifeDrain = issue('life-drain');
-  const drainAdapter = makeAdapterFor(lifeDrain, 'v112.team-clash.life-drain');
+  const drainRules = Rules.createRulesAdapter({ formatId: 'team-clash',
+    matchId: 'life-drain-excluded', players: players(2) });
+  const drainAuthority = drainRules.claimEventAuthority();
+  const drainHarness = Harness.createHarness({ eventId: 'life-drain', eventClass: 'assist',
+    authority: drainAuthority, laneId: 'drain' });
+  const drainOutcome = Harness.drive(drainHarness.runtime).outcome;
+  const drainAdapter = RulesAdapter.createRulesAdapter({ authority: drainAuthority.rules });
   assert.throws(() => drainAdapter.resolve({
-    resolutionIdentity: identity('v112.team-clash.life-drain', 1),
-    formatId: 'team-clash', outcome: lifeDrain.outcome }), /excluded/);
+    resolutionIdentity: drainRules.nextResolutionIdentity(drainOutcome.launchClaimId),
+    outcome: drainOutcome }), /excluded/);
+}
+
+function testLiveHighWaterAfterOrdinaryResolution() {
+  const rules = Rules.createRulesAdapter({ formatId: 'classic', matchId: 'live-high-water',
+    players: players(3), startingLives: 10, suddenDeathEnabled: false });
+  const authority = rules.claimEventAuthority();
+  const issued = Harness.createHarness({ eventId: 'heart-rush', eventClass: 'assist',
+    authority, laneId: 'after-normal-flip' });
+  const outcome = Harness.drive(issued.runtime).outcome;
+  const stale = rules.nextResolutionIdentity(outcome.launchClaimId);
+
+  rules.resolveFlip({ result: 'MAKE', pose: 'upright' });
+  assert.equal(rules.snapshot().sequence, 1);
+  const adapter = RulesAdapter.createRulesAdapter({ authority: authority.rules });
+  assert.throws(() => adapter.resolve({ resolutionIdentity: stale, outcome }),
+    /stale|foreign resolution identity/,
+  'a publicly recomputable identity cannot override the live Rules high-water');
+  const live = rules.nextResolutionIdentity(outcome.launchClaimId);
+  const resolved = adapter.resolve({ resolutionIdentity: live, outcome });
+  assert.equal(resolved.resolvedThrough, 2);
+  assert.equal(resolved.transition.state.sequence, 2);
+  assert.throws(() => adapter.resolve({
+    resolutionIdentity: rules.nextResolutionIdentity(outcome.launchClaimId), outcome,
+  }), /already consumed/,
+  'an outcome stays one-use even after an ordinary rules resolution advanced high-water');
+  issued.runtime.cleanup('done');
+}
+
+function testPlinkoNoContestAcrossFormats() {
+  const timeoutFacts = plinkoFacts({ slotSensorRef: null, slotIndex: null,
+    dropDurationMs: 30000, settled: false, completionKind: 'no-contest',
+    recoveryStartedMs: 22000, recoveryImpulseCount: 3 });
+  const timeoutProbe = { result: 'MISS', pose: 'miss', reason: 'plinko-timeout',
+    settled: false, elapsedMs: 30000 };
+
+  const classicRules = Rules.createRulesAdapter({ formatId: 'classic',
+    matchId: 'classic-no-contest', players: players(3), startingLives: 10,
+    suddenDeathAfterTurns: 0, suddenDeathStepTurns: 6 });
+  const classicAuthority = classicRules.claimEventAuthority();
+  const classic = drivePlinko(classicAuthority, 'classic-timeout', timeoutFacts, timeoutProbe);
+  const classicBefore = classicRules.snapshot();
+  const classicAdapter = RulesAdapter.createRulesAdapter({ authority: classicAuthority.rules });
+  const classicIdentity = classicRules.nextResolutionIdentity(classic.outcome.launchClaimId);
+  const classicResolution = classicAdapter.resolve({ resolutionIdentity: classicIdentity,
+    outcome: classic.outcome });
+  const classicAfter = classicResolution.transition.state;
+  assert.equal(classicResolution.noContest, true);
+  assert.equal(classicResolution.rulesInput, null);
+  assert.equal(classicResolution.terminalOutcome, null);
+  assert.equal(classicAfter.sequence, classicBefore.sequence + 1);
+  assert.equal(classicAfter.attemptCounter, classicBefore.attemptCounter + 1);
+  assert.equal(classicAfter.rulesTurnCounter, classicBefore.rulesTurnCounter);
+  assertSameData(classicAfter.players, classicBefore.players);
+  assert.equal(classicAfter.stake, classicBefore.stake);
+  assertSameData(classicAfter.suddenDeath, classicBefore.suddenDeath);
+  assertSameData(classicAfter.turn, classicBefore.turn);
+  assert.equal(classic.harness.runtime.snapshot().phase, 'cleaned');
+  assert.equal(classic.harness.runtime.snapshot().resources.active, 0,
+    '30-second no-contest releases the Plinko scene before returning');
+  const duplicate = classicAdapter.resolve({ resolutionIdentity: classicIdentity,
+    outcome: classic.outcome });
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(classicRules.snapshot().sequence, classicAfter.sequence,
+    'a repeated no-contest resolution is idempotent');
+  classicRules.resolveFlip({ result: 'MAKE', pose: 'upright' });
+  assert.equal(classicRules.snapshot().sequence, 2,
+    'normal play resumes from the no-contest high-water');
+
+  const cupRules = Rules.createRulesAdapter({ formatId: 'cup', matchId: 'cup-no-contest',
+    cupLength: 'short', players: players(4), startIndex: 2 });
+  const cupAuthority = cupRules.claimEventAuthority();
+  const cup = drivePlinko(cupAuthority, 'cup-timeout', timeoutFacts, timeoutProbe);
+  const cupBefore = cupRules.snapshot();
+  const cupAdapter = RulesAdapter.createRulesAdapter({ authority: cupAuthority.rules });
+  const cupResolution = cupAdapter.resolve({
+    resolutionIdentity: cupRules.nextResolutionIdentity(cup.outcome.launchClaimId),
+    outcome: cup.outcome });
+  const cupAfter = cupResolution.transition.state;
+  assert.equal(cupAfter.sequence, cupBefore.sequence + 1);
+  assertSameData(cupAfter.currentHeat, cupBefore.currentHeat);
+  assertSameData(cupAfter.heatWins, cupBefore.heatWins);
+  assertSameData(cupAfter.turn, cupBefore.turn);
+  assert.equal(cup.harness.runtime.snapshot().resources.active, 0);
+  cupRules.resolveFlip({ result: 'MAKE', pose: 'upright' });
+  assert.equal(cupRules.snapshot().sequence, 2);
+  assert.equal(cupRules.snapshot().currentHeat.sequence, 1,
+    'Cup retries without charging the inner competitive heat');
+
+  const teamRules = Rules.createRulesAdapter({ formatId: 'team-clash',
+    matchId: 'team-no-contest', players: players(4) });
+  const teamAuthority = teamRules.claimEventAuthority();
+  const team = drivePlinko(teamAuthority, 'team-timeout', timeoutFacts, timeoutProbe);
+  const teamBefore = teamRules.snapshot();
+  const teamAdapter = RulesAdapter.createRulesAdapter({ authority: teamAuthority.rules });
+  const teamResolution = teamAdapter.resolve({
+    resolutionIdentity: teamRules.nextResolutionIdentity(team.outcome.launchClaimId),
+    outcome: team.outcome });
+  const teamAfter = teamResolution.transition.state;
+  assert.equal(teamAfter.sequence, teamBefore.sequence + 1);
+  assert.equal(teamAfter.noContestCount, teamBefore.noContestCount + 1);
+  assert.equal(teamAfter.queuePosition, teamBefore.queuePosition);
+  assertSameData(teamAfter.roundRaw, teamBefore.roundRaw);
+  assertSameData(teamAfter.scores, teamBefore.scores);
+  assertSameData(teamAfter.playerStats, teamBefore.playerStats);
+  assertSameData(teamAfter.turn, teamBefore.turn);
+  assert.equal(team.harness.runtime.snapshot().resources.active, 0);
+  teamRules.resolveFlip({ result: 'MAKE', pose: 'upright' });
+  const teamResumed = teamRules.snapshot();
+  assert.equal(teamResumed.sequence, 2);
+  assert.equal(teamResumed.noContestCount, 1);
+  assert.equal(teamResumed.queuePosition, 1,
+    'Team Clash resumes the same queued competitive turn after no-contest');
+}
+
+function testPlinkoTerminalRulesAcrossFormats() {
+  const lossFacts = plinkoFacts({ slotIndex: 3 });
+
+  const suddenRules = Rules.createRulesAdapter({ formatId: 'classic',
+    matchId: 'classic-terminal-loss', players: players(3), startingLives: 3,
+    suddenDeathAfterTurns: 0, suddenDeathStepTurns: 6 });
+  const suddenAuthority = suddenRules.claimEventAuthority();
+  const sudden = drivePlinko(suddenAuthority, 'sudden-loss', lossFacts);
+  const suddenBefore = suddenRules.snapshot();
+  const suddenAdapter = RulesAdapter.createRulesAdapter({ authority: suddenAuthority.rules });
+  const suddenIdentity = suddenRules.nextResolutionIdentity(sudden.outcome.launchClaimId);
+  const suddenResolution = suddenAdapter.resolve({ resolutionIdentity: suddenIdentity,
+    outcome: sudden.outcome });
+  const suddenAfter = suddenResolution.transition.state;
+  assert.equal(suddenResolution.terminalOutcome, 'current-loss');
+  assert.equal(suddenAfter.players[0].lives, 0);
+  assert.equal(suddenAfter.players[0].eliminated, true);
+  assert.equal(suddenAfter.phase, 'active');
+  assert.equal(suddenAfter.turn.current, 'p2');
+  assert.equal(suddenAfter.attemptCounter, suddenBefore.attemptCounter + 1);
+  assert.equal(suddenAfter.rulesTurnCounter, suddenBefore.rulesTurnCounter + 1);
+  assert.equal(suddenAfter.suddenDeath.countedTurns,
+    suddenBefore.suddenDeath.countedTurns + 1);
+  const repeatedLoss = suddenAdapter.resolve({ resolutionIdentity: suddenIdentity,
+    outcome: sudden.outcome });
+  assert.equal(repeatedLoss.duplicate, true);
+  assert.equal(suddenRules.snapshot().rulesTurnCounter, suddenAfter.rulesTurnCounter,
+    'terminal replay cannot double-charge a competitive turn');
+
+  const fireRules = Rules.createRulesAdapter({ formatId: 'classic',
+    matchId: 'on-fire-terminal-loss', players: players(2), startingLives: 10,
+    suddenDeathEnabled: false });
+  for (let index = 0; index < 5; index += 1) {
+    fireRules.resolveFlip({ result: 'MAKE', pose: 'upright' });
+  }
+  const fireBefore = fireRules.snapshot();
+  assert.equal(fireBefore.players[fireBefore.currentPlayerIndex].onFire, true);
+  const fireAuthority = fireRules.claimEventAuthority();
+  const fire = drivePlinko(fireAuthority, 'on-fire-loss', lossFacts);
+  const fireAdapter = RulesAdapter.createRulesAdapter({ authority: fireAuthority.rules });
+  const fireResolution = fireAdapter.resolve({
+    resolutionIdentity: fireRules.nextResolutionIdentity(fire.outcome.launchClaimId),
+    outcome: fire.outcome });
+  const fireAfter = fireResolution.transition.state;
+  assert.equal(fireAfter.players[0].lives, 0);
+  assert.equal(fireAfter.players[0].eliminated, true);
+  assert.equal(fireAfter.onFirePlayerId, null);
+  assert.equal(fireAfter.stake, fireBefore.stake,
+    'terminal loss bypasses ordinary ON FIRE/stake miss accounting');
+  assert.deepEqual(fireAfter.winnerIds, ['p2']);
+  assert.equal(fireAfter.completionReason, 'plinko-automatic-loss');
+
+  const winRules = Rules.createRulesAdapter({ formatId: 'classic',
+    matchId: 'classic-terminal-win', players: players(4), startingLives: 10 });
+  const winAuthority = winRules.claimEventAuthority();
+  const win = drivePlinko(winAuthority, 'classic-win', plinkoFacts({ slotIndex: 4 }));
+  const winAdapter = RulesAdapter.createRulesAdapter({ authority: winAuthority.rules });
+  const winResolution = winAdapter.resolve({
+    resolutionIdentity: winRules.nextResolutionIdentity(win.outcome.launchClaimId),
+    outcome: win.outcome });
+  assert.equal(winResolution.transition.state.phase, 'complete');
+  assert.deepEqual(winResolution.transition.state.winnerIds, ['p1']);
+  assert.equal(winResolution.transition.state.players.slice(1)
+    .every(player => player.eliminated && player.lives === 0), true);
+
+  // Candidate policy (pending Integrator promotion): Cup Automatic Loss awards
+  // the heat to the next surviving seat in configured rotation.  Prove it is
+  // deterministic and fair for every supported 3-8-entry WFC Cup field.
+  for (let count = 3; count <= 8; count += 1) {
+    for (const direction of [1, -1]) {
+      const startIndex = count - 2;
+      const cupRules = Rules.createRulesAdapter({ formatId: 'cup',
+        matchId: `cup-loss-${count}-${direction}`, cupLength: 'short',
+        players: players(count), startIndex, direction });
+      const authority = cupRules.claimEventAuthority();
+      const cup = drivePlinko(authority, `cup-${count}-${direction}`, lossFacts);
+      const adapter = RulesAdapter.createRulesAdapter({ authority: authority.rules });
+      const resolution = adapter.resolve({
+        resolutionIdentity: cupRules.nextResolutionIdentity(cup.outcome.launchClaimId),
+        outcome: cup.outcome });
+      const expectedIndex = (startIndex + direction + count) % count;
+      assert.equal(resolution.transition.outcome.heatWinnerId, `p${expectedIndex + 1}`);
+      assert.equal(resolution.transition.state.heatResults[0].attempts, 1);
+      assert.equal(resolution.transition.state.heatResults[0].rulesTurns, 1);
+      assert.equal(resolution.transition.state.heatResults[0].completionReason,
+        'plinko-automatic-loss');
+      assert.equal(resolution.transition.state.phase, 'between-heats');
+      cup.harness.runtime.cleanup('done');
+    }
+  }
+
+  for (const terminal of [
+    { slotIndex: 4, expectedTeam: 0, label: 'win' },
+    { slotIndex: 3, expectedTeam: 1, label: 'loss' },
+  ]) {
+    const teamRules = Rules.createRulesAdapter({ formatId: 'team-clash',
+      matchId: `team-terminal-${terminal.label}`, players: players(4) });
+    const authority = teamRules.claimEventAuthority();
+    const plinko = drivePlinko(authority, `team-${terminal.label}`,
+      plinkoFacts({ slotIndex: terminal.slotIndex }));
+    const adapter = RulesAdapter.createRulesAdapter({ authority: authority.rules });
+    const resolution = adapter.resolve({
+      resolutionIdentity: teamRules.nextResolutionIdentity(plinko.outcome.launchClaimId),
+      outcome: plinko.outcome });
+    const state = resolution.transition.state;
+    assert.equal(state.phase, 'complete');
+    assert.equal(state.winnerTeamIndex, terminal.expectedTeam);
+    assert.equal(state.sequence, 1);
+    assert.equal(state.queuePosition, 1);
+    assert.equal(state.playerStats.p1.flips, 1);
+    assert.equal(state.completionReason, 'automatic-team-result');
+    plinko.harness.runtime.cleanup('done');
+  }
 }
 
 function testBrowserUmdSurfaces() {
   const context = vm.createContext({ console });
   const files = [
-    '../js/v112-event-kernel.js', '../js/v112-event-runtime.js',
+    '../js/v112-rules.js', '../js/v112-event-kernel.js', '../js/v112-event-runtime.js',
     '../js/v112-event-rules-adapter.js', '../js/v112-event-renderer.js',
     './lib/v112-event-harness.js',
   ];
@@ -858,6 +1320,13 @@ function testBrowserUmdSurfaces() {
   assert.equal(context.FlipgameV112EventRulesAdapter.schema, 'FlipgameEventRulesAdapterV2');
   assert.equal(context.FlipgameV112EventRenderer.schema, 'FlipgameEventRendererV2');
   assert.equal(context.FlipgameV112EventHarness.schema, 'FlipgameEventHarnessV2');
+  const browserRules = context.FlipgameV112Rules.createRulesAdapter({
+    formatId: 'classic', matchId: 'browser-authority', players: players(2),
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(browserRules, 'eventCapability'), false);
+  const browserAuthority = browserRules.claimEventAuthority();
+  assert.equal(browserAuthority.schema, 'EventAuthorityV2');
+  assert.throws(() => browserRules.claimEventAuthority(), /already issued/);
 }
 
 function run() {
@@ -876,6 +1345,9 @@ function run() {
   testRulesAdapterSequentialAndForgedOutcomes();
   testEveryCanonicalEventRulesBoundary();
   testTeamRuleCompatibility();
+  testLiveHighWaterAfterOrdinaryResolution();
+  testPlinkoNoContestAcrossFormats();
+  testPlinkoTerminalRulesAcrossFormats();
   testBrowserUmdSurfaces();
   console.log('v1.12 event kernel adversarial tests passed.');
 }

@@ -1,12 +1,14 @@
 // v112-event-kernel.js -- bounded, renderer-free contracts for v1.12 events.
 (function (root, factory) {
   'use strict';
-  var api = factory();
+  var Rules = root && root.FlipgameV112Rules;
+  if (typeof module === 'object' && module.exports) Rules = require('./v112-rules.js');
+  var api = factory(Rules);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.FlipgameV112EventKernel = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function () {
+  : (typeof window !== 'undefined' ? window : this)), function (Rules) {
   'use strict';
 
   var LIMITS = Object.freeze({ dataDepth: 12, dataNodes: 2048, objectKeys: 96,
@@ -14,6 +16,9 @@
     entities: 128, cues: 32, directiveItems: 128, rngSamples: 1000000,
     rngChannelLength: 64, contacts: 256, errors: 16 });
   var EVENT_CLASSES = Object.freeze(['hazard', 'wildcard', 'assist']);
+  var PRESENTATION_ENTITY_ROLES = Object.freeze([
+    'fx', 'trail', 'particle', 'aura', 'label', 'camera', 'background', 'overlay',
+  ]);
   var RESOURCE_KINDS = Object.freeze([
     'body', 'sensor', 'constraint', 'audio', 'camera', 'override', 'callback',
   ]);
@@ -21,6 +26,18 @@
   RESOURCE_KINDS.forEach(function (kind) { RESOURCE_KIND_SET[kind] = true; });
   var DANGEROUS_KEYS = Object.freeze({ '__proto__': true, prototype: true, constructor: true });
   var RESOURCE_OWNERS = new WeakMap();
+  var RUNTIME_CAPABILITIES = new WeakMap();
+  var RENDERER_CAPABILITIES = new WeakMap();
+  var RULES_CAPABILITIES = new WeakMap();
+  var SELECTIONS = new WeakMap();
+  var ISSUED_SELECTION_SOURCES = new WeakSet();
+  var LAUNCH_CLAIMS = new WeakMap();
+  var FRAMES = new WeakMap();
+  var OUTCOMES = new WeakMap();
+  var TERMINAL_EVIDENCE = new WeakMap();
+  var nextRootOrdinal = 1;
+  var nextLaneOrdinal = 1;
+  var nextClaimOrdinal = 1;
 
   var EVENT_CLASS_BY_ID = Object.freeze(Object.assign(Object.create(null), {
     'rainbow-corkscrew': 'assist', 'half-full': 'assist', 'power-launch': 'assist',
@@ -201,10 +218,19 @@
     catch (_) { throw new TypeError(label + ' source is not inspectable'); }
     if (/\[native code\]/.test(source)) throw new Error(label + ' must use inspectable authored code');
     if (/\bMath\s*\.\s*random\b/.test(source) ||
-        /\bMath\s*\[\s*['"]random['"]\s*\]/.test(source)) {
-      throw new Error(label + ' cannot use ambient random');
+        /\bMath\s*\[\s*['"]random['"]\s*\]/.test(source) ||
+        /\bDate\s*\.\s*now\b/.test(source) || /\bnew\s+Date\s*\(/.test(source) ||
+        /\bperformance\s*\.\s*now\b/i.test(source) ||
+        /\bcrypto\s*\.\s*(?:getRandomValues|randomUUID)\b/i.test(source) ||
+        /\bprocess\s*\.\s*hrtime\b/.test(source)) {
+      throw new Error(label + ' cannot use ambient random or clock sources');
     }
-    if (/^\s*async\b/.test(source)) throw new Error(label + ' cannot be async');
+    if (/^\s*async\b/.test(source) || /^\s*function\s*\*/.test(source)) {
+      throw new Error(label + ' cannot be async or a generator');
+    }
+    // Static inspection is an authoring guard, not a JavaScript sandbox.  A
+    // captured closure cannot be proven safe; release qualification therefore
+    // also replays every authored pack from identical seeds and host evidence.
     return fn;
   }
 
@@ -287,18 +313,26 @@
     }
     return hash >>> 0;
   }
-  function createEventRng(seedValue) {
+  function createEventRng(seedValue, advanceGuard) {
     var seed = whole(seedValue, 'eventSeed', 0, 0xffffffff) >>> 0;
+    if (advanceGuard != null && typeof advanceGuard !== 'function') {
+      throw new TypeError('Event RNG phase guard must be a function');
+    }
     var counter = 0;
     function channel(value) { return value == null ? 'default' : primitiveString(value,
       'RNG channel', LIMITS.rngChannelLength, true); }
-    function sample(index, channelValue) {
+    function rawSample(index, channelValue) {
       var position = whole(index, 'RNG sample index', 0, LIMITS.rngSamples - 1);
       return mix32(seed ^ hashText(channel(channelValue)) ^ Math.imul(position + 1, 0x9e3779b9));
     }
+    function sample(index, channelValue) {
+      if (advanceGuard) advanceGuard();
+      return rawSample(index, channelValue);
+    }
     function nextUint32(channelValue) {
+      if (advanceGuard) advanceGuard();
       if (counter >= LIMITS.rngSamples) throw new RangeError('Event RNG sample budget exhausted');
-      var value = sample(counter, channelValue); counter += 1; return value;
+      var value = rawSample(counter, channelValue); counter += 1; return value;
     }
     function nextFloat(channelValue) { return nextUint32(channelValue) / 0x100000000; }
     function nextInt(maxExclusive, channelValue) {
@@ -315,6 +349,31 @@
     return Object.freeze({ schema: 'EventRngV1', seed: seed, sampleUint32: sample,
       nextUint32: nextUint32, nextFloat: nextFloat, nextInt: nextInt,
       range: range, snapshot: snapshot });
+  }
+
+  function createVisualRng(seedValue) {
+    var base = whole(seedValue, 'visualSeed', 0, 0xffffffff) >>> 0;
+    var seed = mix32(base ^ 0xa511e9b3);
+    function channel(value) { return value == null ? 'visual' : primitiveString(value,
+      'visual RNG channel', LIMITS.rngChannelLength, true); }
+    function sample(index, channelValue) {
+      var position = whole(index, 'visual RNG sample index', 0, LIMITS.rngSamples - 1);
+      return mix32(seed ^ mix32(hashText(channel(channelValue)) ^ 0x1b873593) ^
+        Math.imul(position + 1, 0x85ebca6b));
+    }
+    function floatAt(index, channelValue) { return sample(index, channelValue) / 0x100000000; }
+    function intAt(index, maximum, channelValue) {
+      var max = whole(maximum, 'visual RNG maximum', 1, 0x100000000);
+      return Math.floor(floatAt(index, channelValue) * max);
+    }
+    function rangeAt(index, minimum, maximum, channelValue) {
+      var low = finite(minimum, 'visual RNG range minimum');
+      var high = finite(maximum, 'visual RNG range maximum');
+      if (!(high > low)) throw new RangeError('visual RNG range maximum must exceed its minimum');
+      return low + (high - low) * floatAt(index, channelValue);
+    }
+    return Object.freeze({ schema: 'EventVisualRngV1', seed: seed,
+      sampleUint32: sample, floatAt: floatAt, intAt: intAt, rangeAt: rangeAt });
   }
 
   function normalizeCue(value, label) {
@@ -441,6 +500,11 @@
       return deepFreeze({ schema: 'EventResourceScopeSnapshotV1', laneId: laneId,
         cleaned: cleaned, active: ids.length, counts: counts, resourceIds: ids });
     }
+    function colliderRefs() {
+      return Object.freeze(records.filter(function (record) {
+        return !record.released && (record.kind === 'body' || record.kind === 'sensor');
+      }).map(function (record) { return record.key; }));
+    }
     function cleanup(reasonValue) {
       if (cleanupResult) return cleanupResult;
       if (cleaning) return Object.freeze({ schema: 'EventResourceCleanupV1', laneId: laneId,
@@ -481,7 +545,7 @@
       ownCamera: method('camera'), ownOverride: method('override'),
       ownCallback: method('callback'), getResource: getResource,
       getCollider: getCollider, ownsResource: ownsResource,
-      snapshot: snapshot, cleanup: cleanup });
+      colliderRefs: colliderRefs, snapshot: snapshot, cleanup: cleanup });
   }
 
   var BEHAVIOR_METHODS = Object.freeze([
@@ -669,6 +733,11 @@
     if (typeof value !== 'boolean') throw new TypeError(label + ' must be boolean'); return value;
   }
   function stringField(value, label) { return primitiveString(value, label, 128, false); }
+  function nullableStringField(value, label) {
+    return value == null ? null : primitiveString(value, label, 128, false);
+  }
+  function nullableIntegerField(minimum, maximum) { return function (value, label) {
+    return value == null ? null : whole(value, label, minimum, maximum); }; }
 
   var FACT_SPECS = Object.freeze(Object.assign(Object.create(null), {
     'rainbow-corkscrew': { corkscrewRadians: numberField(0, 200) },
@@ -697,14 +766,14 @@
     'black-hole': { orbitRadians: numberField(0, 1000) },
     boomerang: { returnedToOrigin: booleanField, returnDistance: numberField(0, 100000) },
     'roulette-table': { wheelColliderRef: stringField, objectColliderRef: stringField,
-      sectorIndex: integerField(0, 7), landingX: numberField(-100000, 100000),
-      sectorLeft: numberField(-100000, 100000), sectorRight: numberField(-100000, 100000),
-      wheelAngle: numberField(-100000, 100000), settled: booleanField },
+      sectorIndex: integerField(0, 7), sectorCount: integerField(8, 8),
+      settled: booleanField },
     rewind: { replayCount: integerField(0, 1), correctiveImpulseApplied: booleanField },
-    plinko: { objectColliderRef: stringField, slotSensorRef: stringField,
-      slotIndex: integerField(0, 8), dropDurationMs: numberField(10000, 15000),
-      landingX: numberField(-100000, 100000), slotLeft: numberField(-100000, 100000),
-      slotRight: numberField(-100000, 100000), settled: booleanField },
+    plinko: { objectColliderRef: stringField, slotSensorRef: nullableStringField,
+      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(9000, 30000),
+      settled: booleanField, completionKind: stringField,
+      recoveryStartedMs: nullableIntegerField(22000, 30000),
+      recoveryImpulseCount: integerField(0, 1000) },
     'mirror-match': { normalizedLaunchX: numberField(-4, 4), normalizedLaunchY: numberField(-4, 4),
       spin: numberField(-1000, 1000), profileSeed: integerField(0, 0xffffffff), physicsProfileId: stringField },
     'cap-toss': { bodyColliderRef: stringField, topColliderRef: stringField,
@@ -724,16 +793,32 @@
     }
     if (id === 'roulette-table') {
       if (values.wheelColliderRef === values.objectColliderRef) throw new Error('Roulette colliders must be distinct');
-      if (!(values.sectorRight > values.sectorLeft) || values.landingX < values.sectorLeft ||
-          values.landingX > values.sectorRight || !values.settled) {
-        throw new Error('Roulette landing lacks authoritative settled sector evidence');
-      }
+      if (!values.settled) throw new Error('Roulette landing lacks authoritative settled sector evidence');
     }
     if (id === 'plinko') {
-      if (values.objectColliderRef === values.slotSensorRef) throw new Error('Plinko object and slot sensor must differ');
-      if (!(values.slotRight > values.slotLeft) || values.landingX < values.slotLeft ||
-          values.landingX > values.slotRight || !values.settled) {
-        throw new Error('Plinko landing lacks settled slot-boundary evidence');
+      if (values.slotSensorRef != null && values.objectColliderRef === values.slotSensorRef) {
+        throw new Error('Plinko object and slot sensor must differ');
+      }
+      if (['clean', 'recovered', 'no-contest'].indexOf(values.completionKind) < 0) {
+        throw new Error('Plinko completionKind is invalid');
+      }
+      if (values.completionKind === 'clean') {
+        if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||
+            values.dropDurationMs < 9000 || values.dropDurationMs > 18000 ||
+            values.recoveryStartedMs != null || values.recoveryImpulseCount !== 0) {
+          throw new Error('Plinko clean completion requires a settled 9-18 second sensor result');
+        }
+      } else if (values.completionKind === 'recovered') {
+        if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||
+            values.dropDurationMs < 22000 || values.dropDurationMs >= 30000 ||
+            values.recoveryStartedMs == null || values.recoveryStartedMs > values.dropDurationMs ||
+            values.recoveryImpulseCount < 1) {
+          throw new Error('Plinko recovered completion lacks 22-second anti-wedge provenance');
+        }
+      } else if (values.settled || values.slotSensorRef != null || values.slotIndex != null ||
+          values.dropDurationMs !== 30000 || values.recoveryStartedMs == null ||
+          values.recoveryImpulseCount < 1) {
+        throw new Error('Plinko no-contest requires a 30-second unresolved recovery timeout');
       }
     }
   }
@@ -814,6 +899,9 @@
       visible: value.visible,
       zIndex: whole(value.zIndex, label + '.zIndex', -100000, 100000) };
   }
+  function entityNeedsCollider(entity) {
+    return PRESENTATION_ENTITY_ROLES.indexOf(String(entity && entity.role || '').toLowerCase()) < 0;
+  }
   function normalizeFrame(value, expected) {
     if (!isPlainObject(value)) throw new TypeError('EventFrameV1 is required');
     exactKeys(value, ['schema', 'eventId', 'eventClass', 'laneId', 'sequence', 'entities',
@@ -846,7 +934,8 @@
     var evidence = null;
     if (value.evidence != null) {
       if (!isPlainObject(value.evidence)) throw new TypeError('ColliderSnapshotV1.evidence must be an object');
-      exactKeys(value.evidence, ['settled', 'validLanding', 'pose', 'sensorActive'],
+      exactKeys(value.evidence, ['settled', 'validLanding', 'pose', 'sensorActive',
+        'sensorKind', 'sensorIndex', 'recoveryStartedMs', 'recoveryImpulseCount'],
         'ColliderSnapshotV1.evidence');
       if (typeof value.evidence.settled !== 'boolean' ||
           typeof value.evidence.validLanding !== 'boolean' ||
@@ -858,9 +947,22 @@
       if (['upright', 'cap', 'miss', 'none'].indexOf(pose) < 0) {
         throw new TypeError('ColliderSnapshotV1 evidence pose is invalid');
       }
+      var sensorKind = value.evidence.sensorKind == null ? null
+        : primitiveString(value.evidence.sensorKind, 'ColliderSnapshotV1 sensorKind', 48, false);
+      var sensorIndex = value.evidence.sensorIndex == null ? null
+        : whole(value.evidence.sensorIndex, 'ColliderSnapshotV1 sensorIndex', 0, 255);
+      if ((sensorKind == null) !== (sensorIndex == null)) {
+        throw new Error('ColliderSnapshotV1 sensor metadata must be complete');
+      }
       evidence = { settled: value.evidence.settled,
         validLanding: value.evidence.validLanding, pose: pose,
-        sensorActive: value.evidence.sensorActive };
+        sensorActive: value.evidence.sensorActive,
+        sensorKind: sensorKind, sensorIndex: sensorIndex,
+        recoveryStartedMs: value.evidence.recoveryStartedMs == null ? null
+          : whole(value.evidence.recoveryStartedMs, 'ColliderSnapshotV1 recoveryStartedMs', 0, 30000),
+        recoveryImpulseCount: value.evidence.recoveryImpulseCount == null ? 0
+          : whole(value.evidence.recoveryImpulseCount,
+            'ColliderSnapshotV1 recoveryImpulseCount', 0, 1000) };
     }
     return deepFreeze({ transform: entity.transform, bounds: entity.bounds, evidence: evidence });
   }
@@ -899,25 +1001,235 @@
         elapsedMs: finite(evidence.elapsedMs, 'outcome evidence elapsedMs', 0, 600000) } });
   }
 
-  function createAuthority() {
-    var frames = new WeakSet();
-    var outcomes = new WeakSet();
-    var runtime = Object.freeze({
-      issueFrame: function (frame) {
-        if (!frame || frame.schema !== 'EventFrameV1' || !Object.isFrozen(frame)) {
-          throw new TypeError('Only normalized EventFrameV1 values can be issued');
-        }
-        frames.add(frame); return frame;
-      },
-      issueOutcome: function (value) { var outcome = normalizeRuntimeOutcome(value); outcomes.add(outcome); return outcome; },
+  function capabilityRecord(map, value, label) {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+      throw new TypeError(label + ' capability is required');
+    }
+    var record = map.get(value);
+    if (!record) throw new TypeError(label + ' capability was not issued by the event kernel');
+    return record;
+  }
+
+  function liveMatch(rootRecord) {
+    var live = Rules.inspectEventMatchCapability(rootRecord.matchCapability);
+    if (live.matchId !== rootRecord.matchId || live.formatId !== rootRecord.formatId ||
+        live.namespace !== rootRecord.namespace) {
+      throw new Error('Rules match identity changed after event authority creation');
+    }
+    return live;
+  }
+
+  function runtimeAuthorityInfo(capability) {
+    var lane = capabilityRecord(RUNTIME_CAPABILITIES, capability, 'runtime');
+    var live = liveMatch(lane.root);
+    return deepFreeze({ schema: 'EventLaneAuthoritySnapshotV1', laneId: lane.laneId,
+      matchId: live.matchId, namespace: live.namespace, formatId: live.formatId });
+  }
+
+  function rendererAuthorityInfo(capability) {
+    var lane = capabilityRecord(RENDERER_CAPABILITIES, capability, 'renderer');
+    var live = liveMatch(lane.root);
+    return deepFreeze({ schema: 'EventLaneAuthoritySnapshotV1', laneId: lane.laneId,
+      matchId: live.matchId, namespace: live.namespace, formatId: live.formatId });
+  }
+
+  function rulesAuthorityInfo(capability) {
+    var rootRecord = capabilityRecord(RULES_CAPABILITIES, capability, 'rules');
+    return liveMatch(rootRecord);
+  }
+
+  function issueSelection(capability, value) {
+    var lane = capabilityRecord(RUNTIME_CAPABILITIES, capability, 'runtime');
+    if (!isPlainObject(value)) throw new TypeError('EventSelectionV2 is required');
+    if (ISSUED_SELECTION_SOURCES.has(value)) throw new Error('Event selection was already issued');
+    var id = eventId(value.eventId);
+    var kind = eventClass(value.eventClass);
+    var selection = normalizeSelection(value, id, kind);
+    ISSUED_SELECTION_SOURCES.add(value);
+    SELECTIONS.set(selection, { root: lane.root, laneId: lane.laneId,
+      eventId: id, eventClass: kind, consumed: false });
+    return selection;
+  }
+
+  function selectionInfo(capability, selection) {
+    var lane = capabilityRecord(RUNTIME_CAPABILITIES, capability, 'runtime');
+    var record = capabilityRecord(SELECTIONS, selection, 'selection');
+    if (record.root !== lane.root || record.laneId !== lane.laneId) {
+      throw new Error('Event selection belongs to a different match or lane');
+    }
+    return deepFreeze({ schema: 'EventSelectionAuthoritySnapshotV1', laneId: record.laneId,
+      eventId: record.eventId, eventClass: record.eventClass, consumed: record.consumed });
+  }
+
+  function claimSelection(capability, selection, expectedId, expectedClass) {
+    var info = selectionInfo(capability, selection);
+    var record = SELECTIONS.get(selection);
+    if (record.consumed) throw new Error('Event selection was already consumed');
+    if (info.eventId !== expectedId || info.eventClass !== expectedClass) {
+      throw new Error('Event selection does not match its event pack');
+    }
+    record.consumed = true;
+    return selection;
+  }
+
+  function issueLaunchClaim(capability, selection) {
+    var lane = capabilityRecord(RUNTIME_CAPABILITIES, capability, 'runtime');
+    var selectionRecord = capabilityRecord(SELECTIONS, selection, 'selection');
+    if (selectionRecord.root !== lane.root || selectionRecord.laneId !== lane.laneId ||
+        selectionRecord.consumed !== true) {
+      throw new Error('A consumed selection from this lane is required for a launch claim');
+    }
+    if (selectionRecord.claim) throw new Error('The event selection already owns a launch claim');
+    if (!Number.isSafeInteger(nextClaimOrdinal)) throw new RangeError('Event launch claim space exhausted');
+    var claim = Object.freeze({ schema: 'EventLaunchClaimV1',
+      claimId: 'lc1-' + (nextClaimOrdinal++).toString(36).padStart(12, '0') });
+    var claimRecord = { root: lane.root, laneId: lane.laneId,
+      eventId: selectionRecord.eventId, selection: selection, outcome: null };
+    selectionRecord.claim = claim;
+    LAUNCH_CLAIMS.set(claim, claimRecord);
+    return claim;
+  }
+
+  function issueFrame(capability, frame) {
+    var lane = capabilityRecord(RUNTIME_CAPABILITIES, capability, 'runtime');
+    if (!frame || frame.schema !== 'EventFrameV1' || !Object.isFrozen(frame) ||
+        frame.laneId !== lane.laneId) {
+      throw new TypeError('Only a normalized frame from the issuing lane can be issued');
+    }
+    FRAMES.set(frame, { root: lane.root, laneId: lane.laneId });
+    return frame;
+  }
+
+  function verifyFrame(capability, frame) {
+    var lane = capabilityRecord(RENDERER_CAPABILITIES, capability, 'renderer');
+    var record = frame && FRAMES.get(frame);
+    return !!record && record.root === lane.root && record.laneId === lane.laneId;
+  }
+
+  function issueTerminalEvidence(capability, claim, value) {
+    var lane = capabilityRecord(RUNTIME_CAPABILITIES, capability, 'runtime');
+    var claimRecord = capabilityRecord(LAUNCH_CLAIMS, claim, 'launch claim');
+    if (claimRecord.root !== lane.root || claimRecord.laneId !== lane.laneId) {
+      throw new Error('Terminal evidence launch claim belongs to another match or lane');
+    }
+    var evidence = immutableData(value, 'collider-derived terminal evidence');
+    TERMINAL_EVIDENCE.set(evidence, { root: lane.root, laneId: lane.laneId,
+      claim: claim, eventId: claimRecord.eventId });
+    return evidence;
+  }
+
+  function issueOutcome(capability, claim, terminalEvidence, value) {
+    var lane = capabilityRecord(RUNTIME_CAPABILITIES, capability, 'runtime');
+    var claimRecord = capabilityRecord(LAUNCH_CLAIMS, claim, 'launch claim');
+    var terminalRecord = capabilityRecord(TERMINAL_EVIDENCE, terminalEvidence,
+      'terminal evidence');
+    if (claimRecord.root !== lane.root || claimRecord.laneId !== lane.laneId ||
+        terminalRecord.root !== lane.root || terminalRecord.laneId !== lane.laneId ||
+        terminalRecord.claim !== claim || claimRecord.outcome) {
+      throw new Error('Runtime outcome authority chain is invalid or already used');
+    }
+    var outcome = normalizeRuntimeOutcome(value);
+    if (outcome.eventId !== claimRecord.eventId || outcome.laneId !== lane.laneId ||
+        outcome.launchClaimId !== claim.claimId) {
+      throw new Error('Runtime outcome is not bound to its launch claim');
+    }
+    claimRecord.outcome = outcome;
+    OUTCOMES.set(outcome, { root: lane.root, laneId: lane.laneId, claim: claim,
+      terminalEvidence: terminalEvidence, consumed: false, consumption: null });
+    return outcome;
+  }
+
+  function claimRulesAdapter(capability) {
+    var rootRecord = capabilityRecord(RULES_CAPABILITIES, capability, 'rules');
+    liveMatch(rootRecord);
+    if (rootRecord.adapterClaimed) throw new Error('This match already has an event rules adapter');
+    rootRecord.adapterClaimed = true;
+    return true;
+  }
+
+  function outcomeInfo(capability, outcome) {
+    var rootRecord = capabilityRecord(RULES_CAPABILITIES, capability, 'rules');
+    var record = capabilityRecord(OUTCOMES, outcome, 'runtime outcome');
+    if (record.root !== rootRecord) throw new Error('Runtime outcome belongs to another match authority');
+    var claim = LAUNCH_CLAIMS.get(record.claim);
+    if (!claim || claim.outcome !== outcome) throw new Error('Runtime outcome launch binding is invalid');
+    return deepFreeze({ schema: 'EventOutcomeAuthoritySnapshotV1', laneId: record.laneId,
+      launchClaimId: record.claim.claimId, consumed: record.consumed,
+      namespace: rootRecord.namespace, formatId: rootRecord.formatId });
+  }
+
+  function consumeOutcome(capability, outcome, resolutionIdentity, mapping) {
+    var rootRecord = capabilityRecord(RULES_CAPABILITIES, capability, 'rules');
+    var outcomeRecord = capabilityRecord(OUTCOMES, outcome, 'runtime outcome');
+    var claimRecord = LAUNCH_CLAIMS.get(outcomeRecord.claim);
+    if (outcomeRecord.root !== rootRecord || !claimRecord || claimRecord.root !== rootRecord) {
+      throw new Error('Runtime outcome belongs to another match authority');
+    }
+    if (!isPlainObject(resolutionIdentity) || resolutionIdentity.schema !== 'ResolutionIdentityV1') {
+      throw new TypeError('A live ResolutionIdentityV1 is required');
+    }
+    if (resolutionIdentity.callerId !== outcomeRecord.claim.claimId) {
+      throw new Error('ResolutionIdentityV1 is not bound to this launch claim');
+    }
+    var mapped = immutableData(mapping, 'event rules mapping');
+    if (outcomeRecord.consumed) {
+      if (outcomeRecord.consumption && outcomeRecord.consumption.resolutionId === resolutionIdentity.id &&
+          outcomeRecord.consumption.mappingJson === JSON.stringify(mapped)) {
+        return Object.freeze({ duplicate: true, consume: outcomeRecord.consumption.consume });
+      }
+      throw new Error('Runtime outcome was already consumed by the match root');
+    }
+    liveMatch(rootRecord);
+    var consumed = Rules.consumeEventMatchCapability(rootRecord.matchCapability, {
+      resolutionIdentity: resolutionIdentity, launchClaimId: outcomeRecord.claim.claimId,
+      eventId: outcome.eventId, rulesInput: mapped.rulesInput,
+      terminalOutcome: mapped.terminalOutcome, noContest: mapped.noContest === true,
+      metadata: mapped.metadata,
     });
-    return Object.freeze({ schema: 'EventAuthorityV1', runtime: runtime,
-      renderer: Object.freeze({ verifyFrame: function (frame) { return frames.has(frame); } }),
-      rules: Object.freeze({ verifyOutcome: function (outcome) { return outcomes.has(outcome); } }) });
+    outcomeRecord.consumed = true;
+    outcomeRecord.consumption = { resolutionId: resolutionIdentity.id,
+      mappingJson: JSON.stringify(mapped), consume: consumed };
+    return Object.freeze({ duplicate: false, consume: consumed });
+  }
+
+  function createAuthority(options) {
+    if (!Rules || typeof Rules.inspectEventMatchCapability !== 'function' ||
+        typeof Rules.consumeEventMatchCapability !== 'function') {
+      throw new Error('FlipgameV112Rules must load before event authority creation');
+    }
+    if (!isPlainObject(options)) throw new TypeError('Event authority options are required');
+    exactKeys(options, ['matchCapability'], 'Event authority options');
+    var live = Rules.inspectEventMatchCapability(options.matchCapability);
+    if (!Number.isSafeInteger(nextRootOrdinal)) throw new RangeError('Event authority space exhausted');
+    var rulesCapability = Object.freeze({ schema: 'EventRulesAuthorityV2' });
+    var rootRecord = { ordinal: nextRootOrdinal++, matchCapability: options.matchCapability,
+      matchId: live.matchId, namespace: live.namespace, formatId: live.formatId,
+      adapterClaimed: false, laneIds: new Set() };
+    RULES_CAPABILITIES.set(rulesCapability, rootRecord);
+    function createLane(laneValue) {
+      var laneId = primitiveString(laneValue, 'laneId', 96, false);
+      liveMatch(rootRecord);
+      if (rootRecord.laneIds.has(laneId)) {
+        throw new Error('Duplicate lane ID within one event match: ' + laneId);
+      }
+      if (!Number.isSafeInteger(nextLaneOrdinal)) throw new RangeError('Event lane space exhausted');
+      rootRecord.laneIds.add(laneId);
+      var laneRecord = { ordinal: nextLaneOrdinal++, root: rootRecord, laneId: laneId };
+      var runtimeCapability = Object.freeze({ schema: 'EventRuntimeAuthorityV2' });
+      var rendererCapability = Object.freeze({ schema: 'EventRendererAuthorityV2' });
+      RUNTIME_CAPABILITIES.set(runtimeCapability, laneRecord);
+      RENDERER_CAPABILITIES.set(rendererCapability, laneRecord);
+      return Object.freeze({ schema: 'EventLaneCapabilityV2', laneId: laneId,
+        runtime: runtimeCapability, renderer: rendererCapability,
+        issueSelection: function (selection) { return issueSelection(runtimeCapability, selection); } });
+    }
+    return Object.freeze({ schema: 'EventAuthorityV2', createLane: createLane,
+      rules: rulesCapability });
   }
 
   return Object.freeze({ schema: 'FlipgameEventKernelV2', LIMITS: LIMITS,
     EVENT_CLASSES: EVENT_CLASSES, EVENT_IDS: EVENT_IDS,
+    PRESENTATION_ENTITY_ROLES: PRESENTATION_ENTITY_ROLES,
     EVENT_CLASS_BY_ID: EVENT_CLASS_BY_ID, RESOURCE_KINDS: RESOURCE_KINDS,
     FACT_SPECS: FACT_SPECS, isPlainObject: isPlainObject,
     primitiveString: primitiveString, finite: finite, whole: whole,
@@ -925,7 +1237,8 @@
     safeReason: safeReason, safeThrown: safeThrown,
     assertNoAmbientRandom: assertNoAmbientRandom, callSynchronous: callSynchronous,
     definePack: definePack, validatePack: validatePack,
-    createEventRng: createEventRng, normalizeCue: normalizeCue, normalizeCues: normalizeCues,
+    createEventRng: createEventRng, createVisualRng: createVisualRng,
+    normalizeCue: normalizeCue, normalizeCues: normalizeCues,
     normalizeTelegraph: normalizeTelegraph, normalizeSelection: normalizeSelection,
     createResourceScope: createResourceScope, validateBehavior: validateBehavior,
     normalizeQualification: normalizeQualification, normalizeLaunchSignal: normalizeLaunchSignal,
@@ -934,5 +1247,14 @@
     normalizeLandingProbe: normalizeLandingProbe, normalizeOutcomeFacts: normalizeOutcomeFacts,
     normalizeBehaviorEvaluation: normalizeBehaviorEvaluation,
     normalizeFrame: normalizeFrame, normalizeColliderSnapshot: normalizeColliderSnapshot,
-    mechanicsSignature: mechanicsSignature, createAuthority: createAuthority });
+    entityNeedsCollider: entityNeedsCollider, mechanicsSignature: mechanicsSignature,
+    runtimeAuthorityInfo: runtimeAuthorityInfo, rendererAuthorityInfo: rendererAuthorityInfo,
+    rulesAuthorityInfo: rulesAuthorityInfo, issueSelection: issueSelection,
+    selectionInfo: selectionInfo,
+    outcomeInfo: outcomeInfo,
+    claimSelection: claimSelection, issueLaunchClaim: issueLaunchClaim,
+    issueFrame: issueFrame, verifyFrame: verifyFrame,
+    issueTerminalEvidence: issueTerminalEvidence, issueOutcome: issueOutcome,
+    claimRulesAdapter: claimRulesAdapter, consumeOutcome: consumeOutcome,
+    createAuthority: createAuthority });
 });

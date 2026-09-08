@@ -3,12 +3,12 @@
 // match economy and emits versioned outcomes.
 (function (root, factory) {
   'use strict';
-  var api = factory();
+  var api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.FlipgameV112Rules = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function () {
+  : (typeof window !== 'undefined' ? window : this)), function (root) {
   'use strict';
 
   var VERSION = 1;
@@ -27,6 +27,9 @@
   var DEFAULT_SUDDEN_DEATH_STEP_TURNS = 20;
   var RESOLUTION_IDENTITY_SCHEMA = 'ResolutionIdentityV1';
   var MAX_CALLER_FLIP_ID_LENGTH = 96;
+  // Capabilities are intentionally identity-bearing objects.  Schema tags and
+  // public identity hashes are corruption checks, never authority.
+  var EVENT_MATCH_CAPABILITIES = new WeakMap();
 
   function clone(value) {
     if (value == null || typeof value !== 'object') return value;
@@ -367,6 +370,40 @@
       nextOrdinal: identity.ordinal + 1,
       expectedToken: resolutionToken(identity.namespace, identity.ordinal + 1, null),
     };
+  }
+
+  function eventCapabilityRecord(value) {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+      throw new TypeError('A Rules-issued event match capability is required');
+    }
+    var record = EVENT_MATCH_CAPABILITIES.get(value);
+    if (!record) throw new TypeError('A Rules-issued event match capability is required');
+    return record;
+  }
+
+  function inspectEventMatchCapability(value) {
+    var record = eventCapabilityRecord(value);
+    var state = record.getState();
+    validateResolutionHighWater(state);
+    return freeze({ schema: 'EventMatchAuthoritySnapshotV1', matchId: state.matchId,
+      formatId: state.formatId, namespace: state.resolutionIdentity.namespace,
+      resolvedThrough: state.resolutionIdentity.resolvedThrough,
+      nextOrdinal: state.resolutionIdentity.nextOrdinal, phase: state.phase });
+  }
+
+  function eventKernelModule() {
+    var kernel = root && root.FlipgameV112EventKernel;
+    if (!kernel && typeof module === 'object' && module.exports) {
+      // Lazy loading avoids the Rules <-> EventKernel CommonJS cycle during
+      // module initialization. By the time a live match claims its authority,
+      // both modules have finished evaluating.
+      kernel = require('./v112-event-kernel.js');
+    }
+    if (!kernel || kernel.schema !== 'FlipgameEventKernelV2' ||
+        typeof kernel.createAuthority !== 'function') {
+      throw new Error('FlipgameV112EventKernel V2 must load before event authority is claimed');
+    }
+    return kernel;
   }
 
   function normalizeLanding(input) {
@@ -1398,7 +1435,8 @@
     var state = {
       schema: 'TeamClashRulesStateV1', version: VERSION,
       config: clone(config), matchId: config.matchId, formatId: 'team-clash',
-      phase: 'active', sequence: 0, scores: [0, 0], roundNumber: 1,
+      phase: 'active', sequence: 0, noContestCount: 0,
+      scores: [0, 0], roundNumber: 1,
       resolutionIdentity: createResolutionHighWater('team-clash', config.matchId),
       roundStartScores: [0, 0],
       roundStartingTeamIndex: config.startingTeamIndex,
@@ -1893,7 +1931,9 @@
       if (!result || result.heatNumber !== heat || ids.indexOf(result.winnerId) < 0 ||
           result.starterId !== expectedStarter || result.outcomeId == null ||
           (result.completionReason !== 'last-player-standing' &&
-            result.completionReason !== 'no-survivors')) {
+            result.completionReason !== 'no-survivors' &&
+            result.completionReason !== 'plinko-automatic-win' &&
+            result.completionReason !== 'plinko-automatic-loss')) {
         throw new Error('Cup heat history is not reachable');
       }
       if (historyOutcomeIds.has(result.outcomeId)) {
@@ -1905,7 +1945,9 @@
       var outerNamespace = state.resolutionIdentity.namespace;
       if ((result.completionReason === 'last-player-standing' &&
           (resultIdentity.namespace !== innerNamespace || resultIdentity.ordinal !== result.attempts)) ||
-          (result.completionReason === 'no-survivors' &&
+          ((result.completionReason === 'no-survivors' ||
+            result.completionReason === 'plinko-automatic-win' ||
+            result.completionReason === 'plinko-automatic-loss') &&
           (resultIdentity.namespace !== outerNamespace || resultIdentity.ordinal > state.sequence))) {
         throw new Error('Cup heat outcome belongs to a foreign namespace');
       }
@@ -2050,6 +2092,10 @@
       throw new TypeError('Invalid Team Clash round score');
     }
     assertWhole(state.roundNumber, 'Team Clash round number', 1);
+    assertWhole(state.noContestCount, 'Team Clash no-contest count', 0);
+    if (state.noContestCount > state.sequence) {
+      throw new Error('Team Clash no-contest count exceeds resolved transitions');
+    }
     if ((state.roundStartingTeamIndex !== 0 && state.roundStartingTeamIndex !== 1) ||
         state.matchStartingTeamIndex !== config.startingTeamIndex ||
         state.roundStartingTeamIndex !== (state.roundNumber % 2 === 1
@@ -2082,7 +2128,7 @@
     var completedRoundFlips = (state.roundNumber - 1) * state.queue.length;
     var expectedSequence = completedRoundFlips + state.queuePosition;
     if (!Number.isSafeInteger(completedRoundFlips) || !Number.isSafeInteger(expectedSequence) ||
-        state.sequence !== expectedSequence) {
+        state.sequence - state.noContestCount !== expectedSequence) {
       throw new Error('Team Clash sequence is not reachable from its round and queue position');
     }
     var ids = config.players.map(function (player) { return player.id; });
@@ -2143,7 +2189,9 @@
       }
       totalFlips += stats.flips;
     });
-    if (totalFlips !== state.sequence) throw new Error('Team Clash statistics do not match sequence');
+    if (totalFlips !== state.sequence - state.noContestCount) {
+      throw new Error('Team Clash statistics do not match competitive sequence');
+    }
     if (!Array.isArray(state.persistentMagnetIds) ||
         new Set(state.persistentMagnetIds).size !== state.persistentMagnetIds.length ||
         state.persistentMagnetIds.some(function (id) { return ids.indexOf(id) < 0; }) ||
@@ -2177,6 +2225,208 @@
       throw new Error('Team Clash turn metadata is stale or forged');
     }
     return true;
+  }
+
+  function resolveClassicNoContest(state, identity, eventId) {
+    validateClassicState(state);
+    if (state.phase !== 'active') throw new Error('Classic match is complete');
+    var next = clone(state);
+    next.attemptCounter += 1;
+    claimResolutionIdentity(next, identity);
+    next.turn = classicTurnMetadata(next);
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: freeze({
+      schema: OUTCOME_SCHEMA, version: VERSION, type: 'rules.event-no-contest.v1',
+      outcomeId: identity.id, resolutionIdentity: identity, matchId: next.matchId,
+      sequence: next.sequence, formatId: 'classic', eventId: eventId,
+      completed: false, winnerIds: [], completionReason: 'event-no-contest',
+      turn: next.turn, presentation: { positiveOnly: true, cues: [] },
+    }) });
+  }
+
+  function resolveClassicPlinkoTerminal(state, identity, terminalOutcome) {
+    validateClassicState(state);
+    if (state.phase !== 'active') throw new Error('Classic match is complete');
+    var next = clone(state);
+    var actorIndex = next.currentPlayerIndex;
+    var actor = next.players[actorIndex];
+    next.attemptCounter += 1;
+    // A terminal Plinko launch is a completed competitive turn even when the
+    // actor was ON FIRE; its special path bypasses ordinary stake/life loss but
+    // advances sudden-death accounting exactly once.
+    recordCompetitiveTurn(next, actor.id);
+    if (terminalOutcome === 'current-win') {
+      next.players.forEach(function (player) {
+        if (player.id !== actor.id) eliminatePlayer(next, player.id);
+      });
+      if (actor.onFire || next.onFirePlayerId === actor.id) {
+        next.lastFireRun = { playerId: actor.id, earned: next.onFireEarned,
+          peakStreak: actor.bestStreak, reason: 'terminal-event' };
+      }
+      actor.onFire = false;
+      actor.heatingUp = false;
+      actor.streak = 0;
+      next.onFirePlayerId = null;
+      next.onFireEarned = 0;
+      next.phase = 'complete';
+      next.winnerIds = [actor.id];
+      next.completionReason = 'plinko-automatic-win';
+    } else if (terminalOutcome === 'current-loss') {
+      eliminatePlayer(next, actor.id);
+      var survivors = activePlayers(next);
+      if (survivors.length <= 1) {
+        next.phase = 'complete';
+        next.winnerIds = survivors.map(function (player) { return player.id; });
+        next.completionReason = 'plinko-automatic-loss';
+      } else {
+        next.currentPlayerIndex = nextActiveIndex(next, actorIndex);
+        advanceCompletedSuddenDeathBand(next, next.currentPlayerIndex);
+      }
+    } else throw new RangeError('Unsupported Plinko terminal outcome');
+    claimResolutionIdentity(next, identity);
+    next.turn = classicTurnMetadata(next);
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: freeze({
+      schema: OUTCOME_SCHEMA, version: VERSION, type: 'rules.plinko-terminal.v1',
+      outcomeId: identity.id, resolutionIdentity: identity, matchId: next.matchId,
+      sequence: next.sequence, formatId: 'classic', eventId: 'plinko',
+      playerId: actor.id, terminalOutcome: terminalOutcome,
+      completed: next.phase === 'complete', winnerIds: next.winnerIds.slice(),
+      completionReason: next.completionReason, turn: next.turn,
+      presentation: { positiveOnly: true,
+        cues: terminalOutcome === 'current-win' ? ['match-win'] : [] },
+    }) });
+  }
+
+  function resolveCupNoContest(state, identity, eventId) {
+    validateCupState(state);
+    if (state.phase !== 'heat') throw new Error('Cup is not accepting an event result');
+    var next = clone(state);
+    claimResolutionIdentity(next, identity);
+    next.turn = cupTurnMetadata(next);
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: freeze({
+      schema: OUTCOME_SCHEMA, version: VERSION, type: 'rules.event-no-contest.v1',
+      outcomeId: identity.id, resolutionIdentity: identity, matchId: next.matchId,
+      sequence: next.sequence, formatId: 'cup', eventId: eventId,
+      heatNumber: next.heatNumber, completed: false, winnerIds: [],
+      completionReason: 'event-no-contest', turn: next.turn,
+      presentation: { positiveOnly: true, cues: [] },
+    }) });
+  }
+
+  function resolveCupPlinkoTerminal(state, identity, terminalOutcome) {
+    validateCupState(state);
+    if (state.phase !== 'heat') throw new Error('Cup is not accepting an event result');
+    var next = clone(state);
+    var heat = next.currentHeat;
+    var actor = heat.players[heat.currentPlayerIndex];
+    var winnerId = actor.id;
+    if (terminalOutcome === 'current-loss') {
+      // WFC Cup precedent awards an automatic-loss heat to the next surviving
+      // seat in the configured rotation.  This is deterministic for 2–8
+      // entrants and rotates with the heat opener/direction.
+      var winnerIndex = nextActiveIndex(heat, heat.currentPlayerIndex);
+      winnerId = heat.players[winnerIndex].id;
+    } else if (terminalOutcome !== 'current-win') {
+      throw new RangeError('Unsupported Plinko terminal outcome');
+    }
+    // The WFC Cup contract resolves the heat immediately.  The outer rules
+    // identity is authoritative; the inner heat is discarded after its bounded
+    // summary is recorded.
+    heat.attemptCounter += 1;
+    heat.rulesTurnCounter += 1;
+    heat.completionReason = terminalOutcome === 'current-win'
+      ? 'plinko-automatic-win' : 'plinko-automatic-loss';
+    claimResolutionIdentity(next, identity);
+    var close = closeCupHeat(next, winnerId, { outcomeId: identity.id });
+    next.turn = cupTurnMetadata(next);
+    var cues = ['heat-win'];
+    if (close.matchResolved) cues.push('match-win');
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: freeze({
+      schema: OUTCOME_SCHEMA, version: VERSION, type: 'rules.plinko-terminal.v1',
+      outcomeId: identity.id, resolutionIdentity: identity, matchId: next.matchId,
+      sequence: next.sequence, formatId: 'cup', eventId: 'plinko',
+      playerId: actor.id, terminalOutcome: terminalOutcome,
+      heatNumber: state.heatNumber, heatResolved: true, heatWinnerId: winnerId,
+      matchResolved: close.matchResolved, completed: next.phase === 'complete',
+      winnerIds: next.winnerIds.slice(), completionReason: next.completionReason,
+      turn: next.turn, presentation: { positiveOnly: true, cues: cues },
+    }) });
+  }
+
+  function resolveTeamNoContest(state, identity, eventId) {
+    validateTeamState(state);
+    if (state.phase !== 'active') throw new Error('Team Clash match is complete');
+    var next = clone(state);
+    next.noContestCount += 1;
+    claimResolutionIdentity(next, identity);
+    next.turn = teamTurnMetadata(next);
+    return freeze({ schema: 'RulesTransitionV1', state: freeze(next), outcome: freeze({
+      schema: OUTCOME_SCHEMA, version: VERSION, type: 'rules.event-no-contest.v1',
+      outcomeId: identity.id, resolutionIdentity: identity, matchId: next.matchId,
+      sequence: next.sequence, formatId: 'team-clash', eventId: eventId,
+      completed: false, winnerIds: [], completionReason: 'event-no-contest',
+      turn: next.turn, presentation: { positiveOnly: true, cues: [] },
+    }) });
+  }
+
+  function resolveEventAgainstState(state, request) {
+    var source = object(request);
+    var identity = requestedResolutionIdentity(state, {
+      resolutionIdentity: source.resolutionIdentity,
+      flipId: source.resolutionIdentity && source.resolutionIdentity.id,
+    });
+    if (identity.callerId == null || identity.callerId !== String(source.launchClaimId || '')) {
+      throw new Error('ResolutionIdentityV1 is not bound to the event launch claim');
+    }
+    var eventId = required(source.eventId, 'eventId');
+    if (source.noContest === true) {
+      if (eventId !== 'plinko' || source.terminalOutcome != null || source.rulesInput != null) {
+        throw new Error('Only a Plinko timeout may resolve as no-contest');
+      }
+      if (state.schema === 'ClassicRulesStateV1') return resolveClassicNoContest(state, identity, eventId);
+      if (state.schema === 'CupRulesStateV1') return resolveCupNoContest(state, identity, eventId);
+      return resolveTeamNoContest(state, identity, eventId);
+    }
+    if (source.terminalOutcome != null) {
+      if (eventId !== 'plinko' || (source.terminalOutcome !== 'current-win' &&
+          source.terminalOutcome !== 'current-loss')) {
+        throw new Error('Only Plinko can submit a terminal automatic result');
+      }
+      if (state.schema === 'ClassicRulesStateV1') {
+        return resolveClassicPlinkoTerminal(state, identity, source.terminalOutcome);
+      }
+      if (state.schema === 'CupRulesStateV1') {
+        return resolveCupPlinkoTerminal(state, identity, source.terminalOutcome);
+      }
+      return resolveTeamFlip(state, { resolutionIdentity: identity,
+        result: source.terminalOutcome === 'current-win' ? 'MAKE' : 'MISS',
+        pose: source.terminalOutcome === 'current-win' ? 'upright' : 'miss',
+        effects: { automaticWinner: source.terminalOutcome === 'current-win'
+          ? 'current' : 'opponent', metadata: clone(object(source.metadata)) } });
+    }
+    if (!source.rulesInput || typeof source.rulesInput !== 'object') {
+      throw new TypeError('A non-terminal event requires rules input');
+    }
+    return resolveMatchFlip(state, Object.assign({ resolutionIdentity: identity }, clone(source.rulesInput)));
+  }
+
+  function consumeEventMatchCapability(capability, request) {
+    var record = eventCapabilityRecord(capability);
+    var source = object(request);
+    var state = record.getState();
+    validateResolutionHighWater(state);
+    var identityId = source.resolutionIdentity && source.resolutionIdentity.id;
+    var signature = String(identityId || '') + '|' + String(source.launchClaimId || '') + '|' +
+      String(source.eventId || '') + '|' + String(source.terminalOutcome || '') + '|' +
+      String(source.noContest === true);
+    if (record.last && record.last.signature === signature) {
+      return freeze({ schema: 'RulesEventConsumeV1', duplicate: true,
+        formatId: state.formatId, transition: record.last.transition });
+    }
+    var transition = resolveEventAgainstState(state, source);
+    record.setState(transition.state);
+    record.last = { signature: signature, transition: transition };
+    return freeze({ schema: 'RulesEventConsumeV1', duplicate: false,
+      formatId: transition.state.formatId, transition: transition });
   }
 
   function createMatchState(input) {
@@ -2240,6 +2490,36 @@
     });
   }
 
+  function normalizeOrdinaryAdapterInput(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new TypeError('Ordinary rules resolution requires a plain input object');
+    }
+    var prototype = Object.getPrototypeOf(value);
+    var crossRealmPlain = prototype && Object.getPrototypeOf(prototype) === null;
+    if (prototype !== null && prototype !== Object.prototype && !crossRealmPlain) {
+      throw new TypeError('Ordinary rules resolution requires a plain input object');
+    }
+    if (typeof Object.getOwnPropertySymbols === 'function' &&
+        Object.getOwnPropertySymbols(value).length) {
+      throw new TypeError('Ordinary rules resolution does not accept symbol fields');
+    }
+    var allowed = new Set([
+      'resolutionIdentity', 'flipId', 'playerId', 'result', 'pose', 'onCap', 'reason',
+    ]);
+    var clean = Object.create(null);
+    Object.getOwnPropertyNames(value).forEach(function (key) {
+      if (!allowed.has(key) || key === '__proto__' || key === 'prototype' || key === 'constructor') {
+        throw new TypeError('Ordinary rules resolution cannot apply event field: ' + key);
+      }
+      var descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        throw new TypeError('Ordinary rules resolution fields must be plain values');
+      }
+      clean[key] = descriptor.value;
+    });
+    return clean;
+  }
+
   function legacyClassicOptions(input) {
     if (input && input.schema === 'ClassicRulesStateV1') validateClassicState(input);
     var config = normalizeClassicConfig(input && input.schema === 'ClassicRulesStateV1'
@@ -2274,13 +2554,26 @@
 
   function createRulesAdapter(input) {
     var state = createMatchState(input);
-    function update(transition) { state = transition.state; return transition; }
-    return Object.freeze({
+    var eventCapability = Object.freeze({ schema: 'RulesEventMatchCapabilityV1' });
+    var eventAuthorityClaimed = false;
+    function update(transition) {
+      if (!transition || !transition.state || transition.state.matchId !== state.matchId ||
+          transition.state.formatId !== state.formatId) {
+        throw new Error('Rules transition attempted to replace the immutable match identity');
+      }
+      state = transition.state;
+      return transition;
+    }
+    var api = Object.freeze({
       snapshot: function () { return snapshot(state); },
       nextResolutionIdentity: function (callerId) {
         return nextResolutionIdentity(state, callerId);
       },
-      resolveFlip: function (value) { return update(resolveMatchFlip(state, value)); },
+      // Live ordinary flips cannot carry event rewards, raw points or forced
+      // elimination. Those fields enter only through the branded event chain.
+      resolveFlip: function (value) {
+        return update(resolveMatchFlip(state, normalizeOrdinaryAdapterInput(value)));
+      },
       beginNextHeat: function () {
         if (state.schema !== 'CupRulesStateV1') throw new Error('Only Cup has heats');
         state = beginNextCupHeat(state);
@@ -2292,7 +2585,21 @@
         throw new Error('This format has no structured rematch options');
       },
       toMatchOutcome: function (options) { return toMatchOutcomeV2(state, options); },
+      claimEventAuthority: function () {
+        if (eventAuthorityClaimed) {
+          throw new Error('This rules match already issued its event authority');
+        }
+        var authority = eventKernelModule().createAuthority({ matchCapability: eventCapability });
+        eventAuthorityClaimed = true;
+        return authority;
+      },
     });
+    EVENT_MATCH_CAPABILITIES.set(eventCapability, {
+      getState: function () { return state; },
+      setState: function (nextState) { update({ state: nextState }); },
+      last: null,
+    });
+    return api;
   }
 
   return freeze({
@@ -2311,6 +2618,8 @@
     multiplyLives: multiplyLives,
     halveLives: halveLives,
     nextResolutionIdentity: nextResolutionIdentity,
+    inspectEventMatchCapability: inspectEventMatchCapability,
+    consumeEventMatchCapability: consumeEventMatchCapability,
     normalizeLanding: normalizeLanding,
     normalizeEffects: normalizeEffects,
     normalizeClassicConfig: normalizeClassicConfig,

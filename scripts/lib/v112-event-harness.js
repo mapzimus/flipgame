@@ -5,21 +5,23 @@
   var Runtime = root && root.FlipgameV112EventRuntime;
   var Renderer = root && root.FlipgameV112EventRenderer;
   var RulesAdapter = root && root.FlipgameV112EventRulesAdapter;
+  var Rules = root && root.FlipgameV112Rules;
   if (typeof module === 'object' && module.exports) {
     Kernel = require('../../js/v112-event-kernel.js');
     Runtime = require('../../js/v112-event-runtime.js');
     Renderer = require('../../js/v112-event-renderer.js');
     RulesAdapter = require('../../js/v112-event-rules-adapter.js');
+    Rules = require('../../js/v112-rules.js');
   }
-  var api = factory(Kernel, Runtime, Renderer, RulesAdapter);
+  var api = factory(Kernel, Runtime, Renderer, RulesAdapter, Rules);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.FlipgameV112EventHarness = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Kernel, Runtime, Renderer, RulesAdapter) {
+  : (typeof window !== 'undefined' ? window : this)), function (Kernel, Runtime, Renderer, RulesAdapter, Rules) {
   'use strict';
 
-  if (!Kernel || !Runtime || !Renderer || !RulesAdapter) {
+  if (!Kernel || !Runtime || !Renderer || !RulesAdapter || !Rules) {
     throw new Error('The v1.12 event infrastructure must load before its harness');
   }
 
@@ -53,12 +55,11 @@
     'black-hole': { orbitRadians: 3.4 },
     boomerang: { returnedToOrigin: true, returnDistance: 6 },
     'roulette-table': { wheelColliderRef: 'body:wheel', objectColliderRef: 'body:object',
-      sectorIndex: 3, landingX: 42, sectorLeft: 40, sectorRight: 50,
-      wheelAngle: 1.5, settled: true },
+      sectorIndex: 3, sectorCount: 8, settled: true },
     rewind: { replayCount: 1, correctiveImpulseApplied: true },
     plinko: { objectColliderRef: 'body:object', slotSensorRef: 'sensor:slot-4',
-      slotIndex: 4, dropDurationMs: 12000, landingX: 45,
-      slotLeft: 40, slotRight: 50, settled: true },
+      slotIndex: 4, dropDurationMs: 12000, settled: true, completionKind: 'clean',
+      recoveryStartedMs: null, recoveryImpulseCount: 0 },
     'mirror-match': { normalizedLaunchX: 0.12, normalizedLaunchY: -0.48,
       spin: 7.5, profileSeed: 123, physicsProfileId: 'standard' },
     'cap-toss': { bodyColliderRef: 'body:body', topColliderRef: 'body:top',
@@ -89,6 +90,7 @@
     return Object.assign({ layout: { width: 1280, height: 720, groundY: 620 },
       appearance: { flipperId: 'bottle', variantId: 'classic-blue' },
       physicsProfile: { id: 'standard', mass: 1, colliderRef: 'body:flipper-main' },
+      hostColliderRefs: ['table'],
     }, clone(overrides || {}));
   }
 
@@ -132,11 +134,29 @@
     }, clone(overrides || {}));
   }
 
+  function makeScopeFrame(eventId, eventClass, context, sequence) {
+    var entities = context.scope.colliderRefs().map(function (reference, index) {
+      var collider = context.scope.getCollider(reference);
+      var isMain = reference === 'body:flipper-main';
+      return { entityId: reference.replace(':', '-'),
+        role: isMain ? 'flipper' : (reference.indexOf('sensor:') === 0 ? 'sensor' : 'event-body'),
+        transform: clone(collider.transform), bounds: clone(collider.bounds),
+        colliderRef: reference, appearanceRef: isMain ? 'bottle:classic-blue' : reference,
+        visualStateRef: 'active', visible: reference.indexOf('sensor:') !== 0,
+        zIndex: 10 + index };
+    });
+    return makeFrame(eventId, eventClass, context.scope.laneId,
+      { sequence: sequence, entities: entities, reducedMotion: false,
+        cues: [{ cueId: 'harness-cue', kind: 'trail' }] });
+  }
+
   function makeCollider(laneId, name, overrides) {
     var source = overrides || {};
     return { laneId: laneId, name: name, transform: clone(PRIMARY_TRANSFORM),
       bounds: clone(PRIMARY_BOUNDS), evidence: Object.assign({ settled: true,
-        validLanding: true, pose: 'upright', sensorActive: false },
+        validLanding: true, pose: 'upright', sensorActive: false,
+        sensorKind: null, sensorIndex: null, recoveryStartedMs: null,
+        recoveryImpulseCount: 0 },
       clone(source.evidence || {})) };
   }
 
@@ -166,17 +186,26 @@
         { evidence: { validLanding: facts.secondaryLanded,
           pose: facts.secondaryLanded ? 'upright' : 'miss' } });
     } else if (eventId === 'roulette-table') {
+      var wheelAngle = 0.35;
+      var sectorAngle = wheelAngle + (facts.sectorIndex + 0.5) * (Math.PI * 2 / 8);
       ownCollider(context, 'body', 'wheel', disposals, source,
-        { transform: { angle: facts.wheelAngle } });
+        { transform: { x: 640, y: 300, angle: wheelAngle } });
       ownCollider(context, 'body', 'object', disposals, source,
-        { transform: { x: facts.landingX } });
+        { transform: { x: 640 + Math.cos(sectorAngle) * 100,
+          y: 300 + Math.sin(sectorAngle) * 100 } });
     } else if (eventId === 'plinko') {
       ownCollider(context, 'body', 'object', disposals, source,
-        { transform: { x: facts.landingX } });
-      ownCollider(context, 'sensor', 'slot-4', disposals, source,
-        { bounds: { left: facts.slotLeft, width: facts.slotRight - facts.slotLeft,
-            right: facts.slotRight },
-          evidence: { sensorActive: true } });
+        { transform: { x: 45 }, evidence: { settled: facts.settled,
+          validLanding: facts.settled, pose: facts.settled ? 'upright' : 'none',
+          recoveryStartedMs: facts.recoveryStartedMs,
+          recoveryImpulseCount: facts.recoveryImpulseCount } });
+      if (facts.slotSensorRef != null) {
+        var slotId = facts.slotSensorRef.split(':')[1];
+        ownCollider(context, 'sensor', slotId, disposals, source,
+          { bounds: { left: 40, width: 10, right: 50 },
+            evidence: { sensorActive: true, sensorKind: 'plinko-slot',
+              sensorIndex: facts.slotIndex } });
+      }
     } else if (eventId === 'cap-toss') {
       ownCollider(context, 'body', 'body', disposals, source,
         { evidence: { validLanding: facts.bodyLanded, pose: facts.bodyLanded ? 'upright' : 'miss' } });
@@ -240,10 +269,7 @@
             trace.push('frame:' + reducedMotion); maybeThrow('frame');
             var provided = typeof source.frame === 'function'
               ? source.frame(reducedMotion, context, frameSequence) : null;
-            return provided || makeFrame(eventId, eventClass, context.scope.laneId,
-              { sequence: frameSequence, reducedMotion: reducedMotion,
-                cues: reducedMotion ? [{ cueId: 'static-harness-cue', kind: 'static' }]
-                  : [{ cueId: 'harness-cue', kind: 'trail' }] });
+            return provided || makeScopeFrame(eventId, eventClass, context, frameSequence);
           },
           cleanup: function (reason) {
             trace.push('cleanup:' + reason); maybeThrow('cleanup');
@@ -258,7 +284,14 @@
     var trace = [];
     var disposals = [];
     var reflows = [];
-    var authority = source.authority || Kernel.createAuthority();
+    var rules = source.rules || null;
+    if (!source.authority) {
+      rules = rules || Rules.createRulesAdapter({ matchId: source.matchId || 'harness-match',
+        formatId: source.formatId || 'classic', players: source.players || [
+          { id: 'p1', name: 'Player 1' }, { id: 'p2', name: 'Player 2' },
+        ] });
+    }
+    var authority = source.authority || rules.claimEventAuthority();
     var pack = source.pack || makePack({ eventClass: source.eventClass,
       ids: source.ids || [source.eventId || 'rainbow-corkscrew'],
       facts: source.facts, frame: source.frame, evaluate: source.evaluate,
@@ -268,8 +301,10 @@
       disposals: disposals, throwDisposerAt: source.throwDisposerAt,
       onCreate: source.onCreate });
     var eventId = source.eventId || pack.ids[0];
-    var runtime = Runtime.createEventRuntime({ laneId: source.laneId || 'lane-a',
-      packs: [pack], authority: authority.runtime,
+    var laneId = source.laneId || 'lane-a';
+    var laneAuthority = source.laneAuthority || authority.createLane(laneId);
+    var runtime = Runtime.createEventRuntime({ laneId: laneId,
+      packs: [pack], authority: laneAuthority.runtime,
       resolveCollider: source.resolveCollider || function (collider) {
         return { transform: collider.transform, bounds: collider.bounds,
           evidence: collider.evidence };
@@ -278,10 +313,12 @@
         reflows.push({ layout: layout, metadata: metadata });
         if (source.throwReflow) throw new Error('harness-reflow');
       } });
-    var selection = makeSelection(eventId, pack.eventClass, source.eventSeed, source.selection);
+    var rawSelection = makeSelection(eventId, pack.eventClass, source.eventSeed, source.selection);
+    var selection = laneAuthority.issueSelection(rawSelection);
     runtime.bind(selection, makeContext(source.context));
     return { runtime: runtime, pack: pack, trace: trace, disposals: disposals,
-      reflows: reflows, selection: selection, authority: authority };
+      reflows: reflows, selection: selection, rawSelection: rawSelection,
+      authority: authority, laneAuthority: laneAuthority, rules: rules };
   }
 
   function drive(runtime, options) {
@@ -305,11 +342,58 @@
     return true;
   }
 
+  var replayOrdinal = 0;
+  function replayProjection(result) {
+    var qualification = result.qualification ? {
+      schema: result.qualification.schema,
+      qualified: result.qualification.qualified,
+      reason: result.qualification.reason,
+      consumed: result.qualification.consumed,
+    } : null;
+    var outcome = result.outcome == null ? null : clone(result.outcome);
+    if (outcome) delete outcome.launchClaimId;
+    return Kernel.immutableData({ telegraph: result.telegraph,
+      qualification: qualification, launch: result.launch || null,
+      step: result.step || null, contact: result.contact || null,
+      frame: result.frame || null, outcome: outcome }, 'event deterministic replay');
+  }
+
+  function runReplay(options) {
+    var source = options || {};
+    if (!source.pack || source.pack.schema !== 'EventPackV1') {
+      throw new TypeError('Deterministic replay requires an EventPackV1');
+    }
+    replayOrdinal += 1;
+    var laneId = source.laneId || 'deterministic-replay';
+    var harness = createHarness({ pack: source.pack,
+      eventId: source.eventId || source.pack.ids[0], laneId: laneId,
+      matchId: 'event-replay-' + replayOrdinal,
+      eventSeed: source.eventSeed == null ? 12345 : source.eventSeed,
+      context: source.context, resolveCollider: source.resolveCollider });
+    try { return replayProjection(drive(harness.runtime, source.drive)); }
+    finally { harness.runtime.cleanup('deterministic-replay'); }
+  }
+
+  function assertDeterministicReplay(options) {
+    // This is intentionally a qualification replay, not a claimed closure
+    // sandbox: authored callbacks run twice from the same event seed, host
+    // evidence, lane identity, and input corpus, and their observable output
+    // must be byte-identical once opaque launch-claim IDs are removed.
+    var first = runReplay(options);
+    var second = runReplay(options);
+    if (JSON.stringify(first) !== JSON.stringify(second)) {
+      throw new Error('Event pack failed deterministic replay qualification');
+    }
+    return Object.freeze({ schema: 'EventDeterministicReplayV1', first: first, second: second });
+  }
+
   return Object.freeze({ schema: 'FlipgameEventHarnessV2', Kernel: Kernel,
     Runtime: Runtime, Renderer: Renderer, RulesAdapter: RulesAdapter,
     DEFAULT_FACTS: DEFAULT_FACTS, makeSelection: makeSelection,
     makeContext: makeContext, makeSignal: makeSignal, makeDraft: makeDraft,
     makeStep: makeStep, makeContact: makeContact, makeProbe: makeProbe,
-    makeFrame: makeFrame, makeCollider: makeCollider, makePack: makePack,
-    createHarness: createHarness, drive: drive, assertNoLeaks: assertNoLeaks });
+    makeFrame: makeFrame, makeScopeFrame: makeScopeFrame,
+    makeCollider: makeCollider, makePack: makePack,
+    createHarness: createHarness, drive: drive, assertNoLeaks: assertNoLeaks,
+    assertDeterministicReplay: assertDeterministicReplay });
 });

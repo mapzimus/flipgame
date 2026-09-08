@@ -22,52 +22,6 @@
     'everyone-else-halved', 'lives-doubled',
   ]);
 
-  function stableHash(value) {
-    var text = String(value);
-    var hash = 2166136261;
-    for (var index = 0; index < text.length; index += 1) {
-      hash ^= text.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
-  }
-  function hex32(value) { return (value >>> 0).toString(16).padStart(8, '0'); }
-  function callerId(value) {
-    if (value == null) return null;
-    return Kernel.primitiveString(value, 'resolution callerId', 96, false);
-  }
-  function token(namespace, ordinal, caller) {
-    var material = namespace + '|' + ordinal + '|' +
-      encodeURIComponent(caller == null ? '' : caller) + '|pressure-signal';
-    return hex32(stableHash('a|' + material)) + hex32(stableHash('b|' + material));
-  }
-  function identityId(namespace, ordinal, tokenValue, caller) {
-    return 'ri1|' + namespace + '|' + ordinal + '|' + tokenValue + '|' +
-      (caller == null ? '' : encodeURIComponent(caller));
-  }
-  function normalizeIdentity(value) {
-    if (!Kernel.isPlainObject(value)) throw new TypeError('ResolutionIdentityV1 is required');
-    Kernel.exactKeys(value, ['schema', 'namespace', 'ordinal', 'token', 'callerId', 'id'],
-      'ResolutionIdentityV1');
-    if (value.schema !== 'ResolutionIdentityV1') throw new TypeError('ResolutionIdentityV1 schema is invalid');
-    var namespace = Kernel.primitiveString(value.namespace, 'resolution namespace', 320, false);
-    if (namespace.indexOf('|') >= 0) throw new TypeError('resolution namespace cannot contain a pipe');
-    var ordinal = Kernel.whole(value.ordinal, 'resolution ordinal', 1, Number.MAX_SAFE_INTEGER);
-    var caller = callerId(value.callerId);
-    var expectedToken = token(namespace, ordinal, caller);
-    var suppliedToken = Kernel.primitiveString(value.token, 'resolution token', 32, false);
-    var expectedId = identityId(namespace, ordinal, expectedToken, caller);
-    var suppliedId = Kernel.primitiveString(value.id, 'resolution id', 640, false);
-    if (suppliedToken !== expectedToken || suppliedId !== expectedId) {
-      throw new Error('ResolutionIdentityV1 token or id is invalid');
-    }
-    return Kernel.deepFreeze({ schema: 'ResolutionIdentityV1', namespace: namespace,
-      ordinal: ordinal, token: suppliedToken, callerId: caller, id: suppliedId });
-  }
-  function fingerprint(outcome, formatId) {
-    return stableHash(formatId + '|' + JSON.stringify(outcome)) + ':' +
-      stableHash('b|' + formatId + '|' + JSON.stringify(outcome));
-  }
   function metadata(outcome) {
     return { eventId: outcome.eventId, eventClass: outcome.eventClass,
       laneId: outcome.laneId, launchClaimId: outcome.launchClaimId,
@@ -153,7 +107,12 @@
   }
 
   function applyPlinko(outcome, formatId, rulesInput, output) {
-    var slot = PLINKO_SLOTS[outcome.facts.values.slotIndex];
+    var facts = outcome.facts.values;
+    if (facts.completionKind === 'no-contest') {
+      output.noContest = true;
+      return;
+    }
+    var slot = PLINKO_SLOTS[facts.slotIndex];
     rulesInput.result = slot === 'automatic-loss' ? 'MISS' : 'MAKE';
     rulesInput.pose = slot === 'automatic-loss' ? 'miss' : 'upright';
     if (slot === 'automatic-win') {
@@ -178,89 +137,60 @@
     validatePhysicalVerdict(outcome);
     var rulesInput = { result: outcome.result, pose: outcome.pose,
       effects: { metadata: metadata(outcome) } };
-    var output = { terminalOutcome: null, deferred: null };
+    var output = { terminalOutcome: null, deferred: null, noContest: false };
     if (outcome.eventId === 'plinko') applyPlinko(outcome, formatId, rulesInput, output);
     else if (formatId === 'team-clash') teamReward(outcome, rulesInput, output);
     else classicReward(outcome, rulesInput, output);
-    return Kernel.immutableData({ rulesInput: rulesInput,
-      terminalOutcome: output.terminalOutcome, deferred: output.deferred }, 'event rule mapping');
+    return Kernel.immutableData({ rulesInput: output.noContest || output.terminalOutcome
+      ? null : rulesInput, terminalOutcome: output.terminalOutcome,
+      deferred: output.deferred, noContest: output.noContest,
+      metadata: metadata(outcome) }, 'event rule mapping');
   }
 
   function createRulesAdapter(options) {
     if (!Kernel.isPlainObject(options)) throw new TypeError('Rules adapter options are required');
-    Kernel.exactKeys(options, ['namespace', 'resolvedThrough', 'authority'], 'Rules adapter options');
-    var namespace = Kernel.primitiveString(options.namespace, 'rules namespace', 320, false);
-    if (namespace.indexOf('|') >= 0) throw new TypeError('rules namespace cannot contain a pipe');
-    var resolvedThrough = options.resolvedThrough == null ? 0
-      : Kernel.whole(options.resolvedThrough, 'resolvedThrough', 0, Number.MAX_SAFE_INTEGER - 1);
+    Kernel.exactKeys(options, ['authority'], 'Rules adapter options');
     var authority = options.authority;
-    if (!authority || typeof authority.verifyOutcome !== 'function') {
-      throw new TypeError('Rules adapter requires an EventAuthorityV1 rules capability');
-    }
-    var nextOrdinal = resolvedThrough + 1;
-    var lastResolutionId = null;
-    var lastFingerprint = null;
-    var lastOutcome = null;
-    var claimedOutcomes = new WeakSet();
+    var authorityInfo = Kernel.rulesAuthorityInfo(authority);
+    Kernel.claimRulesAdapter(authority);
+    var namespace = authorityInfo.namespace;
+    var formatId = authorityInfo.formatId;
     var closed = false;
 
     function resolve(value) {
       if (closed) throw new Error('Event rules adapter is closed');
       if (!Kernel.isPlainObject(value)) throw new TypeError('Event rules resolution request is required');
-      Kernel.exactKeys(value, ['resolutionIdentity', 'formatId', 'outcome'],
+      Kernel.exactKeys(value, ['resolutionIdentity', 'outcome'],
         'Event rules resolution request');
-      var identity = normalizeIdentity(value.resolutionIdentity);
-      var formatId = Kernel.primitiveString(value.formatId, 'event formatId', 32, false);
-      if (['classic', 'cup', 'team-clash'].indexOf(formatId) < 0) {
-        throw new TypeError('Event rules adapter does not support format: ' + formatId);
-      }
+      var identity = value.resolutionIdentity;
       var outcome = value.outcome;
-      if (!authority.verifyOutcome(outcome)) {
-        throw new Error('Rules adapter accepts only a kernel-issued runtime outcome');
-      }
+      Kernel.outcomeInfo(authority, outcome);
       if (formatId === 'team-clash' && outcome.eventId === 'life-drain') {
         throw new Error('Life Drain is excluded from Team Clash');
       }
-      var mark = fingerprint(outcome, formatId);
-      if (identity.namespace !== namespace) throw new Error('Foreign resolution identity');
-      if (identity.ordinal !== nextOrdinal) {
-        if (identity.ordinal === nextOrdinal - 1 && identity.id === lastResolutionId &&
-            mark === lastFingerprint && outcome === lastOutcome) {
-          return Kernel.immutableData({ schema: 'EventRulesResolutionV1',
-            namespace: namespace, resolutionId: identity.id, eventId: outcome.eventId,
-            claimed: false, duplicate: true, rulesInput: null,
-            terminalOutcome: null, deferred: null }, 'duplicate event rules resolution');
-        }
-        throw new Error('Duplicate, stale, future, or reordered resolution identity');
-      }
-      if (claimedOutcomes.has(outcome)) {
-        throw new Error('Runtime outcome was already consumed by a prior resolution identity');
-      }
       var mapped = mapOutcome(outcome, formatId);
+      var consumed = Kernel.consumeOutcome(authority, outcome, identity, mapped);
+      var live = Kernel.rulesAuthorityInfo(authority);
       var result = Kernel.immutableData({ schema: 'EventRulesResolutionV1',
         namespace: namespace, resolutionId: identity.id, eventId: outcome.eventId,
-        claimed: true, duplicate: false, rulesInput: mapped.rulesInput,
-        terminalOutcome: mapped.terminalOutcome, deferred: mapped.deferred },
+        formatId: formatId, claimed: !consumed.duplicate, duplicate: consumed.duplicate,
+        rulesInput: consumed.duplicate ? null : mapped.rulesInput,
+        terminalOutcome: consumed.duplicate ? null : mapped.terminalOutcome,
+        noContest: consumed.duplicate ? false : mapped.noContest,
+        deferred: consumed.duplicate ? null : mapped.deferred,
+        transition: consumed.consume.transition, resolvedThrough: live.resolvedThrough },
       'event rules resolution');
-      resolvedThrough = identity.ordinal;
-      nextOrdinal = identity.ordinal + 1;
-      lastResolutionId = identity.id;
-      lastFingerprint = mark;
-      lastOutcome = outcome;
-      claimedOutcomes.add(outcome);
       return result;
     }
 
     function snapshot() {
+      var live = Kernel.rulesAuthorityInfo(authority);
       return Object.freeze({ schema: 'EventRulesAdapterSnapshotV1', namespace: namespace,
-        closed: closed, resolvedThrough: resolvedThrough, nextOrdinal: nextOrdinal,
-        lastResolutionId: lastResolutionId });
+        formatId: formatId, closed: closed, resolvedThrough: live.resolvedThrough,
+        nextOrdinal: live.nextOrdinal });
     }
     function cleanup() {
       closed = true;
-      lastResolutionId = null;
-      lastFingerprint = null;
-      lastOutcome = null;
       return snapshot();
     }
     return Object.freeze({ schema: 'EventRulesAdapterV2', namespace: namespace,

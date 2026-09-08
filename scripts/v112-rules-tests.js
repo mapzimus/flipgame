@@ -587,14 +587,23 @@ function testAdapterMatchRequestAndOutcomeCompatibility() {
   });
   const adapter = Rules.createRulesAdapter(request);
   assert.equal(adapter.snapshot().config.startingLives, 5);
-  const transition = adapter.resolveFlip({ playerId: 'p1', result: 'MAKE',
-    effects: { forceEliminateIds: ['p2', 'p3', 'p4'] } });
-  assert.equal(transition.state.phase, 'complete');
+  assert.throws(() => adapter.resolveFlip({ playerId: 'p1', result: 'MAKE',
+    effects: { forceEliminateIds: ['p2', 'p3', 'p4'] } }), /cannot apply event field/);
+  assert.throws(() => adapter.resolveFlip({ playerId: 'p1', result: 'MAKE', rawPoints: 99 }),
+    /cannot apply event field/);
+  let attempts = 0;
+  while (adapter.snapshot().phase !== 'complete' && attempts < 200) {
+    const state = adapter.snapshot();
+    adapter.resolveFlip({ playerId: state.turn.current, result: 'MISS' });
+    attempts += 1;
+  }
+  assert.ok(attempts < 200, 'ordinary adapter match did not complete');
   const raw = adapter.toMatchOutcome({ endedAt: '2026-09-07T12:00:00Z' });
   const accepted = Activity.MatchOutcomeV2(raw);
   assert.equal(accepted.schema, 'MatchOutcomeV2');
   assert.equal(accepted.status, 'completed');
-  assert.deepEqual(accepted.winnerIds, ['p1']);
+  assert.equal(accepted.winnerIds.length, 1);
+  assert.ok(players(4).some(player => player.id === accepted.winnerIds[0]));
   assert.equal(accepted.participantResults.length, 4);
   assert.equal(Object.isFrozen(raw), true);
 }
@@ -1138,6 +1147,34 @@ function testForgedSchemaTagsAreNeverTrusted() {
     /requires a resolved flip/);
 }
 
+function testRulesOwnedEventTerminalAndRetryPath() {
+  assert.throws(() => Rules.inspectEventMatchCapability({
+    schema: 'RulesEventMatchCapabilityV1',
+  }), /Rules-issued event match capability/);
+
+  const classic = Rules.createRulesAdapter({ formatId: 'classic',
+    matchId: 'rules-event-classic', players: players(3), startingLives: 3,
+    suddenDeathAfterTurns: 0, suddenDeathStepTurns: 6 });
+  assert.equal(Object.prototype.hasOwnProperty.call(classic, 'eventCapability'), false,
+    'the Rules-owned match capability must never escape through the public adapter');
+  assert.throws(() => Rules.consumeEventMatchCapability(undefined, {
+    eventId: 'plinko', noContest: true,
+  }), /Rules-issued event match capability/);
+
+  const authority = classic.claimEventAuthority();
+  assert.equal(authority.schema, 'EventAuthorityV2');
+  assert.ok(Object.isFrozen(authority));
+  assert.throws(() => classic.claimEventAuthority(), /already issued/,
+    'a second caller must not obtain the hidden Rules match capability');
+
+  // Claiming event authority does not disturb the ordinary rules path. Full
+  // Plinko retry/terminal semantics are exercised through the real kernel and
+  // rules adapter in v112-event-kernel-tests.js.
+  const ordinary = classic.resolveFlip({ result: 'MAKE', pose: 'upright' });
+  assert.equal(ordinary.state.sequence, 1);
+  assert.equal(ordinary.state.players[0].lives, 3);
+}
+
 function run() {
   testPublicContract();
   testClassicAllCountsAndPresets();
@@ -1164,6 +1201,7 @@ function run() {
   testCupPresentationAndZeroSurvivorResolver();
   testForceEliminateSuddenDeathReconciliation();
   testForgedSchemaTagsAreNeverTrusted();
+  testRulesOwnedEventTerminalAndRetryPath();
   console.log('v1.12 Classic/Cup/Team/ON FIRE rules tests passed.');
 }
 

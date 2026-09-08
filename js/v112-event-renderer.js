@@ -129,9 +129,7 @@
         options.packs.length > Kernel.EVENT_CLASSES.length) {
       throw new TypeError('One to three EventRenderPackV1 packs are required');
     }
-    if (!options.authority || typeof options.authority.verifyFrame !== 'function') {
-      throw new TypeError('Event renderer requires an EventAuthorityV1 renderer capability');
-    }
+    Kernel.rendererAuthorityInfo(options.authority);
     var byId = Object.create(null);
     options.packs.forEach(function (value) {
       var pack = validateRenderPack(value);
@@ -142,7 +140,7 @@
     });
 
     function render(frame) {
-      if (!options.authority.verifyFrame(frame)) {
+      if (!Kernel.verifyFrame(options.authority, frame)) {
         throw new Error('Renderer accepts only a kernel-issued authoritative EventFrameV1');
       }
       var pack = byId[frame.eventId];

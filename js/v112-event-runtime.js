@@ -62,9 +62,9 @@
     if (typeof resolveCollider !== 'function') {
       throw new TypeError('Event runtime requires a host collider resolver');
     }
-    if (!authority || typeof authority.issueFrame !== 'function' ||
-        typeof authority.issueOutcome !== 'function') {
-      throw new TypeError('Event runtime requires an EventAuthorityV1 runtime capability');
+    var authorityInfo = Kernel.runtimeAuthorityInfo(authority);
+    if (authorityInfo.laneId !== laneId) {
+      throw new Error('Event runtime lane does not match its branded lane capability');
     }
 
     var phase = 'idle';
@@ -87,6 +87,8 @@
     var contacts = Object.create(null);
     var contactRecordCount = 0;
     var frameSignatures = Object.create(null);
+    var frameCache = Object.create(null);
+    var callbackPhase = 'idle';
     var cleanedBehaviors = new WeakSet();
     var retired = { cycles: 0, released: 0, errorCount: 0,
       droppedErrors: 0, recentErrors: [] };
@@ -100,14 +102,46 @@
       else bucket.droppedErrors += 1;
     }
 
+    function checkedAdd(value, amount, label, maximum) {
+      var next = value + amount;
+      if (!Number.isSafeInteger(next) || next < 0 || next > maximum) {
+        throw new RangeError(label + ' exceeded its bounded counter');
+      }
+      return next;
+    }
+
     function normalizeContext(value) {
       if (!plain(value)) throw new TypeError('Event bind context is required');
-      Kernel.exactKeys(value, ['layout', 'appearance', 'physicsProfile'], 'Event bind context');
+      Kernel.exactKeys(value, ['layout', 'appearance', 'physicsProfile', 'hostColliderRefs'],
+        'Event bind context');
       ['layout', 'appearance', 'physicsProfile'].forEach(function (key) {
         if (!plain(value[key])) throw new TypeError('Event bind context requires ' + key);
       });
+      var hostColliderRefs = value.hostColliderRefs == null ? [] : value.hostColliderRefs;
+      if (!Array.isArray(hostColliderRefs) || hostColliderRefs.length > 64) {
+        throw new TypeError('Event bind hostColliderRefs must be a bounded array');
+      }
+      hostColliderRefs = Array.from(new Set(hostColliderRefs.map(function (entry) {
+        return required(entry, 'host collider reference', 128);
+      })));
       return Kernel.immutableData({ layout: value.layout, appearance: value.appearance,
-        physicsProfile: value.physicsProfile }, 'event bind context');
+        physicsProfile: value.physicsProfile, hostColliderRefs: hostColliderRefs },
+      'event bind context');
+    }
+
+    function callSpecificBehavior(target, name, args) {
+      var previous = callbackPhase;
+      callbackPhase = name;
+      try { return target[name].apply(target, args || []); }
+      finally { callbackPhase = previous; }
+    }
+    function callBehavior(name, args) { return callSpecificBehavior(behavior, name, args); }
+
+    function assertGameplayRngPhase() {
+      if (['create', 'qualifyLaunch', 'launch', 'step', 'contact', 'evaluate']
+        .indexOf(callbackPhase) < 0) {
+        throw new Error('Gameplay RNG cannot advance during ' + callbackPhase);
+      }
     }
 
     function callHost(fn, args, label) {
@@ -147,50 +181,98 @@
 
     function registerHighValueColliders(facts, probe) {
       var values = facts.values;
+      var terminal = { schema: 'ColliderTerminalEvidenceV1', eventId: selection.eventId,
+        probe: probe, colliders: Object.create(null), derived: Object.create(null) };
       if (selection.eventId === 'mitosis') {
-        var primary = settledEvidence(colliderSnapshot(values.primaryColliderRef), 'Mitosis primary');
-        var secondary = settledEvidence(colliderSnapshot(values.secondaryColliderRef), 'Mitosis secondary');
+        var primarySnapshot = colliderSnapshot(values.primaryColliderRef);
+        var secondarySnapshot = colliderSnapshot(values.secondaryColliderRef);
+        var primary = settledEvidence(primarySnapshot, 'Mitosis primary');
+        var secondary = settledEvidence(secondarySnapshot, 'Mitosis secondary');
         if (primary.validLanding !== values.primaryLanded ||
             secondary.validLanding !== values.secondaryLanded) {
           throw new Error('Mitosis facts conflict with host collider landing verdicts');
         }
+        terminal.colliders.primary = primarySnapshot;
+        terminal.colliders.secondary = secondarySnapshot;
       } else if (selection.eventId === 'roulette-table') {
         var wheel = colliderSnapshot(values.wheelColliderRef);
         var rouletteObject = colliderSnapshot(values.objectColliderRef);
         settledEvidence(rouletteObject, 'Roulette object');
-        if (!closeEnough(wheel.transform.angle, values.wheelAngle) ||
-            !closeEnough(rouletteObject.transform.x, values.landingX)) {
-          throw new Error('Roulette facts conflict with host wheel/object transforms');
+        var dx = rouletteObject.transform.x - wheel.transform.x;
+        var dy = rouletteObject.transform.y - wheel.transform.y;
+        if (Math.hypot(dx, dy) <= 1e-7) {
+          throw new Error('Roulette object lacks authoritative radial wheel geometry');
         }
+        var relative = Math.atan2(dy, dx) - wheel.transform.angle;
+        relative = ((relative % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        var derivedSector = Math.min(7, Math.floor(relative / (Math.PI * 2 / 8)));
+        if (values.sectorCount !== 8 || values.sectorIndex !== derivedSector) {
+          throw new Error('Roulette supplied sector contradicts authoritative wheel/object geometry');
+        }
+        terminal.colliders.wheel = wheel;
+        terminal.colliders.object = rouletteObject;
+        terminal.derived.sectorIndex = derivedSector;
       } else if (selection.eventId === 'plinko') {
         var plinkoObject = colliderSnapshot(values.objectColliderRef);
-        var slot = colliderSnapshot(values.slotSensorRef);
-        settledEvidence(plinkoObject, 'Plinko object');
-        if (!slot.evidence || slot.evidence.sensorActive !== true ||
-            !closeEnough(plinkoObject.transform.x, values.landingX) ||
-            !closeEnough(slot.bounds.left, values.slotLeft) ||
-            !closeEnough(slot.bounds.right, values.slotRight) ||
-            !closeEnough(values.dropDurationMs, probe.elapsedMs)) {
-          throw new Error('Plinko facts conflict with host slot, timing, or transform evidence');
+        var objectEvidence = plinkoObject.evidence;
+        if (!objectEvidence || !closeEnough(values.dropDurationMs, probe.elapsedMs)) {
+          throw new Error('Plinko facts conflict with host timing evidence');
         }
+        if (values.completionKind === 'no-contest') {
+          if (probe.settled || objectEvidence.settled ||
+              objectEvidence.recoveryStartedMs !== values.recoveryStartedMs ||
+              objectEvidence.recoveryImpulseCount !== values.recoveryImpulseCount) {
+            throw new Error('Plinko no-contest lacks host recovery-timeout evidence');
+          }
+          terminal.derived.noContest = true;
+        } else {
+          settledEvidence(plinkoObject, 'Plinko object');
+          var slot = colliderSnapshot(values.slotSensorRef);
+          if (!slot.evidence || slot.evidence.sensorActive !== true ||
+              slot.evidence.sensorKind !== 'plinko-slot' ||
+              slot.evidence.sensorIndex !== values.slotIndex ||
+              plinkoObject.transform.x < slot.bounds.left ||
+              plinkoObject.transform.x > slot.bounds.right) {
+            throw new Error('Plinko supplied slot contradicts branded host sensor geometry');
+          }
+          if (values.completionKind === 'recovered' &&
+              (objectEvidence.recoveryStartedMs !== values.recoveryStartedMs ||
+               objectEvidence.recoveryImpulseCount !== values.recoveryImpulseCount)) {
+            throw new Error('Plinko recovery facts contradict host provenance');
+          }
+          terminal.colliders.slot = slot;
+          terminal.derived.slotIndex = slot.evidence.sensorIndex;
+        }
+        terminal.colliders.object = plinkoObject;
+        terminal.derived.completionKind = values.completionKind;
       } else if (selection.eventId === 'cap-toss') {
-        var body = settledEvidence(colliderSnapshot(values.bodyColliderRef), 'Cap Toss body');
-        var top = settledEvidence(colliderSnapshot(values.topColliderRef), 'Cap Toss top');
+        var bodySnapshot = colliderSnapshot(values.bodyColliderRef);
+        var topSnapshot = colliderSnapshot(values.topColliderRef);
+        var body = settledEvidence(bodySnapshot, 'Cap Toss body');
+        var top = settledEvidence(topSnapshot, 'Cap Toss top');
         if (body.validLanding !== values.bodyLanded || top.validLanding !== values.topLanded) {
           throw new Error('Cap Toss facts conflict with host collider landing verdicts');
         }
+        terminal.colliders.body = bodySnapshot;
+        terminal.colliders.top = topSnapshot;
       }
+      return Kernel.immutableData(terminal, 'collider terminal evidence');
     }
 
     function makeCycle(nextContext) {
       scope = Kernel.createResourceScope(laneId);
-      var rng = Kernel.createEventRng(selection.eventSeed);
+      var rng = Kernel.createEventRng(selection.eventSeed, assertGameplayRngPhase);
+      var visualRng = Kernel.createVisualRng(selection.eventSeed);
       context = Object.freeze({ selection: selection, layout: nextContext.layout,
         appearance: nextContext.appearance, physicsProfile: nextContext.physicsProfile,
-        scope: scope, rng: rng });
+        hostColliderRefs: nextContext.hostColliderRefs,
+        scope: scope, rng: rng, visualRng: visualRng });
       try {
-        behavior = Kernel.validateBehavior(callHost(pack.create,
-          [selection.eventId, context], 'EventPackV1.create'));
+        callbackPhase = 'create';
+        try {
+          behavior = Kernel.validateBehavior(callHost(pack.create,
+            [selection.eventId, context], 'EventPackV1.create'));
+        } finally { callbackPhase = 'idle'; }
       } catch (thrown) {
         var failure = scope.cleanup('pack-create-error');
         var createErrors = [Kernel.safeThrown(thrown, 'create')];
@@ -215,15 +297,20 @@
 
     function bind(selectionValue, bindContext) {
       if (phase !== 'idle') throw new Error('Event runtime can bind only once');
-      if (!plain(selectionValue)) throw new TypeError('EventSelectionV2 is required');
-      var id = required(selectionValue.eventId, 'eventId', 64);
+      var selectionAuthority = Kernel.selectionInfo(authority, selectionValue);
+      var id = selectionAuthority.eventId;
       if (!own(byId, id)) throw new TypeError('No EventPackV1 owns the selected event');
       pack = byId[id];
-      selection = Kernel.normalizeSelection(selectionValue, id, pack.eventClass);
+      selection = Kernel.claimSelection(authority, selectionValue, id, pack.eventClass);
       contextSource = normalizeContext(bindContext);
       makeCycle(contextSource);
       phase = 'bound';
       return snapshot();
+    }
+
+    function issueSelection(selectionValue) {
+      if (phase !== 'idle') throw new Error('Selections can be issued only before bind');
+      return Kernel.issueSelection(authority, selectionValue);
     }
 
     function cleanupCycle(reason, targetBehavior, targetScope) {
@@ -233,7 +320,7 @@
         cleanedBehaviors.add(targetBehavior);
         summary.behaviorCalled = true;
         try {
-          var output = targetBehavior.cleanup(reason);
+          var output = callSpecificBehavior(targetBehavior, 'cleanup', [reason]);
           if (output != null) throw new TypeError('EventBehaviorV1.cleanup must return nothing');
         } catch (thrown) { recordError(summary, thrown, 'behavior.cleanup'); }
       }
@@ -256,13 +343,17 @@
     }
 
     function addRetired(cycle) {
-      retired.cycles += 1;
-      retired.released += cycle.released;
-      retired.errorCount += cycle.errorCount;
-      retired.droppedErrors += cycle.droppedErrors;
+      retired.cycles = checkedAdd(retired.cycles, 1, 'retired event cycles', 1000000);
+      retired.released = checkedAdd(retired.released, cycle.released,
+        'retired event resources', 100000000);
+      retired.errorCount = checkedAdd(retired.errorCount, cycle.errorCount,
+        'retired event errors', 100000000);
+      retired.droppedErrors = checkedAdd(retired.droppedErrors, cycle.droppedErrors,
+        'retired dropped errors', 100000000);
       cycle.recentErrors.forEach(function (entry) {
         if (retired.recentErrors.length < Kernel.LIMITS.errors) retired.recentErrors.push(entry);
-        else retired.droppedErrors += 1;
+        else retired.droppedErrors = checkedAdd(retired.droppedErrors, 1,
+          'retired dropped errors', 100000000);
       });
     }
 
@@ -334,7 +425,7 @@
     function telegraph() {
       if (phase !== 'bound') throw new Error('telegraph requires a bound event');
       return invoke('telegraph', function () {
-        var result = Kernel.normalizeTelegraph(behavior.telegraph());
+        var result = Kernel.normalizeTelegraph(callBehavior('telegraph'));
         phase = 'telegraphed';
         return result;
       });
@@ -345,13 +436,10 @@
       if (selectionConsumed) throw new Error('Event selection was already consumed');
       return invoke('qualifyLaunch', function () {
         var signal = Kernel.normalizeLaunchSignal(signalValue);
-        var result = Kernel.normalizeQualification(behavior.qualifyLaunch(signal));
+        var result = Kernel.normalizeQualification(callBehavior('qualifyLaunch', [signal]));
         if (result.qualified) {
           selectionConsumed = true;
-          launchClaim = Kernel.deepFreeze({ schema: 'EventLaunchClaimV1', laneId: laneId,
-            eventId: selection.eventId, eventSeed: selection.eventSeed,
-            claimId: laneId + ':' + selection.eventSeed.toString(16).padStart(8, '0') + ':' +
-              selection.eventId.slice(0, 40) });
+          launchClaim = Kernel.issueLaunchClaim(authority, selection);
           phase = 'qualified';
         }
         return Kernel.deepFreeze({ schema: 'EventLaunchQualificationV1',
@@ -368,7 +456,7 @@
         var draft = Kernel.normalizeLaunchDraft(draftValue);
         colliderSnapshot(draft.bodyRef);
         var result = validateDirectiveOwnership(
-          Kernel.normalizeDirective('launch', behavior.launch(draft)));
+          Kernel.normalizeDirective('launch', callBehavior('launch', [draft])));
         phase = 'launched';
         stepSequence = 0;
         lastStepElapsed = -1;
@@ -376,6 +464,7 @@
         contactRecordCount = 0;
         contactBeginCount = 0;
         frameSignatures = Object.create(null);
+        frameCache = Object.create(null);
         return result;
       });
     }
@@ -394,11 +483,12 @@
           throw new Error('Physics steps must have strictly increasing elapsedMs');
         }
         var result = validateDirectiveOwnership(
-          Kernel.normalizeDirective('step', behavior.step(physicsStep)));
+          Kernel.normalizeDirective('step', callBehavior('step', [physicsStep])));
         phase = 'active';
-        stepSequence += 1;
+        stepSequence = checkedAdd(stepSequence, 1, 'event physics steps', 10000000);
         lastStepElapsed = physicsStep.elapsedMs;
         frameSignatures = Object.create(null);
+        frameCache = Object.create(null);
         return result;
       });
     }
@@ -409,10 +499,14 @@
       var normalized;
       try { normalized = Kernel.normalizeContact(contactValue); }
       catch (thrown) { return invoke('contact', function () { throw thrown; }); }
-      if (!scope.ownsResource(normalized.entityARef, ['body', 'sensor']) &&
-          !scope.ownsResource(normalized.entityBRef, ['body', 'sensor'])) {
+      var ownsA = scope.ownsResource(normalized.entityARef, ['body', 'sensor']);
+      var ownsB = scope.ownsResource(normalized.entityBRef, ['body', 'sensor']);
+      var hostRefs = contextSource.hostColliderRefs || [];
+      var knownA = ownsA || hostRefs.indexOf(normalized.entityARef) >= 0;
+      var knownB = ownsB || hostRefs.indexOf(normalized.entityBRef) >= 0;
+      if ((!ownsA && !ownsB) || !knownA || !knownB) {
         return invoke('contact', function () {
-          throw new Error('Contact does not include a collider owned by this event lane');
+          throw new Error('Contact must join a lane-owned collider to registered host evidence');
         });
       }
       var prior = contacts[normalized.contactId];
@@ -438,7 +532,7 @@
       }
       return invoke('contact', function () {
         var directive = validateDirectiveOwnership(
-          Kernel.normalizeDirective('contact', behavior.contact(normalized)));
+          Kernel.normalizeDirective('contact', callBehavior('contact', [normalized])));
         if (!prior) {
           contactRecordCount += 1;
           contactBeginCount += 1;
@@ -462,54 +556,123 @@
         if (probe.elapsedMs > lastStepElapsed) throw new Error('Landing probe is ahead of host physics evidence');
         if (probe.contactCount > contactBeginCount) throw new Error('Landing probe contact count exceeds accepted contacts');
         if (probe.result === 'MAKE' && contactBeginCount < 1) throw new Error('MAKE requires accepted contact evidence');
-        var evaluation = Kernel.normalizeBehaviorEvaluation(selection.eventId, behavior.evaluate(probe));
+        var evaluation = Kernel.normalizeBehaviorEvaluation(selection.eventId,
+          callBehavior('evaluate', [probe]));
         if (!probe.settled) {
-          if (evaluation != null) throw new Error('Event behavior cannot resolve an unsettled landing');
-          phase = 'active';
-          return null;
+          var isPlinkoNoContest = selection.eventId === 'plinko' && evaluation != null &&
+            evaluation.facts.values.completionKind === 'no-contest' && probe.elapsedMs === 30000;
+          if (!isPlinkoNoContest && evaluation != null) {
+            throw new Error('Event behavior cannot resolve an unsettled landing');
+          }
+          if (isPlinkoNoContest) {
+            if (evaluation.result !== probe.result || evaluation.pose !== probe.pose ||
+                evaluation.reason !== probe.reason) {
+              throw new Error('Event behavior verdict conflicts with the host landing verdict');
+            }
+          } else {
+            phase = 'active';
+            return null;
+          }
         }
         if (evaluation == null) { phase = 'active'; return null; }
         if (evaluation.result !== probe.result || evaluation.pose !== probe.pose ||
             evaluation.reason !== probe.reason) {
           throw new Error('Event behavior verdict conflicts with the host landing verdict');
         }
-        registerHighValueColliders(evaluation.facts, probe);
-        outcome = authority.issueOutcome({ eventId: selection.eventId,
+        var derivedEvidence = registerHighValueColliders(evaluation.facts, probe);
+        var terminalEvidence = Kernel.issueTerminalEvidence(authority, launchClaim, derivedEvidence);
+        outcome = Kernel.issueOutcome(authority, launchClaim, terminalEvidence, {
+          eventId: selection.eventId,
           eventClass: pack.eventClass, laneId: laneId,
           launchClaimId: launchClaim.claimId, result: probe.result,
           pose: probe.pose, reason: probe.reason, facts: evaluation.facts,
           evidence: { steps: stepSequence, contacts: contactBeginCount,
             elapsedMs: probe.elapsedMs } });
         phase = 'evaluated';
+        if (selection.eventId === 'plinko' &&
+            evaluation.facts.values.completionKind === 'no-contest') {
+          // A timed-out board is a retry, not a suspended physical scene.  Its
+          // branded outcome survives cleanup, while every body/sensor and any
+          // deferred resize is released before control returns to match rules.
+          cleanupInternal('plinko-no-contest');
+        }
         return outcome;
       });
     }
 
-    function exactColliderFrame(frameValue) {
+    function colliderStateMap() {
+      var result = Object.create(null);
+      scope.colliderRefs().forEach(function (reference) {
+        result[reference] = colliderSnapshot(reference);
+      });
+      return result;
+    }
+
+    function exactColliderFrame(frameValue, colliders) {
+      var represented = Object.create(null);
       frameValue.entities.forEach(function (entity) {
-        if (!entity.colliderRef) return;
-        var collider = colliderSnapshot(entity.colliderRef);
+        if (!entity.colliderRef) {
+          if (Kernel.entityNeedsCollider(entity)) {
+            throw new Error('Physical EventFrame entity lacks a collider: ' + entity.entityId);
+          }
+          return;
+        }
+        if (represented[entity.colliderRef]) {
+          throw new Error('EventFrame duplicates collider-backed entity: ' + entity.colliderRef);
+        }
+        var collider = colliders[entity.colliderRef];
+        if (!collider) throw new Error('EventFrame references a collider outside this event lane');
+        represented[entity.colliderRef] = true;
         if (!same(entity.transform, collider.transform) || !same(entity.bounds, collider.bounds)) {
           throw new Error('EventFrame entity diverges from its authoritative collider: ' + entity.entityId);
         }
       });
+      scope.colliderRefs().forEach(function (reference) {
+        if (!represented[reference]) {
+          throw new Error('EventFrame omitted an owned physical collider: ' + reference);
+        }
+      });
     }
 
-    function normalizeFrameVariant(reduced) {
-      var raw = behavior.frame(reduced);
+    function canonicalFrame() {
+      if (frameCache.canonical) return frameCache.canonical;
+      var before = colliderStateMap();
+      var raw = callBehavior('frame', [false]);
+      var after = colliderStateMap();
+      if (!same(before, after)) {
+        throw new Error('EventBehaviorV1.frame mutated authoritative physics state');
+      }
       if (!plain(raw)) throw new TypeError('EventBehaviorV1.frame must return EventFrameV1 data');
-      if (raw.reducedMotion != null && raw.reducedMotion !== reduced) {
-        throw new Error('EventFrame reduced-motion flag does not match its request');
+      if (raw.reducedMotion != null && raw.reducedMotion !== false) {
+        throw new Error('The authoritative mechanics frame must use full-motion presentation');
       }
       var source = Object.create(null);
       Object.keys(raw).forEach(function (key) { source[key] = raw[key]; });
-      source.reducedMotion = reduced;
+      source.reducedMotion = false;
       source.sequence = raw.sequence == null ? stepSequence : raw.sequence;
       if (source.sequence !== stepSequence) throw new Error('EventFrame sequence is host-owned');
       var normalized = Kernel.normalizeFrame(source, { eventId: selection.eventId,
         eventClass: pack.eventClass, laneId: laneId });
-      exactColliderFrame(normalized);
+      exactColliderFrame(normalized, before);
+      var signature = Kernel.mechanicsSignature(normalized);
+      if (frameSignatures.all != null && frameSignatures.all !== signature) {
+        throw new Error('Event frame mechanics changed without a host physics step');
+      }
+      frameSignatures.all = signature;
+      frameCache.canonical = normalized;
       return normalized;
+    }
+
+    function deriveFrame(full, reduced) {
+      if (!reduced) return full;
+      return Kernel.normalizeFrame({ schema: 'EventFrameV1', eventId: full.eventId,
+        eventClass: full.eventClass, laneId: full.laneId, sequence: full.sequence,
+        entities: full.entities, cues: full.cues.map(function (cue) {
+          return { cueId: cue.cueId, kind: cue.kind, entityRef: cue.entityRef,
+            intensity: Math.min(cue.intensity, 0.45), durationMs: Math.min(cue.durationMs, 900),
+            textRef: cue.textRef, ariaCue: cue.ariaCue };
+        }), reducedMotion: true }, { eventId: full.eventId,
+        eventClass: full.eventClass, laneId: full.laneId });
     }
 
     function frame(reducedMotion) {
@@ -517,18 +680,15 @@
         throw new Error('frame requires a launched or evaluated event');
       }
       return invoke('frame', function () {
-        var full = normalizeFrameVariant(false);
-        var reduced = normalizeFrameVariant(true);
-        var fullSignature = Kernel.mechanicsSignature(full);
-        var reducedSignature = Kernel.mechanicsSignature(reduced);
-        if (fullSignature !== reducedSignature) {
+        var key = reducedMotion === true ? 'reduced' : 'full';
+        if (frameCache[key]) return frameCache[key];
+        var full = canonicalFrame();
+        var selected = deriveFrame(full, reducedMotion === true);
+        if (Kernel.mechanicsSignature(full) !== Kernel.mechanicsSignature(selected)) {
           throw new Error('Reduced motion changed authoritative event mechanics');
         }
-        if (frameSignatures.all != null && frameSignatures.all !== fullSignature) {
-          throw new Error('Event frame mechanics changed without a host physics step');
-        }
-        frameSignatures.all = fullSignature;
-        return authority.issueFrame(reducedMotion === true ? reduced : full);
+        frameCache[key] = Kernel.issueFrame(authority, selected);
+        return frameCache[key];
       });
     }
 
@@ -549,7 +709,8 @@
       }
       if (PHASES_AFTER_QUALIFICATION[phase]) {
         pendingLayout = layout;
-        deferredResizeCount += 1;
+        deferredResizeCount = checkedAdd(deferredResizeCount, 1,
+          'deferred event resizes', 1000000);
         return Object.freeze({ schema: 'EventResizeDecisionV1', deferred: true,
           rebound: false, coalescedRequests: deferredResizeCount });
       }
@@ -561,12 +722,13 @@
         callReflow(layout, Object.freeze({ schema: 'EventResizeV1', laneId: laneId,
           deferred: false, coalescedRequests: 1, reason: 'prelaunch-resize' }));
         contextSource = Kernel.immutableData({ layout: layout,
-          appearance: contextSource.appearance, physicsProfile: contextSource.physicsProfile },
+          appearance: contextSource.appearance, physicsProfile: contextSource.physicsProfile,
+          hostColliderRefs: contextSource.hostColliderRefs },
         'event bind context');
         makeCycle(contextSource);
         phase = 'bound';
         if (previousPhase === 'telegraphed') {
-          Kernel.normalizeTelegraph(behavior.telegraph());
+          Kernel.normalizeTelegraph(callBehavior('telegraph'));
           phase = 'telegraphed';
         }
         return Object.freeze({ schema: 'EventResizeDecisionV1', deferred: false,
@@ -591,7 +753,7 @@
     }
 
     return Object.freeze({ schema: 'EventRuntimeV2', laneId: laneId,
-      bind: bind, telegraph: telegraph, qualifyLaunch: qualifyLaunch,
+      issueSelection: issueSelection, bind: bind, telegraph: telegraph, qualifyLaunch: qualifyLaunch,
       launch: launch, step: step, contact: contact, evaluate: evaluate,
       frame: frame, resize: resize, cleanup: cleanupInternal, snapshot: snapshot });
   }
