@@ -1145,3 +1145,17 @@ log, and defect ledger remain release history and are not rewritten.
   merged. It still needs a measured 10–15 second corpus, all-slot reachability,
   recovery/directive adversarial tests, and real runtime coupling before it can
   replace the old live board.
+
+## Revision 57 — Live Globe focus handoff
+
+- The qualifying Desk Globe Easter presentation now captures the already
+  painted real-sphere orientation after a committed make and passes it to the
+  existing screen-space inset on each result frame (`9f88b9b`). The focus uses
+  the same bounded shared surface and the point is selected on the currently
+  visible hemisphere.
+- This is presentation-only: it adds no second chance roll, does not advance
+  gameplay RNG, cannot alter camera ownership, and never changes a result,
+  event, reward, or physics state. If the sphere is unavailable, the visual
+  cue is silently omitted instead of falling back to a fake map.
+- Regression, Easter registry/presentation/live-bridge, Globe lifecycle, and
+  fresh local-browser boot checks pass.
