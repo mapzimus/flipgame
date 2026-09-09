@@ -36,7 +36,7 @@ test('DOM smoke: every literal main.js mount exists and document IDs are unique'
 
 test('DOM smoke: complete route shell and accessibility regions are present', () => {
   for (const id of [
-    'setup-screen', 'char-picker-screen', 'online-screen', 'stats-screen',
+    'setup-screen', 'char-picker-screen', 'arena-select-screen', 'stats-screen',
     'achievements-screen', 'lab-screen', 'game-screen', 'game-over',
     'app-status', 'app-error', 'game-canvas',
   ]) assert.match(html, new RegExp(`id="${id}"`));
@@ -45,7 +45,7 @@ test('DOM smoke: complete route shell and accessibility regions are present', ()
   assert.match(html, /aria-label="Statistics filters"/);
 });
 
-test('loader order installs architecture, safety, modes, mirror, network, and platform before main', () => {
+test('loader order installs architecture, safety, modes, mirror, and platform before main without Online', () => {
   const htmlSources = [...html.matchAll(/<script src="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(htmlSources, ['js/v111-boot.js?v=111'], 'index must expose only the release-unique boot script');
   const sources = [...boot.matchAll(/['"](js\/[^'"]+\.js\?v=111)['"]/g)]
@@ -55,15 +55,15 @@ test('loader order installs architecture, safety, modes, mirror, network, and pl
     'v111-interfaces.js', 'v111-runtime.js', 'v111-name-policy.js', 'v111-save-backup.js', 'v111-stats.js',
     'v111-platform.js', 'v111-object-manifest.js', 'v111-content-catalog.js',
     'v111-cosmetic-catalog.js', 'v111-progression.js', 'v111-modes.js',
-    'v111-physics-events.js', 'v111-mirror-match.js', 'v111-network-protocol.js',
-    'net.js', 'main.js',
+    'v111-physics-events.js', 'v111-mirror-match.js', 'main.js',
   ]) assert.notEqual(position(name), -1, `${name} is not loaded`);
   assert.ok(position('v111-interfaces.js') < position('v111-runtime.js'));
   assert.ok(position('v111-runtime.js') < position('v111-name-policy.js'));
   assert.ok(position('v111-name-policy.js') < position('v111-save-backup.js'));
   assert.ok(position('v111-save-backup.js') < position('main.js'));
   assert.ok(position('v111-name-policy.js') < position('v111-stats.js'));
-  assert.ok(position('v111-network-protocol.js') < position('net.js'));
+  assert.equal(position('v111-network-protocol.js'), -1);
+  assert.equal(position('net.js'), -1);
   assert.ok(position('v111-mirror-match.js') < position('main.js'));
   assert.ok(position('v111-platform.js') < position('main.js'));
   assert.ok(sources.every((source) => source !== 'js/v111.js'));
@@ -250,19 +250,16 @@ test('undiscovered galleries expose one opaque lock rather than catalog count or
   assert.match(main, /views\.some\(\(view\) => view\.locked\)\) tiles\.push\(undiscoveredTileHtml\(\)\)/);
 });
 
-test('online and platform call sites enforce safe lifecycle and resume state', () => {
+test('offline platform call sites enforce safe lifecycle without peer transports', () => {
   assert.match(main, /enterMatch\(\{ fullscreen: true \}\)/);
   assert.match(main, /leaveMatch\(\)/);
   assert.doesNotMatch(main, /wakeLock|restoreActiveMatch/);
-  assert.ok((main.match(/Net\.setTurn\(/g) || []).length >= 2);
-  assert.match(main, /if \(!Net\.sendFlick\(/);
-  assert.match(main, /Net\.bindMatchState\(\{ capture: captureOnlineMatchState, restore: restoreOnlineMatchState \}\)/);
-  assert.match(main, /resume-state-missing/);
-  assert.match(main, /compatibility-failure/);
+  assert.doesNotMatch(main, /\bNet\.|captureOnlineMatchState|pendingNetResult|ONLINE_ENABLED/);
+  assert.doesNotMatch(html, /id="online-/);
   assert.match(main, /Please choose another name/);
 });
 
-test('Mirror Match arms, claims, copies policy-safe physics, consumes, persists and cleans up', () => {
+test('Mirror Match arms, claims, copies policy-safe physics, consumes and cleans up locally', () => {
   assert.match(main, /mirrorMatch\.peek\(request\)/);
   assert.match(main, /mirrorMatch\.claim\(request\)/);
   assert.match(main, /canonicalEventId\(\) !== 'mirror-match'/);
@@ -274,7 +271,7 @@ test('Mirror Match arms, claims, copies policy-safe physics, consumes, persists 
   assert.match(main, /mirrorPolicy\.nestingDisabled/);
   assert.match(main, /copyRewards === false/);
   assert.match(main, /copySideEffects === false/);
-  assert.match(main, /mirrorSnapshot:/);
+  assert.match(main, /mirrorMatch\.snapshot\(\)/);
   assert.match(main, /mirrorMatch\.cleanup\('match-ended'\)/);
   assert.match(main, /syncMirrorRoster\(\)/);
   assert.match(main, /Physics\.setProfile\(physicsProfileForPlayer\(index\)\)/);

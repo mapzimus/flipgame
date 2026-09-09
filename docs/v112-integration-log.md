@@ -1095,3 +1095,32 @@ log, and defect ledger remain release history and are not rewritten.
   Arena agent owns a new offline preview module. Plinko agent owns its kernel.
 - Nothing deployed; public v1.11 remains unchanged. These are development
   improvements, not a release-candidate declaration.
+
+## Revision 55 — Measured deadline verdict and offline integration
+
+- Affected interfaces: engine observation, PhysicsCompositionDriverV1,
+  LandingPhysicsLane, private browser entry. Old behavior: the private bridge
+  rejected a real engine upright/cap make at the four-second deadline because
+  its only deadline path was MISS-only. New behavior: separate private
+  `issueDeadlineVerdict` consumes frozen on-plane/completed-rotation evidence
+  captured by the existing engine verdict. True timeout remains MISS-only;
+  airborne-before-contact terminals remain an explicit unfinished adapter.
+- Migration: no save or reward migration and no changes to ordinary input,
+  force, plane tolerance or rotation thresholds. The driver forwards the
+  existing physical classification and does not independently judge or step.
+- Tests: deadline upright/cap make, off-plane/underrotation rejection,
+  bounce/recontact absolute clock, same-step observation, Practice exclusion,
+  real engine/browser and observer parity at 30/60/120 Hz. Owner acknowledged
+  the exact interface before implementation; integrated driver `e6fb869` and
+  deadline reconciliation `3a3e9c8`.
+- Online removal integrated `e059af5`: lobby, query enabling, peer turns,
+  reconnection snapshots and remote verdict code removed, as are the two
+  transport source files. Original transport tests are retained as disabled
+  historical fixtures; active replacements retain platform, Android and all
+  thirty physical event regression checks (`0aa3284`). Root removes boot/cache
+  references and updates obsolete mixed UI/CPU assertions, retaining local
+  lifecycle, Mirror Match, input and renderer coverage. Deleted source remains
+  recoverable through Git. No public deployment occurs.
+- Canonical Plinko kernel remediation integrated `9a6b475`. Real Matter adapter
+  and measured timing tests are now assigned to its owner. Passing kernel
+  tests does not close the live eight-row/circle defect.

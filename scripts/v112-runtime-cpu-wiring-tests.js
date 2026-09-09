@@ -79,7 +79,7 @@ async function testDevelopmentBootOrder() {
     `CPU module must load after Physics and before main: ${scripts.join(', ')}`);
   assert.equal(window.__FLIPGAME_BOOT_VERSION__, 'v1.11',
     'staged development wiring must not change release identity');
-  assert.deepEqual(styles, ['css/style.css?v=111']);
+  assert.deepEqual(styles, ['css/style.css?v=111', 'css/v112-broadcast.css?v=111']);
 }
 
 function cpuHarness({ alienSkin = false, predictedEvent = null } = {}) {
@@ -179,7 +179,7 @@ function testCpuPolicyReachesLaunchBoundary() {
   vm.runInContext(extractFunction(mainSource, 'onFlick'), context);
   context.onFlick(500, -1800, { source: 'cpu', seed: 0xf00d, inputFeelMode: 'standard' });
   assert.equal(context.launchArgs[2], 0xf00d);
-  assert.equal(context.launchArgs[5].inputFeelMode, 'standard');
+  assert.equal(context.launchArgs[4].inputFeelMode, 'standard');
 
   assert.match(mainSource,
     /Physics\.applyFlick[\s\S]*?inputFeelMode:\s*launchPolicy\?\.inputFeelMode/,

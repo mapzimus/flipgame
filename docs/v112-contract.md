@@ -418,6 +418,16 @@ leaving discards it.
 
 ## 8. Versioned interfaces, migration and release gates
 
+- Revision 55 landing integration preserves the real engine's deadline pose
+  classification. Private `issueDeadlineVerdict` is distinct from the existing
+  MISS-only `issueTimeoutVerdict`: after first contact plus 4,000 ms, an explicit
+  upright/cap MAKE requires immutable `LandingDeadlineEvidenceV1` captured by
+  the engine with `onLandingPlane` and `rotationComplete` both true. Evidence
+  uses the existing plane and rotation tests; no force, tolerance or input
+  transfer changes. A true timeout stays MISS-only. Bounce/recontact does not
+  restart the absolute deadline. Airborne terminal outcomes before any contact
+  need their own measured path and cannot fabricate a contact.
+
 - Add `ActivityRegistry`, `MatchRequestV2`, `MatchOutcomeV2`,
   `PostMatchResolutionV1`, `MatchSessionCoordinator`, `LaneRuntime`,
   `BattleStateV1`, `StoryCatalogV1`, `StoryAttemptV1`, `StoryStateV1`,

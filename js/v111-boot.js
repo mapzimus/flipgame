@@ -44,8 +44,6 @@
     'js/v112-variant-names.js?v=' + VERSION,
     'js/v112-arena-preview.js?v=' + VERSION,
     'js/skins.js?v=111',
-    'js/v111-network-protocol.js?v=111',
-    'js/net.js?v=111',
     'js/main.js?v=111',
   ];
   var started = false;

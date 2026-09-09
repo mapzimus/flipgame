@@ -41,8 +41,6 @@ const PRECACHE_URLS = [
   './js/achievements.js',
   './js/cast25.js',
   './js/skins.js',
-  './js/v111-network-protocol.js',
-  './js/net.js',
   './js/main.js',
   './js/vendor/matter.min.js',
   './manifest.json',
