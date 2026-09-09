@@ -972,3 +972,36 @@ log, and defect ledger remain release history and are not rewritten.
 - Two downstream gates remain explicit: V112-085 requires crash-safe Mirror
   obligation persistence, and V112-086 requires a branded settled
   `LandingVerdict` at the ordinary physics-to-rules boundary.
+
+## Revision 50 — browser authority candidates rejected at independent gate
+
+- Independent review rejected progression candidate `d9f97de` despite all
+  focused suites passing. Public `refresh` and mutation/import results can leak
+  the active match bearer; notification projection can publish an impossible
+  reservation frontier; an unrelated stale token can be mislabeled as the
+  consumed receipt; queued Web Locks are not aborted on close; integration
+  metadata is only shallow-frozen; and Profile/Runtime still misclassify a
+  browser `module` shim as CommonJS. These are V112-094, V112-095 and
+  V112-103 through V112-106. The candidate remains outside integration.
+- Independent review also rejected Rules candidate `679532d` as a complete
+  browser-authority fix. It prevents replacement of a genuinely installed
+  Rules object, but a frozen schema-shaped EventKernel preseed can still capture
+  the private match capability and force a real terminal Plinko result. A
+  frozen Rules preseed can likewise survive a fail-closed load and be consumed
+  by another classic script. These are V112-101 and V112-102.
+- Separate classic-script globals cannot authenticate one another in an
+  attacker-controlled JavaScript realm. The interim browser entries for Rules,
+  EventKernel, Activity, Battle and their privileged adapters will therefore be
+  inert, deeply frozen facades with `liveAvailable:false`. Trusted CommonJS
+  implementations remain private until one generated browser artifact composes
+  them inside a lexical closure.
+- The future composition must retain the active match adapter and accept only
+  its one-use branded terminal outcome. Caller-authored rules state, frozen
+  schema lookalikes, pure public converters and ambient globals cannot select a
+  winner or receive reward authority.
+- Candidate evidence remains valuable but does not close a gate: Rules,
+  Activity, event-contract, Profile, Runtime, Story, backup, migration and
+  regression suites pass. New browser-authority tests must cover fake
+  module/process shims, immutable preseeds, load-order permutations, continued
+  loading after an earlier script throws, and replacement before/after trusted
+  composition.
