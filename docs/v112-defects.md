@@ -106,6 +106,7 @@ is part of v1.12 and is not yet eligible for release.
 | V112-099 | P1 | Battle/Rush evidence | Terminal Battle validation can prove a player appeared during a Timed Rush heat but not that each attempt occurred in that player's exact assignment window | Remediation active | Every Rush attempt carries a bounded launch lease; wrong-bucket/forged/post-horn evidence is rejected |
 | V112-100 | P1 | Battle/Activity authority | Activity re-reads a mutable `FlipgameV112Battle` global on every outcome, so replacing it after legitimate load can authorize fabricated Battle terminal evidence | Remediation active | Immutable/preseed-rejecting Battle export plus one-time authority capture; replacement and cross-instance cases fail |
 | V112-101 | P1 | Rules/Activity authority | Activity can obtain its initial ordinary Rules authority from a mutable browser global before the first canonical outcome | Open; Rules/composition owner required | Immutable/preseed-rejecting Rules export and lexical trusted capture before any match starts |
+| V112-102 | P1 | Events/Rules authority | Rules lazily re-reads a mutable `FlipgameV112EventKernel` global when an event authority is first claimed, allowing replacement after Rules load | Remediation assigned with Plinko kernel pass | Immutable/preseed-rejecting EventKernel export, one-time frozen capture and replacement-before/after-claim regressions |
 
 Art directions listed in `docs/v112-plan.md` are product-approval tasks rather
 than defects until an implementation violates a frozen invariant. The original
