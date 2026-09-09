@@ -1026,3 +1026,20 @@ log, and defect ledger remain release history and are not rewritten.
   individually, matched physical simulations prove hazards are harder rather
   than easier, and visual/device evidence shows an unmistakable effect without
   hiding the Flipper or tractor ring.
+
+## Revision 52 — local release-control dashboard
+
+- Added a coordinator-owned `FlipgameReleaseStatusV1` manifest and a local-only
+  release-control dashboard. It reports the integration SHA, commits since the
+  immutable v1.11 baseline, dirty worktrees, branch divergence, contract
+  revision, defect-ledger dispositions, delivery waves, gates, recent commits,
+  and a curated smoke suite.
+- The page polls repository state every four seconds. Smoke checks rerun after
+  the integration SHA changes and on a bounded five-minute fallback; users may
+  also request an immediate run.
+- The server binds only to `127.0.0.1`, uses Node built-ins, and is deliberately
+  absent from the game boot graph, service worker, web deploy, and APK. It sends
+  a restrictive CSP and renders repository text through safe DOM text nodes.
+- Status is conservative: focused test success cannot close an independently
+  discovered live-integration or authority defect. `NOT RELEASE READY` remains
+  visible until the release gates actually pass and owner approval is recorded.
