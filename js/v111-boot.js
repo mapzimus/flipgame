@@ -43,6 +43,8 @@
     'js/cast25.js?v=111',
     'js/v112-variant-names.js?v=' + VERSION,
     'js/v112-arena-preview.js?v=' + VERSION,
+    'js/v112-easter-eggs.js?v=' + VERSION,
+    'js/v112-easter-presentation.js?v=' + VERSION,
     'js/skins.js?v=111',
     'js/main.js?v=111',
   ];

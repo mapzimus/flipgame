@@ -1417,6 +1417,54 @@
   let currentMatchOptions = {};
   let currentMatchDefs = [];
   let currentMatchId = null;
+  let easterEggState = null;
+  let easterPresentation = null;
+
+  function resolvePresentationSecret(record, flick) {
+    easterPresentation = null;
+    const registry = window.FlipgameV112EasterEggs;
+    if (!registry || !currentMatchId || !record) return;
+    if (!easterEggState || easterEggState.matchId !== currentMatchId) {
+      easterEggState = registry.createMatchState(currentMatchId);
+    }
+    const count = value => Math.max(0, Math.floor(Number(value) || 0));
+    const alien = record.objectId === 'alien' || record.eventId === 'alien-invasion' || /tractor|portal/.test(record.landingReason || '');
+    const sequence = easterEggState.lastSequence + 1;
+    const flipId = `${currentMatchId}:${record.heat || 0}:${record.turn}:${game.practiceAttempts}`;
+    // Hash domain is presentation-only: it never advances the event/input RNG.
+    const presentationSeed = `egg:${currentMatchId}:${flick?.seed ?? 0}:${record.turn}:${game.practiceAttempts}`;
+    try {
+      const response = registry.evaluate(easterEggState, {
+        schema: 'EasterEggOutcomeContextV1', matchId: currentMatchId, flipId, sequence,
+        presentationSeed, objectId: record.objectId, variantId: record.variantId,
+        arenaId: String(record.arenaId || 'baseline-table').replace(/^arena\./, ''),
+        playerName: record.displayName, physicsModeId: alien ? 'alien' : game.insanity ? 'insane' : 'normal',
+        eventId: record.eventId, laneId: 'main', outcomePhase: 'committed',
+        verdict: record.result, physical: true, automatic: record.eventId === 'plinko',
+        landingClass: alien && record.result === 'MAKE' ? 'alien-ring' : record.cap ? 'cap' : record.result === 'MAKE' ? 'upright' : 'miss',
+        rotationCount: count(record.rotations), bounceCount: count(record.bounces),
+        bankCount: count(record.banks), settleMs: Math.max(0, Number(record.settleMs) || 0),
+        clean: count(record.bounces) === 0, recovery: count(record.bounces) > 0,
+        pressureShot: !!record.suddenDeathBefore, matchTerminal: game.activePlayers().length <= 1,
+        testData: !!(record.testData || record.forced || record.practice || record.lab),
+        reducedMotion: reduceMotionActive(), audioMuted: !Settings.sound,
+      });
+      easterEggState = response.state;
+      easterPresentation = response.presentation;
+      if (easterPresentation && window.FlipgameV112EasterPresentation) {
+        // Camera requests are deliberately not granted over an event/reaction
+        // camera. The authored scene stays in its own screen-space inset.
+        if (easterPresentation.id !== 'desk-globe-visible-wurld') {
+          announce(easterPresentation.cue.accessibilityText);
+          const sound = FlipgameV112EasterPresentation.audioCue(easterPresentation);
+          if (sound) Sound.play(sound);
+        }
+      }
+    } catch (error) {
+      // Presentation failure must never roll back or change a committed flip.
+      console.warn('Optional presentation unavailable:', error.message);
+    }
+  }
   let currentMatchStartedAt = 0;
   let matchTelemetry = null;
   let flipTelemetry = null;
@@ -1899,6 +1947,8 @@
       drag:        Input.getDragState(),
       result:      game.state === GAME_STATES.RESULT ? game.lastResult : null,
       resultAlpha,
+      easterPresentation: game.state === GAME_STATES.RESULT ? easterPresentation : null,
+      easterElapsedMs: RESULT_MS - resultTimer,
       specialLabel: game.state === GAME_STATES.RESULT
         ? (game.plinkoPrize ? (game.plinkoPrize === 'win' ? '🎰 AUTO WIN!'
           : game.plinkoPrize === 'lose' ? '🎰 AUTO LOSS!'
@@ -2343,6 +2393,7 @@
 
     const flick = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     const statsRecord = flipStatsRecord(landing || bridgeLandingInfo || {}, flick);
+    resolvePresentationSecret(statsRecord, flick);
     resolveMirrorMatch(landing || bridgeLandingInfo || {}, flick);
     v111Bridge('flipResolved', {
       game,

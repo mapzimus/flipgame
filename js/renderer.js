@@ -1478,6 +1478,11 @@ const Renderer = (() => {
       drawResult(result === 'MAKE' ? 'MAKE!' : 'MISS', color, resultAlpha, specialLabel);
     }
 
+    if (result && state.easterPresentation && window.FlipgameV112EasterPresentation) {
+      FlipgameV112EasterPresentation.draw(ctx, {presentation: state.easterPresentation,
+        width: W, height: H, elapsedMs: state.easterElapsedMs});
+    }
+
     if (shakeAmp > 0.05) ctx.restore();
   }
 
