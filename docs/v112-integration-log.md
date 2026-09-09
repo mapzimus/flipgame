@@ -1144,8 +1144,9 @@ log, and defect ledger remain release history and are not rewritten.
 - The local build, Globe lifecycle suite, service-worker cache suite, HUD
   projection suite, and browser composition identity check pass. These commits
   are development integration only; they do not authorize deployment.
-- The standalone Matter Plinko checkpoint `47ad2b7` was deliberately not
-  merged. It still needs a measured 10–15 second corpus, all-slot reachability,
+- The standalone Matter Plinko checkpoint `47ad2b7` is stored on the
+  integration branch as an unbooted, non-authoritative module only. It still
+  needs a measured physical-duration corpus, all-slot reachability,
   recovery/directive adversarial tests, and real runtime coupling before it can
   replace the old live board.
 

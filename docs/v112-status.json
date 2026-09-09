@@ -42,7 +42,7 @@
       "name": "Plinko authority",
       "branch": "codex/v112-plinko-remediation",
       "state": "review",
-      "detail": "Kernel is integrated; a standalone Matter adapter checkpoint exists but is deliberately unmerged pending timing, reachability, adversarial and live-runtime qualification."
+      "detail": "Kernel and an unbooted standalone Matter adapter checkpoint are on the integration branch; timing, reachability, adversarial and live-runtime qualification remain mandatory before live wiring."
     },
     {
       "id": "secrets",
