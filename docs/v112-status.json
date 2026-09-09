@@ -7,7 +7,7 @@
   "integrationBranch": "codex/v112-integration",
   "candidateState": "NOT RELEASE READY",
   "ownerApproval": false,
-  "headline": "Playable integration underway: real variant previews and authored names are wired; separate Arena Select is being verified. Private browser composition and Plinko are active.",
+  "headline": "Playable integration underway: variant previews, Arena Select, live offline Globe sphere, and authored names are wired. Plinko remains experimental until physically measured.",
   "workstreams": [
     {
       "id": "integrator",
@@ -41,8 +41,8 @@
       "id": "plinko",
       "name": "Plinko authority",
       "branch": "codex/v112-plinko-remediation",
-      "state": "active",
-      "detail": "Closing physical-command, board-geometry, slot, timing, and camera authority gaps."
+      "state": "review",
+      "detail": "Kernel is integrated; a standalone Matter adapter checkpoint exists but is deliberately unmerged pending timing, reachability, adversarial and live-runtime qualification."
     },
     {
       "id": "secrets",
@@ -55,15 +55,15 @@
       "id": "browser-composition",
       "name": "Playable browser composition",
       "branch": "codex/v112-browser-composition",
-      "state": "active",
-      "detail": "Connecting private Landing, Rules, Activity and Profile; real Chromium exposed a native Web Locks error now being fixed."
+      "state": "review",
+      "detail": "Native Web Locks remediation and immutable HUD projection are integrated; private live Rules/Activity/Profile composition remains unfinished."
     },
     {
       "id": "arena-preview",
       "name": "Arena scene artwork",
       "branch": "codex/v112-arena-preview",
-      "state": "active",
-      "detail": "Building 23 authored offline venue previews. All 300 new variant names are already integrated."
+      "state": "review",
+      "detail": "All 23 authored offline venue previews and all 300 new variant names are integrated; owner art approval remains open."
     }
   ],
   "waves": [
@@ -93,8 +93,8 @@
   ],
   "focus": [
     "Connect tested v1.12 rules and progression to playable browser sessions; fix real-browser storage failures.",
-    "Replace Plinko's old live eight-row generic-circle path with the selected Flipper and a physical trampoline/24-row board.",
-    "Finish the separate Arena Select route and authored venue previews.",
+    "Replace Plinko's old live eight-row generic-circle path with the selected Flipper and a physically measured trampoline/24-row board.",
+    "Connect one private v1.12 Rules/Activity/Profile authority path to real browser sessions without parallel legacy scoring.",
     "Wire Alien event adapters and Easter-egg presentation without changing ordinary competitive results."
   ]
 }

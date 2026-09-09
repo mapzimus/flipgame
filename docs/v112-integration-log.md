@@ -1124,3 +1124,24 @@ log, and defect ledger remain release history and are not rewritten.
 - Canonical Plinko kernel remediation integrated `9a6b475`. Real Matter adapter
   and measured timing tests are now assigned to its owner. Passing kernel
   tests does not close the live eight-row/circle defect.
+
+## Revision 56 — Safe Globe and HUD composition checkpoints
+
+- Integrated a pure, immutable Rules-to-HUD projection (`6928d43`). It projects
+  the resolving actor during results and the authoritative next actor afterward
+  without advancing turns, scoring, or writing progression. It deliberately
+  leaves unmeasured perfect-landings and unavailable Practice streak totals
+  unknown instead of inventing data.
+- Integrated the lazy, bundled Desk Globe sphere (`22b1676`) and its staged
+  boot/offline registration (`946635d`). The illustrated stand remains in the
+  existing art pack; only the sphere renders the rotating bundled geography.
+  The service makes no remote request, attempts a bounded WebGL surface once,
+  and falls back to Canvas on loss or failure. A Globe Easter focus can share
+  the same surface, but is not wired into the live result camera yet.
+- The local build, Globe lifecycle suite, service-worker cache suite, HUD
+  projection suite, and browser composition identity check pass. These commits
+  are development integration only; they do not authorize deployment.
+- The standalone Matter Plinko checkpoint `47ad2b7` was deliberately not
+  merged. It still needs a measured 10–15 second corpus, all-slot reachability,
+  recovery/directive adversarial tests, and real runtime coupling before it can
+  replace the old live board.
