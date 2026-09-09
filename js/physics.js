@@ -12,6 +12,44 @@ const Physics = (() => {
   let capThrowArmed = false; // seed-rolled over-spin throw aiming for a cap land
   let lastLandingInfo = null;
   let lastFlickInfo = null;
+  // Passive integration observations. These never step the engine, poll a
+  // verdict, choose an event, or alter the existing landing decision.
+  const observationListeners = new Set();
+  let observationRevision = 0;
+  let observedLaunchSequence = 0;
+  let observationAngleTimes = [];
+  function getObservation(kind = 'snapshot') {
+    const observedLanding = landingPhase === 'resolved' && lastLandingInfo;
+    const measuredStableMs = angleWin.length && angleWin.length === observationAngleTimes.length
+      ? Math.max(0, simElapsedMs - observationAngleTimes[0]) : 0;
+    return Object.freeze({
+      schema: 'PhysicsObservationV1', revision: observationRevision, kind,
+      launchSequence: observedLaunchSequence, launched,
+      atMs: simElapsedMs, phase: landingPhase,
+      grounded: !!(wasAirborne && bottle && touchingLandingPlane()),
+      wasAirborne, hasFlipped,
+      eventId: activeEventDefinition ? activeEventDefinition.id :
+        (lastFlickInfo && lastFlickInfo.eventId) || null,
+      firstContactMs, contacts: contactCount, bounces: bounceCount,
+      landing: observedLanding ? Object.freeze({
+        result: observedLanding.result,
+        pose: observedLanding.onCap ? 'cap' : observedLanding.result === 'MAKE' ? 'upright' : 'miss',
+        reason: observedLanding.reason,
+        stableForMs: measuredStableMs,
+      }) : null,
+    });
+  }
+  function publishObservation(kind) {
+    observationRevision++;
+    if (!observationListeners.size) return;
+    const snapshot = getObservation(kind);
+    observationListeners.forEach((listener) => { try { listener(snapshot); } catch (_) {} });
+  }
+  function subscribeObservations(listener) {
+    if (typeof listener !== 'function') throw new TypeError('Physics observer must be a function');
+    observationListeners.add(listener);
+    return () => observationListeners.delete(listener);
+  }
   let onImpact = null;          // (type, speed, x, y) → wall/ceiling/ground juice
   let groundImpactSent = false; // one thud per flick
   function setImpactCallback(fn) { onImpact = fn; }
@@ -1330,6 +1368,7 @@ const Physics = (() => {
         result, landingInfo: lastLandingInfo,
       }));
     }
+    publishObservation('landing');
     return result;
   }
 
@@ -1650,6 +1689,9 @@ const Physics = (() => {
     }
 
     if (angVel < SETTLE_ANG_VEL && linSpeed < SETTLE_LIN_SPD) {
+      if (!angleWin.length) observationAngleTimes = [];
+      observationAngleTimes.push(simElapsedMs);
+      if (observationAngleTimes.length > SETTLE_FRAMES) observationAngleTimes.shift();
       angleWin.push(bottle.angle);
       if (angleWin.length > SETTLE_FRAMES) angleWin.shift();
       let lo = Infinity, hi = -Infinity;
@@ -1814,6 +1856,7 @@ const Physics = (() => {
     if (plinko) clearPlinko();                        // restore the floor
     groundedFrames = 0;
     angleWin       = [];
+    observationAngleTimes = [];
     totalRotation  = 0;
     hasFlipped     = false;
     requiredRotation = 5.6;
@@ -1860,6 +1903,7 @@ const Physics = (() => {
     bottle = createBottle();
     World.add(world, bottle);
     applyBodyMaterial();
+    publishObservation('reset');
   }
 
   // Seed arena RNG for this turn (pad placement + future furniture). Must run
@@ -2623,6 +2667,9 @@ const Physics = (() => {
     lastLandingInfo = null;
     Body.setVelocity(bottle, { x: launchX, y: launchY });
     Body.setAngularVelocity(bottle, spin);
+    observedLaunchSequence++;
+    observationAngleTimes = [];
+    publishObservation('launch');
   }
 
   function stepOnce() {
@@ -2933,6 +2980,7 @@ const Physics = (() => {
     if (rareEvent === 'mirror-match') syncMirrorPresentation();
     liquid.update(bottle.angularVelocity, FIXED_DT, bottle.angle);
     updateSaucers(FIXED_DT);
+    publishObservation('step');
   }
 
   function step(dt) {
@@ -3193,5 +3241,6 @@ const Physics = (() => {
     cleanupEvent: cleanupActiveEvent, alienMetricsForViewport, alienTargetForSeed,
     getAlienArenaState, getAlienBankTelemetry,
     getArenaProfiles,
+    getObservation, subscribeObservations,
   };
 })();

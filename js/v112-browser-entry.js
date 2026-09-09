@@ -222,7 +222,10 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       emit('flip-launched'); return;
     }
     var flip = session.flip;
-    if (atMs <= flip.atMs) return; // Duplicate/reordered frames never advance rules.
+    // checkLanding follows the fixed step at the same simulation timestamp.
+    // Admit that first terminal observation; duplicate resolved launches are
+    // already rejected above and ordinary duplicate step frames remain inert.
+    if (atMs < flip.atMs || (atMs === flip.atMs && !frame.landing)) return;
     flip.atMs = atMs;
     if (frame.grounded !== true) {
       if (flip.phase === 'contact' || flip.phase === 'settling') {
