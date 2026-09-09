@@ -1056,6 +1056,30 @@ function testFinalizationIntentRejectsTamperedCandidateAndRewards() {
   rewarded.rewardedRivalIds.push('first-light');
   assert.equal(signatureFixture.storyStore.assertFinalizationEvidence(pending, rewarded), true,
     'the canonical rewardedRivalIds evidence proves the exact expected component');
+
+  const paired = clone(rewarded);
+  paired.matchReceipts[0].bearerNonce = 'private-story-receipt-nonce';
+  paired.matchReceipts[0].reservedAt = 1950;
+  assert.equal(signatureFixture.storyStore.assertFinalizationEvidence(pending, paired), true,
+    'Story accepts the paired private Profile receipt identity without consuming it semantically');
+
+  const incompletePair = clone(paired);
+  delete incompletePair.matchReceipts[0].reservedAt;
+  assert.throws(() => signatureFixture.storyStore.assertFinalizationEvidence(
+    pending, incompletePair), /identity fields must appear together/,
+  'a partial private receipt identity fails closed');
+
+  const invalidNonce = clone(paired);
+  invalidNonce.matchReceipts[0].bearerNonce = '   ';
+  assert.throws(() => signatureFixture.storyStore.assertFinalizationEvidence(
+    pending, invalidNonce), /private receipt identity is outside/,
+  'an invalid private receipt bearer fails closed');
+
+  const invalidReservationTime = clone(paired);
+  invalidReservationTime.matchReceipts[0].reservedAt = -1;
+  assert.throws(() => signatureFixture.storyStore.assertFinalizationEvidence(
+    pending, invalidReservationTime), /private receipt identity is outside/,
+  'an invalid private receipt reservation time fails closed');
 }
 
 async function testFinalizationClearFailureRemainsRetryable() {

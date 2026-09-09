@@ -1043,3 +1043,29 @@ log, and defect ledger remain release history and are not rewritten.
 - Status is conservative: focused test success cannot close an independently
   discovered live-integration or authority defect. `NOT RELEASE READY` remains
   visible until the release gates actually pass and owner approval is recorded.
+
+## Revision 53 — Landing and Profile authority remediations integrated
+
+- Integrated LandingVerdict remediation from `94ba00c` as `791b6ca`. The
+  trusted core is CommonJS-only, browser status is a separate inert facade,
+  ordinary flips require the exact 4,000 ms limit, Rules issues the one-use
+  connector, hostile data structures fail closed, and bounce/recontact resets
+  the final stability window without erasing first-contact telemetry.
+- Integrated the thirteen-commit Profile/Progression/Activity/Story/Battle
+  sequence through remediation `a4af8bb` as integration commit `df6b51b`.
+  Public projections recursively redact every match bearer; exact receipts bind
+  their private bearer and reservation time; queued Web Lock shutdown aborts;
+  notification cursors reconcile; and owner-test integration metadata is
+  recursively frozen.
+- Story's private finalization reader now accepts legacy six-field
+  `MatchReceiptV1` records or the new paired `bearerNonce`/`reservedAt` fields.
+  It validates the pair, discards it at the Story boundary, and persists only
+  immutable match/activity/ordinal/disposition evidence. Partial or malformed
+  pairs fail closed.
+- Landing, Rules, browser boundary, events, Activity, Profile, Progression,
+  backup, achievements, Story, Battle, v1.11 migration, physics and regression
+  suites pass after integration. Independent Landing and Profile re-audits are
+  still required; passing focused suites do not close their defects.
+- Known residuals remain explicit: the Profile receipt window currently fails
+  closed after 4,096 records, Android still needs an authoritative writer, and
+  the final private browser composition/live gameplay coordinator is not built.

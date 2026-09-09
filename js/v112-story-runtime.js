@@ -1177,11 +1177,46 @@ function (Activity, Story, Profile, View, root, commonJs) {
     }
     var receiptMatchIds = new Set();
     var byMatchId = new Map();
+    var normalizedValues = [];
     var previousOrdinal = 0;
     for (var index = 0; index < values.length; index++) {
-      var item = object(values[index]);
-      exactKeys(item, ['schema', 'version', 'matchId', 'activityId', 'ordinal', 'resolution'],
-        'Profile match receipt');
+      var candidate = values[index];
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        throw new TypeError('Profile match receipt must be a plain data record');
+      }
+      var prototype;
+      var names;
+      var symbols;
+      try {
+        prototype = Object.getPrototypeOf(candidate);
+        names = Object.getOwnPropertyNames(candidate);
+        symbols = Object.getOwnPropertySymbols(candidate);
+      } catch (_) {
+        throw new TypeError('Profile match receipt structure is unreadable');
+      }
+      if (prototype !== Object.prototype && prototype !== null) {
+        throw new TypeError('Profile match receipt must use a plain prototype');
+      }
+      if (symbols.length) throw new TypeError('Profile match receipt cannot contain symbol fields');
+      var item = Object.create(null);
+      for (var nameIndex = 0; nameIndex < names.length; nameIndex++) {
+        var field = names[nameIndex];
+        var descriptor;
+        try { descriptor = Object.getOwnPropertyDescriptor(candidate, field); }
+        catch (_) { throw new TypeError('Profile match receipt field is unreadable'); }
+        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+          throw new TypeError('Profile match receipt must contain data fields only');
+        }
+        item[field] = descriptor.value;
+      }
+      var hasBearerNonce = Object.prototype.hasOwnProperty.call(item, 'bearerNonce');
+      var hasReservedAt = Object.prototype.hasOwnProperty.call(item, 'reservedAt');
+      if (hasBearerNonce !== hasReservedAt) {
+        throw new TypeError('Profile private receipt identity fields must appear together');
+      }
+      var receiptKeys = ['schema', 'version', 'matchId', 'activityId', 'ordinal', 'resolution'];
+      if (hasBearerNonce) receiptKeys = receiptKeys.concat(['bearerNonce', 'reservedAt']);
+      exactKeys(item, receiptKeys, 'Profile match receipt');
       if (item.schema !== 'MatchReceiptV1' || item.version !== 1 ||
           typeof item.matchId !== 'string' || !item.matchId ||
           item.matchId !== item.matchId.trim() || item.matchId.length > 128 ||
@@ -1192,14 +1227,33 @@ function (Activity, Story, Profile, View, root, commonJs) {
           (item.resolution !== 'consumed' && item.resolution !== 'abandoned')) {
         throw new TypeError('Profile match receipt is outside the Story recovery contract');
       }
+      if (hasBearerNonce &&
+          (typeof item.bearerNonce !== 'string' || !item.bearerNonce ||
+            item.bearerNonce !== item.bearerNonce.trim() || item.bearerNonce.length > 128 ||
+            /[\u0000-\u001f\u007f]/.test(item.bearerNonce) ||
+            !Number.isSafeInteger(item.reservedAt) || item.reservedAt < 0)) {
+        throw new TypeError('Profile private receipt identity is outside the Story recovery contract');
+      }
       if (receiptMatchIds.has(item.matchId) || item.ordinal <= previousOrdinal) {
         throw new RangeError('Profile match receipt ordering or identity is invalid');
       }
       receiptMatchIds.add(item.matchId);
       previousOrdinal = item.ordinal;
-      byMatchId.set(item.matchId, item);
+      // The private bearer proves Profile replay identity but is deliberately
+      // discarded at the Story boundary. Story binds only the immutable match,
+      // activity, ordinal and disposition and never journals the bearer.
+      var normalized = freeze({
+        schema: item.schema,
+        version: item.version,
+        matchId: item.matchId,
+        activityId: item.activityId,
+        ordinal: item.ordinal,
+        resolution: item.resolution,
+      });
+      normalizedValues.push(normalized);
+      byMatchId.set(normalized.matchId, normalized);
     }
-    return freeze({ values: values.slice(), byMatchId: byMatchId });
+    return freeze({ values: normalizedValues, byMatchId: byMatchId });
   }
 
   function storyFinalizationBinding(profileInput, requestInput) {

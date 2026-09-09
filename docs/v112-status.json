@@ -7,7 +7,7 @@
   "integrationBranch": "codex/v112-integration",
   "candidateState": "NOT RELEASE READY",
   "ownerApproval": false,
-  "headline": "Authority remediation, Alien event adaptations, Plinko hardening, and release observability are active.",
+  "headline": "Landing and Profile remediations are integrated; independent audit, Alien events, Plinko, and Easter eggs are active.",
   "workstreams": [
     {
       "id": "integrator",
@@ -21,14 +21,14 @@
       "name": "Landing verdict authority",
       "branch": "codex/v112-landing-verdict-remediation",
       "state": "review",
-      "detail": "Remediation committed; integration and independent re-audit remain."
+      "detail": "Integrated as 791b6ca; independent adversarial re-audit is active."
     },
     {
       "id": "profile",
       "name": "Profile authority",
       "branch": "codex/v112-progression-runtime",
       "state": "review",
-      "detail": "Remediation committed; Story receipt compatibility and integration remain."
+      "detail": "Integrated through df6b51b; Story receipt compatibility is green and independent audit remains."
     },
     {
       "id": "alien-events",
@@ -54,13 +54,13 @@
   ],
   "waves": [
     { "id": 0, "name": "Contract and recovery", "state": "active", "note": "Contract revisioning remains open while owner additions are incorporated." },
-    { "id": 1, "name": "Core foundations", "state": "active", "note": "Input passed; landing and profile authority are in remediation/integration." },
+    { "id": 1, "name": "Core foundations", "state": "active", "note": "Input passed; landing and profile authority are integrated and awaiting independent re-audit." },
     { "id": 2, "name": "Vertical slices", "state": "partial", "note": "Story, Battle, and Globe cores exist; full playable wiring and approval remain." },
     { "id": 3, "name": "Rules and modes", "state": "partial", "note": "Core suites exist; private browser composition and live coordinator remain." },
     { "id": 4, "name": "Physical events", "state": "active", "note": "Alien compatibility and Plinko hardening are active; live event pass remains." },
     { "id": 5, "name": "Flipper artwork", "state": "blocked", "note": "Calibration exists, but the owner rejected current quality; bulk art is not approved." },
     { "id": 6, "name": "Arenas and interface", "state": "queued", "note": "Sports-broadcast menu, arena route, camera, audio, and responsive rollout remain." },
-    { "id": 7, "name": "Progression and data", "state": "active", "note": "Profile authority is being integrated; Store, Stats, names, APK, and Online removal remain." },
+    { "id": 7, "name": "Progression and data", "state": "active", "note": "Profile authority is integrated; Store, Stats, names, APK, and Online removal remain." },
     { "id": 8, "name": "Independent qualification", "state": "queued", "note": "Begins only after a complete playable release-candidate commit exists." },
     { "id": 9, "name": "Defect closure", "state": "queued", "note": "Original owners fix audit findings; every affected gate reruns." },
     { "id": 10, "name": "Release and verification", "state": "blocked", "note": "Requires owner acceptance and one approved SHA; nothing is deployed automatically yet." }
@@ -78,8 +78,7 @@
     { "id": "post-release", "name": "Post-release verification", "state": "blocked", "detail": "Both sites, stale-cache upgrade, offline launch, and APK must match." }
   ],
   "focus": [
-    "Integrate and re-audit LandingVerdict authority remediation.",
-    "Integrate Profile authority remediation and update Story's private receipt reader.",
+    "Complete the independent LandingVerdict and Profile authority re-audits.",
     "Replace Plinko's old live eight-row generic-circle path with the selected Flipper and a physical trampoline/24-row board.",
     "Give every Alien-mode event a distinct zero-gravity physical adaptation.",
     "Add deterministic Urth Easter eggs without changing competitive results."
