@@ -1,5 +1,5 @@
 // v112-event-kernel.js -- bounded, renderer-free contracts for v1.12 events.
-(function (root, factory) {
+(function (factory) {
   'use strict';
   var nodeModule = null;
   try {
@@ -9,30 +9,20 @@
     }
   } catch (_) { nodeModule = null; }
   var commonJs = typeof nodeModule === 'function' && nodeModule._cache &&
-    typeof module === 'object' && module !== null && module instanceof nodeModule &&
+    typeof module === 'object' && module !== null &&
+    module.constructor === nodeModule && Object.getPrototypeOf(module) === nodeModule.prototype &&
     nodeModule._cache[module.filename] === module
     && Object.prototype.hasOwnProperty.call(module, 'exports')
-    && typeof module.require === 'function'
+    && module.require === nodeModule.prototype.require
     && typeof module.filename === 'string'
     && typeof process === 'object' && process !== null
+    && process.release && process.release.name === 'node'
     && process.versions && typeof process.versions.node === 'string';
-  if (!commonJs && root && 'FlipgameV112EventKernel' in Object(root)) {
-    throw new Error('Refusing duplicate or preseeded FlipgameV112EventKernel');
+  if (!commonJs) {
+    throw new Error('v112-event-kernel.js is a private CommonJS core and cannot initialize as a classic script');
   }
-  var Rules = commonJs ? module.require('./v112-rules.js')
-    : (root && root.FlipgameV112Rules);
-  var api = factory(Rules);
-  if (commonJs) {
-    module.exports = api;
-  } else {
-    if (!root) throw new Error('Browser event kernel requires a global object');
-    Object.defineProperty(root, 'FlipgameV112EventKernel', {
-      value: api, enumerable: true, writable: false, configurable: false,
-    });
-  }
-})(typeof globalThis !== 'undefined' ? globalThis
-  : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Rules) {
+  module.exports = factory(module.require('./v112-rules.js'));
+})(function (Rules) {
   'use strict';
 
   var LIMITS = Object.freeze({ dataDepth: 12, dataNodes: 2048, objectKeys: 96,

@@ -1,33 +1,32 @@
 // v112-rules.js -- deterministic, renderer-free rules for Classic, Cup and
 // Team Clash. Physics reports a settled verdict; this module alone mutates the
 // match economy and emits versioned outcomes.
-(function (root, factory) {
+(function (factory) {
   'use strict';
-  var commonJs = typeof module === 'object' && module !== null
-    && Object.prototype.hasOwnProperty.call(module, 'exports')
-    && typeof module.require === 'function'
-    && typeof module.filename === 'string'
-    && typeof process === 'object' && process !== null
-    && process.versions && typeof process.versions.node === 'string';
-  if (!commonJs && root && 'FlipgameV112Rules' in Object(root)) {
-    throw new Error('Refusing duplicate or preseeded FlipgameV112Rules');
+  var nodeModule = null;
+  try {
+    if (typeof process === 'object' && process !== null &&
+        typeof process.getBuiltinModule === 'function') {
+      nodeModule = process.getBuiltinModule('module');
+    }
+  } catch (_) { nodeModule = null; }
+  var commonJs = typeof nodeModule === 'function' && nodeModule._cache &&
+    typeof module === 'object' && module !== null &&
+    module.constructor === nodeModule && Object.getPrototypeOf(module) === nodeModule.prototype &&
+    nodeModule._cache[module.filename] === module &&
+    Object.prototype.hasOwnProperty.call(module, 'exports') &&
+    module.require === nodeModule.prototype.require &&
+    typeof module.filename === 'string' &&
+    typeof process === 'object' && process !== null &&
+    process.release && process.release.name === 'node' &&
+    process.versions && typeof process.versions.node === 'string';
+  if (!commonJs) {
+    throw new Error('v112-rules.js is a private CommonJS core and cannot initialize as a classic script');
   }
-  var loadEventKernel = commonJs ? function () {
+  module.exports = factory(function () {
     return module.require('./v112-event-kernel.js');
-  } : null;
-  var api = factory(root, commonJs, loadEventKernel);
-  if (commonJs) {
-    module.exports = api;
-  } else {
-    if (!root) throw new Error('Browser rules require a global object');
-    Object.defineProperty(root, 'FlipgameV112Rules', {
-      value: api, enumerable: true, writable: false, configurable: false,
-    });
-  }
-})(typeof globalThis !== 'undefined' ? globalThis
-  : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (root, commonJs,
-    loadEventKernel) {
+  });
+})(function (loadEventKernel) {
   'use strict';
 
   var VERSION = 1;
@@ -414,19 +413,10 @@
   function eventKernelModule() {
     if (CACHED_EVENT_KERNEL) return CACHED_EVENT_KERNEL;
     var kernel = null;
-    if (commonJs) {
-      // Lazy loading avoids the Rules <-> EventKernel CommonJS cycle during
-      // module initialization. By the time a live match claims its authority,
-      // both modules have finished evaluating.
-      kernel = loadEventKernel();
-    } else if (root) {
-      var descriptor = Object.getOwnPropertyDescriptor(root, 'FlipgameV112EventKernel');
-      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value') ||
-          descriptor.writable !== false || descriptor.configurable !== false) {
-        throw new Error('Browser event kernel must be an immutable owned authority');
-      }
-      kernel = descriptor.value;
-    }
+    // Lazy loading avoids the Rules <-> EventKernel CommonJS cycle during
+    // module initialization. By the time a live match claims its authority,
+    // both modules have finished evaluating.
+    kernel = loadEventKernel();
     if (!kernel || kernel.schema !== 'FlipgameEventKernelV2' ||
         typeof kernel.createAuthority !== 'function' || !Object.isFrozen(kernel)) {
       throw new Error('FlipgameV112EventKernel V2 must load before event authority is claimed');
@@ -2618,15 +2608,13 @@
         return authority;
       },
     };
-    // The raw ordinary mutation entry point exists only inside trusted
-    // CommonJS composition. Browser callers must cross the physics-issued
-    // LandingVerdict authority; event outcomes retain their separate branded
-    // EventKernel path.
-    if (commonJs) {
-      apiMethods.resolveFlip = function (value) {
-        return update(resolveMatchFlip(state, normalizeOrdinaryAdapterInput(value)));
-      };
-    }
+    // This entire module is private CommonJS. The future generated lexical
+    // browser composition must keep this raw mutation entry point private and
+    // cross the physics-issued LandingVerdict authority instead; event outcomes
+    // retain their separate branded EventKernel path.
+    apiMethods.resolveFlip = function (value) {
+      return update(resolveMatchFlip(state, normalizeOrdinaryAdapterInput(value)));
+    };
     var api = Object.freeze(apiMethods);
     EVENT_MATCH_CAPABILITIES.set(eventCapability, {
       getState: function () { return state; },

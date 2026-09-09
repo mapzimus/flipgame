@@ -1,14 +1,25 @@
 // v112-event-runtime.js -- lane-local lifecycle and physics-evidence authority.
-(function (root, factory) {
+(function (factory) {
   'use strict';
-  var Kernel = root && root.FlipgameV112EventKernel;
-  if (typeof module === 'object' && module.exports) Kernel = require('./v112-event-kernel.js');
-  var api = factory(Kernel);
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  if (root) root.FlipgameV112EventRuntime = api;
-})(typeof globalThis !== 'undefined' ? globalThis
-  : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Kernel) {
+  var nodeModule = null;
+  try {
+    if (typeof process === 'object' && process !== null &&
+        typeof process.getBuiltinModule === 'function') nodeModule = process.getBuiltinModule('module');
+  } catch (_) { nodeModule = null; }
+  var commonJs = typeof nodeModule === 'function' && nodeModule._cache &&
+    typeof module === 'object' && module !== null && module.constructor === nodeModule &&
+    Object.getPrototypeOf(module) === nodeModule.prototype &&
+    nodeModule._cache[module.filename] === module &&
+    Object.prototype.hasOwnProperty.call(module, 'exports') &&
+    module.require === nodeModule.prototype.require && typeof module.filename === 'string' &&
+    typeof process === 'object' && process !== null &&
+    process.release && process.release.name === 'node' &&
+    process.versions && typeof process.versions.node === 'string';
+  if (!commonJs) {
+    throw new Error('v112-event-runtime.js is a private CommonJS core and cannot initialize as a classic script');
+  }
+  module.exports = factory(module.require('./v112-event-kernel.js'));
+})(function (Kernel) {
   'use strict';
 
   if (!Kernel || Kernel.schema !== 'FlipgameEventKernelV2') {

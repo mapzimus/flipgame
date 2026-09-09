@@ -1,24 +1,29 @@
 // v112-event-harness.js -- deterministic fixtures for event-pack qualification.
-(function (root, factory) {
+(function (factory) {
   'use strict';
-  var Kernel = root && root.FlipgameV112EventKernel;
-  var Runtime = root && root.FlipgameV112EventRuntime;
-  var Renderer = root && root.FlipgameV112EventRenderer;
-  var RulesAdapter = root && root.FlipgameV112EventRulesAdapter;
-  var Rules = root && root.FlipgameV112Rules;
-  if (typeof module === 'object' && module.exports) {
-    Kernel = require('../../js/v112-event-kernel.js');
-    Runtime = require('../../js/v112-event-runtime.js');
-    Renderer = require('../../js/v112-event-renderer.js');
-    RulesAdapter = require('../../js/v112-event-rules-adapter.js');
-    Rules = require('../../js/v112-rules.js');
+  var nodeModule = null;
+  try {
+    if (typeof process === 'object' && process !== null &&
+        typeof process.getBuiltinModule === 'function') nodeModule = process.getBuiltinModule('module');
+  } catch (_) { nodeModule = null; }
+  var commonJs = typeof nodeModule === 'function' && nodeModule._cache &&
+    typeof module === 'object' && module !== null && module.constructor === nodeModule &&
+    Object.getPrototypeOf(module) === nodeModule.prototype &&
+    nodeModule._cache[module.filename] === module &&
+    Object.prototype.hasOwnProperty.call(module, 'exports') &&
+    module.require === nodeModule.prototype.require && typeof module.filename === 'string' &&
+    typeof process === 'object' && process !== null &&
+    process.release && process.release.name === 'node' &&
+    process.versions && typeof process.versions.node === 'string';
+  if (!commonJs) {
+    throw new Error('v112-event-harness.js is test-only CommonJS and cannot initialize as a classic script');
   }
-  var api = factory(Kernel, Runtime, Renderer, RulesAdapter, Rules);
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  if (root) root.FlipgameV112EventHarness = api;
-})(typeof globalThis !== 'undefined' ? globalThis
-  : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Kernel, Runtime, Renderer, RulesAdapter, Rules) {
+  module.exports = factory(module.require('../../js/v112-event-kernel.js'),
+    module.require('../../js/v112-event-runtime.js'),
+    module.require('../../js/v112-event-renderer.js'),
+    module.require('../../js/v112-event-rules-adapter.js'),
+    module.require('../../js/v112-rules.js'));
+})(function (Kernel, Runtime, Renderer, RulesAdapter, Rules) {
   'use strict';
 
   if (!Kernel || !Runtime || !Renderer || !RulesAdapter || !Rules) {

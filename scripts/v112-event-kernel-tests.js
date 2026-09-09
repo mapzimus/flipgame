@@ -1620,11 +1620,10 @@ function testPlinkoTerminalRulesAcrossFormats() {
   }
 }
 
-function testBrowserUmdSurfaces() {
+function testEventCoresArePrivate() {
   assert.equal(Object.prototype.hasOwnProperty.call(globalThis,
     'FlipgameV112EventKernel'), false,
   'CommonJS loading must not publish the trusted kernel API on globalThis');
-  const context = vm.createContext({ console });
   const files = [
     '../js/v112-rules.js', '../js/v112-event-kernel.js', '../js/v112-event-runtime.js',
     '../js/v112-event-rules-adapter.js', '../js/v112-event-renderer.js',
@@ -1632,76 +1631,12 @@ function testBrowserUmdSurfaces() {
   ];
   files.forEach(relative => {
     const filename = path.resolve(__dirname, relative);
-    vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
+    const context = vm.createContext({ console });
+    assert.throws(() => vm.runInContext(fs.readFileSync(filename, 'utf8'), context,
+      { filename }), /private CommonJS core|test-only CommonJS/,
+    `${relative} must refuse classic-script initialization`);
+    assert.deepEqual(Object.keys(context), ['console']);
   });
-  assert.equal(context.FlipgameV112EventKernel.schema, 'FlipgameEventKernelV2');
-  assert.equal(Object.isFrozen(context.FlipgameV112EventKernel), true);
-  assert.equal(Object.isFrozen(context.FlipgameV112EventRuntime), true);
-  assert.equal(Object.isFrozen(context.FlipgameV112EventRenderer), true);
-  const kernelDescriptor = Object.getOwnPropertyDescriptor(context,
-    'FlipgameV112EventKernel');
-  assert.equal(kernelDescriptor.writable, false,
-    'browser kernel authority must not be replaceable');
-  assert.equal(kernelDescriptor.configurable, false,
-    'browser kernel authority must not be deletable/redefined');
-  assert.equal(context.FlipgameV112EventRuntime.schema, 'FlipgameEventRuntimeV2');
-  assert.equal(context.FlipgameV112EventRulesAdapter.schema, 'FlipgameEventRulesAdapterV2');
-  assert.equal(context.FlipgameV112EventRenderer.schema, 'FlipgameEventRendererV2');
-  assert.equal(context.FlipgameV112EventHarness.schema, 'FlipgameEventHarnessV2');
-  const browserRules = context.FlipgameV112Rules.createRulesAdapter({
-    formatId: 'classic', matchId: 'browser-authority', players: players(2),
-  });
-  assert.equal(Object.prototype.hasOwnProperty.call(browserRules, 'eventCapability'), false);
-  const browserAuthority = browserRules.claimEventAuthority();
-  assert.equal(browserAuthority.schema, 'EventAuthorityV2');
-  assert.throws(() => browserRules.claimEventAuthority(), /already issued/);
-
-  const kernelFilename = path.resolve(__dirname, '../js/v112-event-kernel.js');
-  const kernelSource = fs.readFileSync(kernelFilename, 'utf8');
-  const originalKernel = context.FlipgameV112EventKernel;
-  assert.throws(() => vm.runInContext(kernelSource, context,
-    { filename: kernelFilename }), /duplicate or preseeded/,
-  'a duplicate browser load must fail closed');
-  assert.equal(context.FlipgameV112EventKernel, originalKernel,
-    'a duplicate load must not replace the installed authority');
-
-  const preseedContext = vm.createContext({ console });
-  const rulesFilename = path.resolve(__dirname, '../js/v112-rules.js');
-  vm.runInContext(fs.readFileSync(rulesFilename, 'utf8'), preseedContext,
-    { filename: rulesFilename });
-  const attackerPreseed = Object.freeze({ schema: 'FlipgameEventKernelV2' });
-  preseedContext.FlipgameV112EventKernel = attackerPreseed;
-  assert.throws(() => vm.runInContext(kernelSource, preseedContext,
-    { filename: kernelFilename }), /duplicate or preseeded/,
-  'a schema-shaped preseed must fail closed');
-  assert.equal(preseedContext.FlipgameV112EventKernel, attackerPreseed);
-
-  let shimRequireCalls = 0;
-  const shimContext = vm.createContext({ console });
-  vm.runInContext(fs.readFileSync(rulesFilename, 'utf8'), shimContext,
-    { filename: rulesFilename });
-  const shimExports = { sentinel: 'browser-module-shim' };
-  shimContext.module = {
-    exports: shimExports,
-    filename: 'browser-shim.js',
-    require: function () { shimRequireCalls += 1; throw new Error('unsafe require'); },
-  };
-  shimContext.require = function () {
-    shimRequireCalls += 1;
-    throw new Error('unsafe require');
-  };
-  shimContext.process = { versions: { node: '999.0.0' } };
-  vm.runInContext(kernelSource, shimContext, { filename: kernelFilename });
-  assert.equal(shimRequireCalls, 0,
-    'browser module shims must not select the CommonJS authority path');
-  assert.equal(shimContext.module.exports, shimExports,
-    'browser module shims must not receive trusted CommonJS exports');
-  assert.equal(shimContext.FlipgameV112EventKernel.schema,
-    'FlipgameEventKernelV2');
-  const shimDescriptor = Object.getOwnPropertyDescriptor(shimContext,
-    'FlipgameV112EventKernel');
-  assert.equal(shimDescriptor.writable, false);
-  assert.equal(shimDescriptor.configurable, false);
 
   const cjsPreseed = { attacker: true };
   globalThis.FlipgameV112EventKernel = cjsPreseed;
@@ -1737,7 +1672,7 @@ function run() {
   testLiveHighWaterAfterOrdinaryResolution();
   testPlinkoNoContestAcrossFormats();
   testPlinkoTerminalRulesAcrossFormats();
-  testBrowserUmdSurfaces();
+  testEventCoresArePrivate();
   console.log('v1.12 event kernel adversarial tests passed.');
 }
 
