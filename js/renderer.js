@@ -438,9 +438,30 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  const venueBackdropCache = new Map();
   function drawVisualArena(layer, groundY) {
     if (!String(fxVisualArenaId || '').startsWith('arena.')) return;
     const id = String(fxVisualArenaId);
+    // Venue art is screen-space scenery, never a second gameplay table. Cache
+    // only three static scenes and crop above their preview furniture.
+    if (layer === 'sky' && typeof document !== 'undefined' && window.FlipgameV112ArenaPreview) {
+      let backdrop = venueBackdropCache.get(id);
+      if (!backdrop) {
+        backdrop = document.createElement('canvas');
+        backdrop.width = 960; backdrop.height = 540;
+        FlipgameV112ArenaPreview.draw(backdrop.getContext('2d'), {arenaId: id, width: 960, height: 540, timeMs: 0, reducedMotion: true});
+        if (venueBackdropCache.size >= 3) venueBackdropCache.delete(venueBackdropCache.keys().next().value);
+        venueBackdropCache.set(id, backdrop);
+      }
+      const height = Math.max(1, Math.min(H, groundY));
+      const scale = Math.max(W / 960, height / 356);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, W, height); ctx.clip();
+      ctx.drawImage(backdrop, 0, 0, 960, 356, (W - 960 * scale) / 2, height - 356 * scale, 960 * scale, 356 * scale);
+      ctx.fillStyle = 'rgba(7,14,22,.18)'; ctx.fillRect(0, 0, W, height);
+      ctx.restore();
+      return;
+    }
     const color = cosmeticColor(id, '#58c8ff');
     ctx.save();
     if (layer === 'sky') {
