@@ -1176,3 +1176,24 @@ log, and defect ledger remain release history and are not rewritten.
   contact-geometry design that preserves the selected Flipper while allowing a
   fair descent; it will need its own calibrated all-slot/timing corpus before
   live wiring.
+
+## Revision 59 — Plinko contact chassis and measured anti-balance
+
+- The standalone Matter adapter now keeps the selected compound Flipper in the
+  world, with its authored parts and internal dynamics intact, while tethering
+  one identical 42x54 rounded physical contact chassis inside it for the peg
+  descent. The selected body's ordinary collision mask is restored exactly and
+  the chassis/constraint are removed on cleanup.
+- Plinko pegs use subtly faceted collision faces to avoid a mathematically
+  perfect circular crown. If the chassis nevertheless records 45 consecutive
+  near-motionless ticks on upper field geometry, a short deterministic force
+  burst dislodges it. The burst acts on velocity through Matter, points inward
+  only near rails, cannot encode a destination slot, and is bounded.
+- A real 60 Hz corpus of 81 Bottle-scale compound runs resolves 81/81, reaches
+  every one of the nine slots, has a 12.783-second median board drop and a
+  7.983–17.383-second observed range, replays deterministically, and preserves
+  the selected body while removing every event resource. Kernel, event
+  contract, local event/UI and baseline regression suites pass.
+- This qualifies the isolated adapter design only. Defect V112-111 remains
+  open until the old live eight-row/circle path is replaced and browser/camera
+  qualification passes.

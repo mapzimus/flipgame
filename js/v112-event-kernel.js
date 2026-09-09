@@ -298,8 +298,9 @@
     }, 0);
     var physics = deepFreeze({ schema: 'PlinkoBoardPhysicsV1',
       fixedTickHz: PLINKO_TRANSPORT.fixedTickHz,
-      selectedObjectEnvelope: { shape: 'circle', radius: 34, density: 0.008,
-        friction: 0.15, frictionAir: 0.004, restitution: 0.5 },
+      selectedObjectEnvelope: { shape: 'rounded-capsule', width: 42, height: 54,
+        density: 0.008, friction: 0.005, frictionAir: 0.02,
+        restitution: 0.24 },
       pegField: { colliderRef: board.colliderRef, bodyType: 'static-compound',
         shapeSource: 'pegRows', pegCount: pegCount,
         pegRadius: PLINKO_TRANSPORT.pegRadius },

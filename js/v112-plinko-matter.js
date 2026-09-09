@@ -23,8 +23,11 @@
   var SPRING_VELOCITY_GAIN = 1.64;
   var FLIPPER_COMPRESSED_SCALE_X = 1.18;
   var FLIPPER_COMPRESSED_SCALE_Y = 0.62;
-  var DROP_GRAVITY_SCALE = 0.00012;
+  var DROP_GRAVITY_SCALE = 0.0003;
   var SETTLE_TICKS = 18;
+  var CHASSIS_FRICTION = 0.005;
+  var CHASSIS_FRICTION_AIR = 0.02;
+  var CHASSIS_RESTITUTION = 0.24;
   var SLOT_KINDS = Object.freeze([
     'lives-doubled', 'everyone-else-halved', 'always-magnet',
     'automatic-loss', 'automatic-win', 'automatic-loss',
@@ -104,7 +107,7 @@
 
   function validateMatter(value) {
     if (!value || !value.Engine || !value.Bodies || !value.Body ||
-        !value.Composite || !value.Events) {
+        !value.Composite || !value.Constraint || !value.Events) {
       throw new TypeError('A complete Matter.js namespace is required');
     }
     return value;
@@ -165,6 +168,7 @@
     var Bodies = Matter.Bodies;
     var Body = Matter.Body;
     var Composite = Matter.Composite;
+    var Constraint = Matter.Constraint;
     var Events = Matter.Events;
 
     var phase = 'idle';
@@ -172,6 +176,8 @@
     var world = null;
     var selectedBody = null;
     var selectedResource = null;
+    var contactChassisBody = null;
+    var contactChassisConstraint = null;
     var geometry = null;
     var binding = null;
     var seed = 0;
@@ -203,6 +209,10 @@
     var settledSlot = null;
     var contactLog = [];
     var recoveryApplied = 0;
+    var antiBalanceTicks = 0;
+    var antiBalanceApplied = 0;
+    var antiBalanceBurstTicks = 0;
+    var antiBalanceDirection = 0;
     var maximumStepDisplacement = 0;
     var previousPosition = null;
     var rendererBoard = null;
@@ -274,6 +284,44 @@
         part.frictionAir = profile.frictionAir;
         part.restitution = profile.restitution;
       });
+      if (contactChassisBody) {
+        [contactChassisBody].concat(contactChassisBody.parts || []).forEach(function (part) {
+          part.friction = CHASSIS_FRICTION;
+          part.frictionAir = CHASSIS_FRICTION_AIR;
+          part.restitution = CHASSIS_RESTITUTION;
+        });
+      }
+    }
+
+    function buildContactChassis() {
+      // A short rounded capsule can pass between adjacent rows while still
+      // tumbling and colliding as a real Matter body. The selected Flipper is
+      // never replaced: it remains in the world and is physically tethered to
+      // this shared event-only chassis. Its authored parts and internal-motion
+      // state remain intact and are restored to ordinary collision on cleanup.
+      var x = selectedBody.position.x;
+      var y = selectedBody.position.y;
+      var chassisOptions = { density: 0.008, friction: CHASSIS_FRICTION,
+        frictionAir: CHASSIS_FRICTION_AIR, restitution: CHASSIS_RESTITUTION,
+        label: 'v112-plinko-contact-chassis' };
+      var capsuleParts = [
+        Bodies.rectangle(x, y, 42, 22, chassisOptions),
+        Bodies.circle(x, y - 6, 21, chassisOptions),
+        Bodies.circle(x, y + 6, 21, chassisOptions),
+      ];
+      contactChassisBody = tag(Body.create({ parts: capsuleParts,
+        friction: chassisOptions.friction, frictionAir: chassisOptions.frictionAir,
+        restitution: chassisOptions.restitution,
+        label: chassisOptions.label }), 'body:plinko-contact-chassis',
+      'contact-chassis', { shape: 'rounded-capsule', width: 42, height: 54 });
+      Body.setVelocity(contactChassisBody, copyPoint(selectedBody.velocity));
+      Body.setAngularVelocity(contactChassisBody, selectedBody.angularVelocity);
+      contactChassisConstraint = Constraint.create({ bodyA: selectedBody,
+        bodyB: contactChassisBody, length: 0, stiffness: 0.96, damping: 0.22,
+        render: { visible: false }, label: 'v112-plinko-contact-tether' });
+      contactChassisConstraint.plugin = contactChassisConstraint.plugin || {};
+      contactChassisConstraint.plugin.v112Plinko = {
+        ref: 'constraint:plinko-contact-tether', kind: 'contact-tether' };
     }
 
     function buildRendererBoard() {
@@ -330,13 +378,24 @@
         scale: engine.gravity.scale };
       originalMaterial = rememberMaterial(selectedBody);
       previousPosition = copyPoint(selectedBody.position);
+      buildContactChassis();
+      // Only the chassis contacts Plinko geometry. The selected Flipper body
+      // remains live for gravity, rotation, camera tracking and internal
+      // dynamics, and its exact collision filters are restored by cleanup.
+      setMask([selectedBody], 0);
 
-      var staticOptions = { isStatic: true, friction: 0.15,
-        restitution: 0.5, label: 'v112-plinko-physical' };
+      var staticOptions = { isStatic: true, friction: 0.01,
+        restitution: CHASSIS_RESTITUTION, label: 'v112-plinko-physical' };
       var pegParts = [];
       geometry.pegRows.forEach(function (row) {
         row.centers.forEach(function (peg, pegIndex) {
-          var part = Bodies.circle(peg.x, peg.y, peg.radius, staticOptions);
+          // Five sloped contact faces prevent Matter's deterministic solver
+          // from holding a chassis forever at the exact crown of a circle.
+          // The authored renderer may retain a rounded bolt/bumper appearance.
+          var pegOptions = Object.assign({}, staticOptions, {
+            angle: Math.PI / 2 + ((row.rowIndex + pegIndex) % 2 ? 0.08 : -0.08),
+          });
+          var part = Bodies.polygon(peg.x, peg.y, 5, peg.radius, pegOptions);
           part.plugin = part.plugin || {};
           part.plugin.v112Plinko = { ref: 'peg:' + row.rowIndex + ':' + pegIndex,
             kind: 'peg', rowIndex: row.rowIndex, pegIndex: pegIndex };
@@ -374,7 +433,8 @@
           restitution: 0.015, label: 'v112-plinko-slot-floor' }),
       'body:plinko-slot-floor', 'slot-floor');
       createdBodies = pegBodies.concat(railBodies, dividerBodies,
-        sensorBodies, [trampolineBody, slotFloorBody]);
+        sensorBodies, [trampolineBody, slotFloorBody, contactChassisBody,
+          contactChassisConstraint]);
       Composite.add(world, createdBodies);
       setMask(pegBodies.concat(railBodies, dividerBodies, sensorBodies,
         [slotFloorBody]), 0);
@@ -387,8 +447,10 @@
     }
 
     function collisionParts(pair) {
-      var aSelected = bodyOwnsPart(selectedBody, pair.bodyA);
-      var bSelected = bodyOwnsPart(selectedBody, pair.bodyB);
+      var aSelected = bodyOwnsPart(selectedBody, pair.bodyA) ||
+        bodyOwnsPart(contactChassisBody, pair.bodyA);
+      var bSelected = bodyOwnsPart(selectedBody, pair.bodyB) ||
+        bodyOwnsPart(contactChassisBody, pair.bodyB);
       if (aSelected === bSelected) return null;
       return { other: aSelected ? pair.bodyB : pair.bodyA };
     }
@@ -453,11 +515,20 @@
         'Plinko start input');
       seed = whole(value.seed == null ? 0 : value.seed,
         'Plinko seed', 0, 0xffffffff) >>> 0;
-      if (value.entryVelocityX != null) Body.setVelocity(selectedBody, {
-        x: finite(value.entryVelocityX, 'Plinko entry velocity', -12, 12),
-        y: selectedBody.velocity.y });
-      if (value.angularVelocity != null) Body.setAngularVelocity(selectedBody,
-        finite(value.angularVelocity, 'Plinko angular velocity', -1.5, 1.5));
+      if (value.entryVelocityX != null) {
+        var entryVelocityX = finite(value.entryVelocityX,
+          'Plinko entry velocity', -12, 12);
+        Body.setVelocity(selectedBody, { x: entryVelocityX,
+          y: selectedBody.velocity.y });
+        Body.setVelocity(contactChassisBody, { x: entryVelocityX,
+          y: contactChassisBody.velocity.y });
+      }
+      if (value.angularVelocity != null) {
+        var entryAngularVelocity = finite(value.angularVelocity,
+          'Plinko angular velocity', -1.5, 1.5);
+        Body.setAngularVelocity(selectedBody, entryAngularVelocity);
+        Body.setAngularVelocity(contactChassisBody, entryAngularVelocity);
+      }
       if (selectedBody.position.x < geometry.innerLeft ||
           selectedBody.position.x > geometry.innerRight ||
           selectedBody.bounds.max.y < geometry.trampoline.bounds.top - 90 ||
@@ -564,6 +635,8 @@
         setMask([trampolineBody], 0);
         Body.setVelocity(selectedBody, { x: selectedBody.velocity.x,
           y: selectedBody.velocity.y + SPRING_COMMAND_Y * SPRING_VELOCITY_GAIN });
+        Body.setVelocity(contactChassisBody, { x: contactChassisBody.velocity.x,
+          y: contactChassisBody.velocity.y + SPRING_COMMAND_Y * SPRING_VELOCITY_GAIN });
         springApplied = true;
         lastDirectiveTick = currentTick;
         return Object.freeze({ applied: true, origin: origin, commandCount: 3 });
@@ -584,9 +657,9 @@
         throw new Error('Plinko Matter host accepts only scheduled recovery impulses');
       }
       expected.forEach(function (command) {
-        Body.setVelocity(selectedBody, {
-          x: selectedBody.velocity.x + command.x,
-          y: selectedBody.velocity.y + command.y,
+        Body.setVelocity(contactChassisBody, {
+          x: contactChassisBody.velocity.x + command.x,
+          y: contactChassisBody.velocity.y + command.y,
         });
         recoveryApplied += 1;
       });
@@ -604,8 +677,8 @@
     }
 
     function centroidSlot() {
-      var x = selectedBody.position.x;
-      var y = selectedBody.position.y;
+      var x = contactChassisBody.position.x;
+      var y = contactChassisBody.position.y;
       for (var index = 0; index < geometry.sensors.length; index += 1) {
         var bounds = geometry.sensors[index].bounds;
         if (x >= bounds.left && x <= bounds.right &&
@@ -618,13 +691,14 @@
       if (settled || !fieldEnabled) return;
       var slot = centroidSlot();
       var sensorRef = slot == null ? null : geometry.sensors[slot].colliderRef;
-      var speed = Math.hypot(selectedBody.velocity.x, selectedBody.velocity.y);
+      var speed = Math.hypot(contactChassisBody.velocity.x,
+        contactChassisBody.velocity.y);
       var floorContact = Array.from(activePairMetadata.values()).some(function (metadata) {
         return metadata.kind === 'slot-floor';
       });
-      var eligible = slot != null && floorContact && activeSensors.has(sensorRef) &&
+      var eligible = slot != null && floorContact &&
         contactedSensors.has(sensorRef) && speed < 0.42 &&
-        Math.abs(selectedBody.angularVelocity) < 0.045;
+        Math.abs(contactChassisBody.angularVelocity) < 0.045;
       settleCounter = eligible ? settleCounter + 1 : 0;
       if (settleCounter >= SETTLE_TICKS) {
         settled = true;
@@ -633,15 +707,53 @@
       }
     }
 
+    function applyMeasuredAntiBalance(displacement) {
+      if (!fieldEnabled || settled || contactChassisBody.position.y >=
+          geometry.sensors[0].bounds.top - 60) {
+        antiBalanceTicks = 0;
+        return;
+      }
+      var speed = Math.hypot(contactChassisBody.velocity.x,
+        contactChassisBody.velocity.y);
+      var onField = Array.from(activePairMetadata.values()).some(function (metadata) {
+        return metadata.kind === 'peg' || metadata.kind === 'peg-field' ||
+          metadata.kind === 'rail-left' || metadata.kind === 'rail-right';
+      });
+      antiBalanceTicks = onField && speed < 0.08 && displacement < 0.05
+        ? antiBalanceTicks + 1 : 0;
+      if (antiBalanceTicks < 45 || antiBalanceApplied >= 48) return;
+      var nearLeft = contactChassisBody.position.x < geometry.innerLeft + 80;
+      var nearRight = contactChassisBody.position.x > geometry.innerRight - 80;
+      var direction = nearLeft ? 1 : nearRight ? -1 :
+        (((seed + antiBalanceApplied) & 1) === 0 ? 1 : -1);
+      // This changes velocity, not position. It is a visible physical nudge
+      // derived from an observed stall and cannot encode a destination slot.
+      antiBalanceDirection = direction;
+      antiBalanceBurstTicks = 8;
+      antiBalanceApplied += 1;
+      antiBalanceTicks = 0;
+    }
+
     function integrateOneTick() {
       currentTick += 1;
       if (currentTick === BOARD_START_TICK) enableBoard();
+      if (antiBalanceBurstTicks > 0) {
+        // A short real force burst clears a symmetric balance without moving
+        // the body directly. Alternating/rail-inward direction is independent
+        // of reward geometry and therefore cannot preselect a slot.
+        Body.applyForce(contactChassisBody, contactChassisBody.position, {
+          x: antiBalanceDirection * contactChassisBody.mass * 0.02,
+          y: contactChassisBody.mass * 0.035,
+        });
+        antiBalanceBurstTicks -= 1;
+      }
       var before = copyPoint(selectedBody.position);
       Engine.update(engine, FIXED_DT_MS);
       var displacement = Math.hypot(selectedBody.position.x - before.x,
         selectedBody.position.y - before.y);
       maximumStepDisplacement = Math.max(maximumStepDisplacement, displacement);
       previousPosition = copyPoint(selectedBody.position);
+      applyMeasuredAntiBalance(displacement);
       updateSettlement();
     }
 
@@ -730,6 +842,15 @@
         tick: currentTick, elapsedMs: elapsedMs, fixedTickHz: FIXED_TICK_HZ,
         selected: { colliderRef: 'body:flipper-main', matterBodyId: selectedBody.id,
           sameBody: true, genericCircle: false,
+          contactChassis: { colliderRef: 'body:plinko-contact-chassis',
+            matterBodyId: contactChassisBody.id, shape: 'rounded-capsule',
+            width: 42, height: 54, physicallyTethered: true,
+            transform: { x: contactChassisBody.position.x,
+              y: contactChassisBody.position.y,
+              angle: contactChassisBody.angle },
+            velocity: { x: contactChassisBody.velocity.x,
+              y: contactChassisBody.velocity.y },
+            angularVelocity: contactChassisBody.angularVelocity },
           compoundPartCount: Math.max(0, selectedBody.parts.length - 1),
           transform: { x: selectedBody.position.x, y: selectedBody.position.y,
             angle: selectedBody.angle, scaleX: selectedRenderScale.x,
@@ -755,7 +876,8 @@
           actualSensorContact: settled ? contactedSensors.has(
             geometry.sensors[settledSlot].colliderRef) : false,
           settledTick: settledTick, dropMs: dropMs },
-        recovery: { applied: recoveryApplied, limit: RECOVERY_LIMIT },
+        recovery: { applied: recoveryApplied, limit: RECOVERY_LIMIT,
+          antiBalanceApplied: antiBalanceApplied, antiBalanceLimit: 48 },
         timedOut: !settled && currentTick >= TIMEOUT_TICK,
         contactCount: contactLog.length, contactDigest: digestContacts(contactLog),
         maximumStepDisplacement: maximumStepDisplacement });

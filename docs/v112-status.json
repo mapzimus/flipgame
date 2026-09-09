@@ -7,7 +7,7 @@
   "integrationBranch": "codex/v112-integration",
   "candidateState": "NOT RELEASE READY",
   "ownerApproval": false,
-  "headline": "Playable integration underway: variant previews, Arena Select, live offline Globe sphere, and authored names are wired. Plinko remains experimental until physically measured.",
+  "headline": "Playable integration underway: the isolated 24-row Plinko adapter now passes a real all-nine-slot compound-Flipper corpus; replacing the old live path remains next.",
   "workstreams": [
     {
       "id": "integrator",
@@ -42,7 +42,7 @@
       "name": "Plinko authority",
       "branch": "codex/v112-plinko-remediation",
       "state": "review",
-      "detail": "Kernel and an unbooted standalone Matter adapter checkpoint are on the integration branch; timing, reachability, adversarial and live-runtime qualification remain mandatory before live wiring."
+      "detail": "The unbooted Matter adapter passes an 81-run compound-Flipper timing/all-slot/cleanup corpus. Live engine, renderer and camera replacement plus independent QA remain."
     },
     {
       "id": "secrets",

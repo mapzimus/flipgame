@@ -272,6 +272,12 @@ leaving discards it.
   a continuous camera through the apex before entering the top of the physical
   board. The spring preserves the selected object/variant and its internal
   dynamics, affects entry position/spin, and cannot preselect or favor a slot.
+- During the peg descent, the selected Flipper remains the visible, moving
+  Matter body with its authored parts and internal dynamics. A shared rounded
+  event chassis is physically tethered inside it for peg contact so tall or
+  irregular silhouettes cannot bridge rows or gain an advantage. The chassis
+  is identical for every Flipper, never appears as another object, cannot
+  encode a slot, and is removed before ordinary physics resumes.
 - After the apex handoff, Plinko has 24 peg rows, a normal 10–15s board descent
   with a 12s median, object tracking, deterministic anti-wedge impulses and
   slots. A physically active drop may continue beyond that normal band; timing
