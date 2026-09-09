@@ -46,6 +46,17 @@
     if (!text) throw new TypeError(label + ' is required');
     return text;
   }
+  function boundedRuntimeId(value, label, maximum) {
+    if (typeof value !== 'string') throw new TypeError(label + ' must be a string');
+    var text = required(value, label);
+    if (text !== value) throw new TypeError(label + ' must already be canonical');
+    if (text.length > maximum) throw new RangeError(label + ' exceeds ' + maximum + ' characters');
+    for (var index = 0; index < text.length; index++) {
+      var code = text.charCodeAt(index);
+      if (code < 32 || code === 127) throw new TypeError(label + ' contains control characters');
+    }
+    return text;
+  }
   function finite(value, fallback) {
     var number = Number(value);
     return Number.isFinite(number) ? number : fallback;
@@ -76,11 +87,14 @@
   function normalizeRects(values) {
     var entries = Array.isArray(values) ? values.map(function (entry) {
       var source = object(entry);
-      return [String(source.laneId || source.id), source.rect || source];
+      return [source.laneId != null ? source.laneId : source.id, source.rect || source];
     }) : Object.keys(object(values)).map(function (laneId) { return [laneId, values[laneId]]; });
     if (!entries.length) throw new TypeError('Battle runtime requires lane rectangles');
+    var laneIds = new Set();
     return entries.map(function (entry) {
-      var laneId = required(entry[0], 'laneId');
+      var laneId = boundedRuntimeId(entry[0], 'laneId', 128);
+      if (laneIds.has(laneId)) throw new TypeError('Duplicate Battle laneId: ' + laneId);
+      laneIds.add(laneId);
       var rect = object(entry[1]);
       var left = finite(rect.left, 0);
       var top = finite(rect.top, 0);
@@ -160,8 +174,18 @@
   function createBattleRuntime(options) {
     var opts = object(options);
     var matchId = required(opts.matchId, 'matchId');
-    var config = opts.config && opts.config.schema === 'BattleConfigV1'
-      ? opts.config : Battle.normalizeConfig(opts.config);
+    var suppliedConfig = clone(object(opts.config));
+    if (suppliedConfig.matchId != null && String(suppliedConfig.matchId).trim() !== matchId) {
+      throw new RangeError('Battle runtime matchId contradicts its supplied config');
+    }
+    if (suppliedConfig.schema === 'BattleConfigV1') {
+      Battle.validateBattleConfig(suppliedConfig);
+      if (suppliedConfig.matchId !== matchId) {
+        throw new RangeError('Battle runtime matchId contradicts its BattleConfigV1');
+      }
+    }
+    suppliedConfig.matchId = matchId;
+    var config = Battle.normalizeConfig(suppliedConfig);
     if (config.normalEventsEnabled !== false || config.crossLaneCollisions !== false) {
       throw new Error('Battle config must disable ordinary events and cross-lane collisions');
     }
@@ -428,7 +452,10 @@
 
     function nextAttemptId(lane) {
       lane.attemptSequence += 1;
-      return matchId + ':' + lane.id + ':attempt-' + lane.attemptSequence;
+      // Attempt identity is bounded independently of caller-authored lane
+      // labels. The immutable match ID plus physical lane index and monotonic
+      // sequence are sufficient to make it unique inside one Battle match.
+      return matchId + ':lane-' + lane.index + ':attempt-' + lane.attemptSequence;
     }
 
     function immutableGesture(gesture, qualified, lane) {
@@ -659,7 +686,9 @@
         if (!prepared) throw new Error('Lane is not prepared: ' + lane.id);
         if (gate) prepared.gateId = gate.id;
         lane.control.armAttempt(prepared.attemptId);
-        battleState = Battle.markLaunch(battleState, prepared.attemptId);
+        battleState = Battle.markLaunch(battleState, {
+          attemptId: prepared.attemptId, playerId: prepared.playerId,
+        });
         lane.inflight = prepared;
         lane.prepared = null;
         if (gate) gate.attempts.push({ laneId: lane.id, attemptId: prepared.attemptId,
@@ -741,19 +770,11 @@
     }
 
     function leasedRecord(state, input) {
-      if (state.activePlayerIds.indexOf(input.playerId) >= 0) return Battle.recordAttempt(state, input);
-      // Rush ownership is leased at launch. A 15-second rotation or horn cannot
-      // invalidate a body already airborne, so expose that player only for the
-      // atomic resolution and restore the current active lineup afterward.
-      var leased = clone(state);
-      leased.activePlayerIds = unique(state.activePlayerIds.concat([input.playerId]));
-      var updated = Battle.recordAttempt(leased, input);
-      if (updated.phase === 'active' && !updated.suddenDeath) {
-        var restored = clone(updated);
-        restored.activePlayerIds = state.activePlayerIds.slice();
-        return freeze(restored);
-      }
-      return updated;
+      // Battle.recordAttempt recognizes only a pending Timed Rush identity as
+      // a valid pre-rotation ownership lease. The canonical active lineup is
+      // never widened, even transiently, so terminal validation cannot inherit
+      // a forged or stale assignment.
+      return Battle.recordAttempt(state, input);
     }
 
     function applyOutcome(lane, outcome, notifications, errors) {

@@ -2,29 +2,69 @@
 // free play, and Battle. This module owns no DOM, physics, progression, or stats.
 (function (root, factory) {
   'use strict';
-  var api = factory(root);
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  if (root) root.FlipgameV112Activity = api;
+  var commonJs = typeof module === 'object' && !!module && !!module.exports &&
+    typeof require === 'function' && typeof process === 'object' && !!process &&
+    !!process.versions && typeof process.versions.node === 'string';
+  var api = factory(root, commonJs);
+  if (commonJs) module.exports = api;
+  else if (root) root.FlipgameV112Activity = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (root) {
+  : (typeof window !== 'undefined' ? window : this)), function (root, commonJs) {
   'use strict';
 
   var cachedRulesAuthority = null;
+  var cachedBattleAuthority = null;
+
+  function acceptedAuthority(candidate, schema, requiredMethods) {
+    return !!candidate && typeof candidate === 'object' && Object.isFrozen(candidate) &&
+      candidate.schema === schema && requiredMethods.every(function (method) {
+        return typeof candidate[method] === 'function';
+      });
+  }
+
+  function browserAuthority(name, schema, requiredMethods) {
+    if (!root || !Object.prototype.hasOwnProperty.call(root, name)) return null;
+    var candidate = root[name];
+    if (!acceptedAuthority(candidate, schema, requiredMethods)) {
+      throw new Error(name + ' is not a frozen canonical authority');
+    }
+    return candidate;
+  }
+
+  if (!commonJs) {
+    cachedRulesAuthority = browserAuthority('FlipgameV112Rules',
+      'FlipgameV112RulesV1', ['toMatchOutcomeV2']);
+    cachedBattleAuthority = browserAuthority('FlipgameV112Battle',
+      'BattleRulesV1', ['normalizeConfig', 'validateBattleState', 'toMatchOutcomeV2']);
+  }
 
   function rulesAuthority() {
-    if (root && root.FlipgameV112Rules &&
-        typeof root.FlipgameV112Rules.toMatchOutcomeV2 === 'function') {
-      cachedRulesAuthority = root.FlipgameV112Rules;
-    }
-    if (!cachedRulesAuthority && typeof module === 'object' && module.exports &&
-        typeof require === 'function') {
+    if (!cachedRulesAuthority && commonJs) {
       cachedRulesAuthority = require('./v112-rules.js');
+    } else if (!cachedRulesAuthority) {
+      cachedRulesAuthority = browserAuthority('FlipgameV112Rules',
+        'FlipgameV112RulesV1', ['toMatchOutcomeV2']);
     }
-    if (!cachedRulesAuthority || typeof cachedRulesAuthority.toMatchOutcomeV2 !== 'function') {
+    if (!acceptedAuthority(cachedRulesAuthority, 'FlipgameV112RulesV1',
+      ['toMatchOutcomeV2'])) {
       throw new Error('FlipgameV112Rules must load before Rules-state outcomes are accepted');
     }
     return cachedRulesAuthority;
+  }
+
+  function battleAuthority() {
+    if (!cachedBattleAuthority && commonJs) {
+      cachedBattleAuthority = require('./v112-battle.js');
+    } else if (!cachedBattleAuthority) {
+      cachedBattleAuthority = browserAuthority('FlipgameV112Battle',
+        'BattleRulesV1', ['normalizeConfig', 'validateBattleState', 'toMatchOutcomeV2']);
+    }
+    if (!acceptedAuthority(cachedBattleAuthority, 'BattleRulesV1',
+      ['normalizeConfig', 'validateBattleState', 'toMatchOutcomeV2'])) {
+      throw new Error('FlipgameV112Battle must load before Battle-state outcomes are accepted');
+    }
+    return cachedBattleAuthority;
   }
 
   var ACTIVITY_IDS = Object.freeze([
@@ -101,7 +141,7 @@
   function supportedRulesState(value) {
     var schema = object(value).schema;
     return schema === 'ClassicRulesStateV1' || schema === 'CupRulesStateV1' ||
-      schema === 'TeamClashRulesStateV1';
+      schema === 'TeamClashRulesStateV1' || schema === 'BattleStateV1';
   }
 
   function canonicalRulesOutcome(source, status) {
@@ -110,7 +150,8 @@
     if (!supportedRulesState(state)) {
       throw new TypeError('A supported Rules state is required');
     }
-    var canonical = rulesAuthority().toMatchOutcomeV2(state, {
+    var authority = state.schema === 'BattleStateV1' ? battleAuthority() : rulesAuthority();
+    var canonical = authority.toMatchOutcomeV2(state, {
       status: status,
       activityState: clone(object(source.activityState)),
       telemetry: clone(object(source.telemetry)),
@@ -229,6 +270,11 @@
       seed: finiteInteger(source.seed, 1) >>> 0,
       createdAt: source.createdAt == null ? null : String(source.createdAt),
     };
+    if (record.formatId === 'battle') {
+      // Fail before a reward reservation is opened: Battle owns the stricter
+      // match/roster/team/hardware identity bounds used by its terminal proof.
+      battleAuthority().normalizeConfig(record);
+    }
     return deepFreeze(record);
   }
 
@@ -550,6 +596,7 @@
       if (formatId === 'classic') return 'ClassicRulesStateV1';
       if (formatId === 'cup') return 'CupRulesStateV1';
       if (formatId === 'team-clash') return 'TeamClashRulesStateV1';
+      if (formatId === 'battle') return 'BattleStateV1';
       return null;
     }
 
@@ -594,7 +641,13 @@
         throw new RangeError('Outcome Rules state does not match the active match identity');
       }
       var config = object(state.config);
-      if (config.matchId !== request.matchId || config.formatId !== request.formatId ||
+      if (request.formatId === 'battle') {
+        var canonicalBattleConfig = battleAuthority().normalizeConfig(request);
+        if (!sameCanonicalValue(config, canonicalBattleConfig) ||
+            state.matchId !== request.matchId || state.formatId !== 'battle') {
+          throw new RangeError('Outcome Battle configuration contradicts its MatchRequestV2');
+        }
+      } else if (config.matchId !== request.matchId || config.formatId !== request.formatId ||
           (config.physicsModeId != null && config.physicsModeId !== request.physicsModeId) ||
           (config.seed != null && (Number(config.seed) >>> 0) !== request.seed)) {
         throw new RangeError('Outcome Rules configuration contradicts its MatchRequestV2');
@@ -761,7 +814,12 @@
             throw new Error('Match reward reservation failed' +
               (reservation && reservation.reason ? ': ' + reservation.reason : ''));
           }
-          session.matchClaimToken = exactToken(reservation.token);
+          var durableReservation = resumeRewardMatch.call(rewardAuthority);
+          session.matchClaimToken = exactToken(durableReservation);
+          if (reservation.token &&
+              !sameToken(exactToken(reservation.token), session.matchClaimToken)) {
+            throw new RangeError('Reward reservation result contradicts durable authority state');
+          }
           if (tokenStatus(session.matchClaimToken, request) !== 'active') {
             throw new Error('Match reward reservation was not durably active');
           }

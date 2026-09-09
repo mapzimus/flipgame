@@ -1,7 +1,25 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const Battle = require('../js/v112-battle.js');
+const BattleAuthority = require('../js/v112-battle.js');
+
+// Direct rules fixtures model the runtime boundary: every Timed Rush result
+// must first bind its identity and clock bucket through markLaunch().
+const Battle = Object.freeze(Object.assign({}, BattleAuthority, {
+  recordAttempt(state, input) {
+    let leased = state;
+    if (state.config.paceId === 'rush' &&
+        state.resolvedAttemptIds.indexOf(input.attemptId) < 0 &&
+        state.pendingLaunchIds.indexOf(input.attemptId) < 0) {
+      leased = BattleAuthority.markLaunch(state, {
+        attemptId: input.attemptId, playerId: input.playerId,
+      });
+    }
+    return BattleAuthority.recordAttempt(leased, input);
+  },
+}));
+
+function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
 function players(count, teams = false) {
   return Array.from({ length: count }, (_, index) => ({
@@ -14,21 +32,33 @@ function testConfigurationAndHardware() {
   assert.equal(Battle.hardwareProfile({ width: 1920, verifiedContacts: 4 }).activeLaneLimit, 4);
   assert.equal(Battle.hardwareProfile({ width: 900, verifiedContacts: 4 }).activeLaneLimit, 2);
   assert.equal(Battle.hardwareProfile({ width: 600, verifiedContacts: 4 }).fallback, 'alternating-relay');
-  assert.throws(() => Battle.normalizeConfig({ formatId: 'duel', players: players(4) }), /two/);
-  assert.throws(() => Battle.normalizeConfig({ formatId: 'team', players: players(8) }), /teamId/);
-  const team = Battle.normalizeConfig({ formatId: 'team', players: players(16, true),
+  assert.throws(() => Battle.normalizeConfig({ matchId: 'config-duel', formatId: 'duel', players: players(4) }), /two/);
+  assert.throws(() => Battle.normalizeConfig({ matchId: 'config-team', formatId: 'team', players: players(8) }), /teamId/);
+  const team = Battle.normalizeConfig({ matchId: 'config-team-16', formatId: 'team', players: players(16, true),
     hardware: { width: 1920, verifiedContacts: 4 } });
   assert.equal(team.players.length, 16);
   assert.equal(team.normalEventsEnabled, false);
   assert.equal(Battle.createState(team).activePlayerIds.length, 4);
+  const extraPlayerProperty = clone(team);
+  Object.defineProperty(extraPlayerProperty.players, 'extra', {
+    value: true, enumerable: false,
+  });
+  assert.throws(() => Battle.validateBattleConfig(extraPlayerProperty),
+    /unexpected properties/i);
+  const accessorPlayer = clone(team);
+  const firstPlayer = accessorPlayer.players[0];
+  Object.defineProperty(accessorPlayer.players, '0', {
+    get() { return firstPlayer; }, enumerable: true, configurable: true,
+  });
+  assert.throws(() => Battle.validateBattleConfig(accessorPlayer), /accessor/i);
 
-  const mixedCpu = Battle.normalizeConfig({ formatId: 'four-way', players: [
+  const mixedCpu = Battle.normalizeConfig({ matchId: 'config-cpu', formatId: 'four-way', players: [
     { id: 'cpu-current', cpu: true }, { id: 'cpu-legacy', ai: true },
     { id: 'cpu-capital-alias', isAI: true }, { id: 'cpu-type-alias', type: 'ai' },
   ] });
   assert.deepEqual(mixedCpu.players.map((player) => player.cpu), [true, true, true, true],
     'legacy ai/isAI/type-ai and current cpu flags normalize at the Battle boundary');
-  const otherAliases = Battle.normalizeConfig({ formatId: 'four-way', players: [
+  const otherAliases = Battle.normalizeConfig({ matchId: 'config-alias', formatId: 'four-way', players: [
     { id: 'is-cpu', isCpu: true }, { id: 'cpu-type', type: 'cpu' },
     { id: 'human-a', type: 'human' }, { id: 'human-b' },
   ] });
@@ -36,7 +66,7 @@ function testConfigurationAndHardware() {
 }
 
 function testVolleyScoringTieAndHeat() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'volley',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'volley-heat', formatId: 'duel', paceId: 'volley',
     players: players(2), hardware: { width: 1280, verifiedContacts: 2 } }));
   for (let volley = 0; volley < 5; volley += 1) {
     state = Battle.recordAttempt(state, { attemptId: `a-${volley}`, playerId: 'p1', pose: 'upright' });
@@ -44,6 +74,8 @@ function testVolleyScoringTieAndHeat() {
   }
   assert.equal(state.phase, 'between-heats');
   assert.equal(state.heatWins.p1, 1);
+  assert(state.resolvedAttempts.every((attempt) => attempt.launchLease === null),
+    'Equal Volley evidence remains canonical and carries no Rush clock lease');
   state = Battle.startHeat(state);
   assert.equal(state.scores.p1, 0);
   assert.equal(Battle.scoreForPose('cap'), 2);
@@ -51,7 +83,7 @@ function testVolleyScoringTieAndHeat() {
 }
 
 function testVolleySuddenDeathAndDuplicate() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'volley',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'volley-sd', formatId: 'duel', paceId: 'volley',
     players: players(2), hardware: { width: 1280, verifiedContacts: 2 } }));
   for (let volley = 0; volley < 5; volley += 1) {
     state = Battle.recordAttempt(state, { attemptId: `t1-${volley}`, playerId: 'p1', pose: 'upright' });
@@ -61,12 +93,20 @@ function testVolleySuddenDeathAndDuplicate() {
   const once = Battle.recordAttempt(state, { attemptId: 'sd-1', playerId: 'p1', pose: 'cap' });
   const duplicate = Battle.recordAttempt(once, { attemptId: 'sd-1', playerId: 'p1', pose: 'cap' });
   assert.equal(duplicate.scores.p1, once.scores.p1);
+  assert.throws(() => Battle.recordAttempt(once, {
+    attemptId: 'sd-1', playerId: 'p1', pose: 'miss',
+  }), /Conflicting Battle attempt/i,
+  'a duplicate identity cannot silently substitute a different result');
+  assert.throws(() => Battle.recordAttempt(once, {
+    attemptId: 'sd-1', playerId: 'p2', pose: 'cap',
+  }), /Conflicting Battle attempt/i,
+  'a duplicate identity cannot silently substitute a different owner');
   state = Battle.recordAttempt(duplicate, { attemptId: 'sd-2', playerId: 'p2', pose: 'miss' });
   assert.equal(state.heatWins.p1, 1);
 }
 
 function testPowerChargeAndMayhemTarget() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'power-mayhem', formatId: 'duel', paceId: 'rush',
     powerProfileId: 'mayhem', players: players(2), seed: 91,
     hardware: { width: 1280, verifiedContacts: 2 } }));
   for (let i = 0; i < 3; i += 1) {
@@ -89,7 +129,7 @@ function testPowerChargeAndMayhemTarget() {
 
 function testRushPowerOffersIgnoreCrossCompetitorResolveOrder() {
   function resolve(order) {
-    let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+    let state = Battle.startHeat(Battle.createState({ matchId: 'power-order', formatId: 'duel', paceId: 'rush',
       powerProfileId: 'mayhem', players: players(2), seed: 349,
       hardware: { width: 1280, verifiedContacts: 2 } }));
     for (let round = 0; round < 3; round += 1) {
@@ -106,7 +146,7 @@ function testRushPowerOffersIgnoreCrossCompetitorResolveOrder() {
     'Rush settle order cannot alter either competitor power offer');
   assert.deepEqual(leftFirst.powerOfferSequences, { p1: 1, p2: 1 });
 
-  let team = Battle.startHeat(Battle.createState({ formatId: 'doubles', paceId: 'rush',
+  let team = Battle.startHeat(Battle.createState({ matchId: 'power-team', formatId: 'doubles', paceId: 'rush',
     players: players(4, true), hardware: { width: 1920, verifiedContacts: 4 } }));
   for (const [index, playerId] of ['p1', 'p2', 'p1', 'p2'].entries()) {
     team = Battle.recordAttempt(team, { attemptId: `team-charge-${index}`, playerId, pose: 'miss' });
@@ -117,21 +157,82 @@ function testRushPowerOffersIgnoreCrossCompetitorResolveOrder() {
 }
 
 function testRushHornAndPendingLaunch() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'rush-horn', formatId: 'duel', paceId: 'rush',
     players: players(2), hardware: { width: 1280, verifiedContacts: 2 } }));
+  assert.throws(() => BattleAuthority.recordAttempt(state, {
+    attemptId: 'unmarked-regulation', playerId: 'p1', pose: 'upright',
+  }), /requires a launch lease created by markLaunch/i);
+  let cpuState = Battle.startHeat(Battle.createState({ matchId: 'rush-cpu-unmarked',
+    formatId: 'duel', paceId: 'rush',
+    players: players(2).map((player) => Object.assign({}, player, { cpu: true })),
+    hardware: { width: 1280, verifiedContacts: 2 } }));
+  assert.throws(() => BattleAuthority.recordAttempt(cpuState, {
+    attemptId: 'unmarked-cpu', playerId: 'p1', pose: 'miss', qualifiedManual: false,
+  }), /requires a launch lease created by markLaunch/i);
+  let uniqueHuman = BattleAuthority.markLaunch(state, {
+    attemptId: 'human-pending-one', playerId: 'p1',
+  });
+  assert.deepEqual(BattleAuthority.markLaunch(uniqueHuman, {
+    attemptId: 'human-pending-one', playerId: 'p1',
+  }), uniqueHuman, 'the exact same pending launch registration is idempotent');
+  assert.throws(() => BattleAuthority.markLaunch(uniqueHuman, {
+    attemptId: 'human-pending-two', playerId: 'p1',
+  }), /already owns a pending launch/i);
+  let uniqueCpu = BattleAuthority.markLaunch(cpuState, {
+    attemptId: 'cpu-pending-one', playerId: 'p1',
+  });
+  assert.throws(() => BattleAuthority.markLaunch(uniqueCpu, {
+    attemptId: 'cpu-pending-two', playerId: 'p1',
+  }), /already owns a pending launch/i);
   state = Battle.recordAttempt(state, { attemptId: 'score', playerId: 'p1', pose: 'upright' });
-  state = Battle.markLaunch(state, 'before-horn');
+  assert.deepEqual(state.resolvedAttempts[0].launchLease, {
+    schema: 'BattleLaunchLeaseV1', paceId: 'rush', playerId: 'p1', heatNumber: 1,
+    elapsedMs: 0, bucketIndex: 0, rotationIndex: 0, volleyIndex: 0,
+    suddenDeath: false,
+  });
+  state = Battle.markLaunch(state, { attemptId: 'before-horn', playerId: 'p2' });
+  const originalLease = clone(state.pendingLaunchLeases['before-horn']);
+  state = clone(state);
+  assert.equal(Battle.validateBattleState(state), true,
+    'a serialized state retains its exact pending launch lease');
   state = Battle.advanceClock(state, 60000);
   assert.equal(state.clockExpired, true);
   assert.equal(state.phase, 'active', 'pre-horn launch must finish before heat resolves');
-  assert.throws(() => Battle.markLaunch(state, 'late'), /not allowed/);
+  assert.deepEqual(state.pendingLaunchLeases['before-horn'], originalLease,
+    'a pre-horn launch keeps its original bucket after the clock expires');
+  assert.throws(() => Battle.markLaunch(state, { attemptId: 'late', playerId: 'p1' }), /not allowed/);
+  assert.throws(() => BattleAuthority.recordAttempt(state, {
+    attemptId: 'unleased-after-horn', playerId: 'p1', pose: 'cap',
+  }), /requires a launch lease created by markLaunch/i);
   state = Battle.recordAttempt(state, { attemptId: 'before-horn', playerId: 'p2', pose: 'miss' });
   assert.equal(state.phase, 'between-heats');
   assert.equal(state.heatWins.p1, 1);
+  assert.deepEqual(state.resolvedAttempts.find((attempt) =>
+    attempt.attemptId === 'before-horn').launchLease, originalLease,
+  'the resolved evidence carries the immutable pre-horn lease');
+}
+
+function testRushLeaseSurvivesCrossBucketFlight() {
+  let state = Battle.startHeat(Battle.createState({ matchId: 'rush-cross-bucket',
+    formatId: 'team', paceId: 'rush', players: players(8, true),
+    hardware: { width: 900, verifiedContacts: 2 } }));
+  assert.deepEqual(state.activePlayerIds, ['p1', 'p5']);
+  state = BattleAuthority.markLaunch(state, {
+    attemptId: 'long-flight', playerId: 'p1',
+  });
+  const launchLease = clone(state.pendingLaunchLeases['long-flight']);
+  state = BattleAuthority.advanceClock(state, 15000);
+  assert.deepEqual(state.activePlayerIds, ['p2', 'p6']);
+  state = BattleAuthority.recordAttempt(state, {
+    attemptId: 'long-flight', playerId: 'p1', pose: 'upright',
+  });
+  assert.deepEqual(state.resolvedAttempts[0].launchLease, launchLease,
+    'a result settling after rotation keeps the actual launch bucket and owner');
+  assert.equal(state.resolvedAttempts[0].launchLease.bucketIndex, 0);
 }
 
 function testTeamRotationAndSharedScore() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'team', paceId: 'rush',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'team-rotation', formatId: 'team', paceId: 'rush',
     players: players(8, true), hardware: { width: 1920, verifiedContacts: 4 } }));
   assert.deepEqual(state.activePlayerIds, ['p1', 'p2', 'p5', 'p6']);
   state = Battle.recordAttempt(state, { attemptId: 'team-score', playerId: 'p1', pose: 'cap' });
@@ -142,16 +243,23 @@ function testTeamRotationAndSharedScore() {
 }
 
 function testOneLaneDuelRushAlternatesBothPlayers() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'relay-duel', formatId: 'duel', paceId: 'rush',
     players: players(2), hardware: { width: 600, verifiedContacts: 1 } }));
   assert.deepEqual(state.activePlayerIds, ['p1']);
   assert.deepEqual(Battle.powerRoundPlayerIds(state), ['p1', 'p2']);
   state = Battle.advanceClock(state, 7500);
   assert.deepEqual(state.activePlayerIds, ['p2']);
+  state = Battle.recordAttempt(state, { attemptId: 'relay-bucket-one',
+    playerId: 'p2', pose: 'miss' });
+  assert.deepEqual(state.resolvedAttempts[0].launchLease, {
+    schema: 'BattleLaunchLeaseV1', paceId: 'rush', playerId: 'p2', heatNumber: 1,
+    elapsedMs: 7500, bucketIndex: 1, rotationIndex: 1, volleyIndex: 0,
+    suddenDeath: false,
+  }, 'one-lane relay evidence binds the exact assigned clock bucket');
   state = Battle.advanceClock(state, 7500);
   assert.deepEqual(state.activePlayerIds, ['p1']);
 
-  let heat = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+  let heat = Battle.startHeat(Battle.createState({ matchId: 'relay-heat', formatId: 'duel', paceId: 'rush',
     players: players(2), hardware: { width: 600, verifiedContacts: 1 } }));
   heat = Battle.recordAttempt(heat, { attemptId: 'relay-duel-score', playerId: 'p1',
     pose: 'upright', qualifiedManual: false });
@@ -161,7 +269,7 @@ function testOneLaneDuelRushAlternatesBothPlayers() {
 }
 
 function testFourWaySuddenDeathOnlyUsesTiedLeadersInPairs() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'four-way', paceId: 'volley',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'four-way-sd', formatId: 'four-way', paceId: 'volley',
     players: players(4), hardware: { width: 1920, verifiedContacts: 4 } }));
   for (let volley = 0; volley < 5; volley += 1) {
     for (const playerId of ['p1', 'p2', 'p3', 'p4']) {
@@ -188,7 +296,7 @@ function testFourWaySuddenDeathOnlyUsesTiedLeadersInPairs() {
   state = Battle.recordAttempt(state, { attemptId: 'sd-win-b', playerId: second, pose: 'miss' });
   assert.equal(state.heatWins[first], 1);
 
-  let allTied = Battle.startHeat(Battle.createState({ formatId: 'four-way', paceId: 'volley',
+  let allTied = Battle.startHeat(Battle.createState({ matchId: 'four-way-all-tied', formatId: 'four-way', paceId: 'volley',
     players: players(4), hardware: { width: 1920, verifiedContacts: 4 } }));
   for (let volley = 0; volley < 5; volley += 1) {
     for (const id of allTied.activePlayerIds.slice()) {
@@ -214,7 +322,8 @@ function testFourWaySuddenDeathOnlyUsesTiedLeadersInPairs() {
 }
 
 function rushExposure(teamSize, profile) {
-  let state = Battle.createState({ formatId: 'team', paceId: 'rush',
+  let state = Battle.createState({ matchId: 'rush-exposure-' + teamSize + '-' + profile.width,
+    formatId: 'team', paceId: 'rush',
     players: players(teamSize * 2, true), hardware: profile });
   const seen = new Set();
   const counts = Object.fromEntries(players(teamSize * 2, true).map((player) => [player.id, 0]));
@@ -236,7 +345,8 @@ function rushExposure(teamSize, profile) {
 }
 
 function volleyExposure(teamSize, profile) {
-  let state = Battle.createState({ formatId: 'team', paceId: 'volley',
+  let state = Battle.createState({ matchId: 'volley-exposure-' + teamSize + '-' + profile.width,
+    formatId: 'team', paceId: 'volley',
     players: players(teamSize * 2, true), hardware: profile });
   const seen = new Set();
   const counts = Object.fromEntries(players(teamSize * 2, true).map((player) => [player.id, 0]));
@@ -289,7 +399,7 @@ function testLargeTeamRotationCoverageAndFairness() {
 }
 
 function testVolleyFallbackCompletesEqualOpportunityBeforeClosing() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'four-way', paceId: 'volley',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'volley-fallback-four', formatId: 'four-way', paceId: 'volley',
     players: players(4), hardware: { width: 600, verifiedContacts: 1 } }));
   assert.deepEqual(state.activePlayerIds, ['p1']);
   state = Battle.recordAttempt(state, { attemptId: 'relay-1', playerId: 'p1', pose: 'upright' });
@@ -301,7 +411,7 @@ function testVolleyFallbackCompletesEqualOpportunityBeforeClosing() {
   assert.equal(state.volleyIndex, 1, 'one volley closes only after all four competitors flip');
   assert.deepEqual(state.scores, { p1: 1, p2: 1, p3: 0, p4: 0 });
 
-  let teams = Battle.startHeat(Battle.createState({ formatId: 'team', paceId: 'volley',
+  let teams = Battle.startHeat(Battle.createState({ matchId: 'volley-fallback-team', formatId: 'team', paceId: 'volley',
     players: players(8, true), hardware: { width: 600, verifiedContacts: 1 } }));
   assert.deepEqual(teams.activePlayerIds, ['p1']);
   teams = Battle.recordAttempt(teams, { attemptId: 'team-relay-a', playerId: 'p1', pose: 'cap' });
@@ -315,7 +425,7 @@ function testVolleyFallbackCompletesEqualOpportunityBeforeClosing() {
 }
 
 function testOneLaneVolleyOpenerAndPowerOfferBarrier() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'volley',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'volley-offer', formatId: 'duel', paceId: 'volley',
     players: players(2), seed: 31, hardware: { width: 600, verifiedContacts: 1 } }));
   assert.deepEqual(state.activePlayerIds, ['p1']);
   for (let volley = 0; volley < 2; volley += 1) {
@@ -342,14 +452,17 @@ function testOneLaneVolleyOpenerAndPowerOfferBarrier() {
 }
 
 function testRushTieEntersPairedSuddenDeath() {
-  let state = Battle.startHeat(Battle.createState({ formatId: 'duel', paceId: 'rush',
+  let state = Battle.startHeat(Battle.createState({ matchId: 'rush-tie', formatId: 'duel', paceId: 'rush',
     players: players(2), hardware: { width: 1280, verifiedContacts: 2 } }));
   state = Battle.advanceClock(state, 60000);
   assert.equal(state.suddenDeath, true);
   assert.equal(state.clockExpired, true);
   assert.deepEqual(state.activePlayerIds.slice().sort(), ['p1', 'p2']);
-  state = Battle.markLaunch(state, 'rush-sd-a');
-  state = Battle.markLaunch(state, 'rush-sd-b');
+  assert.throws(() => BattleAuthority.recordAttempt(state, {
+    attemptId: 'rush-sd-unmarked', playerId: 'p1', pose: 'cap',
+  }), /requires a launch lease created by markLaunch/i);
+  state = Battle.markLaunch(state, { attemptId: 'rush-sd-a', playerId: 'p1' });
+  state = Battle.markLaunch(state, { attemptId: 'rush-sd-b', playerId: 'p2' });
   state = Battle.recordAttempt(state, { attemptId: 'rush-sd-a', playerId: 'p1', pose: 'cap' });
   assert.equal(state.phase, 'active');
   state = Battle.recordAttempt(state, { attemptId: 'rush-sd-b', playerId: 'p2', pose: 'miss' });
@@ -364,6 +477,7 @@ function run() {
   testPowerChargeAndMayhemTarget();
   testRushPowerOffersIgnoreCrossCompetitorResolveOrder();
   testRushHornAndPendingLaunch();
+  testRushLeaseSurvivesCrossBucketFlight();
   testOneLaneDuelRushAlternatesBothPlayers();
   testTeamRotationAndSharedScore();
   testFourWaySuddenDeathOnlyUsesTiedLeadersInPairs();

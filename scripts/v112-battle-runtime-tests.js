@@ -271,9 +271,9 @@ function testSynchronizedTwoPointerVolleyAndResultOrdering() {
 
   const left = harness.launches.find((entry) => entry.laneId === 'lane-1');
   const right = harness.launches.find((entry) => entry.laneId === 'lane-2');
-  assert.equal(left.attemptId, 'two-pointer-volley:lane-1:attempt-1');
-  assert.equal(right.attemptId, 'two-pointer-volley:lane-2:attempt-1',
-    'attempt IDs are lane-deterministic rather than release-order-dependent');
+  assert.equal(left.attemptId, 'two-pointer-volley:lane-0:attempt-1');
+  assert.equal(right.attemptId, 'two-pointer-volley:lane-1:attempt-1',
+    'attempt IDs use bounded lane indices rather than release order or authored labels');
   runtime.resolveAttempt('lane-2', right.attemptId, { pose: 'miss' });
   assert.equal(runtime.snapshot().battle.resolvedAttemptIds.length, 0,
     'Volley outcomes remain buffered until the synchronized gate settles');
@@ -414,16 +414,23 @@ function testHornHonorsAirborneLeaseAndRejectsLateInput() {
   const { runtime, rects } = createRuntime({ paceId: 'rush', harness });
   successfulGesture(runtime, 0, 301, 59000, rects);
   const pending = harness.launches.at(-1);
+  const leaseBeforeHorn = runtime.snapshot().battle.pendingLaunchLeases[pending.attemptId];
+  assert(leaseBeforeHorn && leaseBeforeHorn.elapsedMs < 60000);
+  assert.equal(leaseBeforeHorn.playerId, pending.playerId);
   runtime.tick(60000);
   assert.equal(runtime.snapshot().hornExpired, true);
   assert.equal(runtime.snapshot().battle.clockExpired, true);
   assert.equal(runtime.snapshot().battle.phase, 'active',
     'a qualified pre-horn launch remains pending');
+  assert.deepEqual(runtime.snapshot().battle.pendingLaunchLeases[pending.attemptId],
+    leaseBeforeHorn, 'runtime clock expiry cannot rewrite the airborne launch lease');
   assert.equal(runtime.handlePointerDown(pointer(302, 900, 420, 60001)), false,
     'new input cannot arm after the horn');
   runtime.resolveAttempt('lane-1', pending.attemptId, { pose: 'cap' });
   assert.equal(runtime.snapshot().battle.phase, 'between-heats');
   assert.equal(runtime.snapshot().battle.heatWins.p1, 1);
+  assert.deepEqual(runtime.snapshot().battle.resolvedAttempts.find((attempt) =>
+    attempt.attemptId === pending.attemptId).launchLease, leaseBeforeHorn);
 }
 
 function testRushTieOpensPostHornSynchronizedGate() {
@@ -477,6 +484,9 @@ function testTwoFourTouchProfilesAndRelayFairness() {
   'relay announces every player handoff');
   assert.deepEqual(relay.snapshot.battle.charges, { p1: 0, p2: 0, p3: 0, p4: 0 },
     'CPU handoffs never earn manual-launch charges');
+  assert(relay.snapshot.battle.resolvedAttempts.every((attempt) =>
+    attempt.qualifiedManual === false && attempt.launchLease === null),
+  'CPU Volley evidence keeps exact attribution and the canonical null clock lease');
 
   const two = createRuntime({ formatId: 'four-way', count: 4, width: 900,
     contacts: 4, cpu: true });
@@ -679,10 +689,20 @@ function testPreBoundaryLaunchKeepsOwnerLease() {
   successfulGesture(runtime, 0, 850, 14910, rects);
   const launch = harness.launches.at(-1);
   assert.equal(launch.playerId, 'p1');
+  const originalLease = runtime.snapshot().battle.pendingLaunchLeases[launch.attemptId];
+  assert.equal(originalLease.bucketIndex, 0);
+  assert.equal(originalLease.rotationIndex, 0);
+  assert(originalLease.elapsedMs < 15000);
   runtime.tick(100);
+  assert.deepEqual(runtime.snapshot().battle.pendingLaunchLeases[launch.attemptId], originalLease);
   runtime.resolveAttempt(launch.laneId, launch.attemptId, { pose: 'upright' });
   assert.equal(runtime.snapshot().battle.scores.a, 1,
     'an airborne pre-boundary launch resolves for its original owner');
+  const evidence = runtime.snapshot().battle.resolvedAttempts.find((attempt) =>
+    attempt.attemptId === launch.attemptId);
+  assert.deepEqual(evidence.launchLease, originalLease,
+    'relay rotation preserves the original player, clock bucket, and rotation lease');
+  assert.equal(evidence.qualifiedManual, true);
   assert.equal(runtime.snapshot().lanes[0].playerId, 'p3');
 }
 
@@ -1129,6 +1149,93 @@ async function testFailureRecoveryAndStaleAsyncIsolation() {
     'a stale adapter completion cannot score an attempt twice');
 }
 
+function testCpuRushLaunchLeaseAndAttribution() {
+  const harness = adapterHarness();
+  const { runtime } = createRuntime({ paceId: 'rush', cpu: true, harness,
+    inputNow: () => 0 });
+  const attemptId = runtime.prepareCpuLaunch('p1', {
+    timeStamp: 0, launchSignal: { scripted: true },
+  });
+  assert(attemptId);
+  const pendingLease = runtime.snapshot().battle.pendingLaunchLeases[attemptId];
+  assert.deepEqual(pendingLease, {
+    schema: 'BattleLaunchLeaseV1', paceId: 'rush', playerId: 'p1', heatNumber: 1,
+    elapsedMs: 0, bucketIndex: 0, rotationIndex: 0, volleyIndex: 0,
+    suddenDeath: false,
+  });
+  runtime.resolveAttempt('lane-1', attemptId, { pose: 'upright' });
+  const evidence = runtime.snapshot().battle.resolvedAttempts.find((attempt) =>
+    attempt.attemptId === attemptId);
+  assert(evidence);
+  assert.equal(evidence.qualifiedManual, false,
+    'a CPU launch cannot become reward-qualified at the runtime boundary');
+  assert.deepEqual(evidence.launchLease, pendingLease,
+    'CPU Rush evidence carries the exact immutable clock/rotation lease');
+}
+
+function testRuntimeBindsOneImmutableMatchIdentity() {
+  const harness = adapterHarness();
+  assert.throws(() => Runtime.createBattleRuntime({
+    matchId: 'duplicate-lanes',
+    config: { formatId: 'duel', paceId: 'volley', players: players(2),
+      hardware: { width: 1200, verifiedContacts: 2 } },
+    laneRects: [
+      { laneId: 'same', left: 0, top: 0, width: 600, height: 600 },
+      { laneId: 'same', left: 600, top: 0, width: 600, height: 600 },
+    ], laneAdapterFactory: harness.factory,
+  }), /Duplicate.*laneId/i);
+  assert.throws(() => Runtime.createBattleRuntime({
+    matchId: 'oversize-lane',
+    config: { formatId: 'duel', paceId: 'volley', players: players(2),
+      hardware: { width: 1200, verifiedContacts: 2 } },
+    laneRects: [
+      { laneId: 'z'.repeat(129), left: 0, top: 0, width: 600, height: 600 },
+      { laneId: 'right', left: 600, top: 0, width: 600, height: 600 },
+    ], laneAdapterFactory: harness.factory,
+  }), /128/);
+  assert.throws(() => Runtime.createBattleRuntime({
+    matchId: 'runtime-match',
+    config: { matchId: 'different-match', formatId: 'duel', paceId: 'volley',
+      players: players(2), hardware: { width: 1200, verifiedContacts: 2 } },
+    laneRects: laneRects(2), laneAdapterFactory: harness.factory,
+  }), /matchId contradicts/i);
+
+  const canonical = require('../js/v112-battle.js').normalizeConfig({
+    matchId: 'canonical-match', formatId: 'duel', paceId: 'volley',
+    players: players(2), hardware: { width: 1200, verifiedContacts: 2 },
+  });
+  assert.throws(() => Runtime.createBattleRuntime({
+    matchId: 'other-canonical-match', config: canonical,
+    laneRects: laneRects(2), laneAdapterFactory: harness.factory,
+  }), /matchId contradicts/i);
+  const runtime = Runtime.createBattleRuntime({
+    matchId: canonical.matchId, config: canonical,
+    laneRects: laneRects(2), laneAdapterFactory: harness.factory,
+  });
+  assert.equal(runtime.snapshot().battle.matchId, canonical.matchId);
+  assert.equal(runtime.snapshot().battle.config.matchId, canonical.matchId);
+
+  const longIdHarness = adapterHarness();
+  const maximumMatchId = 'm'.repeat(128);
+  const longLaneRuntime = Runtime.createBattleRuntime({
+    matchId: maximumMatchId,
+    config: { formatId: 'duel', paceId: 'volley', players: players(2, { cpu: true }),
+      hardware: { width: 1200, verifiedContacts: 2 } },
+    laneRects: [
+      { laneId: `left-${'x'.repeat(100)}`, left: 0, top: 0, width: 600, height: 600 },
+      { laneId: `right-${'y'.repeat(100)}`, left: 600, top: 0, width: 600, height: 600 },
+    ],
+    laneAdapterFactory: longIdHarness.factory,
+  });
+  longLaneRuntime.startHeat();
+  const firstId = longLaneRuntime.prepareCpuLaunch('p1', {});
+  const secondId = longLaneRuntime.prepareCpuLaunch('p2', {});
+  assert(firstId.length <= 192 && secondId.length <= 192,
+    'caller-authored lane labels cannot overflow canonical attempt identities');
+  assert.match(firstId, /:lane-0:attempt-1$/);
+  assert.match(secondId, /:lane-1:attempt-1$/);
+}
+
 async function run() {
   testMultiPointerSamplingCaptureAndFrozenGeometry();
   testCanonicalQualifierAcrossDevicesAndPointerTypes();
@@ -1142,6 +1249,7 @@ async function run() {
   testHornHonorsAirborneLeaseAndRejectsLateInput();
   testRushTieOpensPostHornSynchronizedGate();
   testTwoFourTouchProfilesAndRelayFairness();
+  testCpuRushLaunchLeaseAndAttribution();
   testRushOffersIgnoreSettleOrderAtRuntime();
   testRuntimeFourWaySuddenDeathPairsOnlyLeaders();
   testSymmetricRoundReachesEveryRepresentative();
@@ -1157,6 +1265,7 @@ async function run() {
   testOneLaneVolleyDefersOfferAndDeployment();
   testModifierConflictRejectsAtomically();
   testEveryRushBoundaryInvalidatesHeldAim();
+  testRuntimeBindsOneImmutableMatchIdentity();
   await testHostileThenableRecovery();
   await testFailureRecoveryAndStaleAsyncIsolation();
   console.log('v1.12 Battle simultaneous-lane runtime tests passed.');
