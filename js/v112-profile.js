@@ -1,12 +1,11 @@
 // v112-profile.js -- canonical transactional local profile and v1.11 migration.
 (function (root, factory) {
   'use strict';
-  if (root && root.FlipgameV112Profile &&
-      root.FlipgameV112Profile.schema === 'ProgressionStateV4') {
-    if (typeof module === 'object' && module.exports) module.exports = root.FlipgameV112Profile;
-    return;
-  }
   var commonJs = typeof module === 'object' && module.exports;
+  if (!commonJs && root &&
+      Object.prototype.hasOwnProperty.call(root, 'FlipgameV112Profile')) {
+    throw new Error('FlipgameV112Profile is already defined; refusing an ambiguous browser profile');
+  }
   var Catalog = root && root.FlipgameV112ProgressionCatalog;
   var Economy = root && root.FlipgameV112Economy;
   var LegacyProgression = root && root.FlipgameV111Progression;
@@ -18,8 +17,13 @@
     Achievements = require('./v112-achievements.js');
   }
   var api = factory(Catalog, Economy, LegacyProgression, Achievements, root, commonJs);
-  if (commonJs) module.exports = api;
-  if (root) root.FlipgameV112Profile = api;
+  if (commonJs) {
+    module.exports = api;
+  } else if (root) {
+    Object.defineProperty(root, 'FlipgameV112Profile', {
+      value: api, enumerable: true, writable: false, configurable: false,
+    });
+  }
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
   : (typeof window !== 'undefined' ? window : this)), function (Catalog, Economy, LegacyProgression,
@@ -39,14 +43,18 @@
       Achievements.schema === 'AchievementCatalogV1' && Achievements.version === 1 &&
       !!achievementProbe && Object.isFrozen(achievementProbe) && achievementProbe.id === 'first_flip' &&
       ['common', 'notable', 'rare', 'legendary'].indexOf(achievementProbe.rarity) >= 0 &&
-      !!achievementSummary && achievementSummary.total === 120 &&
-      !!Achievements.rewardAuthority && Object.isFrozen(Achievements.rewardAuthority) &&
-      Achievements.rewardAuthority.schema === 'AchievementRewardAuthorityV1' &&
-      Achievements.rewardAuthority.version === 1 &&
-      typeof Achievements.rewardAuthority.verify === 'function';
+      !!achievementSummary && achievementSummary.total === 120;
   } catch (_) { achievementsReady = false; }
   if (!achievementsReady) {
-    throw new Error('v1.12 achievement catalog and reward authority must load before profile');
+    throw new Error('v1.12 achievement catalog must load before profile');
+  }
+  var achievementRewardAuthorityReady = !!Achievements.rewardAuthority &&
+    Object.isFrozen(Achievements.rewardAuthority) &&
+    Achievements.rewardAuthority.schema === 'AchievementRewardAuthorityV1' &&
+    Achievements.rewardAuthority.version === 1 &&
+    typeof Achievements.rewardAuthority.verify === 'function';
+  if (commonJs && !achievementRewardAuthorityReady) {
+    throw new Error('v1.12 achievement reward authority must load before the CommonJS profile');
   }
 
   var KEY = 'flipgame.profile.v4';
@@ -68,6 +76,17 @@
         if (!definition) throw new RangeError('Unknown canonical achievement');
         return Object.freeze({ id: definition.id, rarity: definition.rarity });
       } }) : null;
+  function canonicalAchievementId(value) {
+    var id = String(value || '');
+    if (!id || !Achievements || typeof Achievements.lookupForMigration !== 'function') return null;
+    try {
+      var definition = Achievements.lookupForMigration(id);
+      return definition && typeof definition.id === 'string' ? definition.id : null;
+    } catch (_) { return null; }
+  }
+  function canonicalAchievementIds(values) {
+    return uniqueStrings(uniqueStrings(values).map(canonicalAchievementId));
+  }
   var MATCH_ACTIVITY_IDS = new Set(['free-play', 'story']);
   var MATCH_REWARD_KEYS = new Set([
     'completed', 'status', 'resolved', 'abandoned', 'imported', 'aiOnly',
@@ -206,6 +225,12 @@
     var output;
     if (Array.isArray(value)) {
       if (value.length > SAFE_CLONE_MAX_NODES) throw new RangeError('Safe array limit exceeded');
+      Object.getOwnPropertyNames(value).forEach(function (key) {
+        if (key === 'length') return;
+        if (!/^(?:0|[1-9]\d*)$/.test(key) || Number(key) >= value.length) {
+          throw new TypeError('Named or out-of-range array properties are not supported');
+        }
+      });
       output = [];
       for (var index = 0; index < value.length; index++) {
         var arrayDescriptor = Object.getOwnPropertyDescriptor(value, String(index));
@@ -351,7 +376,6 @@
         descriptors.version.value !== 4) {
       throw new TypeError('Imported profile must use ProgressionStateV4');
     }
-
     // Inspect every declared collection bound before cloning or walking any
     // entry.  Accessor fields are remembered but never invoked; a later huge
     // array is still rejected in constant work rather than being hidden behind
@@ -375,8 +399,29 @@
           lengthDescriptor.value > IMPORT_COLLECTION_BOUNDS[field]) {
         throw new TypeError('Imported profile has an oversized or invalid ' + field);
       }
+      Object.getOwnPropertyNames(collection).forEach(function (key) {
+        if (key === 'length') return;
+        if (!/^(?:0|[1-9]\d*)$/.test(key) || Number(key) >= lengthDescriptor.value) {
+          throw new TypeError('Imported profile collections must be exact dense arrays');
+        }
+        var entryDescriptor = Object.getOwnPropertyDescriptor(collection, key);
+        if (!entryDescriptor || !Object.prototype.hasOwnProperty.call(entryDescriptor, 'value')) {
+          throw new TypeError('Imported profile collections must contain plain own values');
+        }
+      });
+      for (var index = 0; index < lengthDescriptor.value; index++) {
+        if (!Object.prototype.hasOwnProperty.call(collection, String(index))) {
+          throw new TypeError('Imported profile collections must be exact dense arrays');
+        }
+      }
     });
     if (descriptorFailure) throw descriptorFailure;
+    STATE_FIELDS.forEach(function (field) {
+      if (!descriptors[field] ||
+          !Object.prototype.hasOwnProperty.call(descriptors[field], 'value')) {
+        throw new TypeError('Imported profile is missing required field: ' + field);
+      }
+    });
     return value;
   }
   function exactFiniteNumber(value, label) {
@@ -569,10 +614,13 @@
     var matchIds = new Set();
     var ordinals = new Set();
     var previousOrdinal = 0;
-    return values.map(function (entry) {
+    var receipts = values.map(function (entry, index) {
       var receipt = MatchReceiptV1(entry);
       if (!receipt.ordinal || receipt.ordinal > consumedOrdinal) {
         throw new TypeError('Match receipt ordinal is outside the consumed frontier');
+      }
+      if (receipt.ordinal !== index + 1) {
+        throw new TypeError('Match receipts must form one contiguous consumed ordinal ledger');
       }
       if (receipt.ordinal <= previousOrdinal) {
         throw new TypeError('Match receipts must be stored in strictly increasing ordinal order');
@@ -585,6 +633,10 @@
       ordinals.add(receipt.ordinal);
       return receipt;
     });
+    if (receipts.length !== consumedOrdinal) {
+      throw new TypeError('Every consumed match ordinal requires one durable receipt');
+    }
+    return receipts;
   }
 
   function normalizeTransactions(values, declaredBalance, rollupValue) {
@@ -809,7 +861,10 @@
       : reconciledV111 && objects.indexOf('alien') >= 0;
     var featureIds = boundedStateIds(source.featureIds, 'featureIds');
     var matchClaimCursor = finiteInteger(source.matchClaimCursor);
-    var consumedMatchOrdinal = Math.min(matchClaimCursor, finiteInteger(source.consumedMatchOrdinal));
+    var consumedMatchOrdinal = finiteInteger(source.consumedMatchOrdinal);
+    if (consumedMatchOrdinal > matchClaimCursor) {
+      throw new TypeError('Consumed match ordinal exceeds its claim cursor');
+    }
     var matchReceipts = normalizeMatchReceipts(source.matchReceipts || [], consumedMatchOrdinal);
     var activeMatchReservation = source.activeMatchReservation == null
       ? null : MatchClaimTokenV1(source.activeMatchReservation);
@@ -818,6 +873,11 @@
         activeMatchReservation.ordinal !== matchClaimCursor ||
         activeMatchReservation.ordinal <= consumedMatchOrdinal)) {
       throw new TypeError('Active match reservation is inconsistent with profile lineage/ordinal');
+    }
+    if (activeMatchReservation
+        ? matchClaimCursor !== consumedMatchOrdinal + 1
+        : matchClaimCursor !== consumedMatchOrdinal) {
+      throw new TypeError('Match claim cursor is not reachable from its durable receipt ledger');
     }
     if (activeMatchReservation && matchReceipts.some(function (receipt) {
       return receipt.matchId === activeMatchReservation.matchId ||
@@ -1143,7 +1203,8 @@
 
   function migrateV111(input) {
     var legacy = legacyInputs(input);
-    var ids = achievementIds(legacy.achievementsV3, legacy.achievementsV1);
+    var ids = canonicalAchievementIds(achievementIds(
+      legacy.achievementsV3, legacy.achievementsV1));
     var v3 = legacy.progression && typeof legacy.progression === 'object' ? clone(legacy.progression) : {};
     var wins = Math.max(finiteInteger(v3.qualifyingWins), finiteInteger(legacy.recordsV2.qualifyingWins),
       finiteInteger(legacy.recordsV1.totalWins));
@@ -1154,7 +1215,7 @@
     });
     var reconciled = LegacyProgression.migrate({
       progression: v3, legacyRecords: legacyRecords,
-      legacyAchievements: uniqueStrings(ids.concat(v3.achievementIds || [])),
+      legacyAchievements: canonicalAchievementIds(ids.concat(v3.achievementIds || [])),
     });
     var reconciledObjects = uniqueStrings(reconciled.ownedObjectIds, Catalog.canonicalObjectId)
       .filter(function (id) { return !!Catalog.object(id); });
@@ -1165,7 +1226,7 @@
     var draft = clone(ProgressionStateV4({
       fxp: Economy.fxpThresholdForLevel(Math.max(1, Math.min(100, wins))),
       ownedObjectIds: reconciledObjects,
-      achievementIds: uniqueStrings((reconciled.achievementIds || []).concat(ids)),
+      achievementIds: canonicalAchievementIds((reconciled.achievementIds || []).concat(ids)),
       claimedRewardIds: [],
       legacy: { reconciledV111: true, qualifyingWins: wins, sourceRelease: 'v1.11',
         grandfatheredAlien: grandfatheredAlien, grandfatheredInsane: grandfatheredInsane },
@@ -1202,6 +1263,9 @@
     for (var level = 2; level <= draft.flipLevel; level++) grantLevel(draft, level, { migration: true, reveal: false, now: 0 });
     draft.pendingRevealIds = [];
     draft.processedClaimIds = uniqueStrings(draft.processedClaimIds.concat(['migration:v111-to-v4']));
+    if (draft.lineageId === 'unassigned-v4') {
+      draft.lineageId = opaqueIdentity('migrated-v4', 0);
+    }
     return ProgressionStateV4(draft);
   }
 
@@ -1331,13 +1395,26 @@
     // provenance may suppress a later legitimate award.
     if (validationOptions && validationOptions.preserveLocalRewardEvidence === true) {
       suppliedAchievements.forEach(function (id) {
-        if (achievements.has(id)) addUnique(source.rewardedAchievementIds, id);
+        if (!achievements.has(id) ||
+            (source.processedClaimIds || []).indexOf('achievement:' + id) < 0) {
+          throw new TypeError('Persisted achievement reward evidence lacks its canonical processed claim');
+        }
+        addUnique(source.rewardedAchievementIds, id);
       });
       suppliedRivals.forEach(function (id) {
-        if (rivals.has(id)) addUnique(source.rewardedRivalIds, id);
+        if (!rivals.has(id) ||
+            (source.processedClaimIds || []).indexOf('rival.' + id + '.first-clear') < 0) {
+          throw new TypeError('Persisted rival reward evidence lacks its canonical processed claim');
+        }
+        addUnique(source.rewardedRivalIds, id);
       });
       suppliedActs.forEach(function (id) {
-        if (acts.has(String(id))) addUnique(source.rewardedActIds, String(id));
+        var actId = String(id);
+        if (!acts.has(actId) ||
+            (source.processedClaimIds || []).indexOf('story.act.' + actId + '.first-clear') < 0) {
+          throw new TypeError('Persisted Story reward evidence lacks its canonical processed claim');
+        }
+        addUnique(source.rewardedActIds, actId);
       });
       return source;
     }
@@ -1415,6 +1492,33 @@
         seen.add(id);
       });
     });
+    ['achievementIds', 'processedClaimIds', 'pendingRevealIds',
+      'consumedRevealIds'].forEach(function (field) {
+      var seen = new Set();
+      (source[field] || []).forEach(function (rawId) {
+        var id = exactId(rawId, 'Imported ' + field + ' entry');
+        if (seen.has(id)) {
+          throw new TypeError('Imported profile has duplicate ' + field + ' entries');
+        }
+        seen.add(id);
+      });
+    });
+    if (validationOptions.allowTestOnlyAchievementIds !== true) {
+      source.achievementIds = canonicalAchievementIds(source.achievementIds);
+      source.rewardedAchievementIds = canonicalAchievementIds(source.rewardedAchievementIds);
+      source.processedClaimIds = uniqueStrings(source.processedClaimIds).map(function (id) {
+        if (id.indexOf('achievement:') !== 0) return id;
+        var achievementId = canonicalAchievementId(id.slice(12));
+        return achievementId ? 'achievement:' + achievementId : null;
+      }).filter(Boolean);
+      ['pendingRevealIds', 'consumedRevealIds'].forEach(function (field) {
+        source[field] = uniqueStrings(source[field]).map(function (id) {
+          if (id.indexOf('achievement.') !== 0) return id;
+          var achievementId = canonicalAchievementId(id.slice(12));
+          return achievementId ? 'achievement.' + achievementId : null;
+        }).filter(Boolean);
+      });
+    }
     reconcileRewardEvidence(source, validationOptions);
     ['revision', 'fxp', 'fcBalance'].forEach(function (key) {
       if (!Number.isSafeInteger(source[key]) || source[key] < 0) {
@@ -1422,6 +1526,9 @@
       }
     });
     if (source.lineageId != null) exactId(source.lineageId, 'Imported lineageId');
+    if (source.lineageId === 'unassigned-v4') {
+      throw new TypeError('Imported profiles require a unique assigned lineage');
+    }
     if (source.matchClaimCursor != null) exactUnsignedInteger(source.matchClaimCursor,
       'Imported matchClaimCursor');
     if (source.consumedMatchOrdinal != null) exactUnsignedInteger(source.consumedMatchOrdinal,
@@ -1530,6 +1637,15 @@
       throw new TypeError('Imported profile Flip Level does not match FXP');
     }
     if (source.activeMatchReservation != null && validationOptions.preserveReservation !== true) {
+      var quarantinedReservation = MatchClaimTokenV1(source.activeMatchReservation);
+      source.matchReceipts = (source.matchReceipts || []).concat([MatchReceiptV1({
+        schema: 'MatchReceiptV1', version: 1,
+        matchId: quarantinedReservation.matchId,
+        activityId: quarantinedReservation.activityId,
+        ordinal: quarantinedReservation.ordinal,
+        resolution: 'abandoned',
+      })]);
+      source.consumedMatchOrdinal = quarantinedReservation.ordinal;
       source.activeMatchReservation = null;
       source.legacy = safeClone(source.legacy || Object.create(null));
       source.legacy.quarantinedMatchReservations = finiteInteger(
@@ -1702,7 +1818,15 @@
     if (current.activeMatchReservation) {
       var stillActive = incoming.activeMatchReservation &&
         JSON.stringify(incoming.activeMatchReservation) === JSON.stringify(current.activeMatchReservation);
-      if (!stillActive && incoming.consumedMatchOrdinal < current.activeMatchReservation.ordinal) return false;
+      if (!stillActive) {
+        if (incoming.consumedMatchOrdinal < current.activeMatchReservation.ordinal) return false;
+        var consumedReceipt = incoming.matchReceipts[
+          current.activeMatchReservation.ordinal - 1];
+        if (!consumedReceipt ||
+            consumedReceipt.ordinal !== current.activeMatchReservation.ordinal ||
+            consumedReceipt.matchId !== current.activeMatchReservation.matchId ||
+            consumedReceipt.activityId !== current.activeMatchReservation.activityId) return false;
+      }
     }
     if (incoming.fcTransactionRollup.transactionCount < current.fcTransactionRollup.transactionCount) return false;
     var absorbed = incoming.fcTransactionRollup.transactionCount -
@@ -1748,6 +1872,8 @@
       incoming.consumedMatchOrdinal !== current.consumedMatchOrdinal ||
       incoming.matchReceipts.length !== current.matchReceipts.length ||
       JSON.stringify(incoming.activeMatchReservation) !== JSON.stringify(current.activeMatchReservation) ||
+      JSON.stringify(incoming.externalClaimEvidence) !==
+        JSON.stringify(current.externalClaimEvidence) ||
       incoming.fcTransactions.map(function (tx) { return tx.txId; }).join('\u0000') !==
         current.fcTransactions.map(function (tx) { return tx.txId; }).join('\u0000') ||
       incoming.fcTransactionRollup.transactionCount !== current.fcTransactionRollup.transactionCount ||
@@ -1815,6 +1941,7 @@
     var loadedV4 = !!(persisted && persisted.schema === 'ProgressionStateV4' && persisted.version === 4);
     var state = loadedV4 ? validateImportedState(persisted, {
       preserveReservation: true, preserveLocalRewardEvidence: true,
+      allowTestOnlyAchievementIds: testOnly,
     })
       : migrateV111(Object.assign({}, opts.legacy || {}, { storage: storage }));
     if (!loadedV4 || state.lineageId === 'unassigned-v4') {
@@ -1961,6 +2088,7 @@
         try {
           var validated = validateImportedState(external, {
             preserveReservation: true, preserveLocalRewardEvidence: true,
+            allowTestOnlyAchievementIds: testOnly,
           });
           if (!hasDurableState) {
             var differs = JSON.stringify(validated) !== JSON.stringify(state);
@@ -2089,6 +2217,9 @@
       var activity = exactId(activityId, 'activityId');
       if (!MATCH_ACTIVITY_IDS.has(activity)) throw new RangeError('Activity cannot reserve reward-bearing matches');
       refresh();
+      if (persistencePoisoned) {
+        return result(false, null, { duplicate: false, reason: 'persistence-closed' });
+      }
       var priorReceipt = matchReceiptForId(immutableMatchId);
       if (priorReceipt) {
         return result(false, 'local-match:' + state.lineageId + ':' + priorReceipt.ordinal,
@@ -2316,6 +2447,10 @@
       var achievementRarity = definition.rarity;
       if (!ACHIEVEMENT_RARITIES.has(achievementRarity)) {
         throw new RangeError('Unknown achievement rarity: ' + achievementRarity);
+      }
+      refresh();
+      if (state.rewardedAchievementIds.indexOf(achievementId) >= 0) {
+        return result(false, 'achievement:' + achievementId, { reason: 'duplicate' });
       }
       var reward = Economy.achievementReward(achievementRarity);
       return claimBundle({ claimId: 'achievement:' + achievementId, sourceType: 'achievement',
@@ -2564,7 +2699,9 @@
         feedbackIds: ['store.' + cosmetic.id], reveal: true });
     }
     function mergeImportedState(importedState, immutableImportId) {
-      var incoming = validateImportedState(importedState);
+      var incoming = validateImportedState(importedState, {
+        allowTestOnlyAchievementIds: testOnly,
+      });
       var importId = exactId(immutableImportId, 'importId');
       var outerClaimId = 'profile-import:' + importId;
       refresh();
@@ -2733,7 +2870,7 @@
   try { browserStorage = root && root.localStorage ? root.localStorage : null; } catch (_) {}
   var productionWriterEnabled = false;
   var productionRuntimeConnected = false;
-  var defaultAchievementAuthority = Achievements && Achievements.rewardAuthority;
+  var defaultAchievementAuthority = commonJs && Achievements && Achievements.rewardAuthority;
   var defaultStore = createStore({ storage: browserStorage,
     achievementAuthority: defaultAchievementAuthority || null,
     writeAuthority: function () { return productionWriterEnabled; } });
@@ -2762,6 +2899,9 @@
 
   function publicProfileProjection(value) {
     var projected = clone(value);
+    if (projected.activeMatchReservation) {
+      projected.matchClaimCursor = projected.consumedMatchOrdinal;
+    }
     projected.activeMatchReservation = null;
     return ProgressionStateV4(projected);
   }
@@ -2790,19 +2930,26 @@
     schema: 'ProgressionStateV4', version: 4, storageKey: KEY,
     journalStorageKey: JOURNAL_KEY, legacyKeys: clone(LEGACY_KEYS),
     retentionPolicy: clone(RETENTION),
-    ProgressionStateV4: ProgressionStateV4, FcTransactionV1: FcTransactionV1,
-    MatchClaimTokenV1: MatchClaimTokenV1, MatchReceiptV1: MatchReceiptV1,
+    ProgressionStateV4: ProgressionStateV4,
     validateImportedState: validateImportedState,
     migrateV111: migrateV111, migrateSetupSelection: migrateSetupSelection,
     storyActIds: STORY_ACT_IDS.slice(), alienGateSatisfied: alienGateSatisfied,
     isAlienUsable: isAlienUsable, isInsaneUsable: isInsaneUsable,
-    createMemoryStorage: createMemoryStorage,
     snapshot: publicSnapshot, refresh: publicRefresh, subscribe: publicSubscribe,
     exportState: publicExportState,
     lastPersistenceError: defaultStore.lastPersistenceError,
     persistenceStatus: defaultStore.persistenceStatus,
-    connectProductionRuntime: connectProductionRuntime,
   };
-  if (commonJs) publicApi.createTestStore = createTestStore;
+  if (commonJs) {
+    publicApi.FcTransactionV1 = FcTransactionV1;
+    publicApi.MatchClaimTokenV1 = MatchClaimTokenV1;
+    publicApi.MatchReceiptV1 = MatchReceiptV1;
+    publicApi.createMemoryStorage = createMemoryStorage;
+    publicApi.createTestStore = createTestStore;
+    // This connector exists only between trusted CommonJS modules.  Classic
+    // browser scripts intentionally have no callable route to the raw store,
+    // writer toggle, or reward authority until the lexical composition wave.
+    publicApi.connectProductionRuntime = connectProductionRuntime;
+  }
   return freeze(publicApi);
 });

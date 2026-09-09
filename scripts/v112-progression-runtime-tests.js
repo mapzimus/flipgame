@@ -1196,7 +1196,8 @@ function testDurableImmutableMatchReceiptsAndCapacity() {
   assert.throws(() => Profile.ProgressionStateV4(duplicateMatchId), /identity is duplicated/);
   const unordered = clone(fullState);
   unordered.matchReceipts[1].ordinal = unordered.matchReceipts[0].ordinal;
-  assert.throws(() => Profile.ProgressionStateV4(unordered), /ordinal.*duplicated|increasing ordinal/);
+  assert.throws(() => Profile.ProgressionStateV4(unordered),
+    /contiguous consumed ordinal ledger|ordinal.*duplicated|increasing ordinal/);
   const overflow = clone(fullState);
   overflow.matchReceipts.push({ schema: 'MatchReceiptV1', version: 1,
     matchId: 'bounded-overflow', activityId: 'free-play',
@@ -1229,17 +1230,17 @@ function testRevealLineagePreventsStaleResurrection() {
     'a stale equivalent backup does not manufacture a revision');
 
   const source = harness();
-  source.runtime.claimAchievement('fresh-imported-achievement', 'common');
+  source.runtime.claimAchievement('first_flip', 'common');
   const newer = source.runtime.exportBackup({}, { createdAt: 82 });
   target.runtime.importBackup(newer, {});
-  assert.equal(target.store.snapshot().pendingRevealIds.includes('achievement.fresh-imported-achievement'), true,
+  assert.equal(target.store.snapshot().pendingRevealIds.includes('achievement.first_flip'), true,
     'genuinely new pending content imports once');
-  target.runtime.dismissReveal('achievement.fresh-imported-achievement');
+  target.runtime.dismissReveal('achievement.first_flip');
   const newerPayload = clone(Backup.parse(newer).payload);
   newerPayload.sections = { marker: 'new-checksum-again' };
   target.runtime.importBackup(LegacyBackup.serialize(newerPayload,
     { releaseVersion: 'v1.12', createdAt: 83 }), {});
-  assert.equal(target.store.snapshot().pendingRevealIds.includes('achievement.fresh-imported-achievement'), false);
+  assert.equal(target.store.snapshot().pendingRevealIds.includes('achievement.first_flip'), false);
   source.runtime.close(); target.runtime.close();
 }
 
@@ -1319,11 +1320,14 @@ function testRefreshAcceptsOnlySemanticMonotonicExtensions() {
     const forged = clone(exact);
     forged.revision++;
     forged.activeMatchReservation = null;
-    assert.doesNotThrow(() => Profile.ProgressionStateV4(forged));
+    assert.throws(() => Profile.ProgressionStateV4(forged),
+      /not reachable from its durable receipt ledger/,
+    'an active reservation cannot disappear without its exact terminal receipt');
     storage.setItem(Profile.storageKey, JSON.stringify(forged));
     assert.deepEqual(store.refresh(), exact);
     assert.equal(store.persistenceStatus().closed, true);
-    assert.match(store.persistenceStatus().error, /Non-monotonic/);
+    assert.match(store.persistenceStatus().error,
+      /not reachable from its durable receipt ledger|Non-monotonic/);
     assert.equal(store.consumeReservedMatch(active.token, rewardInput()).reason,
       'persistence-closed');
   }
@@ -1582,15 +1586,29 @@ function testPublicMutationSurfaceHasOnlyCanonicalAuthorities() {
 async function testLifetimeWebLockWriterBoundary() {
   function lockManager() {
     let held = false;
+    const queued = [];
     const requests = [];
+    function drain() {
+      if (held || !queued.length) return;
+      const next = queued.shift();
+      held = true;
+      Promise.resolve(next.callback(Object.freeze({ name: next.name, mode: 'exclusive' })))
+        .then(next.resolve, next.reject)
+        .finally(() => { held = false; drain(); });
+    }
     return {
       requests,
       request(name, options, callback) {
         requests.push({ name, options: { ...options } });
-        if (held) return Promise.resolve(callback(null));
+        if (held && options.ifAvailable) return Promise.resolve(callback(null));
+        if (held) {
+          return new Promise((resolve, reject) => {
+            queued.push({ name, callback, resolve, reject });
+          });
+        }
         held = true;
         return Promise.resolve(callback(Object.freeze({ name, mode: 'exclusive' })))
-          .finally(() => { held = false; });
+          .finally(() => { held = false; drain(); });
       },
     };
   }
@@ -1616,11 +1634,15 @@ async function testLifetimeWebLockWriterBoundary() {
     lockManager: locks, setWriterEnabled(value) { secondWritable = value; },
     installRewardAuthority(authority) { secondAuthority = authority; } });
   assert.deepEqual(second.writerStatus(), {
-    writable: false, status: 'busy', reason: 'writer-held-elsewhere',
+    writable: false, status: 'queued', reason: 'writer-held-elsewhere',
   });
   assert.equal(secondAuthority.reserveMatch('locked-writer-b', 'free-play').reason,
     'writer-busy', 'a second tab never receives a progression writer');
   assert.equal(secondWritable, false);
+  const secondWriterEvents = [];
+  second.subscribe((_state, event) => {
+    if (event.type === 'writer-status') secondWriterEvents.push(event.writerStatus.status);
+  }, { emitCurrent: false });
 
   let unsupportedAuthority;
   const unsupportedStore = Profile.createTestStore({ storage: Profile.createMemoryStorage(),
@@ -1631,7 +1653,22 @@ async function testLifetimeWebLockWriterBoundary() {
   assert.equal(unsupportedAuthority.reserveMatch('no-web-locks', 'free-play').reason,
     'writer-read-only', 'Web Locks absence fails closed for progression writes');
 
-  second.close(); unsupported.close(); first.close();
+  first.close();
+  for (let attempt = 0; attempt < 8 && !second.writerStatus().writable; attempt++) {
+    await Promise.resolve();
+  }
+  assert.deepEqual(second.writerStatus(), { writable: true, status: 'active', reason: null },
+    'a queued live tab refreshes and takes the lifetime writer lock after handoff');
+  assert.deepEqual(secondWriterEvents, ['active'],
+    'subscribers receive the queued-to-active writer lifecycle transition');
+  const secondReservation = secondAuthority.reserveMatch('locked-writer-b', 'free-play');
+  assert.equal(secondReservation.applied, true);
+  assert.equal(secondReservation.token.ordinal, 2,
+    'the queued tab refreshes the durable receipt frontier before issuing a token');
+  assert.equal(secondAuthority.claimMatch(secondReservation.token, rewardInput()).applied, true);
+  assert.deepEqual(locks.requests[2].options, { mode: 'exclusive' },
+    'a failed nonblocking probe is followed by a real queued Web Lock request');
+  second.close(); unsupported.close();
   await Promise.resolve();
   let thirdWritable = false;
   let thirdAuthority;
@@ -1642,6 +1679,8 @@ async function testLifetimeWebLockWriterBoundary() {
   assert.equal(third.writerStatus().writable, true,
     'the lifetime writer lock is released only when the owning runtime closes');
   assert.ok(thirdAuthority);
+  assert.equal(Runtime.writerCoordination.androidAdapter, 'required-not-implemented');
+  assert.equal(Runtime.writerCoordination.lifetimeExclusive, true);
   third.close();
 }
 
@@ -1692,6 +1731,169 @@ function testInRealmWriterFenceAndEqualRevisionPoison() {
     'persistence-closed');
 }
 
+function testProfileAuthorityAdversarialRegressions() {
+  // A forged future revision cannot consume an active ordinal without writing
+  // the one exact receipt that permanently binds its matchId.
+  {
+    const storage = Profile.createMemoryStorage();
+    const store = Profile.createTestStore({ storage, now: () => 810 });
+    const active = store.reserveMatch('forged-frontier-match', 'free-play');
+    const exact = store.snapshot();
+    const forged = clone(exact);
+    forged.revision++;
+    forged.activeMatchReservation = null;
+    forged.consumedMatchOrdinal = active.token.ordinal;
+    assert.throws(() => Profile.ProgressionStateV4(forged),
+      /Every consumed match ordinal requires one durable receipt/);
+    storage.setItem(Profile.storageKey, JSON.stringify(forged));
+    assert.deepEqual(store.refresh(), exact);
+    assert.equal(store.persistenceStatus().closed, true);
+    assert.equal(store.reserveMatch('forged-frontier-match', 'free-play').reason,
+      'persistence-closed', 'the same matchId can never be re-reserved after forged frontier data');
+  }
+
+  // A contiguous receipt is not sufficient unless it binds the exact active
+  // match and activity. Substituting another match at the active ordinal must
+  // poison the future revision rather than free the original matchId for reuse.
+  {
+    const storage = Profile.createMemoryStorage();
+    const store = Profile.createTestStore({ storage, now: () => 8101 });
+    const active = store.reserveMatch('receipt-correlation-match', 'free-play');
+    const exact = store.snapshot();
+    const forged = clone(exact);
+    forged.revision++;
+    forged.activeMatchReservation = null;
+    forged.consumedMatchOrdinal = active.token.ordinal;
+    forged.matchReceipts.push({ schema: 'MatchReceiptV1', version: 1,
+      matchId: 'substituted-match', activityId: 'free-play',
+      ordinal: active.token.ordinal, resolution: 'abandoned' });
+    storage.setItem(Profile.storageKey, JSON.stringify(forged));
+    assert.deepEqual(store.refresh(), exact);
+    assert.equal(store.persistenceStatus().closed, true,
+      'a receipt for another match cannot consume the active reservation');
+    assert.equal(store.reserveMatch('receipt-correlation-match', 'free-play').reason,
+      'persistence-closed', 'the substituted receipt never releases the original matchId');
+  }
+
+  // External import watermarks are themselves meaningful monotonic state.
+  // A metadata-only higher revision must be adopted, not poison the other tab.
+  {
+    const storage = Profile.createMemoryStorage();
+    const store = Profile.createTestStore({ storage, now: () => 811 });
+    const active = store.reserveMatch('external-evidence-seed', 'free-play');
+    store.abandonReservedMatch(active.token, 'seed');
+    const incoming = clone(store.snapshot());
+    incoming.revision++;
+    incoming.externalClaimEvidence.push({ lineageId: 'external-evidence-only',
+      throughRevision: 7, fcHighWater: 125 });
+    storage.setItem(Profile.storageKey, JSON.stringify(incoming));
+    const adopted = store.refresh();
+    assert.deepEqual(adopted.externalClaimEvidence, incoming.externalClaimEvidence);
+    assert.equal(store.persistenceStatus().closed, false,
+      'external-evidence-only extensions are real monotonic revisions');
+  }
+
+  // Production migration and import canonicalize known aliases and quarantine
+  // unknown achievement IDs. Explicit test stores may still persist synthetic
+  // IDs so bounded headless fixtures do not masquerade as production data.
+  {
+    const migrated = Profile.migrateV111({ progression: {
+      achievementIds: ['event-rainbow-trail', 'unknown-legacy-achievement'],
+    } });
+    assert.ok(migrated.achievementIds.includes('event-rainbow-corkscrew'));
+    assert.equal(migrated.achievementIds.includes('event-rainbow-trail'), false);
+    assert.equal(migrated.achievementIds.includes('unknown-legacy-achievement'), false);
+
+    const imported = clone(Profile.migrateV111({}));
+    imported.achievementIds = ['event-rainbow-trail', 'unknown-imported-achievement'];
+    const normalized = Profile.validateImportedState(imported);
+    assert.deepEqual(normalized.achievementIds, ['event-rainbow-corkscrew']);
+
+    const testStorage = Profile.createMemoryStorage();
+    const testStore = Profile.createTestStore({ storage: testStorage, now: () => 812 });
+    assert.equal(testStore.claimAchievement('synthetic-test-only-achievement', 'common').applied, true);
+    const testReload = Profile.createTestStore({ storage: testStorage, now: () => 813 });
+    assert.ok(testReload.snapshot().achievementIds.includes('synthetic-test-only-achievement'));
+  }
+
+  // A real achievement receipt whose detailed FC transaction has rolled into
+  // the durable summary cannot be paid a second time, even if hostile bytes
+  // remove its processed-claim string.
+  {
+    const evaluator = Achievements.createEvaluator();
+    const award = evaluator.evaluate({ schema: 'AchievementEvaluationV1', version: 1,
+      context: { qualifying: true, humanParticipant: true, totalFlipsLifetime: 1 },
+      earnedIds: [] }).awards.find((entry) => entry.achievement.id === 'first_flip');
+    const storage = Profile.createMemoryStorage();
+    const store = Profile.createTestStore({ storage, productionSemantics: true,
+      achievementAuthority: evaluator.rewardAuthority, now: () => 814 });
+    assert.equal(store.claimAchievement(award.rewardEvidence).applied, true);
+    const exact = store.snapshot();
+    assert.equal(store.claimAchievement(award.rewardEvidence).reason, 'duplicate',
+      'rewardedAchievementIds is a direct finite duplicate guard');
+    const hostile = clone(exact);
+    const rewardTx = hostile.fcTransactions.find((tx) =>
+      tx.sourceType === 'achievement' && tx.sourceId === 'first_flip');
+    hostile.fcTransactionRollup.netAmount += rewardTx.signedAmount;
+    hostile.fcTransactionRollup.transactionCount++;
+    hostile.fcTransactions = hostile.fcTransactions.filter((tx) => tx !== rewardTx);
+    hostile.processedClaimIds = hostile.processedClaimIds.filter((id) =>
+      id !== 'achievement:first_flip');
+    hostile.revision++;
+    assert.throws(() => Profile.validateImportedState(hostile, {
+      preserveReservation: true, preserveLocalRewardEvidence: true,
+    }), /achievement reward evidence lacks its canonical processed claim/);
+    storage.setItem(Profile.storageKey, JSON.stringify(hostile));
+    const retried = store.claimAchievement(award.rewardEvidence);
+    assert.equal(retried.reason, 'duplicate');
+    assert.deepEqual(store.snapshot(), exact,
+      'hostile rolled-up evidence changes neither FXP nor FC in the live store');
+    assert.throws(() => Profile.createTestStore({ storage, productionSemantics: true,
+      achievementAuthority: evaluator.rewardAuthority }),
+    /achievement reward evidence lacks its canonical processed claim/,
+    'restart fails closed on uncorrelated durable achievement evidence');
+
+    const rival = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 815 });
+    rival.claimRivalVictory('first-light');
+    const brokenRival = clone(rival.snapshot());
+    brokenRival.processedClaimIds = brokenRival.processedClaimIds.filter((id) =>
+      id !== 'rival.first-light.first-clear');
+    assert.throws(() => Profile.validateImportedState(brokenRival, {
+      preserveReservation: true, preserveLocalRewardEvidence: true,
+      allowTestOnlyAchievementIds: true,
+    }), /rival reward evidence lacks its canonical processed claim/);
+
+    const story = Profile.createTestStore({ storage: Profile.createMemoryStorage(), now: () => 816 });
+    story.claimStoryAct('1');
+    const brokenStory = clone(story.snapshot());
+    brokenStory.processedClaimIds = brokenStory.processedClaimIds.filter((id) =>
+      id !== 'story.act.1.first-clear');
+    assert.throws(() => Profile.validateImportedState(brokenStory, {
+      preserveReservation: true, preserveLocalRewardEvidence: true,
+      allowTestOnlyAchievementIds: true,
+    }), /Story reward evidence lacks its canonical processed claim/);
+  }
+
+  // Imported V4 is an exact serialization, not a defaults-filled object.
+  {
+    const exact = clone(Profile.migrateV111({}));
+    const missing = clone(exact);
+    delete missing.matchClaimCursor;
+    assert.throws(() => Profile.validateImportedState(missing),
+      /missing required field: matchClaimCursor/);
+    const unassigned = clone(exact);
+    unassigned.lineageId = 'unassigned-v4';
+    assert.throws(() => Profile.validateImportedState(unassigned),
+      /unique assigned lineage/);
+    const namedArray = clone(exact);
+    Object.defineProperty(namedArray.achievementIds, 'shadow', {
+      value: 'not-an-index', enumerable: true,
+    });
+    assert.throws(() => Profile.validateImportedState(namedArray),
+      /exact dense arrays|Named or out-of-range array properties/);
+  }
+}
+
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
 function testBrowserExportsAndDependencyOrder() {
@@ -1721,7 +1923,7 @@ function testBrowserExportsAndDependencyOrder() {
   const missingAchievements = bareBrowserContext();
   installProfilePrerequisites(missingAchievements);
   assert.throws(() => runIn(missingAchievements, 'v112-profile.js'),
-    /achievement catalog and reward authority must load before profile/,
+    /achievement catalog must load before profile/,
   'wrong script order fails during Profile construction rather than disabling live awards');
 
   const wrongAchievements = bareBrowserContext({
@@ -1732,7 +1934,7 @@ function testBrowserExportsAndDependencyOrder() {
   });
   installProfilePrerequisites(wrongAchievements);
   assert.throws(() => runIn(wrongAchievements, 'v112-profile.js'),
-    /achievement catalog and reward authority must load before profile/,
+    /achievement catalog must load before profile/,
   'an incompatible achievement authority fails fast');
 
   const wrongLookup = bareBrowserContext({
@@ -1743,7 +1945,7 @@ function testBrowserExportsAndDependencyOrder() {
   });
   installProfilePrerequisites(wrongLookup);
   assert.throws(() => runIn(wrongLookup, 'v112-profile.js'),
-    /achievement catalog and reward authority must load before profile/,
+    /achievement catalog must load before profile/,
   'a type-compatible but semantically wrong migration lookup fails fast');
 
   const context = vm.createContext({ console, Set, Map, Object, Array, JSON, Math,
@@ -1771,30 +1973,50 @@ function testBrowserExportsAndDependencyOrder() {
   run('v112-profile-backup.js');
   run('v112-progression-runtime.js');
   assert.equal(context.FlipgameV112ProgressionRuntime.schema, 'ProgressionRuntimeV1');
+  assert.equal(context.FlipgameV112ProgressionRuntime.liveAvailable, false,
+    'classic browser scripts advertise that trusted lexical live composition is not installed');
   assert.equal(context.FlipgameV112ProfileBackup.schema, 'FlipgameProfileBackupV2');
-  ['defaultStore', 'createStore', 'createTestStore', 'reserveMatch',
+  assert.deepEqual(Object.keys(context.FlipgameV112Profile).sort(), [
+    'ProgressionStateV4', 'alienGateSatisfied', 'exportState', 'isAlienUsable',
+    'isInsaneUsable', 'journalStorageKey', 'lastPersistenceError', 'legacyKeys',
+    'migrateSetupSelection', 'migrateV111', 'persistenceStatus', 'refresh',
+    'retentionPolicy', 'schema', 'snapshot', 'storageKey', 'storyActIds',
+    'subscribe', 'validateImportedState', 'version',
+  ].sort(), 'browser Profile exposes only deterministic validators and read-only projections');
+  assert.deepEqual(Object.keys(context.FlipgameV112ProgressionRuntime).sort(), [
+    'liveAvailable', 'ownerTestIntegration', 'schema', 'version',
+    'writerCoordination', 'writerLockName',
+  ].sort(), 'browser Runtime exposes an exact unavailable/static facade');
+  ['defaultStore', 'createStore', 'createTestStore', 'connectProductionRuntime', 'reserveMatch',
+    'FcTransactionV1', 'MatchClaimTokenV1', 'MatchReceiptV1', 'createMemoryStorage',
     'consumeReservedMatch', 'claimMatch', 'claimAchievement',
     'claimRivalVictory', 'claimStoryAct', 'claimStoryReward',
     'claimStoryMatchResolution'].forEach((name) => {
     assert.equal(typeof context.FlipgameV112Profile[name], 'undefined',
       `browser Profile must not expose raw ${name}`);
   });
-  ['reserveMatch', 'claimMatch', 'claimAchievement', 'claimRivalVictory',
-    'claimStoryAct', 'claimStoryReward', 'claimStoryMatchResolution']
+  ['defaultRuntime', 'defaultRuntimeReady', 'acquireLiveRuntime', 'createTestRuntime']
     .forEach((name) => assert.equal(
-      typeof context.FlipgameV112ProgressionRuntime.defaultRuntime[name], 'undefined',
-      `live runtime must keep ${name} coordinator-private`));
-  assert.equal(typeof context.FlipgameV112ProgressionRuntime.createTestRuntime, 'undefined');
-  assert.equal(context.FlipgameV112ProgressionRuntime.defaultRuntime.writerStatus().status,
-    'unavailable', 'a browser without Web Locks is explicitly read-only');
+      typeof context.FlipgameV112ProgressionRuntime[name], 'undefined',
+      `browser Runtime must not expose uncomposed ${name}`));
+  assert.equal(context.FlipgameV112ProgressionRuntime.writerCoordination.androidAdapter,
+    'required-not-implemented');
   assert.equal(context.FlipgameV112Profile.snapshot().activeMatchReservation, null);
   assert.equal(context.FlipgameV112Profile.exportState().activeMatchReservation, null);
-  assert.equal(context.FlipgameV112ProgressionRuntime.defaultRuntime.snapshot()
-    .activeMatchReservation, null);
-  assert.equal(context.FlipgameV112ProgressionRuntime.defaultRuntime.earnedSnapshot()
-    .activeMatchReservation, null);
-  assert.equal(context.FlipgameV112ProgressionRuntime.defaultRuntime.exportState()
-    .activeMatchReservation, null);
+  assert.equal(context.FlipgameV112Profile.snapshot().matchClaimCursor,
+    context.FlipgameV112Profile.snapshot().consumedMatchOrdinal,
+    'redaction never publishes an impossible cursor gap without its bearer token');
+  const durableBeforeReadOnlyCalls = browserValues[Profile.storageKey];
+  const readOnlyState = context.FlipgameV112Profile.snapshot();
+  assert.throws(() => { readOnlyState.fxp = Number.MAX_SAFE_INTEGER; }, TypeError,
+    'browser projections are deeply immutable');
+  const callerOwnedState = clone(readOnlyState);
+  callerOwnedState.fxp = Number.MAX_SAFE_INTEGER;
+  context.FlipgameV112Profile.refresh();
+  context.FlipgameV112Profile.exportState();
+  context.FlipgameV112Profile.ProgressionStateV4(callerOwnedState);
+  assert.equal(browserValues[Profile.storageKey], durableBeforeReadOnlyCalls,
+    'browser validators and projections cannot commit or mutate canonical storage');
   const publicEvents = [];
   const detachPublic = context.FlipgameV112Profile.subscribe((state, event) => {
     publicEvents.push({ state, event });
@@ -1804,26 +2026,43 @@ function testBrowserExportsAndDependencyOrder() {
   assert.equal(publicEvents[0].event.state.activeMatchReservation, null);
   assert.equal(Object.prototype.hasOwnProperty.call(publicEvents[0].event, 'token'), false);
   detachPublic();
-  const owner = context.FlipgameV112ProgressionRuntime.defaultRuntime
-    .activateOwnerTestMode('Howe Test Mode');
-  assert.equal(owner.activated, true);
-  assert.equal(context.FlipgameV112ProgressionRuntime.defaultRuntime.snapshot()
-    .activeMatchReservation, null,
-  'Owner Test projection cannot expose a durable match bearer');
-  context.FlipgameV112ProgressionRuntime.defaultRuntime.deactivateOwnerTestMode();
   assert.ok(browserValues[Profile.storageKey].includes(seededReservation.token.nonce),
     'redaction does not destroy the private durable reservation needed for restart');
-  assert.throws(() => context.FlipgameV112Profile.connectProductionRuntime(() => null),
-    /already connected/, 'the one-shot production store bridge cannot be captured after boot');
+  const profileDescriptor = Object.getOwnPropertyDescriptor(context, 'FlipgameV112Profile');
+  const runtimeDescriptor = Object.getOwnPropertyDescriptor(context, 'FlipgameV112ProgressionRuntime');
+  assert.deepEqual({ writable: profileDescriptor.writable, configurable: profileDescriptor.configurable },
+    { writable: false, configurable: false });
+  assert.deepEqual({ writable: runtimeDescriptor.writable, configurable: runtimeDescriptor.configurable },
+    { writable: false, configurable: false });
   const profileIdentity = context.FlipgameV112Profile;
   const runtimeIdentity = context.FlipgameV112ProgressionRuntime;
-  run('v112-profile.js');
-  run('v112-progression-runtime.js');
+  assert.throws(() => run('v112-profile.js'), /already defined; refusing/,
+    'a duplicate browser Profile load fails closed instead of trusting a schema-shaped global');
+  assert.throws(() => run('v112-progression-runtime.js'), /already defined; refusing/,
+    'a duplicate browser Runtime load fails closed instead of reusing ambient authority');
   assert.equal(context.FlipgameV112Profile, profileIdentity,
-    'a repeated classic-script evaluation cannot create a second V4 store');
+    'the original read-only Profile facade remains unchanged after duplicate rejection');
   assert.equal(context.FlipgameV112ProgressionRuntime, runtimeIdentity,
-    'a repeated classic-script evaluation cannot create a second live runtime');
-  context.FlipgameV112ProgressionRuntime.defaultRuntime.close();
+    'the original unavailable Runtime facade remains unchanged after duplicate rejection');
+
+  const profilePreseed = bareBrowserContext({
+    FlipgameV112Profile: { schema: 'ProgressionStateV4', attacker: true },
+  });
+  assert.throws(() => runIn(profilePreseed, 'v112-profile.js'), /already defined; refusing/);
+  assert.equal(profilePreseed.FlipgameV112Profile.attacker, true,
+    'Profile never upgrades or returns a schema-shaped attacker object');
+  const runtimePreseed = bareBrowserContext({
+    FlipgameV112ProgressionRuntime: { schema: 'ProgressionRuntimeV1', attacker: true },
+  });
+  assert.throws(() => runIn(runtimePreseed, 'v112-progression-runtime.js'),
+    /already defined; refusing/);
+  assert.equal(runtimePreseed.FlipgameV112ProgressionRuntime.attacker, true,
+    'Runtime never upgrades or returns a schema-shaped attacker object');
+
+  assert.equal(Object.prototype.hasOwnProperty.call(globalThis, 'FlipgameV112Profile'), false,
+    'CommonJS Profile construction never publishes trusted capabilities on globalThis');
+  assert.equal(Object.prototype.hasOwnProperty.call(globalThis, 'FlipgameV112ProgressionRuntime'), false,
+    'CommonJS Runtime construction never publishes trusted capabilities on globalThis');
 }
 
 const tests = [
@@ -1854,6 +2093,7 @@ const tests = [
   testPublicMutationSurfaceHasOnlyCanonicalAuthorities,
   testLifetimeWebLockWriterBoundary,
   testInRealmWriterFenceAndEqualRevisionPoison,
+  testProfileAuthorityAdversarialRegressions,
   testBrowserExportsAndDependencyOrder,
 ];
 

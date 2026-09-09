@@ -595,11 +595,16 @@ function testBrowserExports() {
   assert.equal(context.FlipgameV112ProgressionCatalog.counts.objects, 51);
   assert.equal(context.FlipgameV112Economy.MAX_LEVEL_FXP, 3705);
   assert.equal(context.FlipgameV112Profile.snapshot().schema, 'ProgressionStateV4');
-  ['defaultStore', 'createStore', 'createTestStore', 'reserveMatch', 'claimMatch',
+  ['defaultStore', 'createStore', 'createTestStore', 'connectProductionRuntime',
+    'FcTransactionV1', 'MatchClaimTokenV1', 'MatchReceiptV1', 'createMemoryStorage',
+    'reserveMatch', 'claimMatch',
     'claimAchievement', 'claimRivalVictory', 'claimStoryAct', 'claimStoryReward',
     'claimStoryMatchResolution', 'purchaseCosmetic', 'mergeImportedState']
     .forEach((name) => assert.equal(typeof context.FlipgameV112Profile[name], 'undefined',
       `browser Profile must not expose raw ${name}`));
+  const descriptor = Object.getOwnPropertyDescriptor(context, 'FlipgameV112Profile');
+  assert.equal(descriptor.writable, false);
+  assert.equal(descriptor.configurable, false);
 }
 
 const tests = [

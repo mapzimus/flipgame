@@ -1,12 +1,11 @@
 // v112-progression-runtime.js -- one live V4 ownership, reveal, and owner-test boundary.
 (function (root, factory) {
   'use strict';
-  if (root && root.FlipgameV112ProgressionRuntime &&
-      root.FlipgameV112ProgressionRuntime.schema === 'ProgressionRuntimeV1') {
-    if (typeof module === 'object' && module.exports) module.exports = root.FlipgameV112ProgressionRuntime;
-    return;
-  }
   var commonJs = typeof module === 'object' && module.exports;
+  if (!commonJs && root &&
+      Object.prototype.hasOwnProperty.call(root, 'FlipgameV112ProgressionRuntime')) {
+    throw new Error('FlipgameV112ProgressionRuntime is already defined; refusing an ambiguous browser runtime');
+  }
   var Catalog = root && root.FlipgameV112ProgressionCatalog;
   var Economy = root && root.FlipgameV112Economy;
   var Profile = root && root.FlipgameV112Profile;
@@ -18,8 +17,13 @@
     try { Backup = require('./v112-profile-backup.js'); } catch (_) { Backup = null; }
   }
   var api = factory(Catalog, Economy, Profile, Backup, root, commonJs);
-  if (commonJs) module.exports = api;
-  if (root) root.FlipgameV112ProgressionRuntime = api;
+  if (commonJs) {
+    module.exports = api;
+  } else if (root) {
+    Object.defineProperty(root, 'FlipgameV112ProgressionRuntime', {
+      value: api, enumerable: true, writable: false, configurable: false,
+    });
+  }
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
   : (typeof window !== 'undefined' ? window : this)), function (Catalog, Economy, Profile, Backup, root, commonJs) {
@@ -30,6 +34,15 @@
 
   var OWNER_CODE = 'Howe Test Mode';
   var WRITER_LOCK_NAME = 'flipgame.profile.v4.writer';
+  var WRITER_COORDINATION = Object.freeze({
+    schema: 'ProfileWriterCoordinationV1', version: 1,
+    lockName: WRITER_LOCK_NAME,
+    lifetimeExclusive: true,
+    supportedAdapter: 'web-locks',
+    adapterInterface: 'request(name, options, callback) with exclusive lifetime ownership',
+    androidAdapter: 'required-not-implemented',
+    statuses: Object.freeze(['acquiring', 'queued', 'active', 'unavailable', 'closed']),
+  });
   var LIVE_WRITER_CAPABILITIES = new WeakSet();
   var LOCKED = Object.freeze({ locked: true, symbol: '🔒', ariaLabel: 'Locked' });
   var FEATURE_NAMES = Object.freeze({
@@ -102,7 +115,8 @@
     function writableMutation() {
       var status = writerStatus();
       return status.writable ? null : noMutation(earnedSnapshot(),
-        status.status === 'busy' ? 'writer-busy' : 'writer-read-only',
+        ['acquiring', 'queued', 'busy'].indexOf(status.status) >= 0
+          ? 'writer-busy' : 'writer-read-only',
         { writerStatus: status.status });
     }
 
@@ -112,6 +126,9 @@
       // MatchClaimTokenV1 is a private bearer capability. Public ownership,
       // UI and backup callers may observe that no usable token is available;
       // the coordinator-only authority below retains the raw projection.
+      if (projection.activeMatchReservation) {
+        projection.matchClaimCursor = projection.consumedMatchOrdinal;
+      }
       projection.activeMatchReservation = null;
       return freeze(projection);
     }
@@ -283,6 +300,10 @@
       listeners.add(listener);
       return function () { listeners.delete(listener); };
     }
+    writerControl.notifyStatus = function () {
+      emit({ type: 'writer-status', writerStatus: writerStatus(),
+        earnedState: earnedSnapshot() });
+    };
     function activateOwnerTestMode(value) {
       if (typeof value !== 'string' || value !== OWNER_CODE) {
         return freeze({ activated: false, reason: 'exact-code-required', active: ownerActive });
@@ -476,6 +497,7 @@
     if (!lockManager || typeof lockManager.request !== 'function') {
       writer.status = 'unavailable';
       writer.reason = 'web-locks-unavailable';
+      if (typeof writer.notifyStatus === 'function') writer.notifyStatus();
       resolveReady(runtime);
       return { runtime: runtime, ready: ready };
     }
@@ -485,53 +507,77 @@
       settled = true;
       resolveReady(runtime);
     }
+    function publishStatus() {
+      if (typeof writer.notifyStatus === 'function') writer.notifyStatus();
+    }
+    function fail(error) {
+      setWriterEnabled(false);
+      writer.capability = null;
+      writer.status = writer.closed ? 'closed' : 'unavailable';
+      writer.reason = writer.closed ? 'runtime-closed'
+        : (error && error.message ? error.message : 'writer-lock-failed');
+      publishStatus();
+      settle();
+    }
+    function holdLock(lock) {
+      if (!lock || writer.closed) {
+        if (writer.closed) {
+          writer.status = 'closed';
+          writer.reason = 'runtime-closed';
+        }
+        return undefined;
+      }
+      writer.capability = Object.freeze({});
+      LIVE_WRITER_CAPABILITIES.add(writer.capability);
+      // Always reconcile the complete durable profile immediately before this
+      // queued tab is allowed to mutate it.
+      if (opts.profileStore && typeof opts.profileStore.refresh === 'function') {
+        opts.profileStore.refresh();
+      }
+      if (opts.profileStore && typeof opts.profileStore.persistenceStatus === 'function' &&
+          opts.profileStore.persistenceStatus().closed) {
+        writer.capability = null;
+        writer.status = 'unavailable';
+        writer.reason = 'profile-persistence-closed';
+        publishStatus();
+        settle();
+        return undefined;
+      }
+      writer.status = 'active';
+      writer.reason = null;
+      setWriterEnabled(true);
+      publishStatus();
+      settle();
+      return new Promise(function (release) {
+        writer.release = function () {
+          writer.release = null;
+          setWriterEnabled(false);
+          writer.capability = null;
+          writer.status = 'closed';
+          writer.reason = 'runtime-closed';
+          release();
+        };
+        if (writer.closed) writer.release();
+      });
+    }
+    function queueForLock() {
+      if (writer.closed) return;
+      writer.status = 'queued';
+      writer.reason = 'writer-held-elsewhere';
+      publishStatus();
+      settle();
+      try {
+        Promise.resolve(lockManager.request(WRITER_LOCK_NAME,
+          { mode: 'exclusive' }, holdLock)).catch(fail);
+      } catch (error) { fail(error); }
+    }
     try {
       Promise.resolve(lockManager.request(WRITER_LOCK_NAME,
         { mode: 'exclusive', ifAvailable: true }, function (lock) {
-          if (!lock || writer.closed) {
-            writer.status = writer.closed ? 'closed' : 'busy';
-            writer.reason = writer.closed ? 'runtime-closed' : 'writer-held-elsewhere';
-            settle();
-            return undefined;
-          }
-          writer.capability = Object.freeze({});
-          LIVE_WRITER_CAPABILITIES.add(writer.capability);
-          // Reconcile any state written while this tab was waiting before it
-          // receives mutation authority.  This is essential on a legitimate
-          // Web Lock handoff and lets a pristine tab adopt the durable lineage.
-          if (opts.profileStore && typeof opts.profileStore.refresh === 'function') {
-            opts.profileStore.refresh();
-          }
-          if (opts.profileStore && typeof opts.profileStore.persistenceStatus === 'function' &&
-              opts.profileStore.persistenceStatus().closed) {
-            writer.capability = null;
-            writer.status = 'unavailable';
-            writer.reason = 'profile-persistence-closed';
-            settle();
-            return undefined;
-          }
-          writer.status = 'active';
-          writer.reason = null;
-          setWriterEnabled(true);
-          settle();
-          return new Promise(function (release) {
-            writer.release = function () {
-              writer.release = null;
-              setWriterEnabled(false);
-              writer.capability = null;
-              writer.status = 'closed';
-              writer.reason = 'runtime-closed';
-              release();
-            };
-            if (writer.closed) writer.release();
-          });
-        })).catch(function (error) {
-          setWriterEnabled(false);
-          writer.capability = null;
-          writer.status = 'unavailable';
-          writer.reason = error && error.message ? error.message : 'writer-lock-failed';
-          settle();
-        });
+          if (lock) return holdLock(lock);
+          queueForLock();
+          return undefined;
+        })).catch(fail);
     } catch (error) {
       writer.status = 'unavailable';
       writer.reason = error && error.message ? error.message : 'writer-lock-failed';
@@ -544,19 +590,25 @@
     return beginLiveRuntime(options).ready;
   }
 
-  var browserLockManager = null;
-  try { browserLockManager = root && root.navigator ? root.navigator.locks : null; } catch (_) {}
-  var defaultHandle = Profile.connectProductionRuntime(function (connection) {
-    return beginLiveRuntime({ profileStore: connection.profileStore,
-      setWriterEnabled: connection.setWriterEnabled,
-      lockManager: browserLockManager, backupAdapter: Backup });
-  });
   var moduleApi = {
     schema: 'ProgressionRuntimeV1', version: 1,
-    defaultRuntime: defaultHandle.runtime, defaultRuntimeReady: defaultHandle.ready,
-    acquireLiveRuntime: acquireLiveRuntime, writerLockName: WRITER_LOCK_NAME,
+    liveAvailable: false, writerLockName: WRITER_LOCK_NAME,
+    writerCoordination: WRITER_COORDINATION,
     ownerTestIntegration: OWNER_INTEGRATION,
   };
-  if (commonJs) moduleApi.createTestRuntime = createTestRuntime;
+  if (commonJs) {
+    var browserLockManager = null;
+    try { browserLockManager = root && root.navigator ? root.navigator.locks : null; } catch (_) {}
+    var defaultHandle = Profile.connectProductionRuntime(function (connection) {
+      return beginLiveRuntime({ profileStore: connection.profileStore,
+        setWriterEnabled: connection.setWriterEnabled,
+        lockManager: browserLockManager, backupAdapter: Backup });
+    });
+    moduleApi.liveAvailable = true;
+    moduleApi.defaultRuntime = defaultHandle.runtime;
+    moduleApi.defaultRuntimeReady = defaultHandle.ready;
+    moduleApi.acquireLiveRuntime = acquireLiveRuntime;
+    moduleApi.createTestRuntime = createTestRuntime;
+  }
   return freeze(moduleApi);
 });
