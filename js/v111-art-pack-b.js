@@ -358,6 +358,17 @@
       : time * DESK_GLOBE_ROTATION_RADIANS_PER_SECOND;
     var centerLongitude = (-25 + index * 29) * DESK_GLOBE_DEGREES
       + spin - objectAngle * 0.32 - accessoryLag * 0.16;
+    // The live service composites only the sphere. Rear stand, front rings,
+    // base, variant accents and all competitive geometry stay authored here.
+    var live = typeof globalThis !== 'undefined' && globalThis.FlipgameV112GlobeLive;
+    if (live && typeof live.drawSphere === 'function') {
+      try {
+        var sphere = live.drawSphere(ctx, { state: renderState, dynamics: dynamics,
+          variantIndex: index, centerX: centerX, centerY: centerY, radius: radius });
+        if (sphere && sphere.orientation) centerLongitude = sphere.orientation.centerLon;
+        if (sphere && sphere.handled) return centerLongitude;
+      } catch (_) { /* The bundled vector globe remains available if GPU paint fails. */ }
+    }
     var project = deskGlobeProjection(centerLongitude, centerX, centerY, radius);
 
     ellipsePath(ctx, centerX, centerY, radius, radius);
