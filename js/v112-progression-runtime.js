@@ -1,7 +1,25 @@
 // v112-progression-runtime.js -- one live V4 ownership, reveal, and owner-test boundary.
 (function (root, factory) {
   'use strict';
-  var commonJs = typeof module === 'object' && module.exports;
+  var nodeModule = null;
+  try {
+    if (typeof process === 'object' && process !== null &&
+        Object.prototype.toString.call(process) === '[object process]' &&
+        process.release && process.release.name === 'node' &&
+        typeof process.getBuiltinModule === 'function') {
+      nodeModule = process.getBuiltinModule('module');
+    }
+  } catch (_) { nodeModule = null; }
+  var commonJs = typeof nodeModule === 'function' && nodeModule._cache &&
+    typeof module === 'object' && module !== null && module instanceof nodeModule &&
+    typeof module.filename === 'string' && nodeModule._cache[module.filename] === module &&
+    Object.getPrototypeOf(module) === nodeModule.prototype &&
+    module.require === nodeModule.prototype.require &&
+    typeof require === 'function' && require.cache === nodeModule._cache &&
+    typeof __filename === 'string' && __filename === module.filename &&
+    typeof __dirname === 'string' &&
+    Object.prototype.hasOwnProperty.call(module, 'exports') &&
+    typeof module.require === 'function';
   if (!commonJs && root &&
       Object.prototype.hasOwnProperty.call(root, 'FlipgameV112ProgressionRuntime')) {
     throw new Error('FlipgameV112ProgressionRuntime is already defined; refusing an ambiguous browser runtime');
@@ -11,10 +29,10 @@
   var Profile = root && root.FlipgameV112Profile;
   var Backup = root && root.FlipgameV112ProfileBackup;
   if (commonJs) {
-    Catalog = require('./v112-progression-catalog.js');
-    Economy = require('./v112-economy.js');
-    Profile = require('./v112-profile.js');
-    try { Backup = require('./v112-profile-backup.js'); } catch (_) { Backup = null; }
+    Catalog = module.require('./v112-progression-catalog.js');
+    Economy = module.require('./v112-economy.js');
+    Profile = module.require('./v112-profile.js');
+    try { Backup = module.require('./v112-profile-backup.js'); } catch (_) { Backup = null; }
   }
   var api = factory(Catalog, Economy, Profile, Backup, root, commonJs);
   if (commonJs) {
@@ -51,7 +69,7 @@
     'insane-mode': 'INSANE MODE',
   });
   var ACTIVITY_IDS = new Set(['free-play', 'story', 'rival-board', 'practice', 'physics-lab', 'tutorial']);
-  var OWNER_INTEGRATION = Object.freeze({
+  var OWNER_INTEGRATION = freeze({
     schema: 'OwnerTestIntegrationV1', version: 1,
     defaultActivityId: 'practice',
     registeredActivityIds: Array.from(ACTIVITY_IDS),
@@ -65,6 +83,75 @@
     if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
     Object.keys(value).forEach(function (key) { freeze(value[key]); });
     return Object.freeze(value);
+  }
+  function publicRuntimeProjection(value) {
+    var active = new Set();
+    var nodes = 0;
+    function project(input, depth) {
+      if (input == null || typeof input === 'string' || typeof input === 'boolean' ||
+          typeof input === 'undefined') return input;
+      if (typeof input === 'number') {
+        if (!Number.isFinite(input)) throw new TypeError('Public progression value is non-finite');
+        return input;
+      }
+      if (typeof input !== 'object') {
+        throw new TypeError('Public progression value contains an unsupported type');
+      }
+      if (depth > 24 || ++nodes > 10000) {
+        throw new RangeError('Public progression projection exceeds its data bound');
+      }
+      if (active.has(input)) throw new TypeError('Public progression values cannot be cyclic');
+      var names;
+      try { names = Object.getOwnPropertyNames(input); }
+      catch (_) { throw new TypeError('Public progression value is unreadable'); }
+      var schemaDescriptor = names.indexOf('schema') >= 0
+        ? Object.getOwnPropertyDescriptor(input, 'schema') : null;
+      if (schemaDescriptor && Object.prototype.hasOwnProperty.call(schemaDescriptor, 'value') &&
+          schemaDescriptor.value === 'MatchClaimTokenV1') return null;
+      active.add(input);
+      var output;
+      if (Array.isArray(input)) {
+        names.forEach(function (key) {
+          if (key === 'length') return;
+          if (!/^(?:0|[1-9]\d*)$/.test(key) || Number(key) >= input.length) {
+            throw new TypeError('Public progression arrays must be dense data arrays');
+          }
+        });
+        output = [];
+        for (var index = 0; index < input.length; index++) {
+          var itemDescriptor = Object.getOwnPropertyDescriptor(input, String(index));
+          if (!itemDescriptor || !Object.prototype.hasOwnProperty.call(itemDescriptor, 'value')) {
+            throw new TypeError('Public progression arrays cannot contain accessors or holes');
+          }
+          output.push(project(itemDescriptor.value, depth + 1));
+        }
+      } else {
+        output = {};
+        names.forEach(function (key) {
+          if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+            throw new TypeError('Public progression value contains an unsafe key');
+          }
+          var descriptor = Object.getOwnPropertyDescriptor(input, key);
+          if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+            throw new TypeError('Public progression values cannot contain accessors');
+          }
+          if (key === 'token' || key === 'nonce' || key === 'bearerNonce' ||
+              key === 'reservedAt') return;
+          if (key === 'activeMatchReservation') {
+            output.activeMatchReservation = null;
+            return;
+          }
+          output[key] = project(descriptor.value, depth + 1);
+        });
+        if (Object.prototype.hasOwnProperty.call(output, 'matchClaimCursor') &&
+            Object.prototype.hasOwnProperty.call(output, 'consumedMatchOrdinal')) {
+          output.matchClaimCursor = output.consumedMatchOrdinal;
+        }
+      }
+      active.delete(input);
+      return output;
+    }
+    return freeze(project(value, 0));
   }
   function unique(values) {
     var seen = new Set();
@@ -94,15 +181,9 @@
     var issuedGuards = new WeakSet();
     var notificationQueue = [];
     var deliveringNotifications = false;
+    var runtimeClosed = false;
     var detach = store.subscribe(function (state, result) {
-      var safeResult = result && typeof result === 'object' ? clone(result) : result;
-      if (safeResult && typeof safeResult === 'object') {
-        delete safeResult.token;
-        if (safeResult.state && typeof safeResult.state === 'object') {
-          safeResult.state.activeMatchReservation = null;
-        }
-      }
-      emit({ type: 'profile-commit', result: safeResult,
+      emit({ type: 'profile-commit', result: publicRuntimeProjection(result),
         earnedState: publicProfileProjection(state) });
     });
 
@@ -122,15 +203,7 @@
 
     function privateSnapshot() { return store.snapshot(); }
     function publicProfileProjection(value) {
-      var projection = clone(value || privateSnapshot());
-      // MatchClaimTokenV1 is a private bearer capability. Public ownership,
-      // UI and backup callers may observe that no usable token is available;
-      // the coordinator-only authority below retains the raw projection.
-      if (projection.activeMatchReservation) {
-        projection.matchClaimCursor = projection.consumedMatchOrdinal;
-      }
-      projection.activeMatchReservation = null;
-      return freeze(projection);
+      return publicRuntimeProjection(value || privateSnapshot());
     }
     function earnedSnapshot() { return publicProfileProjection(privateSnapshot()); }
     function isObjectAvailable(id) {
@@ -248,8 +321,9 @@
       });
     }
     function activityPolicy(input) {
-      var source = input && typeof input === 'object' ? clone(input) : {};
-      if (!ownerActive) return freeze(source);
+      var source = input && typeof input === 'object'
+        ? publicRuntimeProjection(input) : freeze({});
+      if (!ownerActive) return source;
       var activityId = source.activityId == null ? OWNER_INTEGRATION.defaultActivityId : source.activityId;
       if (typeof activityId !== 'string' || !ACTIVITY_IDS.has(activityId)) {
         throw new RangeError('Owner test activity must be a registered ActivityRegistry identity');
@@ -258,7 +332,7 @@
         activityId: activityId, generation: ownerGeneration,
         testData: true, rewardsEligible: false });
       issuedGuards.add(guard);
-      return freeze(Object.assign(source, {
+      return freeze(Object.assign({}, source, {
         activityId: activityId,
         ownerTest: true, ownerTestMode: true, testData: true,
         rewardsEligible: false, progressionEligible: false,
@@ -279,7 +353,7 @@
     }
     function emit(event) {
       notificationQueue.push({ snapshot: effectiveSnapshot(),
-        event: freeze(Object.assign({ ownerTestMode: ownerActive }, event)) });
+        event: publicRuntimeProjection(Object.assign({ ownerTestMode: ownerActive }, event)) });
       if (deliveringNotifications) return;
       deliveringNotifications = true;
       try {
@@ -417,10 +491,19 @@
       if (!backup || typeof backup.importInto !== 'function') throw new Error('v1.12 profile backup is unavailable');
       return backup.importInto(value, store, currentSetup, options);
     }
+    function publicRefresh() {
+      store.refresh();
+      return earnedSnapshot();
+    }
+    function publicStoreResult(method, args) {
+      return publicRuntimeProjection(method.apply(null, args || []));
+    }
     function close() {
+      if (runtimeClosed) return;
+      runtimeClosed = true;
+      if (typeof opts.onClose === 'function') opts.onClose();
       if (typeof detach === 'function') detach();
       listeners.clear(); ownerActive = false;
-      if (typeof opts.onClose === 'function') opts.onClose();
     }
 
     var rewardAuthority = {
@@ -442,7 +525,7 @@
     var runtimeApi = {
       schema: 'ProgressionRuntimeV1', version: 1,
       snapshot: effectiveSnapshot, earnedSnapshot: earnedSnapshot,
-      refresh: store.refresh, subscribe: subscribe, close: close,
+      refresh: publicRefresh, subscribe: subscribe, close: close,
       writerStatus: writerStatus,
       listObjects: listObjects, viewObject: viewObject, viewVariant: viewVariant,
       listArenas: listArenas, viewArena: viewArena, viewFeature: viewFeature,
@@ -454,10 +537,20 @@
       ownerProjection: ownerProjection, activityPolicy: activityPolicy,
       validateOwnerTestGuard: validateOwnerTestGuard,
       ownerTestIntegration: OWNER_INTEGRATION,
-      purchaseCosmetic: purchaseCosmetic,
-      pendingReveals: pendingReveals, dismissReveal: dismissReveal,
-      dismissAllReveals: dismissAllReveals,
-      exportState: earnedSnapshot, exportBackup: exportBackup, importBackup: importBackup,
+      purchaseCosmetic: function (id) {
+        return publicStoreResult(purchaseCosmetic, [id]);
+      },
+      pendingReveals: pendingReveals,
+      dismissReveal: function (id) {
+        return publicStoreResult(dismissReveal, [id]);
+      },
+      dismissAllReveals: function () {
+        return publicStoreResult(dismissAllReveals);
+      },
+      exportState: earnedSnapshot, exportBackup: exportBackup,
+      importBackup: function (value, currentSetup, options) {
+        return publicStoreResult(importBackup, [value, currentSetup, options]);
+      },
     };
     if (testOnly) {
       // Test runtimes expose the mutation verbs used by headless fixtures,
@@ -468,7 +561,11 @@
         'reserveMatch', 'resumeMatchReservation', 'claimMatch', 'abandonMatch',
         'claimAchievement', 'claimStoryMatchResolution', 'claimRivalVictory',
         'claimStoryAct', 'claimStoryReward',
-      ].forEach(function (name) { runtimeApi[name] = rewardAuthority[name]; });
+      ].forEach(function (name) {
+        runtimeApi[name] = function () {
+          return publicStoreResult(rewardAuthority[name], Array.prototype.slice.call(arguments));
+        };
+      });
     }
     return freeze(runtimeApi);
   }
@@ -487,21 +584,15 @@
       release: null, closed: false };
     var resolveReady;
     var ready = new Promise(function (resolve) { resolveReady = resolve; });
-    var runtime = createRuntime({ profileStore: opts.profileStore,
-      backupAdapter: opts.backupAdapter || Backup, writerControl: writer,
-      installRewardAuthority: opts.installRewardAuthority,
-      onClose: function () {
-        writer.closed = true;
-        if (typeof writer.release === 'function') writer.release();
-      } });
-    if (!lockManager || typeof lockManager.request !== 'function') {
-      writer.status = 'unavailable';
-      writer.reason = 'web-locks-unavailable';
-      if (typeof writer.notifyStatus === 'function') writer.notifyStatus();
-      resolveReady(runtime);
-      return { runtime: runtime, ready: ready };
-    }
     var settled = false;
+    var abortController = null;
+    var AbortCtor = opts.AbortController;
+    if (typeof AbortCtor !== 'function') {
+      try { AbortCtor = root && root.AbortController; } catch (_) { AbortCtor = null; }
+    }
+    if (typeof AbortCtor === 'function') {
+      try { abortController = new AbortCtor(); } catch (_) { abortController = null; }
+    }
     function settle() {
       if (settled) return;
       settled = true;
@@ -509,6 +600,39 @@
     }
     function publishStatus() {
       if (typeof writer.notifyStatus === 'function') writer.notifyStatus();
+    }
+    function closeWriter() {
+      if (writer.closed) { settle(); return; }
+      writer.closed = true;
+      setWriterEnabled(false);
+      writer.capability = null;
+      writer.status = 'closed';
+      writer.reason = 'runtime-closed';
+      if (abortController && abortController.signal &&
+          abortController.signal.aborted !== true) {
+        try { abortController.abort(); } catch (_) {}
+      }
+      var release = writer.release;
+      writer.release = null;
+      if (typeof release === 'function') release();
+      publishStatus();
+      settle();
+    }
+    var runtime = createRuntime({ profileStore: opts.profileStore,
+      backupAdapter: opts.backupAdapter || Backup, writerControl: writer,
+      installRewardAuthority: opts.installRewardAuthority,
+      onClose: closeWriter });
+    if (!lockManager || typeof lockManager.request !== 'function') {
+      writer.status = 'unavailable';
+      writer.reason = 'web-locks-unavailable';
+      if (typeof writer.notifyStatus === 'function') writer.notifyStatus();
+      settle();
+      return { runtime: runtime, ready: ready };
+    }
+    function requestOptions(source) {
+      var output = Object.assign({}, source);
+      if (abortController && abortController.signal) output.signal = abortController.signal;
+      return output;
     }
     function fail(error) {
       setWriterEnabled(false);
@@ -527,13 +651,12 @@
         }
         return undefined;
       }
-      writer.capability = Object.freeze({});
-      LIVE_WRITER_CAPABILITIES.add(writer.capability);
       // Always reconcile the complete durable profile immediately before this
       // queued tab is allowed to mutate it.
       if (opts.profileStore && typeof opts.profileStore.refresh === 'function') {
         opts.profileStore.refresh();
       }
+      if (writer.closed) return undefined;
       if (opts.profileStore && typeof opts.profileStore.persistenceStatus === 'function' &&
           opts.profileStore.persistenceStatus().closed) {
         writer.capability = null;
@@ -543,6 +666,9 @@
         settle();
         return undefined;
       }
+      if (writer.closed) return undefined;
+      writer.capability = Object.freeze({});
+      LIVE_WRITER_CAPABILITIES.add(writer.capability);
       writer.status = 'active';
       writer.reason = null;
       setWriterEnabled(true);
@@ -551,10 +677,6 @@
       return new Promise(function (release) {
         writer.release = function () {
           writer.release = null;
-          setWriterEnabled(false);
-          writer.capability = null;
-          writer.status = 'closed';
-          writer.reason = 'runtime-closed';
           release();
         };
         if (writer.closed) writer.release();
@@ -568,19 +690,22 @@
       settle();
       try {
         Promise.resolve(lockManager.request(WRITER_LOCK_NAME,
-          { mode: 'exclusive' }, holdLock)).catch(fail);
+          requestOptions({ mode: 'exclusive' }), holdLock)).catch(fail);
       } catch (error) { fail(error); }
     }
     try {
       Promise.resolve(lockManager.request(WRITER_LOCK_NAME,
-        { mode: 'exclusive', ifAvailable: true }, function (lock) {
+        requestOptions({ mode: 'exclusive', ifAvailable: true }), function (lock) {
           if (lock) return holdLock(lock);
           queueForLock();
           return undefined;
         })).catch(fail);
     } catch (error) {
+      setWriterEnabled(false);
+      writer.capability = null;
       writer.status = 'unavailable';
       writer.reason = error && error.message ? error.message : 'writer-lock-failed';
+      publishStatus();
       settle();
     }
     return { runtime: runtime, ready: ready };

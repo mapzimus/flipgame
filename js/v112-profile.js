@@ -1,7 +1,25 @@
 // v112-profile.js -- canonical transactional local profile and v1.11 migration.
 (function (root, factory) {
   'use strict';
-  var commonJs = typeof module === 'object' && module.exports;
+  var nodeModule = null;
+  try {
+    if (typeof process === 'object' && process !== null &&
+        Object.prototype.toString.call(process) === '[object process]' &&
+        process.release && process.release.name === 'node' &&
+        typeof process.getBuiltinModule === 'function') {
+      nodeModule = process.getBuiltinModule('module');
+    }
+  } catch (_) { nodeModule = null; }
+  var commonJs = typeof nodeModule === 'function' && nodeModule._cache &&
+    typeof module === 'object' && module !== null && module instanceof nodeModule &&
+    typeof module.filename === 'string' && nodeModule._cache[module.filename] === module &&
+    Object.getPrototypeOf(module) === nodeModule.prototype &&
+    module.require === nodeModule.prototype.require &&
+    typeof require === 'function' && require.cache === nodeModule._cache &&
+    typeof __filename === 'string' && __filename === module.filename &&
+    typeof __dirname === 'string' &&
+    Object.prototype.hasOwnProperty.call(module, 'exports') &&
+    typeof module.require === 'function';
   if (!commonJs && root &&
       Object.prototype.hasOwnProperty.call(root, 'FlipgameV112Profile')) {
     throw new Error('FlipgameV112Profile is already defined; refusing an ambiguous browser profile');
@@ -11,10 +29,10 @@
   var LegacyProgression = root && root.FlipgameV111Progression;
   var Achievements = root && root.FlipgameV112Achievements;
   if (commonJs) {
-    Catalog = require('./v112-progression-catalog.js');
-    Economy = require('./v112-economy.js');
-    LegacyProgression = require('./v111-progression.js');
-    Achievements = require('./v112-achievements.js');
+    Catalog = module.require('./v112-progression-catalog.js');
+    Economy = module.require('./v112-economy.js');
+    LegacyProgression = module.require('./v111-progression.js');
+    Achievements = module.require('./v112-achievements.js');
   }
   var api = factory(Catalog, Economy, LegacyProgression, Achievements, root, commonJs);
   if (commonJs) {
@@ -586,8 +604,11 @@
   function MatchReceiptV1(value) {
     var fields = new Set([
       'schema', 'version', 'matchId', 'activityId', 'ordinal', 'resolution',
+      'bearerNonce', 'reservedAt',
     ]);
-    var source = exactOwnRecord(value, fields, Array.from(fields), 'MatchReceiptV1');
+    var source = exactOwnRecord(value, fields, [
+      'schema', 'version', 'matchId', 'activityId', 'ordinal', 'resolution',
+    ], 'MatchReceiptV1');
     if (source.schema !== 'MatchReceiptV1' || source.version !== 1) {
       throw new TypeError('Match receipt must use MatchReceiptV1');
     }
@@ -599,11 +620,23 @@
     if (!MATCH_ACTIVITY_IDS.has(activityId)) {
       throw new RangeError('Match receipt activity is not reward-bearing');
     }
-    return freeze({ schema: 'MatchReceiptV1', version: 1,
+    var receipt = { schema: 'MatchReceiptV1', version: 1,
       matchId: exactId(source.matchId, 'MatchReceiptV1.matchId'),
       activityId: activityId,
       ordinal: exactUnsignedInteger(source.ordinal, 'MatchReceiptV1.ordinal'),
-      resolution: resolution });
+      resolution: resolution };
+    var hasBearerNonce = Object.prototype.hasOwnProperty.call(source, 'bearerNonce');
+    var hasReservedAt = Object.prototype.hasOwnProperty.call(source, 'reservedAt');
+    if (hasBearerNonce || hasReservedAt) {
+      if (!hasBearerNonce || !hasReservedAt) {
+        throw new TypeError('Match receipt bearer identity must be complete');
+      }
+      receipt.bearerNonce = exactId(source.bearerNonce,
+        'MatchReceiptV1.bearerNonce');
+      receipt.reservedAt = exactUnsignedInteger(source.reservedAt,
+        'MatchReceiptV1.reservedAt');
+    }
+    return freeze(receipt);
   }
 
   function normalizeMatchReceipts(values, consumedOrdinal) {
@@ -1644,6 +1677,8 @@
         activityId: quarantinedReservation.activityId,
         ordinal: quarantinedReservation.ordinal,
         resolution: 'abandoned',
+        bearerNonce: quarantinedReservation.nonce,
+        reservedAt: quarantinedReservation.reservedAt,
       })]);
       source.consumedMatchOrdinal = quarantinedReservation.ordinal;
       source.activeMatchReservation = null;
@@ -1813,7 +1848,9 @@
       var nextReceipt = incoming.matchReceipts[receiptIndex];
       return !nextReceipt || nextReceipt.matchId !== receipt.matchId ||
         nextReceipt.activityId !== receipt.activityId ||
-        nextReceipt.ordinal !== receipt.ordinal || nextReceipt.resolution !== receipt.resolution;
+        nextReceipt.ordinal !== receipt.ordinal || nextReceipt.resolution !== receipt.resolution ||
+        nextReceipt.bearerNonce !== receipt.bearerNonce ||
+        nextReceipt.reservedAt !== receipt.reservedAt;
     })) return false;
     if (current.activeMatchReservation) {
       var stillActive = incoming.activeMatchReservation &&
@@ -1825,7 +1862,10 @@
         if (!consumedReceipt ||
             consumedReceipt.ordinal !== current.activeMatchReservation.ordinal ||
             consumedReceipt.matchId !== current.activeMatchReservation.matchId ||
-            consumedReceipt.activityId !== current.activeMatchReservation.activityId) return false;
+            consumedReceipt.activityId !== current.activeMatchReservation.activityId ||
+            consumedReceipt.bearerNonce !== current.activeMatchReservation.nonce ||
+            consumedReceipt.reservedAt !==
+              current.activeMatchReservation.reservedAt) return false;
       }
     }
     if (incoming.fcTransactionRollup.transactionCount < current.fcTransactionRollup.transactionCount) return false;
@@ -2210,7 +2250,8 @@
       }
       draft.matchReceipts.push(MatchReceiptV1({ schema: 'MatchReceiptV1', version: 1,
         matchId: token.matchId, activityId: token.activityId,
-        ordinal: token.ordinal, resolution: resolution }));
+        ordinal: token.ordinal, resolution: resolution,
+        bearerNonce: token.nonce, reservedAt: token.reservedAt }));
     }
     function reserveMatch(matchId, activityId) {
       var immutableMatchId = exactId(matchId, 'matchId');
@@ -2261,7 +2302,16 @@
       refresh();
       if (token.lineageId !== state.lineageId) throw new RangeError('Match token belongs to another profile lineage');
       if (!state.activeMatchReservation) {
-        if (token.ordinal <= state.consumedMatchOrdinal) return { token: token, duplicate: true };
+        if (token.ordinal <= state.consumedMatchOrdinal) {
+          var receipt = state.matchReceipts[token.ordinal - 1];
+          if (!receipt || receipt.ordinal !== token.ordinal ||
+              receipt.matchId !== token.matchId || receipt.activityId !== token.activityId ||
+              receipt.bearerNonce == null || receipt.reservedAt == null ||
+              receipt.bearerNonce !== token.nonce || receipt.reservedAt !== token.reservedAt) {
+            throw new RangeError('Resolved match token does not match its exact durable receipt');
+          }
+          return { token: token, duplicate: true };
+        }
         throw new RangeError('Match token is not the active reservation');
       }
       if (!sameMatchToken(token, state.activeMatchReservation)) {
@@ -2897,22 +2947,36 @@
     return createStore(source);
   }
 
-  function publicProfileProjection(value) {
-    var projected = clone(value);
-    if (projected.activeMatchReservation) {
-      projected.matchClaimCursor = projected.consumedMatchOrdinal;
+  function scrubPublicClone(value) {
+    if (value == null || typeof value !== 'object') return value;
+    if (value.schema === 'MatchClaimTokenV1') return null;
+    if (Array.isArray(value)) return value.map(scrubPublicClone);
+    var output = {};
+    Object.keys(value).forEach(function (key) {
+      if (key === 'token' || key === 'nonce' || key === 'bearerNonce' ||
+          key === 'reservedAt') return;
+      if (key === 'activeMatchReservation') {
+        output.activeMatchReservation = null;
+        return;
+      }
+      output[key] = scrubPublicClone(value[key]);
+    });
+    if (Object.prototype.hasOwnProperty.call(output, 'matchClaimCursor') &&
+        Object.prototype.hasOwnProperty.call(output, 'consumedMatchOrdinal')) {
+      output.matchClaimCursor = output.consumedMatchOrdinal;
     }
-    projected.activeMatchReservation = null;
-    return ProgressionStateV4(projected);
+    return output;
+  }
+  function publicProjection(value) {
+    return freeze(scrubPublicClone(safeClone(value)));
+  }
+  function publicProfileProjection(value) {
+    return ProgressionStateV4(publicProjection(value));
   }
   function publicProfileEvent(event, projectedState) {
-    var output = Object.create(null);
-    Object.keys(event || {}).forEach(function (key) {
-      if (key === 'token' || key === 'state') return;
-      output[key] = event[key];
-    });
-    output.state = projectedState;
-    return freeze(output);
+    var source = safeClone(event || Object.create(null));
+    source.state = projectedState;
+    return publicProjection(source);
   }
   function publicSnapshot() { return publicProfileProjection(defaultStore.snapshot()); }
   function publicRefresh() { return publicProfileProjection(defaultStore.refresh()); }

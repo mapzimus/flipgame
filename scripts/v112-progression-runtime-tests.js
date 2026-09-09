@@ -24,14 +24,17 @@ function rewardInput(extra = {}) {
 function harness(seed) {
   const storage = Profile.createMemoryStorage(seed);
   const store = Profile.createTestStore({ storage, now: () => 12345 });
-  const runtime = Runtime.createTestRuntime({ profileStore: store, backupAdapter: Backup });
-  return { storage, store, runtime };
+  let authority = null;
+  const runtime = Runtime.createTestRuntime({ profileStore: store, backupAdapter: Backup,
+    installRewardAuthority(value) { authority = value; } });
+  assert.ok(authority, 'the test harness receives the private reward authority explicitly');
+  return { storage, store, runtime, authority };
 }
 
 function reserveAndClaim(h, matchId, input = rewardInput(), activityId = 'free-play') {
-  const reservation = h.runtime.reserveMatch(matchId, activityId);
+  const reservation = h.authority.reserveMatch(matchId, activityId);
   assert.ok(reservation.applied || reservation.resumed, `failed to reserve ${matchId}`);
-  return h.runtime.claimMatch(reservation.token, input);
+  return h.authority.claimMatch(reservation.token, input);
 }
 
 let fixtureAwardSequence = 0;
@@ -70,6 +73,40 @@ function earnFixtureFc(store, targetBalance, label = 'fc-fixture') {
     ids.push(canonicalAward(store, 'legendary', label).id);
   }
   return ids;
+}
+
+function assertNoPublicMatchBearer(value, forbiddenValues = []) {
+  const seen = new Set();
+  function visit(node, pathLabel) {
+    if (node == null || typeof node !== 'object') {
+      if (typeof node === 'string') {
+        forbiddenValues.forEach((secret) => assert.notEqual(node, secret,
+          `${pathLabel} leaked a private match bearer`));
+      }
+      return;
+    }
+    assert.equal(seen.has(node), false, `${pathLabel} unexpectedly contains a cycle`);
+    seen.add(node);
+    assert.equal(node.schema === 'MatchClaimTokenV1', false,
+      `${pathLabel} exposed MatchClaimTokenV1`);
+    Object.getOwnPropertyNames(node).forEach((key) => {
+      if (Array.isArray(node) && key === 'length') return;
+      assert.equal(['token', 'nonce', 'bearerNonce', 'reservedAt'].includes(key), false,
+        `${pathLabel}.${key} exposed private match authority`);
+      const descriptor = Object.getOwnPropertyDescriptor(node, key);
+      assert.ok(descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value'),
+        `${pathLabel}.${key} must be projected data rather than an accessor`);
+      visit(descriptor.value, `${pathLabel}.${key}`);
+    });
+    if (Object.prototype.hasOwnProperty.call(node, 'matchClaimCursor') &&
+        Object.prototype.hasOwnProperty.call(node, 'consumedMatchOrdinal')) {
+      assert.equal(node.matchClaimCursor, node.consumedMatchOrdinal,
+        `${pathLabel} publishes no unreachable cursor beyond the consumed frontier`);
+    }
+    assert.equal(Object.isFrozen(node), true, `${pathLabel} is recursively immutable`);
+    seen.delete(node);
+  }
+  visit(value, 'publicValue');
 }
 
 function testSingleV4MigrationAndImmediateSelection() {
@@ -112,27 +149,27 @@ function testExactMatchIdempotenceAndAtomicFailure() {
     if (event.type === 'profile-commit' && event.result && event.result.consumed) notifications++;
   },
     { emitCurrent: false });
-  const reservation = h.runtime.reserveMatch('immutable-match-1', 'free-play');
-  const first = h.runtime.claimMatch(reservation.token, rewardInput({ humanWon: true }));
+  const reservation = h.authority.reserveMatch('immutable-match-1', 'free-play');
+  const first = h.authority.claimMatch(reservation.token, rewardInput({ humanWon: true }));
   assert.equal(first.applied, true);
   const committed = h.store.snapshot();
-  assert.equal(h.runtime.claimMatch(reservation.token, rewardInput({ humanWon: false })).reason,
+  assert.equal(h.authority.claimMatch(reservation.token, rewardInput({ humanWon: false })).reason,
     'duplicate');
   assert.deepEqual(h.store.snapshot(), committed);
   assert.equal(notifications, 1);
-  assert.throws(() => h.runtime.reserveMatch(' immutable-match-1', 'free-play'),
+  assert.throws(() => h.authority.reserveMatch(' immutable-match-1', 'free-play'),
     /exact string identifier/);
-  assert.throws(() => h.runtime.reserveMatch(7, 'free-play'), /exact string identifier/);
+  assert.throws(() => h.authority.reserveMatch(7, 'free-play'), /exact string identifier/);
 
-  const failedReservation = h.runtime.reserveMatch('immutable-match-failed', 'free-play');
+  const failedReservation = h.authority.reserveMatch('immutable-match-failed', 'free-play');
   const reserved = h.store.snapshot();
   h.storage.failNextWrite();
-  const failed = h.runtime.claimMatch(failedReservation.token, rewardInput());
+  const failed = h.authority.claimMatch(failedReservation.token, rewardInput());
   assert.equal(failed.reason, 'persistence-failed');
   assert.deepEqual(h.store.snapshot(), reserved);
   assert.equal(notifications, 1, 'a failed write is never published');
   assert.ok(!h.store.snapshot().processedClaimIds.includes('match:immutable-match-failed'));
-  assert.equal(h.runtime.claimMatch(failedReservation.token, rewardInput()).applied, true,
+  assert.equal(h.authority.claimMatch(failedReservation.token, rewardInput()).applied, true,
     'a failed consume leaves the exact reservation resumable');
   h.runtime.close();
 }
@@ -181,8 +218,8 @@ function testAllClaimsPublishImmediately() {
   h.runtime.subscribe((_state, event) => { if (event.type === 'profile-commit') events.push(event); },
     { emitCurrent: false });
   reserveAndClaim(h, 'publish:match', rewardInput());
-  h.runtime.claimRivalVictory('first-light');
-  h.runtime.claimStoryAct('1');
+  h.authority.claimRivalVictory('first-light');
+  h.authority.claimStoryAct('1');
   earnFixtureFc(h.store, 500, 'publish-store-seed');
   h.runtime.purchaseCosmetic('finish.chrome');
   assert.ok(events.length >= 7, 'reservation, consumption, and every canonical award publish immediately');
@@ -227,6 +264,13 @@ function testLockSecrecy() {
 
 function testExactEphemeralOwnerMode() {
   const h = harness();
+  assert.equal(Object.isFrozen(Runtime.ownerTestIntegration), true);
+  assert.equal(Object.isFrozen(Runtime.ownerTestIntegration.registeredActivityIds), true,
+    'the owner-test integration registry is recursively immutable');
+  assert.throws(() => Runtime.ownerTestIntegration.registeredActivityIds.push('attacker'),
+    TypeError);
+  assert.deepEqual(Runtime.ownerTestIntegration.registeredActivityIds,
+    ['free-play', 'story', 'rival-board', 'practice', 'physics-lab', 'tutorial']);
   const earnedBefore = JSON.stringify(h.runtime.earnedSnapshot());
   ['howe test mode', 'Howe Test Mode ', 'HOWE TEST MODE', 'Hоwe Test Mode',
     'Howe  Test Mode', new String('Howe Test Mode')].forEach((attempt) => {
@@ -1141,6 +1185,37 @@ function testDurableImmutableMatchReceiptsAndCapacity() {
   assert.equal(first.consumeReservedMatch(active.token, rewardInput()).applied, true);
 
   const afterConsume = Profile.createTestStore({ storage, now: () => 601 });
+  const consumedReceipt = afterConsume.snapshot().matchReceipts[0];
+  assert.equal(consumedReceipt.bearerNonce, active.token.nonce);
+  assert.equal(consumedReceipt.reservedAt, active.token.reservedAt);
+  const incompleteBearerReceipt = clone(afterConsume.snapshot());
+  delete incompleteBearerReceipt.matchReceipts[0].reservedAt;
+  assert.throws(() => Profile.ProgressionStateV4(incompleteBearerReceipt),
+    /bearer identity must be complete/,
+  'new private receipt identity is accepted only as one exact pair');
+  assert.equal(afterConsume.consumeReservedMatch(active.token, rewardInput()).reason, 'duplicate',
+    'the exact consumed bearer remains idempotent after restart');
+  const sameLengthDifferentNonce = {
+    ...active.token,
+    nonce: active.token.nonce.slice(0, -1) +
+      (active.token.nonce.endsWith('0') ? '1' : '0'),
+  };
+  assert.equal(sameLengthDifferentNonce.nonce.length, active.token.nonce.length);
+  assert.throws(() => afterConsume.consumeReservedMatch(sameLengthDifferentNonce, rewardInput()),
+    /exact durable receipt/,
+  'same-shape and same-length bearer strings never collide');
+  assert.throws(() => afterConsume.consumeReservedMatch({
+    ...active.token, reservedAt: active.token.reservedAt + 1,
+  }, rewardInput()), /exact durable receipt/,
+  'the original reservation time is part of exact durable identity');
+  assert.throws(() => afterConsume.consumeReservedMatch({
+    ...active.token, matchId: 'receipt-active-forged',
+  }, rewardInput()), /exact durable receipt/,
+  'a behind-frontier ordinal cannot be replayed for another match ID');
+  assert.throws(() => afterConsume.consumeReservedMatch({
+    ...active.token, activityId: 'story',
+  }, rewardInput()), /exact durable receipt/,
+  'a behind-frontier ordinal cannot be replayed for another activity');
   const consumedRetry = afterConsume.reserveMatch('receipt-active', 'free-play');
   assert.equal(consumedRetry.reason, 'match-already-resolved');
   assert.equal(consumedRetry.resolution, 'consumed');
@@ -1583,6 +1658,90 @@ function testPublicMutationSurfaceHasOnlyCanonicalAuthorities() {
   h.runtime.close();
 }
 
+function testRecursivePublicProjectionRedactsEveryMatchBearer() {
+  const h = harness();
+  const publicEvents = [];
+  h.runtime.subscribe((state, event) => publicEvents.push({ state, event }),
+    { emitCurrent: false });
+
+  const reservation = h.authority.reserveMatch('recursive-redaction', 'free-play');
+  const secret = reservation.token.nonce;
+  assert.ok(secret);
+  assert.equal(h.authority.snapshot().activeMatchReservation.nonce, secret,
+    'the private reward authority retains the live bearer');
+  assert.equal(h.runtime.resumeMatchReservation(), null,
+    'a public test facade cannot recover the private reservation token');
+  [h.runtime.snapshot(), h.runtime.earnedSnapshot(), h.runtime.refresh(),
+    h.runtime.exportState(), h.runtime.reserveMatch('recursive-redaction', 'free-play')]
+    .forEach((value) => assertNoPublicMatchBearer(value, [secret]));
+  assertNoPublicMatchBearer(h.runtime.activityPolicy({ activityId: 'free-play',
+    nested: { token: reservation.token, nonce: secret } }), [secret]);
+  assert.ok(publicEvents.length >= 1);
+  publicEvents.forEach((delivery) => {
+    assertNoPublicMatchBearer(delivery.state, [secret]);
+    assertNoPublicMatchBearer(delivery.event, [secret]);
+    if (delivery.event.result && delivery.event.result.state) {
+      assert.equal(delivery.event.result.state.matchClaimCursor,
+        delivery.event.result.state.consumedMatchOrdinal,
+      'subscriber result.state reconciles its cursor to the visible consumed frontier');
+    }
+  });
+
+  publicEvents.length = 0;
+  const publicClaim = h.runtime.claimMatch(reservation.token, rewardInput({ humanWon: true }));
+  assert.equal(publicClaim.applied, true);
+  assertNoPublicMatchBearer(publicClaim, [secret]);
+  assertNoPublicMatchBearer(h.runtime.snapshot(), [secret]);
+  assert.ok(publicEvents.some((delivery) => delivery.event.result &&
+    delivery.event.result.consumed === true));
+  publicEvents.forEach((delivery) => {
+    assertNoPublicMatchBearer(delivery.state, [secret]);
+    assertNoPublicMatchBearer(delivery.event, [secret]);
+  });
+
+  const rawReceipt = h.authority.snapshot().matchReceipts[0];
+  assert.equal(rawReceipt.bearerNonce, secret,
+    'the private exact receipt retains collision-free replay identity');
+  const privateBackup = h.runtime.exportBackup({}, { createdAt: 901 });
+  const privatePayload = Backup.parse(privateBackup).payload.profileV4;
+  assert.equal(privatePayload.matchReceipts[0].bearerNonce, secret,
+    'the checksummed private backup boundary preserves exact replay identity');
+
+  earnFixtureFc(h.store, 250, 'projection-store');
+  const purchase = h.runtime.purchaseCosmetic('finish.chrome');
+  assert.equal(purchase.applied, true);
+  assertNoPublicMatchBearer(purchase, [secret]);
+  const revealId = h.runtime.pendingReveals()[0].id;
+  assertNoPublicMatchBearer(h.runtime.dismissReveal(revealId), [secret]);
+  assertNoPublicMatchBearer(h.runtime.dismissAllReveals(), [secret]);
+
+  const target = harness();
+  const imported = target.runtime.importBackup(privateBackup, {});
+  assert.equal(imported.imported, true);
+  assertNoPublicMatchBearer(imported, [secret]);
+  assertNoPublicMatchBearer(target.runtime.snapshot(), [secret]);
+  target.runtime.close();
+  h.runtime.close();
+
+  let injectedSubscriber = null;
+  let getterCalls = 0;
+  const baseline = Profile.migrateV111({});
+  const fakeStore = {
+    snapshot() { return baseline; },
+    subscribe(listener) { injectedSubscriber = listener; return () => {}; },
+  };
+  const fakeRuntime = Runtime.createTestRuntime({ profileStore: fakeStore });
+  const accessor = {};
+  Object.defineProperty(accessor, 'nonce', { enumerable: true, get() {
+    getterCalls++; return secret;
+  } });
+  assert.throws(() => injectedSubscriber(baseline, { nested: accessor }),
+    /cannot contain accessors/,
+  'malicious store events fail closed rather than invoking nested getters');
+  assert.equal(getterCalls, 0);
+  fakeRuntime.close();
+}
+
 async function testLifetimeWebLockWriterBoundary() {
   function lockManager() {
     let held = false;
@@ -1622,7 +1781,10 @@ async function testLifetimeWebLockWriterBoundary() {
     installRewardAuthority(authority) { firstAuthority = authority; } });
   assert.deepEqual(first.writerStatus(), { writable: true, status: 'active', reason: null });
   assert.equal(locks.requests[0].name, Runtime.writerLockName);
-  assert.deepEqual(locks.requests[0].options, { mode: 'exclusive', ifAvailable: true });
+  assert.equal(locks.requests[0].options.mode, 'exclusive');
+  assert.equal(locks.requests[0].options.ifAvailable, true);
+  assert.equal(locks.requests[0].options.signal.aborted, false,
+    'the lifetime request carries a cancellable signal');
   const reserved = firstAuthority.reserveMatch('locked-writer-a', 'free-play');
   assert.equal(reserved.applied, true);
   assert.equal(firstAuthority.claimMatch(reserved.token, rewardInput()).applied, true);
@@ -1666,8 +1828,12 @@ async function testLifetimeWebLockWriterBoundary() {
   assert.equal(secondReservation.token.ordinal, 2,
     'the queued tab refreshes the durable receipt frontier before issuing a token');
   assert.equal(secondAuthority.claimMatch(secondReservation.token, rewardInput()).applied, true);
-  assert.deepEqual(locks.requests[2].options, { mode: 'exclusive' },
+  assert.equal(locks.requests[2].options.mode, 'exclusive',
     'a failed nonblocking probe is followed by a real queued Web Lock request');
+  assert.equal(Object.prototype.hasOwnProperty.call(locks.requests[2].options,
+    'ifAvailable'), false);
+  assert.equal(locks.requests[2].options.signal, locks.requests[1].options.signal,
+    'the probe and queued request share one lifecycle cancellation signal');
   second.close(); unsupported.close();
   await Promise.resolve();
   let thirdWritable = false;
@@ -1682,6 +1848,141 @@ async function testLifetimeWebLockWriterBoundary() {
   assert.equal(Runtime.writerCoordination.androidAdapter, 'required-not-implemented');
   assert.equal(Runtime.writerCoordination.lifetimeExclusive, true);
   third.close();
+}
+
+async function testQueuedWriterCloseAbortAndReentrantRefresh() {
+  function controlledQueueManager(honorAbort) {
+    const requests = [];
+    const queued = [];
+    return {
+      requests,
+      queued,
+      request(name, options, callback) {
+        requests.push({ name, options });
+        if (options.ifAvailable) return Promise.resolve(callback(null));
+        return new Promise((resolve, reject) => {
+          const entry = { name, options, callback, resolve, reject, cancelled: false };
+          queued.push(entry);
+          if (honorAbort && options.signal &&
+              typeof options.signal.addEventListener === 'function') {
+            options.signal.addEventListener('abort', () => {
+              entry.cancelled = true;
+              const index = queued.indexOf(entry);
+              if (index >= 0) queued.splice(index, 1);
+              const error = new Error('queued lock aborted');
+              error.name = 'AbortError';
+              reject(error);
+            }, { once: true });
+          }
+        });
+      },
+      async grantEvenIfCancelled() {
+        const entry = queued.shift();
+        assert.ok(entry, 'one queued lock callback is available');
+        try {
+          const result = await Promise.resolve(entry.callback(Object.freeze({
+            name: entry.name, mode: 'exclusive',
+          })));
+          entry.resolve(result);
+        } catch (error) { entry.reject(error); }
+        await Promise.resolve();
+      },
+    };
+  }
+
+  // A lock manager that ignores AbortSignal may invoke a queued callback much
+  // later. Closing must still be immediately observable and that callback can
+  // never resurrect writer authority.
+  {
+    const manager = controlledQueueManager(false);
+    let writable = false;
+    const writes = [];
+    let authority;
+    const store = Profile.createTestStore({ storage: Profile.createMemoryStorage(),
+      writeAuthority: () => writable });
+    const runtime = await Runtime.acquireLiveRuntime({ profileStore: store,
+      lockManager: manager,
+      setWriterEnabled(value) { writable = value; writes.push(value); },
+      installRewardAuthority(value) { authority = value; } });
+    assert.equal(runtime.writerStatus().status, 'queued');
+    const statusEvents = [];
+    runtime.subscribe((_state, event) => {
+      if (event.type === 'writer-status') statusEvents.push(event.writerStatus.status);
+    }, { emitCurrent: false });
+    const signal = manager.requests[1].options.signal;
+    assert.equal(signal.aborted, false);
+    runtime.close();
+    assert.deepEqual(runtime.writerStatus(), {
+      writable: false, status: 'closed', reason: 'runtime-closed',
+    });
+    assert.equal(signal.aborted, true,
+      'closing a queued runtime aborts the pending Web Lock request immediately');
+    assert.deepEqual(statusEvents, ['closed'],
+      'the close transition publishes before runtime subscribers detach');
+    assert.equal(authority.reserveMatch('late-queued-writer', 'free-play').reason,
+      'writer-read-only');
+    await manager.grantEvenIfCancelled();
+    assert.equal(runtime.writerStatus().status, 'closed');
+    assert.equal(writable, false);
+    assert.equal(writes.includes(true), false,
+      'an abort-ignoring late callback cannot enable writer authority');
+  }
+
+  // An AbortSignal-aware lock manager may reject/remove its queued request;
+  // the internal rejection handler must preserve the already-published close.
+  {
+    const manager = controlledQueueManager(true);
+    let writable = false;
+    const store = Profile.createTestStore({ storage: Profile.createMemoryStorage(),
+      writeAuthority: () => writable });
+    const runtime = await Runtime.acquireLiveRuntime({ profileStore: store,
+      lockManager: manager, setWriterEnabled(value) { writable = value; } });
+    assert.equal(manager.queued.length, 1);
+    runtime.close();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(manager.queued.length, 0,
+      'an abort-aware manager removes the pending lock request');
+    assert.deepEqual(runtime.writerStatus(), {
+      writable: false, status: 'closed', reason: 'runtime-closed',
+    });
+    assert.equal(writable, false);
+  }
+
+  // Reentrant close during the mandatory takeover refresh is a particularly
+  // narrow race: refresh runs, closes the runtime, then returns. The post-
+  // refresh closed check must stop capability issuance and setWriter(true).
+  {
+    const manager = controlledQueueManager(false);
+    let writable = false;
+    const writes = [];
+    let runtime = null;
+    let closeDuringRefresh = false;
+    const baseStore = Profile.createTestStore({ storage: Profile.createMemoryStorage(),
+      writeAuthority: () => writable });
+    const proxyStore = { ...baseStore,
+      refresh() {
+        if (closeDuringRefresh) runtime.close();
+        return baseStore.refresh();
+      },
+    };
+    runtime = await Runtime.acquireLiveRuntime({ profileStore: proxyStore,
+      lockManager: manager,
+      setWriterEnabled(value) { writable = value; writes.push(value); } });
+    assert.equal(runtime.writerStatus().status, 'queued');
+    const statuses = [];
+    runtime.subscribe((_state, event) => {
+      if (event.type === 'writer-status') statuses.push(event.writerStatus.status);
+    }, { emitCurrent: false });
+    closeDuringRefresh = true;
+    await manager.grantEvenIfCancelled();
+    assert.deepEqual(runtime.writerStatus(), {
+      writable: false, status: 'closed', reason: 'runtime-closed',
+    });
+    assert.equal(writes.includes(true), false,
+      'reentrant refresh closure cannot issue a live writer capability');
+    assert.deepEqual(statuses, ['closed']);
+  }
 }
 
 function testInRealmWriterFenceAndEqualRevisionPoison() {
@@ -1766,13 +2067,37 @@ function testProfileAuthorityAdversarialRegressions() {
     forged.consumedMatchOrdinal = active.token.ordinal;
     forged.matchReceipts.push({ schema: 'MatchReceiptV1', version: 1,
       matchId: 'substituted-match', activityId: 'free-play',
-      ordinal: active.token.ordinal, resolution: 'abandoned' });
+      ordinal: active.token.ordinal, resolution: 'abandoned',
+      bearerNonce: active.token.nonce, reservedAt: active.token.reservedAt });
     storage.setItem(Profile.storageKey, JSON.stringify(forged));
     assert.deepEqual(store.refresh(), exact);
     assert.equal(store.persistenceStatus().closed, true,
       'a receipt for another match cannot consume the active reservation');
     assert.equal(store.reserveMatch('receipt-correlation-match', 'free-play').reason,
       'persistence-closed', 'the substituted receipt never releases the original matchId');
+  }
+
+  // Even a receipt with the right match coordinates cannot consume a live
+  // reservation when its exact bearer identity differs.
+  {
+    const storage = Profile.createMemoryStorage();
+    const store = Profile.createTestStore({ storage, now: () => 8102 });
+    const active = store.reserveMatch('receipt-bearer-correlation', 'free-play');
+    const exact = store.snapshot();
+    const forged = clone(exact);
+    forged.revision++;
+    forged.activeMatchReservation = null;
+    forged.consumedMatchOrdinal = active.token.ordinal;
+    forged.matchReceipts.push({ schema: 'MatchReceiptV1', version: 1,
+      matchId: active.token.matchId, activityId: active.token.activityId,
+      ordinal: active.token.ordinal, resolution: 'abandoned',
+      bearerNonce: `${active.token.nonce}-forged`, reservedAt: active.token.reservedAt });
+    storage.setItem(Profile.storageKey, JSON.stringify(forged));
+    assert.deepEqual(store.refresh(), exact);
+    assert.equal(store.persistenceStatus().closed, true,
+      'a future revision cannot clear a reservation with a substituted exact bearer');
+    assert.equal(store.reserveMatch(active.token.matchId, active.token.activityId).reason,
+      'persistence-closed');
   }
 
   // External import watermarks are themselves meaningful monotonic state.
@@ -1899,8 +2224,12 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function testBrowserExportsAndDependencyOrder() {
   const seededStorage = Profile.createMemoryStorage();
   const seededStore = Profile.createTestStore({ storage: seededStorage, now: () => 800 });
-  const seededReservation = seededStore.reserveMatch('browser-private-reservation', 'story');
+  const seededReservation = seededStore.reserveMatch('browser-private-reservation', 'free-play');
   assert.equal(seededReservation.applied, true);
+  assert.equal(seededStore.consumeReservedMatch(seededReservation.token,
+    rewardInput()).applied, true);
+  const seededActive = seededStore.reserveMatch('browser-private-active', 'free-play');
+  assert.equal(seededActive.applied, true);
   const browserValues = seededStorage.dump();
   function bareBrowserContext(extra = {}) {
     return vm.createContext({ console, Set, Map, Object, Array, JSON, Math,
@@ -1918,6 +2247,12 @@ function testBrowserExportsAndDependencyOrder() {
     runIn(target, 'v111-progression.js');
     runIn(target, 'v112-progression-catalog.js');
     runIn(target, 'v112-economy.js');
+  }
+  function installBrowserAchievements(target) {
+    target.FlipgameV111NamePolicy = require('../js/v111-name-policy.js');
+    runIn(target, 'v111-save-backup.js');
+    target.Achievements = require('../js/achievements.js');
+    runIn(target, 'v112-achievements.js');
   }
 
   const missingAchievements = bareBrowserContext();
@@ -2003,6 +2338,13 @@ function testBrowserExportsAndDependencyOrder() {
     'required-not-implemented');
   assert.equal(context.FlipgameV112Profile.snapshot().activeMatchReservation, null);
   assert.equal(context.FlipgameV112Profile.exportState().activeMatchReservation, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(
+    context.FlipgameV112Profile.snapshot().matchReceipts[0], 'bearerNonce'), false,
+  'browser receipt projections redact exact private replay identity');
+  assert.equal(JSON.stringify(context.FlipgameV112Profile.snapshot())
+    .includes(seededReservation.token.nonce), false);
+  assert.equal(JSON.stringify(context.FlipgameV112Profile.snapshot())
+    .includes(seededActive.token.nonce), false);
   assert.equal(context.FlipgameV112Profile.snapshot().matchClaimCursor,
     context.FlipgameV112Profile.snapshot().consumedMatchOrdinal,
     'redaction never publishes an impossible cursor gap without its bearer token');
@@ -2025,9 +2367,13 @@ function testBrowserExportsAndDependencyOrder() {
   assert.equal(publicEvents[0].state.activeMatchReservation, null);
   assert.equal(publicEvents[0].event.state.activeMatchReservation, null);
   assert.equal(Object.prototype.hasOwnProperty.call(publicEvents[0].event, 'token'), false);
+  assert.equal(publicEvents[0].event.state.matchClaimCursor,
+    publicEvents[0].event.state.consumedMatchOrdinal);
   detachPublic();
   assert.ok(browserValues[Profile.storageKey].includes(seededReservation.token.nonce),
-    'redaction does not destroy the private durable reservation needed for restart');
+    'redaction does not destroy the private durable receipt needed for replay rejection');
+  assert.ok(browserValues[Profile.storageKey].includes(seededActive.token.nonce),
+    'redaction does not destroy the private active reservation needed for restart');
   const profileDescriptor = Object.getOwnPropertyDescriptor(context, 'FlipgameV112Profile');
   const runtimeDescriptor = Object.getOwnPropertyDescriptor(context, 'FlipgameV112ProgressionRuntime');
   assert.deepEqual({ writable: profileDescriptor.writable, configurable: profileDescriptor.configurable },
@@ -2058,6 +2404,53 @@ function testBrowserExportsAndDependencyOrder() {
     /already defined; refusing/);
   assert.equal(runtimePreseed.FlipgameV112ProgressionRuntime.attacker, true,
     'Runtime never upgrades or returns a schema-shaped attacker object');
+
+  // Browser pages sometimes contain bundler shims named module/process/require.
+  // Those ambient names must never select the trusted CommonJS composition or
+  // invoke an attacker-supplied require function.
+  {
+    const shimmedProfile = bareBrowserContext();
+    installProfilePrerequisites(shimmedProfile);
+    installBrowserAchievements(shimmedProfile);
+    let requireCalls = 0;
+    const untouchedExports = { sentinel: 'profile-browser-shim' };
+    shimmedProfile.module = { exports: untouchedExports, filename: 'shim-profile.js',
+      require() { requireCalls++; throw new Error('fake module.require called'); } };
+    shimmedProfile.require = function () {
+      requireCalls++; throw new Error('fake require called');
+    };
+    shimmedProfile.process = { versions: { node: '999.0.0' }, release: { name: 'node' },
+      getBuiltinModule() { return function FakeModule() {}; } };
+    runIn(shimmedProfile, 'v112-profile.js');
+    assert.equal(requireCalls, 0);
+    assert.equal(shimmedProfile.module.exports, untouchedExports,
+      'a browser module shim is never populated with the trusted Profile API');
+    assert.equal(shimmedProfile.FlipgameV112Profile.schema, 'ProgressionStateV4');
+    assert.equal(typeof shimmedProfile.FlipgameV112Profile.createTestStore, 'undefined');
+  }
+  {
+    const shimmedRuntime = bareBrowserContext();
+    installProfilePrerequisites(shimmedRuntime);
+    installBrowserAchievements(shimmedRuntime);
+    runIn(shimmedRuntime, 'v112-profile.js');
+    runIn(shimmedRuntime, 'v112-profile-backup.js');
+    let requireCalls = 0;
+    const untouchedExports = { sentinel: 'runtime-browser-shim' };
+    shimmedRuntime.module = { exports: untouchedExports, filename: 'shim-runtime.js',
+      require() { requireCalls++; throw new Error('fake module.require called'); } };
+    shimmedRuntime.require = function () {
+      requireCalls++; throw new Error('fake require called');
+    };
+    shimmedRuntime.process = { versions: { node: '999.0.0' }, release: { name: 'node' },
+      getBuiltinModule() { return function FakeModule() {}; } };
+    runIn(shimmedRuntime, 'v112-progression-runtime.js');
+    assert.equal(requireCalls, 0);
+    assert.equal(shimmedRuntime.module.exports, untouchedExports,
+      'a browser module shim is never populated with the trusted Runtime API');
+    assert.equal(shimmedRuntime.FlipgameV112ProgressionRuntime.liveAvailable, false);
+    assert.equal(typeof shimmedRuntime.FlipgameV112ProgressionRuntime.acquireLiveRuntime,
+      'undefined');
+  }
 
   assert.equal(Object.prototype.hasOwnProperty.call(globalThis, 'FlipgameV112Profile'), false,
     'CommonJS Profile construction never publishes trusted capabilities on globalThis');
@@ -2091,7 +2484,9 @@ const tests = [
   testStrictExternalPrimitivesAndSafeSetupCopies,
   testCosmeticRevealNamespaceSurvivesRestart,
   testPublicMutationSurfaceHasOnlyCanonicalAuthorities,
+  testRecursivePublicProjectionRedactsEveryMatchBearer,
   testLifetimeWebLockWriterBoundary,
+  testQueuedWriterCloseAbortAndReentrantRefresh,
   testInRealmWriterFenceAndEqualRevisionPoison,
   testProfileAuthorityAdversarialRegressions,
   testBrowserExportsAndDependencyOrder,
