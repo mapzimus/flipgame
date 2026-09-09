@@ -83,7 +83,13 @@ function issue(eventId, options = {}) {
 }
 
 function plinkoFacts(overrides = {}) {
-  return Object.assign({}, Harness.DEFAULT_FACTS.plinko, overrides);
+  const result = Object.assign({}, Harness.DEFAULT_FACTS.plinko, overrides);
+  if (Object.prototype.hasOwnProperty.call(overrides, 'slotIndex') &&
+      !Object.prototype.hasOwnProperty.call(overrides, 'slotSensorRef')) {
+    result.slotSensorRef = overrides.slotIndex == null ? null
+      : `sensor:plinko-slot-${overrides.slotIndex}`;
+  }
+  return result;
 }
 function plinkoElapsed(facts) {
   return Kernel.PLINKO_TRANSPORT.boardDropStartMs + facts.dropDurationMs;
@@ -307,11 +313,12 @@ function arm(runtime, step = Harness.makeStep()) {
       Kernel.PLINKO_TRANSPORT.apexHandoffStartMs,
       Kernel.PLINKO_TRANSPORT.boardDropStartMs].forEach(elapsedMs => {
         if (elapsedMs < step.elapsedMs) {
-          runtime.step(Harness.makeStep({ elapsedMs }));
+          runtime.step(Harness.makePlinkoStep(runtime, elapsedMs));
         }
       });
   }
-  runtime.step(step);
+  runtime.step(runtime.snapshot().eventId === 'plinko'
+    ? Harness.makePlinkoStep(runtime, step.elapsedMs) : step);
 }
 
 function testEvaluationLifecycleAndRuntimeOwnedVerdict() {
@@ -828,9 +835,13 @@ function testPlinkoTrampolineOpeningTransport() {
   const selected = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
     laneId: 'plinko-opening-selected-object', eventSeed: 0x112,
     context: {
-      appearance: { flipperId: 'coffee-mug', variantId: 'midnight-mocha' },
+      appearance: { flipperId: 'coffee-mug', variantId: 'midnight-mocha',
+        appearanceRevision: 'coffee-mug-r7', cosmeticId: 'chrome',
+        authoredParts: ['ceramic-body', 'coffee-surface', 'handle'],
+        internalDynamics: ['open-liquid-pour'] },
       physicsProfile: { id: 'standard', mass: 1,
-        colliderRef: 'body:flipper-main', internalDynamicsRef: 'coffee-slosh' },
+        colliderRef: 'body:flipper-main',
+        colliderFingerprint: 'competitive-envelope-coffee-v3' },
     },
     onCreate(_eventId, context) { authoredContext = context; },
   });
@@ -843,6 +854,52 @@ function testPlinkoTrampolineOpeningTransport() {
   assert.equal(launch.plinkoTransport.variantId, 'midnight-mocha');
   assert.equal(launch.plinkoTransport.physicsProfileId, 'standard');
   assert.equal(launch.plinkoTransport.objectColliderRef, 'body:flipper-main');
+  assert.equal(launch.plinkoTransport.appearanceRevision, 'coffee-mug-r7');
+  assert.equal(launch.plinkoTransport.cosmeticId, 'chrome');
+  assert.equal(launch.plinkoTransport.colliderFingerprint,
+    'competitive-envelope-coffee-v3');
+  assert.deepEqual(launch.plinkoTransport.authoredParts,
+    ['ceramic-body', 'coffee-surface', 'handle']);
+  assert.deepEqual(launch.plinkoTransport.internalDynamics, ['open-liquid-pour']);
+  const geometry = authoredContext.plinkoBoardGeometry;
+  assert.equal(geometry.schema, 'PlinkoBoardGeometryV1');
+  assert.equal(geometry.pegRows.length, 24);
+  assert.deepEqual(geometry.pegRows.map(row => row.centers.length),
+    Array.from({ length: 24 }, (_, index) => index % 2 === 0 ? 11 : 10));
+  assert.equal(geometry.innerWidth, 1080);
+  assert.equal(geometry.rowSpacing, 92);
+  assert.equal(geometry.slotWidth, 120);
+  assert.equal(geometry.slotBandHeight, 150);
+  assert.equal(geometry.physics.schema, 'PlinkoBoardPhysicsV1');
+  assert.equal(geometry.physics.pegField.bodyType, 'static-compound');
+  assert.equal(geometry.physics.pegField.shapeSource, 'pegRows');
+  assert.equal(geometry.physics.pegField.pegCount, 252);
+  assert.deepEqual(geometry.physics.trampoline.releaseImpulse, { x: 0, y: -28 });
+  assert.deepEqual(geometry.physics.rails.colliderRefs,
+    geometry.rails.map(part => part.colliderRef));
+  assert.deepEqual(geometry.physics.dividers.colliderRefs,
+    geometry.dividers.map(part => part.colliderRef));
+  assert.deepEqual(geometry.physics.slotSensors.colliderRefs,
+    geometry.sensors.map(part => part.colliderRef));
+  geometry.pegRows.slice(1).forEach((row, index) => {
+    assert.equal(row.y - geometry.pegRows[index].y, 92);
+  });
+  geometry.pegRows.forEach(row => row.centers.forEach(peg => {
+    assert.equal(peg.radius, 9);
+  }));
+  assert.equal(geometry.rails.length, 2);
+  assert.equal(geometry.dividers.length, 8);
+  assert.equal(geometry.sensors.length, 9);
+  geometry.sensors.slice(1).forEach((sensor, index) => {
+    assert.ok(geometry.sensors[index].bounds.right < sensor.bounds.left,
+      'canonical slot sensors must not overlap or share an inclusive edge');
+  });
+  assert.throws(() => Kernel.derivePlinkoTransportState({ elapsedMs: 0,
+    objectColliderRef: 'body:flipper-main', binding: clone(authoredContext.plinkoBinding),
+    boardGeometry: geometry }), /private branded PlinkoFlipperBindingV1/);
+  assert.throws(() => Kernel.derivePlinkoTransportState({ elapsedMs: 0,
+    objectColliderRef: 'body:flipper-main', binding: authoredContext.plinkoBinding,
+    boardGeometry: clone(geometry) }), /private branded PlinkoBoardGeometryV1/);
   assert.equal(launch.plinkoTransport.trampolineColliderRef,
     'body:plinko-opening-trampoline');
   assert.equal(launch.plinkoTransport.openingLateralImpulse, 0);
@@ -862,7 +919,8 @@ function testPlinkoTrampolineOpeningTransport() {
   const compressionFrame = selected.runtime.frame(false);
   const selectedEntity = compressionFrame.entities.find(entity =>
     entity.colliderRef === 'body:flipper-main');
-  assert.equal(selectedEntity.appearanceRef, 'coffee-mug:midnight-mocha');
+  assert.equal(selectedEntity.appearanceRef,
+    'coffee-mug:midnight-mocha@coffee-mug-r7+chrome');
   assert.equal(selectedEntity.visualStateRef, 'plinko-compression');
   const trampolineEntity = compressionFrame.entities.find(entity =>
     entity.entityId === 'plinko-opening-trampoline');
@@ -877,9 +935,8 @@ function testPlinkoTrampolineOpeningTransport() {
     eventClass: 'wildcard', laneId: 'plinko-forged-compression',
     launch(draft, context) {
       const transport = Kernel.derivePlinkoTransportState({ elapsedMs: 0,
-        objectColliderRef: draft.bodyRef, flipperId: context.appearance.flipperId,
-        variantId: context.appearance.variantId,
-        physicsProfileId: context.physicsProfile.id });
+        objectColliderRef: draft.bodyRef, binding: context.plinkoBinding,
+        boardGeometry: context.plinkoBoardGeometry });
       return { bodies: [{ entityRef: draft.bodyRef,
         scaleX: Kernel.PLINKO_TRANSPORT.compressedScaleX,
         scaleY: Kernel.PLINKO_TRANSPORT.compressedScaleY,
@@ -888,7 +945,8 @@ function testPlinkoTrampolineOpeningTransport() {
         scaleX: Kernel.PLINKO_TRANSPORT.trampolineCompressedScaleX,
         scaleY: Kernel.PLINKO_TRANSPORT.trampolineCompressedScaleY }],
       cameraCues: [{ cueId: 'forged-compression-camera',
-        kind: 'plinko-trampoline-lock', entityRef: draft.bodyRef }],
+        kind: 'plinko-trampoline-lock', entityRef: draft.bodyRef,
+        intensity: 1, durationMs: 500, ariaCue: 'Camera tracks the Flipper.' }],
       plinkoTransport: transport };
     } });
   forgedCompression.runtime.telegraph();
@@ -900,7 +958,7 @@ function testPlinkoTrampolineOpeningTransport() {
   Harness.assertNoLeaks(forgedCompression.runtime);
 
   const cameraTargets = [compressionFrame.plinkoTransport.cameraTargetRef];
-  const release = selected.runtime.step(Harness.makeStep({ elapsedMs: 400 }));
+  const release = selected.runtime.step(Harness.makePlinkoStep(selected.runtime, 400));
   assert.equal(release.plinkoTransport.phase, 'release');
   const launchImpulse = release.impulses.find(impulse => impulse.y <=
     -Kernel.PLINKO_TRANSPORT.minimumUpwardImpulse);
@@ -914,12 +972,12 @@ function testPlinkoTrampolineOpeningTransport() {
   'the physical trampoline visibly rebounds as it releases the Flipper');
   cameraTargets.push(selected.runtime.frame(false).plinkoTransport.cameraTargetRef);
 
-  const ascent = selected.runtime.step(Harness.makeStep({ elapsedMs: 900 }));
+  const ascent = selected.runtime.step(Harness.makePlinkoStep(selected.runtime, 900));
   assert.equal(ascent.plinkoTransport.phase, 'ascent');
   assert.equal(ascent.impulses.length, 0, 'the opening trampoline releases exactly once');
   cameraTargets.push(selected.runtime.frame(false).plinkoTransport.cameraTargetRef);
 
-  const apex = selected.runtime.step(Harness.makeStep({ elapsedMs: 2200 }));
+  const apex = selected.runtime.step(Harness.makePlinkoStep(selected.runtime, 2200));
   assert.equal(apex.plinkoTransport.phase, 'apex-handoff');
   const apexFrame = selected.runtime.frame(false);
   assert.equal(apexFrame.plinkoTransport.cameraMode, 'apex-board-handoff');
@@ -927,8 +985,8 @@ function testPlinkoTrampolineOpeningTransport() {
     true, 'camera hands off to the top of the extended board at apex');
   cameraTargets.push(apexFrame.plinkoTransport.cameraTargetRef);
 
-  const descent = selected.runtime.step(Harness.makeStep({
-    elapsedMs: Kernel.PLINKO_TRANSPORT.boardDropStartMs }));
+  const descent = selected.runtime.step(Harness.makePlinkoStep(selected.runtime,
+    Kernel.PLINKO_TRANSPORT.boardDropStartMs));
   assert.equal(descent.plinkoTransport.phase, 'board-descent');
   assert.equal(descent.plinkoTransport.pegRows, 24);
   const descentFull = selected.runtime.frame(false);
@@ -939,6 +997,14 @@ function testPlinkoTrampolineOpeningTransport() {
   'reduced motion preserves the exact physical phase and camera target');
   assert.equal(Kernel.mechanicsSignature(descentReduced),
     Kernel.mechanicsSignature(descentFull));
+  assert.equal(descentFull.entities.filter(entity =>
+    geometry.rails.concat(geometry.dividers).some(part =>
+      part.colliderRef === entity.colliderRef) && entity.visible).length, 10,
+  'both rails and all eight physical dividers render during the tracked drop');
+  assert.equal(descentFull.entities.filter(entity =>
+    geometry.sensors.some(sensor => sensor.colliderRef === entity.colliderRef) &&
+      entity.visible).length, 0,
+  'canonical scoring sensors remain physical but visually hidden');
   cameraTargets.push(descentFull.plinkoTransport.cameraTargetRef);
   assert.deepEqual(Array.from(new Set(cameraTargets)), ['body:flipper-main'],
     'camera continuity retains one selected-object target from compression through descent');
@@ -963,8 +1029,10 @@ function testPlinkoTrampolineOpeningTransport() {
 
   const finalElapsed = Kernel.PLINKO_TRANSPORT.boardDropStartMs +
     Kernel.PLINKO_TRANSPORT.cleanDropMedianMs;
-  selected.runtime.step(Harness.makeStep({ elapsedMs: finalElapsed }));
-  selected.runtime.contact(Harness.makeContact({ elapsedMs: finalElapsed - 200 }));
+  selected.runtime.step(Harness.makePlinkoStep(selected.runtime, finalElapsed));
+  selected.runtime.contact(Harness.makeContact({ contactId: 'slot-final',
+    entityBRef: Harness.DEFAULT_FACTS.plinko.slotSensorRef,
+    elapsedMs: finalElapsed }));
   const outcome = selected.runtime.evaluate(Harness.makeProbe({ elapsedMs: finalElapsed }));
   assert.equal(outcome.facts.values.dropDurationMs, 12000);
   assert.equal(outcome.facts.values.objectColliderRef, 'body:flipper-main');
@@ -976,21 +1044,34 @@ function testPlinkoTrampolineOpeningTransport() {
   Harness.assertNoLeaks(selected.runtime);
 
   const recoveryFacts = plinkoFacts({ completionKind: 'recovered',
-    dropDurationMs: 22000, recoveryStartedMs: 22000, recoveryImpulseCount: 2 });
+    dropDurationMs: 22500, recoveryStartedMs: 22000, recoveryImpulseCount: 2 });
   const recovery = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
     laneId: 'plinko-opening-recovery', facts: recoveryFacts });
   recovery.runtime.telegraph();
   recovery.runtime.qualifyLaunch(Harness.makeSignal());
   recovery.runtime.launch(Harness.makeDraft());
-  recovery.runtime.step(Harness.makeStep({ elapsedMs: 400 }));
-  recovery.runtime.step(Harness.makeStep({ elapsedMs: 650 }));
-  recovery.runtime.step(Harness.makeStep({ elapsedMs: 2150 }));
-  recovery.runtime.step(Harness.makeStep({ elapsedMs: 2400 }));
-  const recoveryStep = recovery.runtime.step(Harness.makeStep({
-    elapsedMs: plinkoElapsed(recoveryFacts) }));
+  recovery.runtime.step(Harness.makePlinkoStep(recovery.runtime, 400));
+  recovery.runtime.step(Harness.makePlinkoStep(recovery.runtime, 650));
+  recovery.runtime.step(Harness.makePlinkoStep(recovery.runtime, 2150));
+  recovery.runtime.step(Harness.makePlinkoStep(recovery.runtime, 2400));
+  const recoveryStep = recovery.runtime.step(Harness.makePlinkoStep(recovery.runtime,
+    plinkoElapsed(recoveryFacts)));
   assert.equal(recoveryStep.plinkoTransport.phase, 'anti-wedge-recovery');
   assert.equal(recoveryStep.impulses.filter(impulse => Math.abs(impulse.x) === 2).length, 2,
     'anti-wedge recovery remains deterministic and physically represented');
+  assert.equal(recoveryStep.impulses.every(impulse => impulse.y > 0), true,
+    'anti-wedge recovery advances the Flipper downward rather than relaunching it');
+  const firstRecoveryTick = Math.round((Kernel.PLINKO_TRANSPORT.boardDropStartMs +
+    Kernel.PLINKO_TRANSPORT.recoveryStartDropMs) *
+    Kernel.PLINKO_TRANSPORT.fixedTickHz / 1000);
+  const recoveryInterval = Kernel.PLINKO_TRANSPORT.recoveryImpulseIntervalTicks;
+  assert.equal(Kernel.derivePlinkoRecoveryImpulses(firstRecoveryTick - 1,
+    firstRecoveryTick + recoveryInterval * 20, 'body:flipper-main', 0x112).length, 4,
+  'the full recovery schedule is bounded to four impulses');
+  assert.equal(Kernel.derivePlinkoRecoveryImpulses(firstRecoveryTick +
+    recoveryInterval * 3, firstRecoveryTick + recoveryInterval * 20,
+    'body:flipper-main', 0x112).length, 0,
+  'later fixed-tick batches cannot restart the exhausted recovery schedule');
   recovery.runtime.cleanup('recovery-covered');
 
   const skippedOpening = Harness.createHarness({ eventId: 'plinko',
@@ -998,7 +1079,8 @@ function testPlinkoTrampolineOpeningTransport() {
   skippedOpening.runtime.telegraph();
   skippedOpening.runtime.qualifyLaunch(Harness.makeSignal());
   skippedOpening.runtime.launch(Harness.makeDraft());
-  assert.throws(() => skippedOpening.runtime.step(Harness.makeStep({ elapsedMs: 900 })),
+  assert.throws(() => skippedOpening.runtime.step(
+    Harness.makePlinkoStep(skippedOpening.runtime, 900)),
     /release window/,
   'a host cannot skip the physical trampoline release and fabricate ascent');
   assert.equal(skippedOpening.runtime.snapshot().phase, 'cleaned');
@@ -1008,9 +1090,8 @@ function testPlinkoTrampolineOpeningTransport() {
     return function (physicsStep, context) {
       const transport = Kernel.derivePlinkoTransportState({
         elapsedMs: physicsStep.elapsedMs, objectColliderRef: 'body:flipper-main',
-        flipperId: context.appearance.flipperId,
-        variantId: context.appearance.variantId,
-        physicsProfileId: context.physicsProfile.id,
+        binding: context.plinkoBinding,
+        boardGeometry: context.plinkoBoardGeometry,
       });
       const objectBody = { entityRef: transport.objectColliderRef,
         scaleX: 1, scaleY: 1 };
@@ -1030,7 +1111,8 @@ function testPlinkoTrampolineOpeningTransport() {
       }
       return { bodies: [objectBody, trampolineBody], impulses, forces,
         cameraCues: [{ cueId: 'forged-release-camera-' + kind,
-          kind: 'plinko-object-ascent-follow', entityRef: transport.objectColliderRef }],
+          kind: 'plinko-object-ascent-follow', entityRef: transport.objectColliderRef,
+          intensity: 1, durationMs: 500, ariaCue: 'Camera tracks the Flipper.' }],
         plinkoTransport: transport };
     };
   }
@@ -1043,7 +1125,7 @@ function testPlinkoTrampolineOpeningTransport() {
       forged.runtime.telegraph();
       forged.runtime.qualifyLaunch(Harness.makeSignal());
       forged.runtime.launch(Harness.makeDraft());
-      assert.throws(() => forged.runtime.step(Harness.makeStep({ elapsedMs: 400 })),
+      assert.throws(() => forged.runtime.step(Harness.makePlinkoStep(forged.runtime, 400)),
         /only its exact centered spring impulse and scale restores/,
       `Plinko release must reject ${kind} authority escalation`);
       assert.equal(forged.runtime.snapshot().phase, 'cleaned');
@@ -1055,13 +1137,13 @@ function testPlinkoTrampolineOpeningTransport() {
     step(physicsStep, context) {
       const transport = Kernel.derivePlinkoTransportState({
         elapsedMs: physicsStep.elapsedMs, objectColliderRef: 'body:flipper-main',
-        flipperId: context.appearance.flipperId,
-        variantId: context.appearance.variantId,
-        physicsProfileId: context.physicsProfile.id,
+        binding: context.plinkoBinding,
+        boardGeometry: context.plinkoBoardGeometry,
       });
       const result = { cameraCues: [{ cueId: 'repeat-small-camera',
         kind: 'plinko-' + transport.cameraMode,
-        entityRef: transport.objectColliderRef }], plinkoTransport: transport };
+        entityRef: transport.objectColliderRef, intensity: 1, durationMs: 500,
+        ariaCue: 'Camera tracks the Flipper.' }], plinkoTransport: transport };
       if (physicsStep.elapsedMs === 400) {
         result.bodies = [{ entityRef: transport.objectColliderRef,
           scaleX: 1, scaleY: 1 }, { entityRef: transport.trampolineColliderRef,
@@ -1076,9 +1158,10 @@ function testPlinkoTrampolineOpeningTransport() {
   repeatedSmall.runtime.telegraph();
   repeatedSmall.runtime.qualifyLaunch(Harness.makeSignal());
   repeatedSmall.runtime.launch(Harness.makeDraft());
-  repeatedSmall.runtime.step(Harness.makeStep({ elapsedMs: 400 }));
-  assert.throws(() => repeatedSmall.runtime.step(Harness.makeStep({ elapsedMs: 500 })),
-    /single spring release/,
+  repeatedSmall.runtime.step(Harness.makePlinkoStep(repeatedSmall.runtime, 400));
+  assert.throws(() => repeatedSmall.runtime.step(
+    Harness.makePlinkoStep(repeatedSmall.runtime, 500)),
+    /schedule-bound anti-wedge impulses/,
   'Plinko opening must reject repeated sub-threshold impulses');
   assert.equal(repeatedSmall.runtime.snapshot().phase, 'cleaned');
   Harness.assertNoLeaks(repeatedSmall.runtime);
@@ -1088,16 +1171,17 @@ function testPlinkoTrampolineOpeningTransport() {
       return { impulses: [{ entityRef: 'body:flipper-main', x: 4, y: -28 }],
         bodies: [{ entityRef: 'body:flipper-main', scaleX: 1, scaleY: 1 }],
         cameraCues: [{ cueId: 'biased-camera', kind: 'plinko-object-ascent-follow',
-          entityRef: 'body:flipper-main' }],
+          entityRef: 'body:flipper-main', intensity: 1, durationMs: 500,
+          ariaCue: 'Camera tracks the Flipper.' }],
         plinkoTransport: Kernel.derivePlinkoTransportState({
           elapsedMs: physicsStep.elapsedMs, objectColliderRef: 'body:flipper-main',
-          flipperId: context.appearance.flipperId, variantId: context.appearance.variantId,
-          physicsProfileId: context.physicsProfile.id }) };
+          binding: context.plinkoBinding,
+          boardGeometry: context.plinkoBoardGeometry }) };
     } });
   biased.runtime.telegraph();
   biased.runtime.qualifyLaunch(Harness.makeSignal());
   biased.runtime.launch(Harness.makeDraft());
-  assert.throws(() => biased.runtime.step(Harness.makeStep({ elapsedMs: 400 })),
+  assert.throws(() => biased.runtime.step(Harness.makePlinkoStep(biased.runtime, 400)),
     /exact centered spring impulse/,
   'an authored opening cannot steer toward a prize slot');
 
@@ -1110,6 +1194,236 @@ function testPlinkoTrampolineOpeningTransport() {
         colliderRef: 'body:flipper-main', internalDynamicsRef: 'snow-slosh' } } });
   assert.equal(replay.first.frame.plinkoTransport.flipperId, 'snow-globe');
   assert.equal(JSON.stringify(replay.first), JSON.stringify(replay.second));
+}
+
+function testPlinkoAuthorityAuditRegressions() {
+  const finalElapsed = Kernel.PLINKO_TRANSPORT.boardDropStartMs +
+    Kernel.PLINKO_TRANSPORT.cleanDropMedianMs;
+
+  function cameraCue(state, suffix = 'audit') {
+    return { cueId: `plinko-camera-${suffix}`,
+      kind: `plinko-${state.cameraMode}`, entityRef: state.cameraTargetRef,
+      intensity: 1, durationMs: 500,
+      ariaCue: 'Camera tracks the selected Flipper.' };
+  }
+
+  function invalidCameraLaunch(kind) {
+    return function (draft, context) {
+      const state = Kernel.derivePlinkoTransportState({ elapsedMs: 0,
+        objectColliderRef: draft.bodyRef, binding: context.plinkoBinding,
+        boardGeometry: context.plinkoBoardGeometry });
+      const cue = cameraCue(state, kind);
+      let cues = [cue];
+      if (kind === 'zero-intensity') cue.intensity = 0;
+      if (kind === 'zero-duration') cue.durationMs = 0;
+      if (kind === 'long-duration') cue.durationMs = 30000;
+      if (kind === 'retarget') cue.entityRef = state.trampolineColliderRef;
+      if (kind === 'missing-aria') cue.ariaCue = null;
+      if (kind === 'multiple') cues = [cue, Object.assign({}, cue,
+        { cueId: 'plinko-camera-second' })];
+      return { bodies: [{ entityRef: draft.bodyRef,
+        scaleX: Kernel.PLINKO_TRANSPORT.compressedScaleX,
+        scaleY: Kernel.PLINKO_TRANSPORT.compressedScaleY },
+      { entityRef: state.trampolineColliderRef,
+        scaleX: Kernel.PLINKO_TRANSPORT.trampolineCompressedScaleX,
+        scaleY: Kernel.PLINKO_TRANSPORT.trampolineCompressedScaleY }],
+      cameraCues: cues, plinkoTransport: state };
+    };
+  }
+
+  ['zero-intensity', 'zero-duration', 'long-duration', 'retarget',
+    'missing-aria', 'multiple'].forEach(kind => {
+    const harness = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+      laneId: `plinko-camera-${kind}`, launch: invalidCameraLaunch(kind) });
+    harness.runtime.telegraph();
+    harness.runtime.qualifyLaunch(Harness.makeSignal());
+    assert.throws(() => harness.runtime.launch(Harness.makeDraft()),
+      /camera cue must be one exact, visible selected-Flipper track/,
+    `Plinko rejects ${kind} camera authority at launch`);
+    Harness.assertNoLeaks(harness.runtime);
+  });
+
+  const misaligned = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    laneId: 'plinko-misaligned-fixed-tick' });
+  misaligned.runtime.telegraph();
+  misaligned.runtime.qualifyLaunch(Harness.makeSignal());
+  misaligned.runtime.launch(Harness.makeDraft());
+  assert.throws(() => misaligned.runtime.step(Harness.makeStep({
+    elapsedMs: 401, dtMs: 401 })), /fixed-tick evidence/,
+  'elapsed-only phase claims cannot cross the 60 Hz physics clock');
+  Harness.assertNoLeaks(misaligned.runtime);
+
+  const tinyDt = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    laneId: 'plinko-tiny-dt-clock-jump' });
+  tinyDt.runtime.telegraph();
+  tinyDt.runtime.qualifyLaunch(Harness.makeSignal());
+  tinyDt.runtime.launch(Harness.makeDraft());
+  assert.throws(() => tinyDt.runtime.step(Harness.makeStep({
+    elapsedMs: 400, dtMs: 0.001 })), /integrated fixed-tick evidence/,
+  'a tiny dt cannot claim a 400 ms Plinko phase jump');
+  Harness.assertNoLeaks(tinyDt.runtime);
+
+  const skippedTick = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    laneId: 'plinko-skipped-host-tick', resolveMotion(resource, metadata) {
+      const raw = Harness.plinkoHostMotion(resource, metadata);
+      raw.startTick += 1;
+      raw.integratedTicks -= 1;
+      return raw;
+    } });
+  skippedTick.runtime.telegraph();
+  skippedTick.runtime.qualifyLaunch(Harness.makeSignal());
+  skippedTick.runtime.launch(Harness.makeDraft());
+  assert.throws(() => skippedTick.runtime.step(
+    Harness.makePlinkoStep(skippedTick.runtime, 400)), /not contiguous/,
+  'host receipts cannot omit a fixed simulation tick');
+  Harness.assertNoLeaks(skippedTick.runtime);
+
+  const clockOnly = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    laneId: 'plinko-clock-without-motion', resolveMotion(resource, metadata) {
+      const endTick = Math.round(metadata.requestedStep.elapsedMs *
+        Kernel.PLINKO_TRANSPORT.fixedTickHz / 1000);
+      const integratedTicks = endTick - metadata.previousTick;
+      resource.transform.x = metadata.boardGeometry.centerX;
+      resource.transform.y = 300;
+      resource.transform.angle = 1.2;
+      return { schema: 'PlinkoHostMotionEvidenceV1',
+        fixedTickHz: Kernel.PLINKO_TRANSPORT.fixedTickHz,
+        startTick: metadata.previousTick + 1, endTick,
+        integratedTicks, objectColliderRef: metadata.binding.objectColliderRef,
+        transform: { x: resource.transform.x, y: resource.transform.y,
+          angle: resource.transform.angle }, velocity: { x: 0, y: 0 },
+        angularVelocity: 0 };
+    } });
+  clockOnly.runtime.telegraph();
+  clockOnly.runtime.qualifyLaunch(Harness.makeSignal());
+  clockOnly.runtime.launch(Harness.makeDraft());
+  clockOnly.runtime.step(Harness.makePlinkoStep(clockOnly.runtime, 400));
+  assert.throws(() => clockOnly.runtime.step(
+    Harness.makePlinkoStep(clockOnly.runtime, 900)), /lacks physical upward travel/,
+  'phase time cannot substitute for measured spring-driven motion');
+  Harness.assertNoLeaks(clockOnly.runtime);
+
+  function auditedStep(kind) {
+    return function (physicsStep, context) {
+      const state = Kernel.derivePlinkoTransportState({
+        elapsedMs: physicsStep.elapsedMs,
+        objectColliderRef: context.plinkoBinding.objectColliderRef,
+        binding: context.plinkoBinding,
+        boardGeometry: context.plinkoBoardGeometry });
+      const previousTick = state.physicsTick - Math.round(physicsStep.dtMs *
+        Kernel.PLINKO_TRANSPORT.fixedTickHz / 1000);
+      let impulses = Kernel.derivePlinkoRecoveryImpulses(previousTick,
+        state.physicsTick, state.objectColliderRef, context.selection.eventSeed);
+      const directive = { impulses,
+        cameraCues: [cameraCue(state, `${kind}-${state.physicsTick}`)],
+        plinkoTransport: state };
+      if (state.phase === 'release') {
+        directive.bodies = [{ entityRef: state.objectColliderRef, scaleX: 1, scaleY: 1 },
+          { entityRef: state.trampolineColliderRef, scaleX: 1, scaleY: 1 }];
+        directive.impulses = [{ entityRef: state.objectColliderRef, x: 0,
+          y: -Kernel.PLINKO_TRANSPORT.releaseUpwardImpulse }];
+      }
+      if (kind === 'board-force' && state.phase === 'board-descent' &&
+          physicsStep.elapsedMs > Kernel.PLINKO_TRANSPORT.boardDropStartMs) {
+        directive.forces = [{ entityRef: state.objectColliderRef, x: 900, y: 0 }];
+      }
+      if (kind === 'missing-recovery' && state.phase === 'anti-wedge-recovery') {
+        directive.impulses = [];
+      }
+      return directive;
+    };
+  }
+
+  const boardForce = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+    laneId: 'plinko-board-steering-force', step: auditedStep('board-force') });
+  assert.throws(() => arm(boardForce.runtime, Harness.makeStep({ elapsedMs: 3000 })),
+    /schedule-bound anti-wedge impulses/,
+  'board descent cannot add authored steering forces');
+  Harness.assertNoLeaks(boardForce.runtime);
+
+  const recoveryFacts = plinkoFacts({ completionKind: 'recovered',
+    dropDurationMs: 22000, recoveryStartedMs: 22000, recoveryImpulseCount: 1 });
+  const missingRecovery = Harness.createHarness({ eventId: 'plinko',
+    eventClass: 'wildcard', laneId: 'plinko-missing-scheduled-recovery',
+    facts: recoveryFacts, step: auditedStep('missing-recovery') });
+  assert.throws(() => arm(missingRecovery.runtime,
+    Harness.makeStep({ elapsedMs: plinkoElapsed(recoveryFacts) })),
+    /schedule-bound anti-wedge impulses/,
+  'the event pack cannot omit a scheduled anti-wedge impulse');
+  Harness.assertNoLeaks(missingRecovery.runtime);
+
+  ['body-teleport', 'force', 'impulse'].forEach(kind => {
+    const harness = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+      laneId: `plinko-contact-${kind}`, contact(contact, context) {
+        const state = Kernel.derivePlinkoTransportState({ elapsedMs: contact.elapsedMs,
+          objectColliderRef: context.plinkoBinding.objectColliderRef,
+          binding: context.plinkoBinding,
+          boardGeometry: context.plinkoBoardGeometry });
+        const directive = { cameraCues: [cameraCue(state, `contact-${kind}`)],
+          plinkoTransport: state };
+        if (kind === 'body-teleport') directive.bodies = [{
+          entityRef: state.objectColliderRef, position: { x: 640, y: -900 } }];
+        if (kind === 'force') directive.forces = [{
+          entityRef: state.objectColliderRef, x: 0, y: -500 }];
+        if (kind === 'impulse') directive.impulses = [{
+          entityRef: state.objectColliderRef, x: 10, y: -10 }];
+        return directive;
+      } });
+    arm(harness.runtime, Harness.makeStep({ elapsedMs: finalElapsed }));
+    assert.throws(() => harness.runtime.contact(Harness.makeContact({
+      contactId: `slot-contact-${kind}`,
+      entityBRef: Harness.DEFAULT_FACTS.plinko.slotSensorRef,
+      elapsedMs: finalElapsed })), /contact callbacks cannot mutate physical state/,
+    `Plinko contact rejects ${kind} mutation authority`);
+    Harness.assertNoLeaks(harness.runtime);
+  });
+
+  const centroidMismatch = Harness.createHarness({ eventId: 'plinko',
+    eventClass: 'wildcard', laneId: 'plinko-canonical-centroid-mismatch',
+    resolveMotion(resource, metadata) {
+      const raw = Harness.plinkoHostMotion(resource, metadata);
+      if (metadata.requestedStep.elapsedMs === finalElapsed) {
+        const target = metadata.boardGeometry.sensors[5];
+        resource.transform.x = target.transform.x;
+        resource.transform.y = target.transform.y;
+        raw.transform.x = resource.transform.x;
+        raw.transform.y = resource.transform.y;
+      }
+      return raw;
+    } });
+  arm(centroidMismatch.runtime, Harness.makeStep({ elapsedMs: finalElapsed }));
+  centroidMismatch.runtime.contact(Harness.makeContact({
+    contactId: 'slot-centroid-mismatch',
+    entityBRef: Harness.DEFAULT_FACTS.plinko.slotSensorRef,
+    elapsedMs: finalElapsed }));
+  assert.throws(() => centroidMismatch.runtime.evaluate(Harness.makeProbe({
+    elapsedMs: finalElapsed })), /canonical object-centroid geometry/,
+  'slot rewards derive from the canonical sensor containing the object centroid');
+  Harness.assertNoLeaks(centroidMismatch.runtime);
+
+  ['zero-camera', 'retarget-camera', 'null-transport'].forEach(kind => {
+    const harness = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
+      laneId: `plinko-render-${kind}` });
+    arm(harness.runtime, Harness.makeStep({
+      elapsedMs: Kernel.PLINKO_TRANSPORT.boardDropStartMs }));
+    const frame = harness.runtime.frame(false);
+    const renderPack = EventRenderer.defineRenderPack({ eventClass: 'wildcard',
+      ids: ['plinko'], render(authoritativeFrame) {
+        if (kind === 'null-transport') return { plinkoTransport: null };
+        const cues = authoritativeFrame.cues.map(cue => Object.assign({}, cue));
+        if (kind === 'zero-camera') cues[0].intensity = 0;
+        if (kind === 'retarget-camera') cues[0].entityRef =
+          Kernel.PLINKO_TRANSPORT.trampolineColliderRef;
+        return { cues };
+      } });
+    const renderer = EventRenderer.createEventRenderer({ packs: [renderPack],
+      authority: harness.laneAuthority.renderer });
+    assert.throws(() => renderer.render(frame),
+      kind === 'null-transport' ? /transport mismatch/ : /cannot replace, extend, or retarget/,
+    `renderer cannot apply ${kind} over the authoritative Plinko plan`);
+    harness.runtime.cleanup('renderer-audit-complete');
+    Harness.assertNoLeaks(harness.runtime);
+  });
 }
 
 function testHighValueColliderOwnership() {
@@ -1167,7 +1481,8 @@ function testHighValueColliderOwnership() {
     const boundary = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard', facts,
       laneId: `clean-${duration}` });
     arm(boundary.runtime, Harness.makeStep({ elapsedMs: plinkoElapsed(facts) }));
-    boundary.runtime.contact(Harness.makeContact({ elapsedMs: 800 }));
+    boundary.runtime.contact(Harness.makeContact({ contactId: `slot-${duration}`,
+      entityBRef: facts.slotSensorRef, elapsedMs: plinkoElapsed(facts) }));
     const outcome = boundary.runtime.evaluate(Harness.makeProbe({
       elapsedMs: plinkoElapsed(facts) }));
     assert.equal(outcome.facts.values.completionKind, 'clean');
@@ -1179,17 +1494,21 @@ function testHighValueColliderOwnership() {
   const recovered = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
     facts: recoveredFacts, laneId: 'recovered-at-boundary' });
   arm(recovered.runtime, Harness.makeStep({ elapsedMs: plinkoElapsed(recoveredFacts) }));
-  recovered.runtime.contact(Harness.makeContact({ elapsedMs: 1000 }));
+  recovered.runtime.contact(Harness.makeContact({ contactId: 'slot-recovered',
+    entityBRef: recoveredFacts.slotSensorRef,
+    elapsedMs: plinkoElapsed(recoveredFacts) }));
   assert.equal(recovered.runtime.evaluate(Harness.makeProbe({
     elapsedMs: plinkoElapsed(recoveredFacts) }))
     .facts.values.completionKind, 'recovered');
   recovered.runtime.cleanup('done');
 
-  const lateCleanFacts = plinkoFacts({ dropDurationMs: 15001 });
+  const lateCleanFacts = plinkoFacts({ dropDurationMs: 15000 + (1000 / 60) });
   const lateClean = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
     facts: lateCleanFacts, laneId: 'late-clean' });
   arm(lateClean.runtime, Harness.makeStep({ elapsedMs: plinkoElapsed(lateCleanFacts) }));
-  lateClean.runtime.contact(Harness.makeContact({ elapsedMs: 1000 }));
+  lateClean.runtime.contact(Harness.makeContact({ contactId: 'slot-late-clean',
+    entityBRef: lateCleanFacts.slotSensorRef,
+    elapsedMs: plinkoElapsed(lateCleanFacts) }));
   assert.throws(() => lateClean.runtime.evaluate(Harness.makeProbe({
     elapsedMs: plinkoElapsed(lateCleanFacts) })),
   /clean completion requires a settled 10-15 second sensor result/);
@@ -1197,15 +1516,14 @@ function testHighValueColliderOwnership() {
   const contradictorySlot = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
     laneId: 'contradictory-slot', resolveCollider(collider) {
       const evidence = Object.assign({}, collider.evidence);
-      if (collider.name === 'slot-4') evidence.sensorIndex = 5;
+      if (collider.name === 'plinko-slot-4') evidence.sensorIndex = 5;
       return { transform: collider.transform, bounds: collider.bounds, evidence };
     } });
-  arm(contradictorySlot.runtime, Harness.makeStep({
-    elapsedMs: plinkoElapsed(Harness.DEFAULT_FACTS.plinko) }));
-  contradictorySlot.runtime.contact(Harness.makeContact({ elapsedMs: 1000 }));
-  assert.throws(() => contradictorySlot.runtime.evaluate(Harness.makeProbe({
-    elapsedMs: plinkoElapsed(Harness.DEFAULT_FACTS.plinko) })),
-    /supplied slot contradicts branded host sensor geometry/);
+  contradictorySlot.runtime.telegraph();
+  contradictorySlot.runtime.qualifyLaunch(Harness.makeSignal());
+  assert.throws(() => contradictorySlot.runtime.launch(Harness.makeDraft()),
+    /canonical slot sensor diverges/,
+  'forged slot metadata is rejected before any Plinko motion begins');
 
   const contradictoryRecovery = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
     laneId: 'contradictory-recovery', facts: recoveredFacts,
@@ -1216,7 +1534,9 @@ function testHighValueColliderOwnership() {
     } });
   arm(contradictoryRecovery.runtime, Harness.makeStep({
     elapsedMs: plinkoElapsed(recoveredFacts) }));
-  contradictoryRecovery.runtime.contact(Harness.makeContact({ elapsedMs: 1000 }));
+  contradictoryRecovery.runtime.contact(Harness.makeContact({ contactId: 'slot-recovery-bad',
+    entityBRef: recoveredFacts.slotSensorRef,
+    elapsedMs: plinkoElapsed(recoveredFacts) }));
   assert.throws(() => contradictoryRecovery.runtime.evaluate(
     Harness.makeProbe({ elapsedMs: plinkoElapsed(recoveredFacts) })),
   /recovery facts contradict host provenance/);
@@ -1356,8 +1676,8 @@ function testTeamRuleCompatibility() {
   const mitosis = teamMapping('mitosis', twoCopies);
   assert.equal(mitosis.transition.outcome.rawPoints, 3);
 
-  const plinkoFacts = Object.assign({}, Harness.DEFAULT_FACTS.plinko, { slotIndex: 1 });
-  const plinko = teamMapping('plinko', plinkoFacts);
+  const plinkoTeamFacts = plinkoFacts({ slotIndex: 1 });
+  const plinko = teamMapping('plinko', plinkoTeamFacts);
   assert.equal(plinko.rulesInput.effects.halveOpponentScore, true);
 
   const teamRules = Rules.createRulesAdapter({ formatId: 'team-clash',
@@ -1373,7 +1693,7 @@ function testTeamRuleCompatibility() {
   assert.deepEqual(teamRules.snapshot().scores, [9, 0]);
   const shared = teamRules.claimEventAuthority();
   const plinkoHarness = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
-    facts: plinkoFacts, authority: shared, laneId: 'team-plinko' });
+    facts: plinkoTeamFacts, authority: shared, laneId: 'team-plinko' });
   const outcome = Harness.drive(plinkoHarness.runtime).outcome;
   const realAdapter = RulesAdapter.createRulesAdapter({ authority: shared.rules });
   const mapped = realAdapter.resolve({
@@ -1422,7 +1742,7 @@ function testLiveHighWaterAfterOrdinaryResolution() {
 function testPlinkoNoContestAcrossFormats() {
   const timeoutFacts = plinkoFacts({ slotSensorRef: null, slotIndex: null,
     dropDurationMs: 30000, settled: false, completionKind: 'no-contest',
-    recoveryStartedMs: 22000, recoveryImpulseCount: 3 });
+    recoveryStartedMs: 22000, recoveryImpulseCount: 4 });
   const timeoutProbe = { result: 'MISS', pose: 'miss', reason: 'plinko-timeout',
     settled: false, elapsedMs: plinkoElapsed(timeoutFacts) };
 
@@ -1664,6 +1984,7 @@ function run() {
   testColliderBackedFramesReducedMotionAndRenderer();
   testNarrowDirectiveFrameFactAndSizeSchemas();
   testPlinkoTrampolineOpeningTransport();
+  testPlinkoAuthorityAuditRegressions();
   testHighValueColliderOwnership();
   testRulesIdentityAuthorityAndExactTeamMappings();
   testRulesAdapterSequentialAndForgedOutcomes();

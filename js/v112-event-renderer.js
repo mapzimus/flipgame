@@ -110,7 +110,7 @@
     if (source.reducedMotion != null && source.reducedMotion !== frame.reducedMotion) {
       throw new Error('Render plan reduced-motion mismatch');
     }
-    if (source.plinkoTransport != null &&
+    if (own(source, 'plinkoTransport') &&
         !same(source.plinkoTransport, frame.plinkoTransport)) {
       throw new Error('Render plan Plinko transport mismatch');
     }
@@ -131,6 +131,9 @@
       return normalizeCommand(command, byId[id]);
     });
     var cues = source.cues == null ? frame.cues : Kernel.normalizeCues(source.cues, 'render cues');
+    if (frame.eventId === 'plinko' && !same(cues, frame.cues)) {
+      throw new Error('Plinko render packs cannot replace, extend, or retarget the camera plan');
+    }
     return Kernel.deepFreeze({ schema: 'EventRenderPlanV1', eventId: frame.eventId,
       laneId: frame.laneId, sequence: frame.sequence, commands: normalizedCommands,
       cues: cues, reducedMotion: frame.reducedMotion,
