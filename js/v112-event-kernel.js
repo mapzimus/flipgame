@@ -1,11 +1,35 @@
 // v112-event-kernel.js -- bounded, renderer-free contracts for v1.12 events.
 (function (root, factory) {
   'use strict';
-  var Rules = root && root.FlipgameV112Rules;
-  if (typeof module === 'object' && module.exports) Rules = require('./v112-rules.js');
+  var nodeModule = null;
+  try {
+    if (typeof process === 'object' && process !== null &&
+        typeof process.getBuiltinModule === 'function') {
+      nodeModule = process.getBuiltinModule('module');
+    }
+  } catch (_) { nodeModule = null; }
+  var commonJs = typeof nodeModule === 'function' && nodeModule._cache &&
+    typeof module === 'object' && module !== null && module instanceof nodeModule &&
+    nodeModule._cache[module.filename] === module
+    && Object.prototype.hasOwnProperty.call(module, 'exports')
+    && typeof module.require === 'function'
+    && typeof module.filename === 'string'
+    && typeof process === 'object' && process !== null
+    && process.versions && typeof process.versions.node === 'string';
+  if (!commonJs && root && 'FlipgameV112EventKernel' in Object(root)) {
+    throw new Error('Refusing duplicate or preseeded FlipgameV112EventKernel');
+  }
+  var Rules = commonJs ? module.require('./v112-rules.js')
+    : (root && root.FlipgameV112Rules);
   var api = factory(Rules);
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  if (root) root.FlipgameV112EventKernel = api;
+  if (commonJs) {
+    module.exports = api;
+  } else {
+    if (!root) throw new Error('Browser event kernel requires a global object');
+    Object.defineProperty(root, 'FlipgameV112EventKernel', {
+      value: api, enumerable: true, writable: false, configurable: false,
+    });
+  }
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
   : (typeof window !== 'undefined' ? window : this)), function (Rules) {
@@ -52,6 +76,26 @@
     'mirror-match': 'wildcard', 'cap-toss': 'hazard', 'life-drain': 'assist',
   }));
   var EVENT_IDS = Object.freeze(Object.keys(EVENT_CLASS_BY_ID));
+  var PLINKO_TRANSPORT = Object.freeze({
+    schema: 'PlinkoTransportContractV1', version: 1,
+    pegRows: 24,
+    compressionEndMs: 400,
+    releaseEndMs: 650,
+    apexHandoffStartMs: 2150,
+    boardDropStartMs: 2400,
+    cleanDropMinMs: 10000,
+    cleanDropMedianMs: 12000,
+    cleanDropMaxMs: 15000,
+    recoveryStartDropMs: 22000,
+    timeoutDropMs: 30000,
+    minimumUpwardImpulse: 24,
+    releaseUpwardImpulse: 28,
+    compressedScaleX: 1.18,
+    compressedScaleY: 0.62,
+    trampolineColliderRef: 'body:plinko-opening-trampoline',
+    trampolineCompressedScaleX: 1.08,
+    trampolineCompressedScaleY: 0.38,
+  });
 
   function isPlainObject(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -116,6 +160,93 @@
     if (minimum != null && value < minimum) throw new RangeError(label + ' is below its minimum');
     if (maximum != null && value > maximum) throw new RangeError(label + ' exceeds its maximum');
     return value;
+  }
+
+  function derivePlinkoTransportState(value) {
+    if (!isPlainObject(value)) throw new TypeError('Plinko transport source is required');
+    exactKeys(value, ['elapsedMs', 'objectColliderRef', 'flipperId', 'variantId',
+      'physicsProfileId'], 'Plinko transport source');
+    var elapsedMs = finite(value.elapsedMs, 'Plinko transport elapsedMs', 0, 600000);
+    var objectColliderRef = primitiveString(value.objectColliderRef,
+      'Plinko transport objectColliderRef', 128, false);
+    var flipperId = primitiveString(value.flipperId, 'Plinko transport flipperId', 96, false);
+    var variantId = primitiveString(value.variantId, 'Plinko transport variantId', 96, false);
+    var physicsProfileId = primitiveString(value.physicsProfileId,
+      'Plinko transport physicsProfileId', 96, false);
+    var phase;
+    var phaseStart = 0;
+    var compressionDepth = 0;
+    var cameraMode;
+    var dropElapsedMs = Math.max(0, elapsedMs - PLINKO_TRANSPORT.boardDropStartMs);
+    if (elapsedMs < PLINKO_TRANSPORT.compressionEndMs) {
+      phase = 'compression';
+      compressionDepth = 1;
+      cameraMode = 'trampoline-lock';
+    } else if (elapsedMs < PLINKO_TRANSPORT.releaseEndMs) {
+      phase = 'release';
+      phaseStart = PLINKO_TRANSPORT.compressionEndMs;
+      compressionDepth = Math.max(0, 1 -
+        (elapsedMs - phaseStart) /
+        (PLINKO_TRANSPORT.releaseEndMs - PLINKO_TRANSPORT.compressionEndMs));
+      cameraMode = 'object-ascent-follow';
+    } else if (elapsedMs < PLINKO_TRANSPORT.apexHandoffStartMs) {
+      phase = 'ascent';
+      phaseStart = PLINKO_TRANSPORT.releaseEndMs;
+      cameraMode = 'object-ascent-follow';
+    } else if (elapsedMs < PLINKO_TRANSPORT.boardDropStartMs) {
+      phase = 'apex-handoff';
+      phaseStart = PLINKO_TRANSPORT.apexHandoffStartMs;
+      cameraMode = 'apex-board-handoff';
+    } else if (dropElapsedMs < PLINKO_TRANSPORT.recoveryStartDropMs) {
+      phase = 'board-descent';
+      phaseStart = PLINKO_TRANSPORT.boardDropStartMs;
+      cameraMode = 'object-drop-follow';
+    } else if (dropElapsedMs < PLINKO_TRANSPORT.timeoutDropMs) {
+      phase = 'anti-wedge-recovery';
+      phaseStart = PLINKO_TRANSPORT.boardDropStartMs +
+        PLINKO_TRANSPORT.recoveryStartDropMs;
+      cameraMode = 'object-drop-follow';
+    } else {
+      phase = 'recovery-timeout';
+      phaseStart = PLINKO_TRANSPORT.boardDropStartMs + PLINKO_TRANSPORT.timeoutDropMs;
+      cameraMode = 'object-drop-follow';
+    }
+    return deepFreeze({ schema: 'PlinkoTransportStateV1', phase: phase,
+      elapsedMs: elapsedMs, phaseElapsedMs: elapsedMs - phaseStart,
+      openingDurationMs: PLINKO_TRANSPORT.boardDropStartMs,
+      dropElapsedMs: dropElapsedMs, compressionDepth: compressionDepth,
+      objectColliderRef: objectColliderRef, flipperId: flipperId,
+      variantId: variantId, physicsProfileId: physicsProfileId,
+      pegRows: PLINKO_TRANSPORT.pegRows, cameraMode: cameraMode,
+      cameraTargetRef: objectColliderRef, openingLateralImpulse: 0,
+      trampolineColliderRef: PLINKO_TRANSPORT.trampolineColliderRef });
+  }
+
+  function normalizePlinkoTransportState(value) {
+    if (!isPlainObject(value)) throw new TypeError('PlinkoTransportStateV1 is required');
+    exactKeys(value, ['schema', 'phase', 'elapsedMs', 'phaseElapsedMs',
+      'openingDurationMs', 'dropElapsedMs', 'compressionDepth',
+      'objectColliderRef', 'flipperId', 'variantId', 'physicsProfileId',
+      'pegRows', 'cameraMode', 'cameraTargetRef', 'openingLateralImpulse',
+      'trampolineColliderRef'],
+    'PlinkoTransportStateV1');
+    if (value.schema !== 'PlinkoTransportStateV1') {
+      throw new TypeError('Invalid PlinkoTransportStateV1 schema');
+    }
+    var canonical = derivePlinkoTransportState({ elapsedMs: finite(value.elapsedMs,
+      'Plinko transport elapsedMs', 0, 600000),
+    objectColliderRef: primitiveString(value.objectColliderRef,
+      'Plinko transport objectColliderRef', 128, false),
+    flipperId: primitiveString(value.flipperId, 'Plinko transport flipperId', 96, false),
+    variantId: primitiveString(value.variantId, 'Plinko transport variantId', 96, false),
+    physicsProfileId: primitiveString(value.physicsProfileId,
+      'Plinko transport physicsProfileId', 96, false) });
+    if (Object.keys(canonical).some(function (key) {
+      return value[key] !== canonical[key];
+    })) {
+      throw new Error('Plinko transport state conflicts with its deterministic phase clock');
+    }
+    return canonical;
   }
 
   function deepFreeze(value, seen) {
@@ -674,7 +805,8 @@
     var source = value == null ? {} : value;
     if (!isPlainObject(source)) throw new TypeError(phase + ' directive must be an object');
     exactKeys(source, ['schema', 'forces', 'impulses', 'bodies', 'constraints', 'sensors',
-      'cameraCues', 'audioCues', 'presentationCues'], 'EventDirectiveV1');
+      'cameraCues', 'audioCues', 'presentationCues', 'plinkoTransport'],
+    'EventDirectiveV1');
     if (source.schema != null && source.schema !== 'EventDirectiveV1') throw new TypeError('Invalid EventDirectiveV1 schema');
     return deepFreeze({ schema: 'EventDirectiveV1', phase: phase,
       forces: boundedArray(source.forces, 'directive forces', function (item, index) {
@@ -689,7 +821,9 @@
         return normalizePhysicalCommand(item, 'directive sensors[' + index + ']', 'sensor'); }),
       cameraCues: normalizeCues(source.cameraCues, 'directive camera cues'),
       audioCues: normalizeCues(source.audioCues, 'directive audio cues'),
-      presentationCues: normalizeCues(source.presentationCues, 'directive presentation cues') });
+      presentationCues: normalizeCues(source.presentationCues, 'directive presentation cues'),
+      plinkoTransport: source.plinkoTransport == null ? null
+        : normalizePlinkoTransportState(source.plinkoTransport) });
   }
 
   function normalizeContact(value) {
@@ -770,7 +904,7 @@
       settled: booleanField },
     rewind: { replayCount: integerField(0, 1), correctiveImpulseApplied: booleanField },
     plinko: { objectColliderRef: stringField, slotSensorRef: nullableStringField,
-      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(9000, 30000),
+      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(10000, 30000),
       settled: booleanField, completionKind: stringField,
       recoveryStartedMs: nullableIntegerField(22000, 30000),
       recoveryImpulseCount: integerField(0, 1000) },
@@ -804,9 +938,10 @@
       }
       if (values.completionKind === 'clean') {
         if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||
-            values.dropDurationMs < 9000 || values.dropDurationMs > 18000 ||
+            values.dropDurationMs < PLINKO_TRANSPORT.cleanDropMinMs ||
+            values.dropDurationMs > PLINKO_TRANSPORT.cleanDropMaxMs ||
             values.recoveryStartedMs != null || values.recoveryImpulseCount !== 0) {
-          throw new Error('Plinko clean completion requires a settled 9-18 second sensor result');
+          throw new Error('Plinko clean completion requires a settled 10-15 second sensor result');
         }
       } else if (values.completionKind === 'recovered') {
         if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||
@@ -905,7 +1040,7 @@
   function normalizeFrame(value, expected) {
     if (!isPlainObject(value)) throw new TypeError('EventFrameV1 is required');
     exactKeys(value, ['schema', 'eventId', 'eventClass', 'laneId', 'sequence', 'entities',
-      'cues', 'reducedMotion'], 'EventFrameV1');
+      'cues', 'reducedMotion', 'plinkoTransport'], 'EventFrameV1');
     if (value.schema !== 'EventFrameV1') throw new TypeError('Invalid EventFrameV1 schema');
     if (typeof value.reducedMotion !== 'boolean') throw new TypeError('EventFrame reducedMotion must be boolean');
     var expect = expected || {};
@@ -921,9 +1056,15 @@
     var entities = value.entities.map(normalizeEntity);
     var ids = entities.map(function (entity) { return entity.entityId; });
     if (new Set(ids).size !== ids.length) throw new Error('EventFrame entity IDs must be unique');
+    var plinkoTransport = value.plinkoTransport == null ? null
+      : normalizePlinkoTransportState(value.plinkoTransport);
+    if ((id === 'plinko') !== (plinkoTransport != null)) {
+      throw new Error('Plinko frames require exactly one deterministic transport state');
+    }
     return deepFreeze({ schema: 'EventFrameV1', eventId: id, eventClass: kind, laneId: laneId,
       sequence: whole(value.sequence, 'EventFrame sequence', 0, 10000000), entities: entities,
-      cues: normalizeCues(value.cues, 'EventFrame cues'), reducedMotion: value.reducedMotion === true });
+      cues: normalizeCues(value.cues, 'EventFrame cues'), reducedMotion: value.reducedMotion === true,
+      plinkoTransport: plinkoTransport });
   }
   function normalizeColliderSnapshot(value) {
     if (!isPlainObject(value)) throw new TypeError('ColliderSnapshotV1 is required');
@@ -967,10 +1108,10 @@
     return deepFreeze({ transform: entity.transform, bounds: entity.bounds, evidence: evidence });
   }
   function mechanicsSignature(frame) {
-    return JSON.stringify(frame.entities.map(function (entity) {
+    return JSON.stringify([frame.entities.map(function (entity) {
       return [entity.entityId, entity.role, entity.transform, entity.bounds, entity.colliderRef,
         entity.appearanceRef, entity.visualStateRef, entity.visible, entity.zIndex];
-    }));
+    }), frame.plinkoTransport || null]);
   }
 
   function normalizeRuntimeOutcome(value) {
@@ -1229,6 +1370,7 @@
 
   return Object.freeze({ schema: 'FlipgameEventKernelV2', LIMITS: LIMITS,
     EVENT_CLASSES: EVENT_CLASSES, EVENT_IDS: EVENT_IDS,
+    PLINKO_TRANSPORT: PLINKO_TRANSPORT,
     PRESENTATION_ENTITY_ROLES: PRESENTATION_ENTITY_ROLES,
     EVENT_CLASS_BY_ID: EVENT_CLASS_BY_ID, RESOURCE_KINDS: RESOURCE_KINDS,
     FACT_SPECS: FACT_SPECS, isPlainObject: isPlainObject,
@@ -1244,6 +1386,8 @@
     normalizeQualification: normalizeQualification, normalizeLaunchSignal: normalizeLaunchSignal,
     normalizeLaunchDraft: normalizeLaunchDraft, normalizeStep: normalizeStep,
     normalizeDirective: normalizeDirective, normalizeContact: normalizeContact,
+    derivePlinkoTransportState: derivePlinkoTransportState,
+    normalizePlinkoTransportState: normalizePlinkoTransportState,
     normalizeLandingProbe: normalizeLandingProbe, normalizeOutcomeFacts: normalizeOutcomeFacts,
     normalizeBehaviorEvaluation: normalizeBehaviorEvaluation,
     normalizeFrame: normalizeFrame, normalizeColliderSnapshot: normalizeColliderSnapshot,

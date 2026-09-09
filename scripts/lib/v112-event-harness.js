@@ -57,7 +57,7 @@
     'roulette-table': { wheelColliderRef: 'body:wheel', objectColliderRef: 'body:object',
       sectorIndex: 3, sectorCount: 8, settled: true },
     rewind: { replayCount: 1, correctiveImpulseApplied: true },
-    plinko: { objectColliderRef: 'body:object', slotSensorRef: 'sensor:slot-4',
+    plinko: { objectColliderRef: 'body:flipper-main', slotSensorRef: 'sensor:slot-4',
       slotIndex: 4, dropDurationMs: 12000, settled: true, completionKind: 'clean',
       recoveryStartedMs: null, recoveryImpulseCount: 0 },
     'mirror-match': { normalizedLaunchX: 0.12, normalizedLaunchY: -0.48,
@@ -134,20 +134,51 @@
     }, clone(overrides || {}));
   }
 
-  function makeScopeFrame(eventId, eventClass, context, sequence) {
+  function makeScopeFrame(eventId, eventClass, context, sequence, plinkoTransport) {
+    var appearanceRef = context.appearance.flipperId + ':' + context.appearance.variantId;
     var entities = context.scope.colliderRefs().map(function (reference, index) {
       var collider = context.scope.getCollider(reference);
       var isMain = reference === 'body:flipper-main';
-      return { entityId: reference.replace(':', '-'),
-        role: isMain ? 'flipper' : (reference.indexOf('sensor:') === 0 ? 'sensor' : 'event-body'),
+      var isTrampoline = plinkoTransport &&
+        reference === plinkoTransport.trampolineColliderRef;
+      return { entityId: isTrampoline ? 'plinko-opening-trampoline'
+        : reference.replace(':', '-'),
+        role: isMain ? 'flipper' : (reference.indexOf('sensor:') === 0
+          ? 'sensor' : 'event-body'),
         transform: clone(collider.transform), bounds: clone(collider.bounds),
-        colliderRef: reference, appearanceRef: isMain ? 'bottle:classic-blue' : reference,
-        visualStateRef: 'active', visible: reference.indexOf('sensor:') !== 0,
+        colliderRef: reference, appearanceRef: isMain ? appearanceRef
+          : (isTrampoline ? 'plinko-trampoline:opening' : reference),
+        visualStateRef: isMain && plinkoTransport
+          ? 'plinko-' + plinkoTransport.phase
+          : (isTrampoline ? plinkoTransport.phase : 'active'),
+        visible: isTrampoline ? ['compression', 'release'].indexOf(
+          plinkoTransport.phase) >= 0 : reference.indexOf('sensor:') !== 0,
         zIndex: 10 + index };
     });
+    if (eventId === 'plinko') {
+      var boardVisible = ['apex-handoff', 'board-descent', 'anti-wedge-recovery',
+        'recovery-timeout'].indexOf(plinkoTransport.phase) >= 0;
+      entities.push({ entityId: 'plinko-board-24', role: 'background',
+        transform: { x: context.layout.width / 2,
+          y: context.layout.groundY - 920, angle: 0, scaleX: 1, scaleY: 1 },
+        bounds: { left: context.layout.width / 2 - 310,
+          top: context.layout.groundY - 1880, width: 620, height: 1920,
+          right: context.layout.width / 2 + 310, bottom: context.layout.groundY + 40 },
+        colliderRef: null, appearanceRef: 'plinko-board:24-rows',
+        visualStateRef: plinkoTransport.phase, visible: boardVisible, zIndex: 2 });
+    }
+    var cues = plinkoTransport ? [{ cueId: 'plinko-camera-' + sequence,
+      kind: 'plinko-' + plinkoTransport.cameraMode,
+      entityRef: plinkoTransport.cameraTargetRef, intensity: 1, durationMs: 500,
+      ariaCue: plinkoTransport.phase === 'compression'
+        ? 'The trampoline compresses beneath your Flipper.'
+        : (plinkoTransport.phase === 'apex-handoff'
+          ? 'The camera follows the Flipper into the Plinko board.'
+          : 'The camera tracks your Flipper.') }] :
+      [{ cueId: 'harness-cue', kind: 'trail' }];
     return makeFrame(eventId, eventClass, context.scope.laneId,
       { sequence: sequence, entities: entities, reducedMotion: false,
-        cues: [{ cueId: 'harness-cue', kind: 'trail' }] });
+        cues: cues, plinkoTransport: plinkoTransport || null });
   }
 
   function makeCollider(laneId, name, overrides) {
@@ -178,7 +209,13 @@
 
   function ownRequiredColliders(eventId, context, disposals, source) {
     var facts = source.facts || DEFAULT_FACTS[eventId];
-    ownCollider(context, 'body', 'flipper-main', disposals, source);
+    var mainOverrides = eventId === 'plinko' ? {
+      transform: { x: 45 }, evidence: { settled: facts.settled,
+        validLanding: facts.settled, pose: facts.settled ? 'upright' : 'none',
+        recoveryStartedMs: facts.recoveryStartedMs,
+        recoveryImpulseCount: facts.recoveryImpulseCount },
+    } : null;
+    ownCollider(context, 'body', 'flipper-main', disposals, source, mainOverrides);
     if (eventId === 'mitosis') {
       ownCollider(context, 'body', 'primary', disposals, source,
         { evidence: { validLanding: facts.primaryLanded, pose: facts.primaryLanded ? 'upright' : 'miss' } });
@@ -194,11 +231,12 @@
         { transform: { x: 640 + Math.cos(sectorAngle) * 100,
           y: 300 + Math.sin(sectorAngle) * 100 } });
     } else if (eventId === 'plinko') {
-      ownCollider(context, 'body', 'object', disposals, source,
-        { transform: { x: 45 }, evidence: { settled: facts.settled,
-          validLanding: facts.settled, pose: facts.settled ? 'upright' : 'none',
-          recoveryStartedMs: facts.recoveryStartedMs,
-          recoveryImpulseCount: facts.recoveryImpulseCount } });
+      ownCollider(context, 'body', 'plinko-opening-trampoline', disposals, source,
+        { transform: { x: context.layout.width / 2, y: context.layout.groundY },
+          bounds: { left: context.layout.width / 2 - 130,
+            top: context.layout.groundY - 28, width: 260, height: 56,
+            right: context.layout.width / 2 + 130,
+            bottom: context.layout.groundY + 28 } });
       if (facts.slotSensorRef != null) {
         var slotId = facts.slotSensorRef.split(':')[1];
         ownCollider(context, 'sensor', slotId, disposals, source,
@@ -224,8 +262,25 @@
       create: function (eventId, context) {
         trace.push('create:' + context.scope.laneId);
         ownRequiredColliders(eventId, context, disposals, source);
+        var eventFacts = source.facts || DEFAULT_FACTS[eventId];
         if (typeof source.onCreate === 'function') source.onCreate(eventId, context, trace);
         var frameSequence = 0;
+        var plinkoTransport = null;
+        var plinkoReleaseIssued = false;
+        var plinkoRecoveryIssued = false;
+        function nextPlinkoTransport(elapsedMs, objectRef) {
+          return Kernel.derivePlinkoTransportState({ elapsedMs: elapsedMs,
+            objectColliderRef: objectRef,
+            flipperId: context.appearance.flipperId,
+            variantId: context.appearance.variantId,
+            physicsProfileId: context.physicsProfile.id });
+        }
+        function cameraCue(state, suffix) {
+          return { cueId: 'plinko-camera-' + suffix,
+            kind: 'plinko-' + state.cameraMode,
+            entityRef: state.cameraTargetRef, intensity: 1, durationMs: 500,
+            ariaCue: 'Camera follows the selected Flipper.' };
+        }
         function maybeThrow(name) {
           if (source.throwAt === name) throw new Error('harness-' + name);
         }
@@ -244,12 +299,58 @@
           launch: function (draft) {
             trace.push('launch'); maybeThrow('launch');
             if (typeof source.launch === 'function') return source.launch(draft, context);
+            if (eventId === 'plinko') {
+              plinkoTransport = nextPlinkoTransport(0, draft.bodyRef);
+              return { bodies: [{ entityRef: draft.bodyRef,
+                scaleX: Kernel.PLINKO_TRANSPORT.compressedScaleX,
+                scaleY: Kernel.PLINKO_TRANSPORT.compressedScaleY },
+              { entityRef: plinkoTransport.trampolineColliderRef,
+                scaleX: Kernel.PLINKO_TRANSPORT.trampolineCompressedScaleX,
+                scaleY: Kernel.PLINKO_TRANSPORT.trampolineCompressedScaleY }],
+              cameraCues: [cameraCue(plinkoTransport, 'compression')],
+              presentationCues: [{ cueId: 'plinko-trampoline-compress',
+                kind: 'trampoline-compression', entityRef: draft.bodyRef,
+                intensity: 1, durationMs: Kernel.PLINKO_TRANSPORT.compressionEndMs,
+                ariaCue: 'The trampoline compresses.' }],
+              plinkoTransport: plinkoTransport };
+            }
             context.rng.nextUint32('launch');
             return {};
           },
           step: function (physicsStep) {
             trace.push('step'); maybeThrow('step'); frameSequence += 1;
             if (typeof source.step === 'function') return source.step(physicsStep, context);
+            if (eventId === 'plinko') {
+              plinkoTransport = nextPlinkoTransport(physicsStep.elapsedMs,
+                context.physicsProfile.colliderRef);
+              var directive = { cameraCues: [cameraCue(plinkoTransport,
+                String(frameSequence))], plinkoTransport: plinkoTransport };
+              if (!plinkoReleaseIssued &&
+                  physicsStep.elapsedMs >= Kernel.PLINKO_TRANSPORT.compressionEndMs) {
+                directive.impulses = [{ entityRef: plinkoTransport.objectColliderRef,
+                  x: 0, y: -Kernel.PLINKO_TRANSPORT.releaseUpwardImpulse }];
+                directive.bodies = [{ entityRef: plinkoTransport.objectColliderRef,
+                  scaleX: 1, scaleY: 1 },
+                { entityRef: plinkoTransport.trampolineColliderRef,
+                  scaleX: 1, scaleY: 1 }];
+                directive.audioCues = [{ cueId: 'plinko-trampoline-release',
+                  kind: 'trampoline-release', entityRef: plinkoTransport.objectColliderRef,
+                  intensity: 1, durationMs: 650,
+                  ariaCue: 'The trampoline launches the Flipper high above the table.' }];
+                plinkoReleaseIssued = true;
+              }
+              if (!plinkoRecoveryIssued &&
+                  plinkoTransport.phase === 'anti-wedge-recovery' &&
+                  eventFacts.recoveryImpulseCount > 0) {
+                directive.impulses = (directive.impulses || []).concat(
+                  Array.from({ length: eventFacts.recoveryImpulseCount }, function (_, index) {
+                    return { entityRef: plinkoTransport.objectColliderRef,
+                      x: index % 2 ? -2 : 2, y: -3 };
+                  }));
+                plinkoRecoveryIssued = true;
+              }
+              return directive;
+            }
             return {};
           },
           contact: function (contact) {
@@ -269,7 +370,8 @@
             trace.push('frame:' + reducedMotion); maybeThrow('frame');
             var provided = typeof source.frame === 'function'
               ? source.frame(reducedMotion, context, frameSequence) : null;
-            return provided || makeScopeFrame(eventId, eventClass, context, frameSequence);
+            return provided || makeScopeFrame(eventId, eventClass, context, frameSequence,
+              plinkoTransport);
           },
           cleanup: function (reason) {
             trace.push('cleanup:' + reason); maybeThrow('cleanup');
@@ -323,12 +425,25 @@
 
   function drive(runtime, options) {
     var source = options || {};
-    var defaultElapsed = runtime.snapshot().eventId === 'plinko' ? 12000 : 1800;
+    var defaultElapsed = runtime.snapshot().eventId === 'plinko'
+      ? Kernel.PLINKO_TRANSPORT.boardDropStartMs + DEFAULT_FACTS.plinko.dropDurationMs
+      : 1800;
     var result = { telegraph: runtime.telegraph(),
       qualification: runtime.qualifyLaunch(source.signal || makeSignal()) };
     if (!result.qualification.qualified) return result;
     result.launch = runtime.launch(source.draft || makeDraft());
-    result.step = runtime.step(source.step || makeStep({ elapsedMs: defaultElapsed }));
+    var targetStep = source.step || makeStep({ elapsedMs: defaultElapsed });
+    if (runtime.snapshot().eventId === 'plinko') {
+      [Kernel.PLINKO_TRANSPORT.compressionEndMs,
+        Kernel.PLINKO_TRANSPORT.releaseEndMs,
+        Kernel.PLINKO_TRANSPORT.apexHandoffStartMs,
+        Kernel.PLINKO_TRANSPORT.boardDropStartMs].forEach(function (elapsedMs) {
+          if (elapsedMs < targetStep.elapsedMs) {
+            runtime.step(makeStep({ elapsedMs: elapsedMs }));
+          }
+        });
+    }
+    result.step = runtime.step(targetStep);
     if (source.contact !== false) result.contact = runtime.contact(makeContact(source.contact));
     result.frame = runtime.frame(source.reducedMotion === true);
     result.outcome = runtime.evaluate(makeProbe(Object.assign({ elapsedMs: defaultElapsed },

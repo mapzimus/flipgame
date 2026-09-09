@@ -91,13 +91,17 @@
     var source = value == null ? Object.create(null) : value;
     if (!Kernel.isPlainObject(source)) throw new TypeError('EventRenderPlanV1 must be a data object');
     Kernel.exactKeys(source, ['schema', 'eventId', 'laneId', 'sequence', 'commands',
-      'cues', 'reducedMotion'], 'EventRenderPlanV1');
+      'cues', 'reducedMotion', 'plinkoTransport'], 'EventRenderPlanV1');
     if (source.schema != null && source.schema !== 'EventRenderPlanV1') throw new TypeError('Invalid render plan schema');
     if (source.eventId != null && source.eventId !== frame.eventId) throw new Error('Render plan eventId mismatch');
     if (source.laneId != null && source.laneId !== frame.laneId) throw new Error('Render plan laneId mismatch');
     if (source.sequence != null && source.sequence !== frame.sequence) throw new Error('Render plan sequence mismatch');
     if (source.reducedMotion != null && source.reducedMotion !== frame.reducedMotion) {
       throw new Error('Render plan reduced-motion mismatch');
+    }
+    if (source.plinkoTransport != null &&
+        !same(source.plinkoTransport, frame.plinkoTransport)) {
+      throw new Error('Render plan Plinko transport mismatch');
     }
     var commands = source.commands == null ? frame.entities.map(commandFromEntity) : source.commands;
     if (!Array.isArray(commands) || commands.length !== frame.entities.length ||
@@ -119,6 +123,7 @@
     return Kernel.deepFreeze({ schema: 'EventRenderPlanV1', eventId: frame.eventId,
       laneId: frame.laneId, sequence: frame.sequence, commands: normalizedCommands,
       cues: cues, reducedMotion: frame.reducedMotion,
+      plinkoTransport: frame.plinkoTransport,
       mechanicsSignature: Kernel.mechanicsSignature(frame) });
   }
 
@@ -148,6 +153,7 @@
       if (pack.eventClass !== frame.eventClass) throw new Error('Render pack class mismatch');
       var output = Kernel.callSynchronous(pack.render, pack, [frame, Object.freeze({
         schema: 'EventRenderContextV1', reducedMotion: frame.reducedMotion,
+        plinkoTransport: frame.plinkoTransport,
       })], 'EventRenderPackV1.render');
       return normalizePlan(output, frame);
     }
