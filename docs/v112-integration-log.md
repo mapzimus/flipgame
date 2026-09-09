@@ -256,6 +256,9 @@ log, and defect ledger remain release history and are not rewritten.
 
 - Product decision: target a 12-second median and a 10–15 second normal drop
   band.
+- A physically active drop may run longer than the normal band. Recovery and
+  no-contest handling are reserved for measured wedges/stalls, never used to
+  shorten a dramatic legitimate fall.
 - Duration must come from a genuinely taller physical peg field, not slow
   motion, an invisible delay, or fake repeated bounces.
 - Required tests: fixed-seed duration distribution, all nine slot outcomes,

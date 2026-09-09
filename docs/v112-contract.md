@@ -273,7 +273,9 @@ leaving discards it.
   board. The spring preserves the selected object/variant and its internal
   dynamics, affects entry position/spin, and cannot preselect or favor a slot.
 - After the apex handoff, Plinko has 24 peg rows, a normal 10–15s board descent
-  with 12s median, object tracking, deterministic anti-wedge impulses and slots:
+  with a 12s median, object tracking, deterministic anti-wedge impulses and
+  slots. A physically active drop may continue beyond that normal band; timing
+  never converts a moving Flipper into a prize or loss:
   `Lives Doubled | Everyone Else Halved | Always Magnet | Automatic Loss |
   Automatic Win | Automatic Loss | Always Magnet | Everyone Else Halved |
   Lives Doubled`. It remains the only automatic-win event.
