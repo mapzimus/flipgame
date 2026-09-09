@@ -167,6 +167,15 @@
   const FORCE_SKIN = (typeof window !== 'undefined' && window.FLIP_FORCE_SKIN) || null;
   const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
   const BASE_SKIN = BRAND.baseSkin || 'bottle';
+  // Local previews must not masquerade as the immutable public v1.11 build.
+  // Final source SHA/cache/APK identity is still assigned at the release gate.
+  if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+    const versionBadge = document.getElementById('version-badge');
+    if (versionBadge) {
+      versionBadge.textContent = 'v1.12 · DEV';
+      versionBadge.setAttribute('aria-label', 'Flipgame v1.12 development preview, not released');
+    }
+  }
   // Online is a beta entry point in v111. It is intentionally absent unless a
   // deployment opts in or the explicit local/query switch is present.
   const query = new URLSearchParams(location.search);
