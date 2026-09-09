@@ -2593,15 +2593,10 @@
       state = transition.state;
       return transition;
     }
-    var api = Object.freeze({
+    var apiMethods = {
       snapshot: function () { return snapshot(state); },
       nextResolutionIdentity: function (callerId) {
         return nextResolutionIdentity(state, callerId);
-      },
-      // Live ordinary flips cannot carry event rewards, raw points or forced
-      // elimination. Those fields enter only through the branded event chain.
-      resolveFlip: function (value) {
-        return update(resolveMatchFlip(state, normalizeOrdinaryAdapterInput(value)));
       },
       beginNextHeat: function () {
         if (state.schema !== 'CupRulesStateV1') throw new Error('Only Cup has heats');
@@ -2622,7 +2617,17 @@
         eventAuthorityClaimed = true;
         return authority;
       },
-    });
+    };
+    // The raw ordinary mutation entry point exists only inside trusted
+    // CommonJS composition. Browser callers must cross the physics-issued
+    // LandingVerdict authority; event outcomes retain their separate branded
+    // EventKernel path.
+    if (commonJs) {
+      apiMethods.resolveFlip = function (value) {
+        return update(resolveMatchFlip(state, normalizeOrdinaryAdapterInput(value)));
+      };
+    }
+    var api = Object.freeze(apiMethods);
     EVENT_MATCH_CAPABILITIES.set(eventCapability, {
       getState: function () { return state; },
       setState: function (nextState) { update({ state: nextState }); },
