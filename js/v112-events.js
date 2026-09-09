@@ -3,17 +3,24 @@
 (function (root, factory) {
   'use strict';
   var legacy = root && root.FlipgameV111PhysicsEvents;
-  if (typeof module === 'object' && module.exports) legacy = require('./v111-physics-events.js');
-  var api = factory(legacy);
+  var alienAdapters = root && root.FlipgameV112AlienEventAdapters;
+  if (typeof module === 'object' && module.exports) {
+    legacy = require('./v111-physics-events.js');
+    alienAdapters = require('./v112-alien-event-adapters.js');
+  }
+  var api = factory(legacy, alienAdapters);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.FlipgameV112Events = api;
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (Legacy) {
+  : (typeof window !== 'undefined' ? window : this)), function (Legacy, AlienAdapters) {
   'use strict';
 
   if (!Legacy || typeof Legacy.rollId !== 'function') {
     throw new Error('FlipgameV111PhysicsEvents must load before v112-events.js');
+  }
+  if (!AlienAdapters || AlienAdapters.schema !== 'AlienEventAdapterRegistryV1') {
+    throw new Error('FlipgameV112AlienEventAdapters must load before v112-events.js');
   }
 
   function clone(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
@@ -77,7 +84,10 @@
 
   var DEFINITIONS = freeze(Legacy.list().map(function (legacy, index) {
     var cue = CUE_BY_ID[legacy.id];
-    if (!cue || !CLASS_BY_ID[legacy.id]) throw new Error('Missing v1.12 event contract: ' + legacy.id);
+    var alienAdapter = AlienAdapters.get(legacy.id);
+    if (!cue || !CLASS_BY_ID[legacy.id] || !alienAdapter) {
+      throw new Error('Missing v1.12 event contract: ' + legacy.id);
+    }
     return {
       schema: 'EventDefinitionV2', id: legacy.id, displayName: legacy.displayName,
       registryOrder: index, normalDenominator: legacy.normalDenominator,
@@ -88,8 +98,10 @@
       insaneWeight: legacy.id === 'plinko' ? 1.25 : 1,
       automatic: legacy.id === 'plinko', fallible: legacy.id !== 'plinko',
       reducedMotionKeepsMechanics: true,
+      alienAdapter: alienAdapter,
     };
   }));
+  AlienAdapters.assertComplete(DEFINITIONS.map(function (definition) { return definition.id; }));
   var BY_ID = Object.create(null);
   var BY_DISPLAY_NAME = Object.create(null);
   DEFINITIONS.forEach(function (definition) {
@@ -112,7 +124,7 @@
     var physicsModeId = String(source.physicsModeId || 'normal');
     if (source.eventsEnabled === false || source.copiedFlip === true ||
         source.arenaDraft === true || source.formatId === 'battle' ||
-        physicsModeId === 'alien') return null;
+        (physicsModeId === 'alien' && activityId === 'story')) return null;
     if (!Number.isFinite(Number(source.seed))) throw new TypeError('event selection seed is required');
     var tutorialForced = activityId === 'tutorial' && source.tutorialEventId != null
       ? get(source.tutorialEventId) : null;
@@ -133,6 +145,13 @@
     });
     if (!id) return null;
     var definition = get(id);
+    if (physicsModeId === 'alien' && !AlienAdapters.has(id)) {
+      throw new Error('Selected event has no compatible AlienEventAdapterV1');
+    }
+    var cue = physicsModeId === 'alien' ? definition.alienAdapter.telegraph : {
+      glyph: definition.glyph, title: definition.displayName,
+      instruction: definition.instruction,
+    };
     return freeze({
       schema: 'EventSelectionV2', eventId: id, displayName: definition.displayName,
       eventClass: definition.eventClass, turnSeed: Number(source.seed) >>> 0,
@@ -140,8 +159,8 @@
         tutorialForced ? 'tutorial-test' : (forced ? 'forced-test' : (physicsModeId === 'insane' ? 'insane'
           : (source.playerName === 'Mr. Howe' ? 'mr-howe' : 'normal'))),
       forced: !!forced, testData: !!forced, consumed: false,
-      telegraph: { glyph: definition.glyph, title: definition.displayName,
-        instruction: definition.instruction, durationMs: definition.telegraphMs },
+      telegraph: { glyph: cue.glyph, title: definition.displayName,
+        instruction: cue.instruction, durationMs: definition.telegraphMs },
     });
   }
 
@@ -187,5 +206,10 @@
 
   return freeze({ schema: 'FlipgameEventsV2', definitions: DEFINITIONS,
     plinkoSlots: Legacy.PLINKO_SLOTS, get: get, forcedId: forcedId,
+    alienAdapters: AlienAdapters.adapters,
+    getAlienAdapter: AlienAdapters.get,
+    createAlienPlan: AlienAdapters.derivePlan,
+    captureAlienRestoreState: AlienAdapters.captureRestoreState,
+    restoreAlienState: AlienAdapters.restoreState,
     select: select, createTurnController: createTurnController });
 });

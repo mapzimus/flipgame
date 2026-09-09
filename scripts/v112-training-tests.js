@@ -757,8 +757,9 @@ function testBrowserExportsAndDependencyOrder() {
   const context = { console };
   context.globalThis = context;
   vm.createContext(context);
-  ['v111-interfaces.js', 'v111-physics-events.js', 'v112-activity.js', 'v112-events.js',
-    'v112-tutorial.js', 'v112-training.js'].forEach((name) => {
+  ['v111-interfaces.js', 'v111-physics-events.js', 'v112-activity.js',
+    'v112-alien-event-adapters.js', 'v112-events.js', 'v112-tutorial.js',
+    'v112-training.js'].forEach((name) => {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', name), 'utf8'),
       context, { filename: name });
   });
