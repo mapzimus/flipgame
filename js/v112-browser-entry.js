@@ -10,7 +10,10 @@
 //    launchId is unique per qualified shot. atMs is simulation milliseconds;
 //    fractional fixed steps are supported. landing stays null until the engine
 //    resolves, then is { result:'MAKE'|'MISS', pose:'upright'|'cap'|'miss',
-//    reason, stableForMs }. Event frames require a separate event bridge.
+//    reason, stableForMs, deadlineEvidence? }. The optional deadline evidence
+//    is captured by the engine at its absolute on-plane pose check; the bridge
+//    never reconstructs it from a later body snapshot. Event frames require a
+//    separate event bridge.
 // 3. beginSession({activityId:'free-play'|'practice', formatId:'classic',
 //    physicsModeId:'normal', roster:[{name,human,objectId,variantId}],
 //    startingLives,seed,suddenDeathEnabled}). The facade owns immutable IDs.
@@ -227,18 +230,19 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     // already rejected above and ordinary duplicate step frames remain inert.
     if (atMs < flip.atMs || (atMs === flip.atMs && !frame.landing)) return;
     flip.atMs = atMs;
-    if (frame.grounded !== true) {
+    var measuredDeadline = !!(frame.landing && frame.landing.deadlineEvidence);
+    if (!measuredDeadline && frame.grounded !== true) {
       if (flip.phase === 'contact' || flip.phase === 'settling') {
         session.physics.markAirborne(flip.handle, atMs); flip.phase = 'airborne';
       }
       flip.stableAt = null; flip.angles = []; return;
     }
-    if (flip.phase === 'airborne') {
+    if (!measuredDeadline && flip.phase === 'airborne') {
       session.physics.markContact(flip.handle, atMs); flip.phase = 'contact';
       flip.contactAt = atMs; if (flip.firstContactAt == null) flip.firstContactAt = atMs;
       emit('flip-contact'); return;
     }
-    if (flip.phase === 'contact') {
+    if (!measuredDeadline && flip.phase === 'contact') {
       session.physics.markSettling(flip.handle, atMs); flip.phase = 'settling';
       flip.stableAt = null; flip.angles = []; return;
     }
@@ -253,7 +257,12 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var made = result === 'MAKE';
     var data = { result: result, pose: pose, reason: frame.landing.reason,
       atMs: atMs, stableForMs: Math.floor(finite(frame.landing.stableForMs, 'engine stable duration')) };
-    var verdict = timeout ? session.physics.issueTimeoutVerdict(flip.handle, data)
+    var verdict = measuredDeadline ? session.physics.issueDeadlineVerdict(flip.handle, {
+      result: result, pose: pose, reason: data.reason, atMs: atMs,
+      evidence: { schema: frame.landing.deadlineEvidence.schema,
+        onLandingPlane: frame.landing.deadlineEvidence.onLandingPlane,
+        rotationComplete: frame.landing.deadlineEvidence.rotationComplete },
+    }) : timeout ? session.physics.issueTimeoutVerdict(flip.handle, data)
       : session.physics.issueSettledVerdict(flip.handle, data);
     session.consumer.resolve(verdict);
     flip.phase = 'resolved'; session.lastLanding = verdict;

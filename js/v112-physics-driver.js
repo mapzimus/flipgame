@@ -52,10 +52,6 @@
       if (observation.landing && !eventId && observation.firstContactMs == null) {
         unsupportedReason = 'airborne-terminal-adapter-required';
       }
-      if (observation.landing && !eventId && observation.landing.result === 'MAKE' &&
-          observation.firstContactMs != null && observation.atMs - observation.firstContactMs >= 4000) {
-        unsupportedReason = 'deadline-make-authority-mismatch';
-      }
       if (unsupportedReason) warning = unsupportedReason;
       frame = Object.freeze({
         launchId: active.launchId, atMs: observation.atMs, qualified: true,

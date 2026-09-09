@@ -265,6 +265,57 @@
     return handle;
   }
 
+  // The real engine has an absolute first-contact deadline with a final
+  // on-plane pose check. This is distinct from a true timeout/missing landing.
+  // No tilt threshold or rotation tolerance is recomputed by this authority.
+  function makeDeadlineVerdict(attempt, input) {
+    assertActive(attempt, 'Landing deadline issuance');
+    var source = exactFields(input, ['result', 'pose', 'reason', 'atMs', 'evidence'],
+      'landing deadline');
+    var atMs = time(source.atMs, 'landing deadline atMs');
+    if (attempt.firstContactAtMs == null ||
+        atMs - attempt.firstContactAtMs < ORDINARY_SETTLE_LIMIT_MS) {
+      throw new Error('Landing deadline requires a real first contact and its full 4000 ms allowance');
+    }
+    if (atMs < attempt.lastObservedAtMs) throw new Error('Landing deadline observation is stale');
+    var evidence = exactFields(source.evidence,
+      ['schema', 'onLandingPlane', 'rotationComplete'], 'landing deadline evidence');
+    if (evidence.schema !== 'LandingDeadlineEvidenceV1' ||
+        typeof evidence.onLandingPlane !== 'boolean' ||
+        typeof evidence.rotationComplete !== 'boolean') {
+      throw new TypeError('Landing deadline requires exact measured plane and rotation evidence');
+    }
+    if (source.result !== 'MAKE' && source.result !== 'MISS') {
+      throw new TypeError('Landing deadline requires an explicit MAKE or MISS');
+    }
+    if (source.result === 'MAKE' && (!evidence.onLandingPlane || !evidence.rotationComplete ||
+        (source.pose !== 'upright' && source.pose !== 'cap'))) {
+      throw new Error('Landing deadline MAKE requires on-plane completed rotation and explicit upright/cap pose');
+    }
+    if (source.result === 'MISS' && source.pose !== 'miss') {
+      throw new Error('Landing deadline MISS requires an explicit miss pose');
+    }
+    var landing = landingData({ result: source.result, pose: source.pose,
+      reason: source.reason, atMs: atMs }, false);
+    var handle = freeze({
+      schema: VERDICT_SCHEMA, version: VERSION, matchId: attempt.authority.matchId,
+      laneId: attempt.lane.laneId, flipId: attempt.flipId, playerId: attempt.playerId,
+      phase: 'resolved', result: landing.result, pose: landing.pose, onCap: landing.onCap,
+      reason: landing.reason,
+      firstContactMs: attempt.firstContactAtMs - attempt.launchedAtMs,
+      settleMs: atMs - attempt.firstContactAtMs,
+      finalSettleMs: atMs - attempt.lastContactAtMs,
+      settleLimitMs: ORDINARY_SETTLE_LIMIT_MS, contacts: attempt.contactCount,
+      timedOut: false, deadlineReached: true,
+      deadlineEvidence: { schema: evidence.schema, onLandingPlane: evidence.onLandingPlane,
+        rotationComplete: evidence.rotationComplete },
+    });
+    attempt.status = 'issued'; attempt.phase = 'resolved'; attempt.verdict = handle;
+    VERDICTS.set(handle, { attempt: attempt, authority: attempt.authority, lane: attempt.lane,
+      resolutionIdentity: attempt.resolutionIdentity, landing: landing, status: 'issued' });
+    return handle;
+  }
+
   function createPhysicsLane(record, lane) {
     return Object.freeze({
       schema: 'LandingPhysicsLaneAuthorityV1', matchId: record.matchId, laneId: lane.laneId,
@@ -347,6 +398,9 @@
       },
       issueTimeoutVerdict: function (handle, input) {
         return makeVerdict(attemptRecord(handle, lane, 'Landing timeout'), input, true);
+      },
+      issueDeadlineVerdict: function (handle, input) {
+        return makeDeadlineVerdict(attemptRecord(handle, lane, 'Landing deadline'), input);
       },
       abort: function (handle, reason) {
         var attempt = attemptRecord(handle, lane, 'Landing abort');

@@ -18,6 +18,7 @@ const Physics = (() => {
   let observationRevision = 0;
   let observedLaunchSequence = 0;
   let observationAngleTimes = [];
+  let observationDeadlineEvidence = null;
   function getObservation(kind = 'snapshot') {
     const observedLanding = landingPhase === 'resolved' && lastLandingInfo;
     const measuredStableMs = angleWin.length && angleWin.length === observationAngleTimes.length
@@ -36,6 +37,7 @@ const Physics = (() => {
         pose: observedLanding.onCap ? 'cap' : observedLanding.result === 'MAKE' ? 'upright' : 'miss',
         reason: observedLanding.reason,
         stableForMs: measuredStableMs,
+        deadlineEvidence: observationDeadlineEvidence,
       }) : null,
     });
   }
@@ -1368,6 +1370,13 @@ const Physics = (() => {
         result, landingInfo: lastLandingInfo,
       }));
     }
+    observationDeadlineEvidence = !activeEventDefinition &&
+      !(lastFlickInfo && lastFlickInfo.eventId) && firstContactMs != null &&
+      simElapsedMs - firstContactMs >= 4000 ? Object.freeze({
+        schema: 'LandingDeadlineEvidenceV1',
+        onLandingPlane: withinLandingPlaneTolerance(),
+        rotationComplete: !profile.requireFlip || hasFlipped,
+      }) : null;
     publishObservation('landing');
     return result;
   }
@@ -1857,6 +1866,7 @@ const Physics = (() => {
     groundedFrames = 0;
     angleWin       = [];
     observationAngleTimes = [];
+    observationDeadlineEvidence = null;
     totalRotation  = 0;
     hasFlipped     = false;
     requiredRotation = 5.6;
@@ -2669,6 +2679,7 @@ const Physics = (() => {
     Body.setAngularVelocity(bottle, spin);
     observedLaunchSequence++;
     observationAngleTimes = [];
+    observationDeadlineEvidence = null;
     publishObservation('launch');
   }
 

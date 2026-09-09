@@ -60,6 +60,20 @@ async function run() {
   assert.equal(snapshot.session.practice.makes, 2);
   assert.equal(snapshot.session.practice.caps, 1);
   assert.equal(snapshot.profile.fxp, rewarded, 'Practice cannot award progression');
+  h.run(`function deadlineShot(onPlane) {
+    frame={launchId:'deadline-'+(++serial),qualified:true,manual:true,atMs:0,grounded:false,landing:null};wake();
+    sample({atMs:700,grounded:true});sample({atMs:717});
+    if(!onPlane)sample({atMs:900,grounded:false});
+    sample({atMs:4700,landing:{result:onPlane?'MAKE':'MISS',pose:onPlane?'cap':'miss',
+      reason:onPlane?'cap':'off-plane-settle-limit',stableForMs:0,
+      deadlineEvidence:{schema:'LandingDeadlineEvidenceV1',onLandingPlane:onPlane,rotationComplete:true}}});
+  } deadlineShot(true); deadlineShot(false);`);
+  snapshot = h.app.snapshot();
+  assert.equal(snapshot.warning, null);
+  assert.equal(snapshot.session.practice.makes, 3, 'measured cap at deadline remains a make');
+  assert.equal(snapshot.session.practice.misses, 1, 'off-plane deadline resolves after earlier contact');
+  assert.equal(snapshot.session.practice.caps, 2);
+  assert.equal(snapshot.profile.fxp, rewarded);
   h.app.abandonSession();
   h.app.enableOwnerTesting('Howe Test Mode');
   assert.equal(h.app.objects().filter(object => !object.locked).length, 51);
