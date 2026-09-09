@@ -1480,7 +1480,8 @@ const Renderer = (() => {
 
     if (result && state.easterPresentation && window.FlipgameV112EasterPresentation) {
       FlipgameV112EasterPresentation.draw(ctx, {presentation: state.easterPresentation,
-        width: W, height: H, elapsedMs: state.easterElapsedMs});
+        width: W, height: H, elapsedMs: state.easterElapsedMs,
+        globeSurface: state.globeSurface, globeRequest: state.globeRequest});
     }
 
     if (shakeAmp > 0.05) ctx.restore();

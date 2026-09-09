@@ -1419,9 +1419,13 @@
   let currentMatchId = null;
   let easterEggState = null;
   let easterPresentation = null;
+  // Captured after a committed Globe result. This contains only paint data;
+  // it never participates in selection, physics, outcomes, or rewards.
+  let easterGlobeFocus = null;
 
   function resolvePresentationSecret(record, flick) {
     easterPresentation = null;
+    easterGlobeFocus = null;
     const registry = window.FlipgameV112EasterEggs;
     if (!registry || !currentMatchId || !record) return;
     if (!easterEggState || easterEggState.matchId !== currentMatchId) {
@@ -1454,7 +1458,18 @@
       if (easterPresentation && window.FlipgameV112EasterPresentation) {
         // Camera requests are deliberately not granted over an event/reaction
         // camera. The authored scene stays in its own screen-space inset.
-        if (easterPresentation.id !== 'desk-globe-visible-wurld') {
+        if (easterPresentation.id === 'desk-globe-visible-wurld') {
+          const globe = window.FlipgameV112GlobeLive;
+          const orientation = globe && typeof globe.currentOrientation === 'function'
+            ? globe.currentOrientation() : null;
+          if (orientation) {
+            easterGlobeFocus = Object.freeze({ orientation, seed: presentationSeed,
+              durationMs: easterPresentation.visual.durationMs });
+          }
+        }
+        // Do not announce or play a Globe focus unless the real, visible
+        // hemisphere was actually captured. Other cues remain unaffected.
+        if (easterPresentation.id !== 'desk-globe-visible-wurld' || easterGlobeFocus) {
           announce(easterPresentation.cue.accessibilityText);
           const sound = FlipgameV112EasterPresentation.audioCue(easterPresentation);
           if (sound) Sound.play(sound);
@@ -1936,6 +1951,12 @@
       ? Physics.getEventRenderState(reduceMotionActive()) : null;
     const landingLifecycle = Physics.getLandingLifecycle ? Physics.getLandingLifecycle() : null;
     const lastFlickInfo = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
+    const globeFocus = game.state === GAME_STATES.RESULT && easterPresentation && easterGlobeFocus &&
+      window.FlipgameV112GlobeLive && typeof window.FlipgameV112GlobeLive.focusView === 'function'
+      ? window.FlipgameV112GlobeLive.focusView({ orientation: easterGlobeFocus.orientation,
+        seed: easterGlobeFocus.seed, elapsedMs: RESULT_MS - resultTimer,
+        durationMs: easterGlobeFocus.durationMs, reducedMotion: reduceMotionActive() })
+      : null;
     if (eventStatusEl) {
       const label = eventRenderState && eventRenderState.metadata && eventRenderState.metadata.displayName;
       eventStatusEl.textContent = label ? `${label} active` : '';
@@ -1949,6 +1970,8 @@
       resultAlpha,
       easterPresentation: game.state === GAME_STATES.RESULT ? easterPresentation : null,
       easterElapsedMs: RESULT_MS - resultTimer,
+      globeSurface: globeFocus && globeFocus.globeSurface,
+      globeRequest: globeFocus && globeFocus.globeRequest,
       specialLabel: game.state === GAME_STATES.RESULT
         ? (game.plinkoPrize ? (game.plinkoPrize === 'win' ? '🎰 AUTO WIN!'
           : game.plinkoPrize === 'lose' ? '🎰 AUTO LOSS!'
