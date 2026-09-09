@@ -631,7 +631,10 @@
     }
     function requestOptions(source) {
       var output = Object.assign({}, source);
-      if (abortController && abortController.signal) output.signal = abortController.signal;
+      // Native Web Locks forbid combining signal with a non-blocking probe.
+      // The queued request remains abortable; holdLock rejects a late grant
+      // after close even when this immediate ifAvailable probe is in flight.
+      if (!source.ifAvailable && abortController && abortController.signal) output.signal = abortController.signal;
       return output;
     }
     function fail(error) {

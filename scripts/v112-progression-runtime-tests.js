@@ -1758,6 +1758,7 @@ async function testLifetimeWebLockWriterBoundary() {
     return {
       requests,
       request(name, options, callback) {
+        if (options.ifAvailable && options.signal) throw new TypeError('Web Locks forbid signal with ifAvailable');
         requests.push({ name, options: { ...options } });
         if (held && options.ifAvailable) return Promise.resolve(callback(null));
         if (held) {
@@ -1783,8 +1784,8 @@ async function testLifetimeWebLockWriterBoundary() {
   assert.equal(locks.requests[0].name, Runtime.writerLockName);
   assert.equal(locks.requests[0].options.mode, 'exclusive');
   assert.equal(locks.requests[0].options.ifAvailable, true);
-  assert.equal(locks.requests[0].options.signal.aborted, false,
-    'the lifetime request carries a cancellable signal');
+  assert.equal(locks.requests[0].options.signal, undefined,
+    'native Web Locks forbid a signal on the immediate ifAvailable probe');
   const reserved = firstAuthority.reserveMatch('locked-writer-a', 'free-play');
   assert.equal(reserved.applied, true);
   assert.equal(firstAuthority.claimMatch(reserved.token, rewardInput()).applied, true);
@@ -1832,8 +1833,10 @@ async function testLifetimeWebLockWriterBoundary() {
     'a failed nonblocking probe is followed by a real queued Web Lock request');
   assert.equal(Object.prototype.hasOwnProperty.call(locks.requests[2].options,
     'ifAvailable'), false);
-  assert.equal(locks.requests[2].options.signal, locks.requests[1].options.signal,
-    'the probe and queued request share one lifecycle cancellation signal');
+  assert.equal(locks.requests[1].options.signal, undefined,
+    'the queued tab’s immediate probe also omits a signal');
+  assert.equal(locks.requests[2].options.signal.aborted, false,
+    'the blocking queued request retains lifecycle cancellation');
   second.close(); unsupported.close();
   await Promise.resolve();
   let thirdWritable = false;
