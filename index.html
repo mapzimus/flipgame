@@ -35,7 +35,6 @@
       <nav class="utility-nav" aria-label="Game information">
         <button id="stats-btn" type="button"><span aria-hidden="true">▥</span><span>Stats</span></button>
         <button id="achievements-btn" type="button"><span aria-hidden="true">★</span><span>Achievements</span></button>
-        <button id="online-btn" type="button" class="hidden"><span aria-hidden="true">◎</span><span>Online</span></button>
       </nav>
     </header>
     <main class="app-main setup-main">
@@ -97,16 +96,6 @@
       <section class="arena-options" aria-label="Available arenas"><button type="button" id="arena-random" class="secondary-action">Random Unlocked</button><div id="arena-select-grid" class="arena-select-grid" role="group" aria-label="Arena choices"></div></section>
     </main>
     <footer class="app-footer"><p class="helper">Visual setting only. Competitive physics stay the same.</p><button type="button" id="arena-play" class="primary-action">Play Now · Baseline Table</button></footer>
-  </section>
-
-  <!-- Online lobby -->
-  <section id="online-screen" class="screen hidden app-shell" data-route="online" aria-labelledby="online-title">
-    <header class="app-header"><button id="online-back-btn" type="button" class="back-btn">Back</button><h1 id="online-title" tabindex="-1">Online</h1></header>
-    <main class="app-main narrow-main">
-      <div id="online-form" class="panel online-card"><p>Play the same match on different devices using a room code.</p><div class="field-stack"><label for="online-name">Player name</label><input id="online-name" type="text" maxlength="14" autocomplete="nickname" aria-describedby="online-name-help online-name-error"><span id="online-name-help" class="helper">14 max</span><span id="online-name-error" class="field-error"></span></div><button id="online-create-btn" type="button" class="primary-action">Create room</button><div class="field-stack"><label for="online-code">Room code</label><input id="online-code" type="text" maxlength="6" class="code-input" autocomplete="off" autocapitalize="characters"></div><button id="online-join-btn" type="button" class="primary-action">Join room</button><div id="online-action-error" class="inline-error"></div><button id="online-retry-btn" type="button" class="secondary-action hidden">Try again</button></div>
-      <div id="online-lobby" class="panel online-card hidden"><p class="eyebrow">Room code</p><div id="online-room-code" class="room-code" aria-label="Room code">----</div><button id="online-copy-btn" type="button" class="secondary-action">Copy code</button><div id="online-status" class="online-status" role="status"></div><h2>Players</h2><div id="online-roster" class="online-roster"></div><p id="online-wait-reason" class="helper">Waiting for at least 2 players</p></div>
-    </main>
-    <footer id="online-footer" class="app-footer"><button id="online-leave-btn" type="button" class="secondary-action hidden">Leave</button><button id="online-start-btn" type="button" class="primary-action hidden">Start</button></footer>
   </section>
 
   <section id="stats-screen" class="screen hidden app-shell" data-route="stats" aria-labelledby="stats-title">

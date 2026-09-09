@@ -21,20 +21,6 @@
   const practiceMeterEl = document.getElementById('practice-meter');
   const startBtn     = document.getElementById('start-btn');
   const practiceBtn  = document.getElementById('practice-btn');
-  const onlineBtn    = document.getElementById('online-btn');
-  const onlineScreen = document.getElementById('online-screen');
-  const onlineForm   = document.getElementById('online-form');
-  const onlineLobby  = document.getElementById('online-lobby');
-  const onlineNameEl = document.getElementById('online-name');
-  const onlineCodeEl = document.getElementById('online-code');
-  const onlineCreateBtn = document.getElementById('online-create-btn');
-  const onlineJoinBtn   = document.getElementById('online-join-btn');
-  const onlineBackBtn   = document.getElementById('online-back-btn');
-  const onlineLeaveBtn  = document.getElementById('online-leave-btn');
-  const onlineStartBtn  = document.getElementById('online-start-btn');
-  const onlineRoomCodeEl = document.getElementById('online-room-code');
-  const onlineStatusEl   = document.getElementById('online-status');
-  const onlineRosterEl   = document.getElementById('online-roster');
   const addPlayerBtn = document.getElementById('add-player-btn');
   const playerInputs = document.getElementById('player-inputs');
   const charPickScreen = document.getElementById('char-picker-screen');
@@ -176,12 +162,6 @@
       versionBadge.setAttribute('aria-label', 'Flipgame v1.12 development preview, not released');
     }
   }
-  // Online is a beta entry point in v111. It is intentionally absent unless a
-  // deployment opts in or the explicit local/query switch is present.
-  const query = new URLSearchParams(location.search);
-  const ONLINE_ENABLED = BRAND.onlineBeta === true || BRAND.online === true ||
-    query.get('online') === '1' || query.get('online') === 'beta';
-
   function characterList() {
     return window.Skins && Skins.list ? Skins.list() : [{ id: BASE_SKIN, name: 'Bottle', emoji: '🍾', color: '#1f9bff', tint: '#1f9bff' }];
   }
@@ -1056,7 +1036,7 @@
       isAI: false, skin, variantId: replayShot?.variantId || flavorIdForColor(config.color),
       cosmeticId: replayShot?.cosmeticId || row.cosmeticId || null,
     };
-    Sound.unlock(); onlineMode = false; if (window.Net) Net.leave(); enterImmersive();
+    Sound.unlock(); enterImmersive();
     labScreen.classList.add('hidden'); setupScreen.classList.add('hidden'); gameScreen.classList.remove('hidden'); gameOverEl.classList.add('hidden');
     const advancedLabUsed = !!(config.eventId || config.seed != null || config.viewportPreset ||
       config.slowMotion || config.replaying || config.objectId !== (row.charId || defaultCharId()) ||
@@ -1072,7 +1052,7 @@
       visualArenaId: replayShot?.visualArenaId || visualArenaId, newMatch: true,
     });
     if (labReadoutEl) { labReadoutEl.classList.remove('hidden'); labReadoutEl.textContent = 'Lab shot ready.'; }
-    if (replayShot) requestAnimationFrame(() => launchFlick(replayShot.vx, replayShot.vy, replayShot.seed, false));
+    if (replayShot) requestAnimationFrame(() => launchFlick(replayShot.vx, replayShot.vy, replayShot.seed));
   }
   document.getElementById('lab-start-btn')?.addEventListener('click', () => startPhysicsLab(false));
   document.getElementById('lab-replay-btn')?.addEventListener('click', () => {
@@ -1183,8 +1163,6 @@
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
     saveSetup();
     Sound.unlock();   // first user gesture — unlock audio
-    onlineMode = false;
-    if (window.Net) Net.leave();
     enterImmersive();
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
@@ -1287,8 +1265,6 @@
     };
     saveSetup();
     Sound.unlock();
-    onlineMode = false;
-    if (window.Net) Net.leave();
     enterImmersive();
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
@@ -1365,36 +1341,6 @@
     enterImmersive();
     gameOverEl.classList.add('hidden');
     gameScreen.classList.remove('hidden');
-    if (onlineMode) {
-      // Online rematch: only the host can kick off; others wait for start.
-      if (window.Net && Net.isHost) {
-        const defs = (confirmedNextDefs || defsFromCurrentGame()).map((definition) => ({ ...definition, isAI: false }));
-        const payload = applyModeRematchOptions({
-          defs, direction: game.direction, startingLives: game.startingLives,
-          startIndex: confirmedNextDefs ? 0 : game.winnerIndex, newMatch: false,
-          difficulty: game.difficulty || 'medium',
-          feel: game.feel || chosenFeel(),
-          format: game.format,
-          cupLength: currentMatchOptions.cupLength,
-          arenaProfileId: currentMatchOptions.arenaProfileId,
-          visualArenaId: currentMatchOptions.visualArenaId,
-        }, replayModeState);
-        Net.startMatch(payload);
-        if (playAgainBtn) playAgainBtn.textContent = 'Same Setup';
-        const localOptions = { ...payload };
-        delete localOptions.defs;
-        delete localOptions.direction;
-        startGame(defs, game.direction, localOptions);
-        confirmedNextDefs = null;
-        confirmedTeamSwap = false;
-        arenaDraftSelection = null;
-      } else if (onlineStatusEl) {
-        // Non-host waits — Net.on('start') will fire beginOnlineMatch path via startGame
-        // Re-show a tiny waiting state on the game-over card label.
-        playAgainBtn.textContent = 'Waiting for host…';
-      }
-      return;
-    }
     if (game.practice) {
       startGame(
         [{ name: game.players[0].name, color: game.players[0].color, isAI: false,
@@ -1462,7 +1408,6 @@
   let moonFlipActive = false;
   // Easter egg: ~1/1000 flips the floor vanishes and the throw drops into a
   // plinko board (center = auto win). Physics rolls it from the flick seed;
-  // disabled online because prizes rewrite lives directly.
   let plinkoFlipActive = false;
   let rareEventActive = null;
   let activeArenaPhysicsId = null;
@@ -1520,9 +1465,6 @@
   // Konami code (keyboard) toggles party mode without the secret name.
   let konamiParty = false;
   try { konamiParty = localStorage.getItem('flipgame.party') === '1'; } catch (_) {}
-  let onlineMode = false;      // playing via Net rooms
-  let netAuthority = false;    // this client owns the current flick's verdict
-  let pendingNetResult = null; // authoritative result waiting to apply
   let mirrorMatch = null;
   let activeMirrorClaim = null;
   function detached(value) { return JSON.parse(JSON.stringify(value)); }
@@ -1563,62 +1505,6 @@
   function syncMirrorRoster() {
     try { if (mirrorMatch) mirrorMatch.syncRoster(activeMirrorRoster()); }
     catch (error) { console.error('Mirror Match roster sync failed', error); }
-  }
-  function captureOnlineMatchState() {
-    if (!gameStarted || !onlineMode) return null;
-    const modeState = v111Runtime && v111Runtime.modes
-      ? v111Runtime.modes.snapshot({ game, online: true }) : null;
-    return detached({
-      schema: 'FlipgameResumeStateV1',
-      matchId: currentMatchId,
-      matchStartedAt: currentMatchStartedAt,
-      defs: game.players.map((p, index) => ({ id: currentMatchDefs[index]?.id || p.netId || `seat-${index + 1}`, name: p.name,
-        color: p.color, isAI: !!p.isAI, skin: p.skin, netId: p.netId,
-        variantId: currentMatchDefs[index]?.variantId || null, cosmeticId: currentMatchDefs[index]?.cosmeticId || null })),
-      direction: game.direction,
-      options: currentMatchOptions,
-      game: {
-        state: game.state, currentPlayerIndex: game.currentPlayerIndex, turnCounter: game.turnCounter,
-        pointCount: game.pointCount, lastResult: game.lastResult, winnerIndex: game.winnerIndex,
-        startingLives: game.startingLives, maxLives: game.maxLives,
-        suddenDeathFlipThreshold: game.suddenDeathFlipThreshold,
-        onFirePlayerIndex: game.onFirePlayer ? game.players.indexOf(game.onFirePlayer) : null,
-        onFireBonus: game.onFireBonus, practiceMakes: game.practiceMakes,
-        practiceAttempts: game.practiceAttempts, practiceStreak: game.practiceStreak,
-        practiceBest: game.practiceBest,
-        players: game.players.map((p) => ({ lives: p.lives, streak: p.streak,
-          eliminated: !!p.eliminated, isHeatingUp: !!p.isHeatingUp, isOnFire: !!p.isOnFire,
-          alwaysMagnet: !!p.alwaysMagnet })),
-      },
-      modeState,
-      mirrorSnapshot: mirrorMatch && mirrorMatch.snapshot ? mirrorMatch.snapshot() : null,
-      settings: { feel: game.feel, difficulty: game.difficulty, insanity: game.insanity },
-    });
-  }
-  function restoreOnlineMatchState(snapshot) {
-    if (!snapshot || snapshot.schema !== 'FlipgameResumeStateV1' || !Array.isArray(snapshot.defs) || !snapshot.game) return false;
-    const mode = snapshot.options && snapshot.options.format;
-    const options = Object.assign({}, snapshot.options || {}, snapshot.settings || {},
-      mode === 'cup' ? { cupState: snapshot.modeState } : {},
-      mode === 'team-clash' ? { teamState: snapshot.modeState } : {},
-      snapshot.mirrorSnapshot ? { mirrorSnapshot: snapshot.mirrorSnapshot } : {},
-      { resumeMatchId: snapshot.matchId, resumeMatchStartedAt: snapshot.matchStartedAt });
-    onlineMode = true;
-    startGame(detached(snapshot.defs), snapshot.direction === -1 ? -1 : 1, options);
-    const value = snapshot.game;
-    value.players.forEach((saved, index) => Object.assign(game.players[index] || {}, saved));
-    game.currentPlayerIndex = Math.max(0, Math.min(game.players.length - 1, Number(value.currentPlayerIndex) || 0));
-    game.turnCounter = Math.max(0, Number(value.turnCounter) || 0);
-    game.pointCount = Math.max(0, Number(value.pointCount) || 0);
-    game.lastResult = value.lastResult || null;
-    game.winnerIndex = Number.isInteger(value.winnerIndex) ? value.winnerIndex : 0;
-    game.suddenDeathFlipThreshold = Math.max(0, Number(value.suddenDeathFlipThreshold) || 0);
-    game.onFireBonus = Math.max(0, Number(value.onFireBonus) || 0);
-    game.onFirePlayer = Number.isInteger(value.onFirePlayerIndex) ? game.players[value.onFirePlayerIndex] : null;
-    ['practiceMakes','practiceAttempts','practiceStreak','practiceBest'].forEach((key) => { game[key] = Math.max(0, Number(value[key]) || 0); });
-    if (Object.values(GAME_STATES).includes(value.state)) game.state = value.state;
-    updateHUD();
-    return true;
   }
   const RESULT_MS = 1500;
   // Worst grounded tilt (rad) a MAKE must have survived to count as a Great
@@ -1680,8 +1566,8 @@
     return rareEventActive === 'rainbow-trail' ? 'rainbow-corkscrew' : rareEventActive;
   }
 
-  function resolveGameFlip(result, landingInfo, authoritativeMeta = null) {
-    const meta = authoritativeMeta || landingMeta(landingInfo);
+  function resolveGameFlip(result, landingInfo) {
+    const meta = landingMeta(landingInfo);
     bridgeLandingInfo = landingInfo || null;
     const handled = v111Bridge('resolveFlip', {
       game,
@@ -1689,7 +1575,7 @@
       meta,
       landing: landingInfo || null,
       eventId: canonicalEventId(),
-      online: onlineMode,
+      online: false,
       forced: testDataFlipActive,
       testData: matchTestDataActive,
     }, false);
@@ -1699,7 +1585,7 @@
   }
 
   function advanceGameTurn() {
-    const handled = v111Bridge('advanceTurn', { game, online: onlineMode }, false);
+    const handled = v111Bridge('advanceTurn', { game, online: false }, false);
     if (!handled) game.advanceTurn();
   }
 
@@ -1766,7 +1652,7 @@
     };
   }
 
-  // Deterministic turn seed shared by all online peers (same turnCounter + seat).
+  // Deterministic turn seed from the local turn counter and seat.
   function turnArenaSeed() {
     const tc = game.turnCounter | 0;
     const pi = game.currentPlayerIndex | 0;
@@ -1782,7 +1668,7 @@
       defs,
       direction: dir,
       options: opts || {},
-      online: onlineMode,
+      online: false,
     }, null);
     if (prepared) {
       if (Array.isArray(prepared.defs)) defs = prepared.defs;
@@ -1844,7 +1730,7 @@
     Physics.init(physicsWidth, physicsHeight, physicsInset);  // logical coords
     const feel = (opts && opts.feel) || chosenFeel();
     if (Physics.setFeel) Physics.setFeel(feel);
-    if (!onlineMode) Settings.setFeel(feel);
+    Settings.setFeel(feel);
     if (Physics.setImpactCallback) {
       let lastWallT = 0;
       Physics.setImpactCallback((type, speed, x, y) => {
@@ -1895,7 +1781,7 @@
       perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0, lowestLives: Infinity })),
     };
     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
-    v111Bridge('matchStarted', { game, options: opts || {}, online: onlineMode }, null);
+    v111Bridge('matchStarted', { game, options: opts || {}, online: false }, null);
 
     if (loopId) cancelAnimationFrame(loopId);
     lastTime = performance.now();
@@ -1961,67 +1847,11 @@
       Physics.step(stepDt);
       if (currentMatchOptions.lab && evaluating) captureLabTrajectoryPoint();
       if (evaluating) {
-        // Remote peers may receive the authoritative verdict before local settle.
-        if (pendingNetResult) {
-          const authority = pendingNetResult;
-          pendingNetResult = null;
-          // Event verdicts already contain the authority's final attempt and
-          // event-owned resolution. Never run them through local event physics:
-          // Rewind would consume a final MISS as its first local failure and
-          // Plinko/Roulette/split bodies could choose different local metadata.
-          const forced = authority.eventResult ? authority.result
-            : (Physics.forceLanding
-              ? Physics.forceLanding(authority.result, authority.landingInfo)
-              : authority.result);
-          evaluating = false;
-          showGlow = forced === 'MAKE';
-          resolveGameFlip(forced,
-            authority.eventResult ? authority.landingInfo : Physics.getLastLandingInfo(),
-            authority.meta);
-          break;
-        }
-        // Online non-authority: display-only sim — wait for the flicker's result
-        // so cross-device pad/float drift can't fork lives/turns.
-        if (onlineMode && !netAuthority) continue;
         const result = Physics.checkLanding();
         if (result) {
           evaluating = false;
           showGlow   = result === 'MAKE';
           const landingInfo = Physics.getLastLandingInfo();
-          if (onlineMode && netAuthority && window.Net) {
-            const eventId = canonicalEventId();
-            const packet = {
-              result,
-              info: {
-                tilt: landingInfo && landingInfo.tilt,
-                perfect: !!(landingInfo && landingInfo.perfect),
-                reason: landingInfo && landingInfo.reason,
-                onCap: !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
-                maxTilt: landingInfo && landingInfo.maxTilt,
-                padOffset: landingInfo && landingInfo.padOffset,
-                bankHits: landingInfo && landingInfo.bankHits,
-              },
-              playerId: Net.selfId,
-            };
-            let authoritativeMeta = null;
-            if (eventId) {
-              const localMeta = landingMeta(landingInfo);
-              packet.eventId = eventId;
-              packet.eventResult = window.FlipgameNetworkProtocolV2.createEventResult({
-                eventId,
-                result,
-                meta: localMeta,
-              });
-              const resolved = window.FlipgameNetworkProtocolV2.resolveAuthoritativeResult(packet, eventId);
-              if (!resolved.ok) throw new Error(`Invalid local event result: ${resolved.code}`);
-              authoritativeMeta = resolved.value.meta;
-            }
-            Net.sendResult(packet);
-            netAuthority = false;
-            resolveGameFlip(result, landingInfo, authoritativeMeta);
-            break;
-          }
-          netAuthority = false;
           resolveGameFlip(result, landingInfo);
           break;
         }
@@ -2199,7 +2029,7 @@
     resultAlpha = 0;
     intenseTurn = false;
     resetFlipPresentation();
-    if (Physics.setPlinkoEnabled) Physics.setPlinkoEnabled(!onlineMode);
+    if (Physics.setPlinkoEnabled) Physics.setPlinkoEnabled(true);
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
     applyTurnPhysics();
@@ -2209,9 +2039,6 @@
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
-    if (onlineMode && window.Net && typeof Net.setTurn === 'function') {
-      Net.setTurn({ playerId: p && p.netId, turnId: game.turnCounter + 1 });
-    }
     streakBannerEl.textContent = '';
     streakBannerEl.className = 'streak-banner';
 
@@ -2241,20 +2068,6 @@
     turnBannerEl.textContent = `${p.name}'s turn`;
     updateHUD();
 
-    // Online: only the peer whose netId matches can flick; everyone else watches.
-    if (onlineMode && window.Net) {
-      Input.disable();
-      flipHintEl.classList.add('hidden');
-      passScreen.classList.add('hidden');
-      if (p.netId === Net.selfId) {
-        turnBannerEl.textContent = `${p.name}'s turn · YOU`;
-        armHumanTurn();
-      } else {
-        turnBannerEl.textContent = `${p.name}'s turn · waiting…`;
-      }
-      return;
-    }
-
     // "PASS TO {name}" handoff card — only with >2 players still alive (with 2
     // it's obvious whose turn it is). Defers input and the tension
     // sting until the new player taps "Tap to flip".
@@ -2280,9 +2093,6 @@
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
-    if (onlineMode && window.Net && typeof Net.setTurn === 'function') {
-      Net.setTurn({ playerId: p && p.netId, turnId: game.turnCounter + 1 });
-    }
     intenseTurn = game.missWouldEliminate();   // only in sudden death (ON FIRE miss is otherwise free)
     if (intenseTurn) Sound.play('tension');
     turnBannerEl.textContent  = `🔥 ${p.name} IS ON FIRE!`;
@@ -2293,13 +2103,6 @@
       Input.disable();
       flipHintEl.classList.add('hidden');
       aiTimer = setTimeout(aiFlick, 1000 / gameSpeed());
-    } else if (onlineMode && window.Net) {
-      Input.disable();
-      flipHintEl.classList.add('hidden');
-      if (p.netId === Net.selfId) {
-        Input.enable();
-        flipHintEl.classList.remove('hidden');
-      }
     } else {
       Input.enable();
     }
@@ -2366,7 +2169,7 @@
       automaticOutcome: landing.automaticOutcome || null,
     } : localEventResult;
     const eventMeta = Physics.getEventMetadata ? (Physics.getEventMetadata() || {}) : {};
-    const modeState = v111Runtime?.modes?.snapshot({ game, online: onlineMode }) || {};
+    const modeState = v111Runtime?.modes?.snapshot({ game, online: false }) || {};
     const index = flipTelemetry?.playerIndex ?? game.currentPlayerIndex;
     const player = game.players[index] || game.currentPlayer();
     const definition = currentMatchDefs[index] || {};
@@ -2429,7 +2232,7 @@
       appliedReward: eventResult.eventReward || eventResult.reward || null,
       appliedEffect: modeState.lastAction?.effects || eventResult.appliedEffect || eventMeta.physicsKind || null,
       performance: performanceRecord(flipTelemetry),
-      online: onlineMode,
+      online: false,
       practice: !!game.practice,
       lab: !!currentMatchOptions.lab,
       forced: !!testDataFlipActive,
@@ -2547,7 +2350,7 @@
       landing: landing || bridgeLandingInfo,
       flick,
       eventId: canonicalEventId(),
-      online: onlineMode,
+      online: false,
       forced: testDataFlipActive,
       testData: matchTestDataActive,
       record: statsRecord,
@@ -2940,7 +2743,7 @@
     const active = game.activePlayers();
     const loser  = game.currentPlayer();
     const finalElim = !game.practice && !!(loser && loser.eliminated);
-    const modeState = v111Runtime?.modes?.snapshot({ game, online: onlineMode }) || null;
+    const modeState = v111Runtime?.modes?.snapshot({ game, online: false }) || null;
     const cupBetweenHeats = game.format === 'cup' && modeState?.phase === 'between-heats';
     const cupComplete = game.format === 'cup' && modeState?.phase === 'complete';
     const teamComplete = game.format !== 'team-clash' || modeState?.phase === 'complete';
@@ -2999,7 +2802,7 @@
         startedAt: currentMatchStartedAt,
         durationMs: Math.max(0, Date.now() - currentMatchStartedAt),
         mode: currentMatchOptions.lab ? 'physics-lab' : game.practice ? 'practice' : game.format,
-        online: onlineMode,
+        online: false,
         practice: !!game.practice,
         lab: !!currentMatchOptions.lab,
         forced: !!matchTestDataActive,
@@ -3033,7 +2836,7 @@
       };
       v111Bridge('matchResolved', {
         game,
-        online: onlineMode,
+        online: false,
         match: { stats: gameStats, seriesWins: matchWins, format: game.format, modeState },
         record: matchRecord,
       }, null);
@@ -3075,8 +2878,7 @@
       rotate?.classList.toggle('hidden', game.format !== 'classic');
       shuffle?.classList.toggle('hidden', game.format !== 'classic');
       swap?.classList.toggle('hidden', game.format !== 'team-clash');
-      if (onlineMode && !Net.isHost) { playAgainBtn.classList.add('hidden'); announce('Waiting for host'); }
-      else playAgainBtn.classList.remove('hidden');
+      playAgainBtn.classList.remove('hidden');
       const series = document.getElementById('cup-series');
       if (series) series.textContent = game.format === 'cup'
         ? `Heats: ${(modeState?.heatWins || []).join(' · ')}${modeState?.clutch?.active ? ` · Clutch round ${modeState.clutch.tiebreakRound}` : ''}${modeState?.queue?.length ? ` · ${modeState.queue.length} flips queued` : ''}` : '';
@@ -3087,7 +2889,7 @@
         const qualification = {
           completed: true, resolved: true, won: true, format: game.format,
           practice: false, lab: false, forced: false, testData: false,
-          simulated: false, aiOnly: false, online: onlineMode,
+          simulated: false, aiOnly: false, online: false,
           winnerIsAI: !!winner.isAI && !winningTeamHasHuman, humanWinner: !winner.isAI || winningTeamHasHuman,
           winningTeamHasHuman, humanPlayers: game.players.filter((player) => !player.isAI).length,
           players: game.players.map((player) => ({ isAI: !!player.isAI })),
@@ -3263,7 +3065,7 @@
   });
 
   // ── Flick ──────────────────────────────────────────────────────────────────
-  function launchFlick(vx, vy, seed, asAuthority, mirrorClaim = null, launchPolicy = null) {
+  function launchFlick(vx, vy, seed, mirrorClaim = null, launchPolicy = null) {
     if (evaluating) return;
     if (game.state !== GAME_STATES.TURN_START &&
         game.state !== GAME_STATES.ON_FIRE) return;
@@ -3283,14 +3085,12 @@
       labTrajectoryStartedAt = performance.now();
       captureLabTrajectoryPoint(true);
     }
-    netAuthority = !!asAuthority;
-    pendingNetResult = null;
     Input.disable();
     flipHintEl.classList.add('hidden');
     Sound.unlock();
     Sound.play('flick');
     lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);
-    // Typed test commands are offline-only because several prizes rewrite lives.
+    // Typed test commands mark the session as Test Data.
     testDataFlipActive = false;
     beginFlipTelemetry();
     if (currentMatchOptions.lab && Physics.forceSpecialEvent) {
@@ -3301,7 +3101,7 @@
     } else if (!mirrorClaim && !currentMatchOptions.eventsDisabled && currentMatchOptions.arenaProfile?.physicsProfileId && Physics.forceSpecialEvent) {
       activeArenaPhysicsId = currentMatchOptions.arenaProfile.physicsProfileId;
       Physics.forceSpecialEvent(activeArenaPhysicsId);
-    } else if (!onlineMode && Physics.forceSpecialEvent) {
+    } else if (Physics.forceSpecialEvent) {
       if (game.practice && specialEventArmed) {
         Physics.forceSpecialEvent(specialEventArmed);
         specialEventArmed = null;
@@ -3323,7 +3123,7 @@
     const mirrorEventsDisabled = !!(mirrorPolicy &&
       (mirrorPolicy.eventMode === 'disabled' || mirrorPolicy.eventPolicy?.eventsDisabled || mirrorPolicy.nestingDisabled));
     Physics.applyFlick(vx, vy, seed, eventMultiplier,
-      mirrorEventsDisabled ? 'disabled' : (currentMatchOptions.eventsDisabled ? 'disabled' : (!onlineMode && game.insanity ? 'insanity' : 'normal')),
+      mirrorEventsDisabled ? 'disabled' : (currentMatchOptions.eventsDisabled ? 'disabled' : (game.insanity ? 'insanity' : 'normal')),
       mirrorClaim ? false : !!game.currentPlayer()?.alwaysMagnet,
       {
         excludedEventIds: mirrorPolicy?.eventPolicy?.excludedEventIds || currentMatchOptions.excludedEventIds || [],
@@ -3339,7 +3139,7 @@
       game,
       flick: fi,
       eventId: canonicalEventId(),
-      online: onlineMode,
+      online: false,
       forced: testDataFlipActive,
       testData: matchTestDataActive,
     }, null);
@@ -3470,25 +3270,13 @@
 
   function onFlick(vx, vy, source = null) {
     const cpuPolicy = cpuLaunchPolicy(source);
-    // Online: only the current player may flick, and only on their device.
-    if (onlineMode && window.Net) {
-      const cur = game.currentPlayer();
-      if (!cur || cur.netId !== Net.selfId) return;
-      const copied = mirrorLaunch(claimMirrorCopy(), vx, vy, undefined);
-      vx = copied.vx;
-      vy = copied.vy;
-      const seed = copied.claim ? copied.seed : Math.floor(Math.random() * 0xffffffff) >>> 0;
-      if (!Net.sendFlick({ vx, vy, seed, playerId: Net.selfId })) return;
-      launchFlick(vx, vy, seed, true, copied.claim, cpuPolicy);
-      return;
-    }
     const copied = mirrorLaunch(claimMirrorCopy(), vx, vy, undefined);
     vx = copied.vx;
     vy = copied.vy;
     const labSeed = currentMatchOptions.lab && currentMatchOptions.labSeed != null
       ? Number(currentMatchOptions.labSeed) >>> 0 : undefined;
     const launchSeed = copied.claim ? copied.seed : (cpuPolicy ? cpuPolicy.seed : labSeed);
-    launchFlick(vx, vy, launchSeed, false, copied.claim, cpuPolicy);
+    launchFlick(vx, vy, launchSeed, copied.claim, cpuPolicy);
   }
 
   // ── HUD ────────────────────────────────────────────────────────────────────
@@ -3530,7 +3318,7 @@
   let routeOpener = null;
   function enterRoute(screen, opener) {
     routeOpener = opener || document.activeElement;
-    [setupScreen, statsScreen, achievementsScreen, onlineScreen, labScreen].forEach((item) => item?.classList.add('hidden'));
+    [setupScreen, statsScreen, achievementsScreen, labScreen].forEach((item) => item?.classList.add('hidden'));
     screen?.classList.remove('hidden');
     const heading = screen?.querySelector('h1');
     if (heading) requestAnimationFrame(() => heading.focus({ preventScroll: true }));
@@ -3990,11 +3778,7 @@
       activeMirrorClaim = null;
     }
     document.body.classList.remove('life-drain-active');
-    onlineMode = false;
-    netAuthority = false;
-    pendingNetResult = null;
     v111Bridge('menuEntered', { game, reason: 'menu' }, null);
-    if (window.Net) Net.leave();
     try { if (v111Platform && v111Platform.leaveMatch) await v111Platform.leaveMatch(); } catch (_) {}
     game.state = GAME_STATES.SETUP;
     gameScreen.classList.add('hidden');
@@ -4003,7 +3787,6 @@
     if (practiceMeterEl) practiceMeterEl.classList.add('hidden');
     labReadoutEl?.classList.add('hidden');
     dismissMystery();
-    if (onlineScreen) onlineScreen.classList.add('hidden');
     renderRecordsPanel();
     syncInsaneModeUnlock();
     if (returnToLab && isPhysicsLabUnlocked()) {
@@ -4029,263 +3812,6 @@
   }
 
   Input.attach(canvas, onFlick);
-
-  // ── Online multiplayer lobby ────────────────────────────────────────────────
-  if (window.Net && typeof Net.bindMatchState === 'function') {
-    Net.bindMatchState({ capture: captureOnlineMatchState, restore: restoreOnlineMatchState });
-  }
-  function showOnlineLobby() {
-    if (!onlineForm || !onlineLobby) return;
-    onlineForm.classList.add('hidden');
-    onlineLobby.classList.remove('hidden');
-    onlineRoomCodeEl.textContent = Net.roomCode || '----';
-    onlineStatusEl.textContent = Net.connected ? 'Connected' : 'Connecting…';
-    if (onlineStartBtn) onlineStartBtn.classList.toggle('hidden', !Net.isHost);
-    document.getElementById('online-leave-btn')?.classList.remove('hidden');
-    renderOnlineRoster();
-  }
-
-  function renderOnlineRoster() {
-    if (!onlineRosterEl || !window.Net) return;
-    const list = Net.roster;
-    onlineRosterEl.innerHTML = list.map((p, index) => `
-      <div class="online-peer">
-        <span class="dot" style="background:${p.color || '#4fc3f7'}"></span>
-        <strong>P${index + 1}</strong><span>${escapeHtml(p.name || 'Player')}</span>
-        ${p.host || p.id === (list.find(x => x.host) || {}).id ? '<span class="host-tag">host</span>' : ''}
-        ${p.id === Net.selfId ? '<span class="host-tag">you</span>' : ''}
-      </div>`).join('') || '<div class="online-status">Waiting for players…</div>';
-    if (onlineStartBtn) {
-      onlineStartBtn.disabled = list.length < 2;
-      onlineStartBtn.textContent = 'Start';
-    }
-    const wait = document.getElementById('online-wait-reason');
-    if (wait) wait.textContent = Net.isHost
-      ? (list.length < 2 ? 'Waiting for at least 2 players' : '')
-      : 'Waiting for host to start';
-  }
-
-  function onlinePlayerFromSetup() {
-    const rows = readRows();
-    const r0 = rows[0] || { name: '', charId: defaultCharId(), color: defaultColorFor(defaultCharId()) };
-    const color = normalizeColor(r0.color || defaultColorFor(r0.charId || defaultCharId()));
-    const charId = FORCE_SKIN || resolveCharForColor(r0.charId || defaultCharId(), color);
-    const name = (onlineNameEl && onlineNameEl.value.trim()) ||
-      (r0.name || '').trim() || defaultNameFor(charId, color);
-    return {
-      name,
-      color,
-      skin: charId,
-      id: r0.id,
-      variantId: r0.variantId || flavorIdForColor(color),
-      cosmeticId: r0.cosmeticId || null,
-    };
-  }
-  function validateOnlineName() {
-    const result = v111Runtime && v111Runtime.namePolicy
-      ? v111Runtime.namePolicy.validate(onlineNameEl?.value || '', { source: 'online' })
-      : { valid: !!onlineNameEl?.value.trim(), value: onlineNameEl?.value.trim() };
-    const valid = result.valid !== undefined ? !!result.valid : !!result.ok;
-    onlineNameEl?.setAttribute('aria-invalid', valid ? 'false' : 'true');
-    const error = document.getElementById('online-name-error');
-    if (error) error.textContent = valid ? '' : 'Please choose another name';
-    if (!valid) { announce('Please choose another name', true); onlineNameEl?.focus(); return false; }
-    if (result.value != null) onlineNameEl.value = String(result.value);
-    return true;
-  }
-
-  function beginOnlineMatch(defs, dir, opts) {
-    onlineMode = true;
-    Sound.unlock();
-    enterImmersive();
-    if (onlineScreen) onlineScreen.classList.add('hidden');
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
-    gameOverEl.classList.add('hidden');
-    if (playAgainBtn) playAgainBtn.textContent = 'Same Setup';
-    const matchOptions = Object.assign({}, opts || {});
-    delete matchOptions.defs;
-    delete matchOptions.direction;
-    matchOptions.difficulty = matchOptions.difficulty || 'medium';
-    matchOptions.feel = matchOptions.feel || chosenFeel();
-    matchOptions.startingLives = matchOptions.startingLives || chosenStartingLives();
-    matchOptions.format = matchOptions.format || 'classic';
-    matchOptions.insanity = !!matchOptions.insanity;
-    // Default true for first match; rematch host sends newMatch: false.
-    matchOptions.newMatch = matchOptions.newMatch !== false;
-    startGame(defs, dir || 1, matchOptions);
-  }
-
-  // Ports that ship without networking (Parrot Flip) hide the entry point
-  // entirely rather than leaving a button that goes nowhere.
-  if (onlineBtn) onlineBtn.classList.toggle('hidden', !ONLINE_ENABLED);
-  if (onlineBtn && window.Net && ONLINE_ENABLED) {
-    onlineNameEl?.addEventListener('blur', validateOnlineName);
-    onlineCodeEl?.addEventListener('input', () => {
-      const start = onlineCodeEl.selectionStart;
-      onlineCodeEl.value = onlineCodeEl.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-      if (start != null) onlineCodeEl.setSelectionRange(start, start);
-    });
-    document.getElementById('online-copy-btn')?.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(Net.roomCode || ''); announce('Room code copied'); } catch (_) { announce('Could not copy room code.', true); }
-    });
-    document.getElementById('online-retry-btn')?.addEventListener('click', () => {
-      document.getElementById('online-action-error').textContent = '';
-      document.getElementById('online-retry-btn').classList.add('hidden');
-      onlineCreateBtn.focus();
-    });
-    onlineBtn.addEventListener('click', () => {
-      enterRoute(onlineScreen, onlineBtn);
-      onlineForm.classList.remove('hidden');
-      onlineLobby.classList.add('hidden');
-      if (onlineNameEl && !onlineNameEl.value) {
-        const r0 = readRows()[0];
-        onlineNameEl.value = (r0 && r0.name) || defaultNameFor(defaultCharId());
-      }
-    });
-
-    onlineBackBtn && onlineBackBtn.addEventListener('click', () => {
-      Net.leave();
-      leaveRoute(onlineScreen);
-    });
-
-    onlineLeaveBtn && onlineLeaveBtn.addEventListener('click', () => {
-      Net.leave();
-      onlineLobby.classList.add('hidden');
-      onlineForm.classList.remove('hidden');
-      onlineStatusEl.textContent = '';
-    });
-
-    onlineCreateBtn && onlineCreateBtn.addEventListener('click', async () => {
-      if (!validateOnlineName()) return;
-      onlineCreateBtn.disabled = onlineJoinBtn.disabled = true;
-      onlineCreateBtn.textContent = 'Creating…';
-      try {
-        onlineStatusEl.textContent = 'Creating room…';
-        await Net.createRoom(onlinePlayerFromSetup());
-        showOnlineLobby();
-      } catch (e) {
-        onlineStatusEl.textContent = 'Could not create room.';
-        document.getElementById('online-action-error').textContent = 'Could not create room.';
-        document.getElementById('online-retry-btn')?.classList.remove('hidden');
-        announce('Could not create room.', true);
-        console.error(e);
-      } finally { onlineCreateBtn.disabled = onlineJoinBtn.disabled = false; onlineCreateBtn.textContent = 'Create room'; }
-    });
-
-    onlineJoinBtn && onlineJoinBtn.addEventListener('click', async () => {
-      if (!validateOnlineName()) return;
-      onlineCreateBtn.disabled = onlineJoinBtn.disabled = true;
-      onlineJoinBtn.textContent = 'Joining…';
-      try {
-        onlineStatusEl.textContent = 'Joining…';
-        await Net.joinRoom(onlineCodeEl.value, onlinePlayerFromSetup());
-        showOnlineLobby();
-      } catch (e) {
-        onlineStatusEl.textContent = 'Could not join room.';
-        document.getElementById('online-action-error').textContent = 'Could not join room.';
-        document.getElementById('online-retry-btn')?.classList.remove('hidden');
-        announce('Could not join room.', true);
-        console.error(e);
-      } finally { onlineCreateBtn.disabled = onlineJoinBtn.disabled = false; onlineJoinBtn.textContent = 'Join room'; }
-    });
-
-    onlineStartBtn && onlineStartBtn.addEventListener('click', () => {
-      if (!Net.isHost || Net.roster.length < 2) return;
-      const defs = Net.roster.map(p => ({
-        name: p.name,
-        color: p.color,
-        isAI: false,
-        skin: FORCE_SKIN || p.skin || BASE_SKIN,
-        netId: p.id,
-        id: p.playerId || p.id,
-        variantId: p.variantId || null,
-        cosmeticId: p.cosmeticId || null,
-      }));
-      const payload = {
-        defs,
-        direction: 1,
-        startingLives: chosenStartingLives(),
-        feel: chosenFeel(),
-        insanity: chosenGameMode() === 'insanity',
-        format: chosenFormat(),
-        cupLength: chosenCupLength(),
-        arenaProfileId: chosenArenaProfile(),
-        visualArenaId,
-      };
-      Net.startMatch(payload);
-      beginOnlineMatch(defs, 1, payload);
-    });
-
-    Net.on('roster', () => {
-      renderOnlineRoster();
-      if (onlineStatusEl && Net.connected) {
-        onlineStatusEl.textContent =
-          `Connected · ${Net.roster.length} player${Net.roster.length === 1 ? '' : 's'}`;
-      }
-    });
-    Net.on('welcome', () => showOnlineLobby());
-    Net.on('start', (msg) => {
-      if (Net.isHost) return; // host already started locally
-      const defs = (msg.defs || []).map(d => ({ ...d, isAI: false }));
-      beginOnlineMatch(defs, msg.direction || 1, msg);
-    });
-    Net.on('flick', (msg) => {
-      if (!onlineMode || !gameStarted) return;
-      if (msg.playerId === Net.selfId) return;
-      const copied = mirrorLaunch(claimMirrorCopy(), msg.vx, msg.vy, msg.seed);
-      launchFlick(copied.vx, copied.vy, copied.claim ? copied.seed : msg.seed, false, copied.claim);
-    });
-    Net.on('result', (msg) => {
-      if (!onlineMode || !gameStarted) return;
-      if (msg.playerId === Net.selfId) return;
-      const accepted = Net.acceptResult(msg, canonicalEventId());
-      if (!accepted) { evaluating = false; Input.disable(); return; }
-      pendingNetResult = accepted;
-    });
-    Net.on('leave', (peerId) => {
-      if (!onlineMode || !gameStarted || !peerId) return;
-      const p = game.players.find(x => x.netId === peerId && !x.eliminated);
-      if (!p) return;
-      const wasCurrent = game.currentPlayer() === p;
-      if (!game.forfeitPlayer(peerId, 'left')) return;
-      showToast(`${p.name} left — forfeited.`);
-      syncMirrorRoster();
-      Input.disable();
-      clearTimeout(aiTimer);
-      evaluating = false;
-      pendingNetResult = null;
-      netAuthority = false;
-      updateHUD();
-      if (wasCurrent || game.activePlayers().length <= 1) {
-        // Treat like an elimination so advanceTurn can end or rotate.
-        game.justEliminated = true;
-        advanceGameTurn();
-      }
-    });
-    Net.on('disconnected', () => {
-      if (onlineStatusEl) onlineStatusEl.textContent = 'Disconnected — reconnecting…';
-    });
-    Net.on('reconnected', () => {
-      if (onlineStatusEl) onlineStatusEl.textContent = 'Reconnected';
-    });
-    Net.on('rename-required', (payload) => {
-      if (onlineNameEl) onlineNameEl.value = payload?.replacement || 'Player';
-      const first = playerInputs.querySelector('input[type="text"]');
-      if (first) first.value = payload?.replacement || 'Player';
-      if (onlineStatusEl) onlineStatusEl.textContent = 'Please choose another name';
-      announce('Please choose another name', true);
-      onlineNameEl?.focus();
-    });
-    Net.on('compatibility-failure', () => {
-      onlineBtn.classList.add('hidden');
-      if (onlineStatusEl) onlineStatusEl.textContent = 'Online is unavailable for this version.';
-      announce('Online is unavailable for this version.', true);
-    });
-    Net.on('protocol-reject', (payload) => console.warn('Network message rejected', payload?.code));
-    Net.on('resumed', () => { if (onlineStatusEl) onlineStatusEl.textContent = 'Match restored'; announce('Match restored'); });
-    Net.on('resume-state-missing', () => { Input.disable(); if (onlineStatusEl) onlineStatusEl.textContent = 'Waiting for the match to be restored.'; announce('Waiting for the match to be restored.'); });
-  }
 
   // Apply persisted prefs + render the hall-of-fame
   syncPreferenceControls();
