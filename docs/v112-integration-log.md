@@ -1005,3 +1005,24 @@ log, and defect ledger remain release history and are not rewritten.
   module/process shims, immutable preseeds, load-order permutations, continued
   loading after an earlier script throws, and replacement before/after trusted
   composition.
+
+## Revision 51 — Alien events require authored zero-gravity variants
+
+- A playtest report says Alien-mode special events are weak. The current v1.12
+  selector also blanket-suppresses events whenever `physicsModeId` is `alien`;
+  neither behavior is acceptable for free-play Alien.
+- Free-play Alien now uses Normal event odds and the exact `Mr. Howe` boost.
+  Veyr's native Story encounter continues to suppress nested events. This is an
+  explicit activity exception, not a global Alien-mode shortcut.
+- `AlienEventAdapterV1` is required for all 30 event IDs. Normal behavior is a
+  zero-gravity physical adaptation that retains the visible UFO arena and the
+  bank-then-ring goal. Self-contained events own their temporary goal and must
+  restore Alien physics, UFOs, camera and Flipper dynamics exactly on cleanup.
+- Redundant combinations receive authored mechanics rather than a cosmetic
+  rename: moving UFO swarm, rotating gravity tide, ice rail, oscillating walls,
+  spring wall and plasma jets cover Alien Invasion, Moon Gravity, Ice Slide,
+  Earthquake, Trampoline and Wind Tunnel respectively.
+- V112-107 remains open until a specialist reviews and implements each event
+  individually, matched physical simulations prove hazards are harder rather
+  than easier, and visual/device evidence shows an unmistakable effect without
+  hiding the Flipper or tractor ring.

@@ -289,6 +289,36 @@ leaving discards it.
   and excludes Life Drain. Programmed values never appear player-facing.
 - Every event display name is a Practice force-name. Forced play is Test Data.
 
+### Alien event compatibility
+
+- Free-play Alien uses Normal event odds and the exact `Mr. Howe` boost; it may
+  not blanket-disable events or silently reuse an Earth-gravity implementation.
+  Veyr's native Story encounter still suppresses nested events so the final
+  signature challenge remains a stable authored test.
+- Every one of the 30 events has an explicit `AlienEventAdapterV1` classified
+  as `adapted`, `self-contained`, or `excluded-with-authored-replacement`.
+  Selection occurs only from the resulting compatible registry, preserves one
+  event maximum and never changes the combined roll probability merely because
+  the base mode is Alien.
+- Adapted events retain the visible UFO field and normally preserve Alien's
+  bank-then-tractor-ring scoring goal. Their forces, obstacles, cameras and
+  telegraphs are authored for zero gravity, scale with the arena, and remain
+  physical, skill-based and missable. Hazards must make the matched Alien shot
+  measurably harder; they cannot become disguised auto-align assists.
+- Redundant effects receive real Alien variants under the same event IDs:
+  Alien Invasion becomes a moving UFO-bank swarm; Moon Gravity becomes a
+  rotating gravity tide; Ice Slide creates a low-friction ice rail/deflector;
+  Earthquake oscillates the enclosing walls and UFO banks; Trampoline becomes
+  a deforming spring wall; Wind Tunnel becomes visible directional plasma jets.
+  These are mechanics, not renamed cosmetic overlays.
+- Self-contained arena events such as Plinko and Roulette temporarily own their
+  complete physical goal, then restore the exact prior Alien profile, UFO state,
+  selected Flipper dynamics and camera state during cleanup. Plinko retains its
+  trampoline ascent, 24 rows, nine slots and board-only timing contract.
+- Each adapter has deterministic replay plus matched Alien make-rate, viewport,
+  cleanup, reduced-motion and screenshot/video evidence. Review and acceptance
+  occur event by event; a generic shared force multiplier cannot qualify all 30.
+
 ## 6. Progression, economy and catalog
 
 - FXP is cumulative/nonspendable; FL is 1–100. Transition costs: FL1–25=30,
