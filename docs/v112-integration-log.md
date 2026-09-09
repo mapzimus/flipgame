@@ -1163,3 +1163,16 @@ log, and defect ledger remain release history and are not rewritten.
   cue is silently omitted instead of falling back to a fake map.
 - Regression, Easter registry/presentation/live-bridge, Globe lifecycle, and
   fresh local-browser boot checks pass.
+
+## Revision 58 — Plinko preserved-collider qualification finding
+
+- A first 60 Hz Matter qualification corpus was run against the standalone
+  adapter using a Bottle-scale compound body rather than the old generic
+  circle. It revealed a release-blocking contact issue: the compound can span
+  and rest on the 9px upper pegs, reaching no-contest even after the bounded
+  recovery impulses.
+- This is not being hidden with stronger scripted pushes, artificial slot
+  selection, or a time-based verdict. The required remediation is a physical
+  contact-geometry design that preserves the selected Flipper while allowing a
+  fair descent; it will need its own calibrated all-slot/timing corpus before
+  live wiring.
