@@ -1,118 +1,129 @@
 // v112-landing-verdict.js -- private physics-to-rules authority for ordinary flips.
-//
-// Browser code receives metadata only. The trusted CommonJS composition layer
-// claims separate lane capabilities for physics and rules, so a renderer or UI
-// cannot manufacture a result-shaped object and submit it as a landing.
-(function (root, factory) {
+// Browser status lives in the separate inert facade; this core is CommonJS-only.
+(function (factory) {
   'use strict';
-  var commonJs = typeof module === 'object' && module !== null
-    && Object.prototype.hasOwnProperty.call(module, 'exports')
-    && typeof module.require === 'function'
-    && typeof module.filename === 'string'
-    && typeof process === 'object' && process !== null
-    && process.versions && typeof process.versions.node === 'string';
-  if (!commonJs && root && 'FlipgameV112LandingVerdict' in Object(root)) {
-    throw new Error('Refusing duplicate or preseeded FlipgameV112LandingVerdict');
+  var nodeModule = null;
+  try {
+    if (typeof process === 'object' && process !== null &&
+        typeof process.getBuiltinModule === 'function') nodeModule = process.getBuiltinModule('module');
+  } catch (_) { nodeModule = null; }
+  var commonJs = typeof nodeModule === 'function' && nodeModule._cache &&
+    typeof module === 'object' && module !== null &&
+    module.constructor === nodeModule && Object.getPrototypeOf(module) === nodeModule.prototype &&
+    nodeModule._cache[module.filename] === module &&
+    Object.prototype.hasOwnProperty.call(module, 'exports') &&
+    module.require === nodeModule.prototype.require && typeof module.filename === 'string' &&
+    typeof process === 'object' && process !== null && process.release &&
+    process.release.name === 'node' && process.versions &&
+    typeof process.versions.node === 'string';
+  if (!commonJs) {
+    throw new Error('v112-landing-verdict.js is a private CommonJS core and cannot initialize as a classic script');
   }
-  var api = factory(commonJs);
-  if (commonJs) {
-    module.exports = api;
-  } else {
-    if (!root) throw new Error('Browser landing verdict metadata requires a global object');
-    Object.defineProperty(root, 'FlipgameV112LandingVerdict', {
-      value: api.browser, enumerable: true, writable: false, configurable: false,
-    });
-  }
-})(typeof globalThis !== 'undefined' ? globalThis
-  : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (commonJs) {
+  module.exports = factory(module.require('./v112-rules.js'));
+})(function (Rules) {
   'use strict';
 
   var VERSION = 1;
   var SCHEMA = 'FlipgameV112LandingVerdictAuthorityV1';
   var VERDICT_SCHEMA = 'LandingVerdictV2';
   var ATTEMPT_SCHEMA = 'LandingAttemptV1';
-  var DEFAULT_SETTLE_LIMIT_MS = 4000;
+  var ORDINARY_SETTLE_LIMIT_MS = 4000;
   var MIN_STABLE_MS = 80;
   var MAX_ID_LENGTH = 128;
-  var ALLOWED_SETTLE_LIMITS = Object.freeze([4000, 5000, 6000]);
   var RESULT_FIELDS = Object.freeze([
     'result', 'pose', 'onCap', 'reason', 'atMs', 'stableForMs',
   ]);
-
-  // None of these maps or their identity-bearing keys leave this module.
-  var AUTHORITIES = new WeakMap();
-  var PHYSICS_LANES = new WeakMap();
-  var RULES_LANES = new WeakMap();
   var ATTEMPTS = new WeakMap();
   var VERDICTS = new WeakMap();
 
   function freeze(value) {
     if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-    Object.keys(value).forEach(function (key) { freeze(value[key]); });
+    var keys = Object.keys(value);
+    for (var index = 0; index < keys.length; index += 1) freeze(value[keys[index]]);
     return Object.freeze(value);
   }
 
-  function ownDataObject(value, label) {
+  // Snapshot own data descriptors into a null-prototype object. We never read
+  // through caller-controlled objects after validation.
+  function dataObject(value, label) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new TypeError(label + ' must be a plain data object');
+      throw new TypeError(label + ' must be an exact plain data object');
     }
     var prototype;
-    try { prototype = Object.getPrototypeOf(value); }
-    catch (_) { throw new TypeError(label + ' prototype is unreadable'); }
-    var crossRealmPlain = prototype && Object.getPrototypeOf(prototype) === null;
-    if (prototype !== null && prototype !== Object.prototype && !crossRealmPlain) {
-      throw new TypeError(label + ' must be a plain data object');
-    }
     var names;
-    try { names = Object.getOwnPropertyNames(value); }
-    catch (_) { throw new TypeError(label + ' fields are unreadable'); }
-    if (typeof Object.getOwnPropertySymbols === 'function' &&
-        Object.getOwnPropertySymbols(value).length) {
-      throw new TypeError(label + ' cannot contain symbol fields');
+    var symbols;
+    try {
+      prototype = Object.getPrototypeOf(value);
+      names = Object.getOwnPropertyNames(value);
+      symbols = Object.getOwnPropertySymbols(value);
+    } catch (_) { throw new TypeError(label + ' structure is unreadable'); }
+    if (prototype !== null && prototype !== Object.prototype) {
+      throw new TypeError(label + ' must not use a custom prototype');
     }
-    names.forEach(function (key) {
+    if (symbols.length) throw new TypeError(label + ' cannot contain symbol fields');
+    var clean = Object.create(null);
+    for (var index = 0; index < names.length; index += 1) {
+      var key = names[index];
       if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
         throw new TypeError(label + ' contains an unsafe field');
       }
-      var descriptor = Object.getOwnPropertyDescriptor(value, key);
+      var descriptor;
+      try { descriptor = Object.getOwnPropertyDescriptor(value, key); }
+      catch (_) { throw new TypeError(label + '.' + key + ' is unreadable'); }
       if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
-        throw new TypeError(label + '.' + key + ' cannot be an accessor');
+        throw new TypeError(label + '.' + key + ' must be an own data field');
       }
-    });
-    return value;
+      clean[key] = descriptor.value;
+    }
+    return clean;
   }
 
   function exactFields(value, allowed, label) {
-    var source = ownDataObject(value, label);
-    var permitted = new Set(allowed);
-    Object.getOwnPropertyNames(source).forEach(function (key) {
-      if (!permitted.has(key)) throw new TypeError(label + ' contains unsupported field: ' + key);
-    });
+    var source = dataObject(value, label);
+    var names = Object.keys(source);
+    for (var index = 0; index < names.length; index += 1) {
+      var accepted = false;
+      for (var offset = 0; offset < allowed.length; offset += 1) {
+        if (names[index] === allowed[offset]) { accepted = true; break; }
+      }
+      if (!accepted) throw new TypeError(label + ' contains unsupported field: ' + names[index]);
+    }
     return source;
   }
 
   function exactArray(value, label, minimum, maximum) {
-    if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
+    if (!Array.isArray(value)) throw new TypeError(label + ' must be an exact array');
+    var prototype;
+    var names;
+    var symbols;
+    try {
+      prototype = Object.getPrototypeOf(value);
+      names = Object.getOwnPropertyNames(value);
+      symbols = Object.getOwnPropertySymbols(value);
+    } catch (_) { throw new TypeError(label + ' structure is unreadable'); }
+    if (prototype !== Array.prototype) throw new TypeError(label + ' has an altered array prototype');
+    if (symbols.length) throw new TypeError(label + ' cannot contain symbol fields');
+    var lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+    if (!lengthDescriptor || !Object.prototype.hasOwnProperty.call(lengthDescriptor, 'value') ||
+        typeof lengthDescriptor.value !== 'number' || !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < minimum || lengthDescriptor.value > maximum) {
       throw new RangeError(label + ' requires between ' + minimum + ' and ' + maximum + ' items');
     }
-    var names = Object.getOwnPropertyNames(value);
-    if (typeof Object.getOwnPropertySymbols === 'function' &&
-        Object.getOwnPropertySymbols(value).length) {
-      throw new TypeError(label + ' cannot contain symbol fields');
-    }
-    var expected = new Set(['length']);
-    for (var index = 0; index < value.length; index += 1) expected.add(String(index));
-    if (names.length !== expected.size || names.some(function (key) { return !expected.has(key); })) {
-      throw new TypeError(label + ' must be a dense data-only array');
-    }
-    for (var offset = 0; offset < value.length; offset += 1) {
-      var descriptor = Object.getOwnPropertyDescriptor(value, String(offset));
-      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
-        throw new TypeError(label + ' items cannot be accessors');
+    var length = lengthDescriptor.value;
+    if (names.length !== length + 1) throw new TypeError(label + ' must be dense and data-only');
+    var clean = new Array(length);
+    for (var index = 0; index < length; index += 1) {
+      if (names[index] !== String(index)) {
+        throw new TypeError(label + ' must not contain sparse or named fields');
       }
+      var descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        throw new TypeError(label + ' items must be own data fields');
+      }
+      clean[index] = descriptor.value;
     }
-    return value;
+    if (names[length] !== 'length') throw new TypeError(label + ' has invalid array fields');
+    return clean;
   }
 
   function id(value, label) {
@@ -132,12 +143,8 @@
   }
 
   function settleLimit(value) {
-    var amount = value == null ? DEFAULT_SETTLE_LIMIT_MS : value;
-    if (typeof amount !== 'number' || !Number.isSafeInteger(amount) ||
-        ALLOWED_SETTLE_LIMITS.indexOf(amount) < 0) {
-      throw new RangeError('settleLimitMs must be an approved 4000, 5000, or 6000 ms limit');
-    }
-    return amount;
+    if (value == null || value === ORDINARY_SETTLE_LIMIT_MS) return ORDINARY_SETTLE_LIMIT_MS;
+    throw new RangeError('ordinary event-free landings require exactly a 4000 ms settle limit');
   }
 
   function sameIdentity(left, right) {
@@ -147,9 +154,9 @@
   }
 
   function currentRulesSnapshot(record) {
-    var state = record.rulesAdapter.snapshot();
+    var state = record.rulesBridge.inspect(record.claimantProof);
     if (!state || typeof state !== 'object' || state.matchId !== record.matchId) {
-      throw new Error('Rules adapter changed the immutable match identity');
+      throw new Error('Rules connector changed the immutable match identity');
     }
     if (state.phase !== 'active' && state.phase !== 'heat' && state.phase !== 'shootout') {
       throw new Error('Rules match is not accepting an ordinary landing');
@@ -175,11 +182,9 @@
     return attempt;
   }
 
-  function assertActiveAttempt(attempt, label) {
+  function assertActive(attempt, label) {
     if (attempt.status === 'aborted') throw new Error(label + ' cannot use an aborted attempt');
-    if (attempt.status === 'issued' || attempt.status === 'consumed') {
-      throw new Error(label + ' cannot reuse an issued landing attempt');
-    }
+    if (attempt.status !== 'active') throw new Error(label + ' cannot reuse an issued landing attempt');
   }
 
   function landingData(value, timedOut) {
@@ -210,74 +215,59 @@
       if (rawResult === 'MISS') pose = 'miss';
       else pose = pose === 'cap' ? 'cap' : 'upright';
     }
-    var reason = source.reason == null ? (timedOut ? 'settle-timeout' : null)
-      : source.reason.trim().slice(0, 160);
-    return freeze({
-      result: rawResult, pose: pose, onCap: pose === 'cap', reason: reason,
-    });
+    return freeze({ result: rawResult, pose: pose, onCap: pose === 'cap',
+      reason: source.reason == null ? (timedOut ? 'settle-timeout' : null)
+        : source.reason.trim().slice(0, 160) });
   }
 
   function makeVerdict(attempt, input, timedOut) {
-    assertActiveAttempt(attempt, 'Landing verdict issuance');
+    assertActive(attempt, 'Landing verdict issuance');
     if (attempt.phase !== 'settling') {
       throw new Error('Landing verdict requires the contact and settling state machine');
     }
     var source = exactFields(input, RESULT_FIELDS, 'settled landing');
     var atMs = time(source.atMs, 'settled landing atMs');
-    if (atMs <= attempt.settlingAtMs) {
+    if (atMs <= attempt.lastObservedAtMs) {
       throw new Error('Landing verdict cannot resolve on the first settling frame');
     }
-    var stableForMs = source.stableForMs == null ? 0
-      : time(source.stableForMs, 'stableForMs');
+    var stableForMs = source.stableForMs == null ? 0 : time(source.stableForMs, 'stableForMs');
     if (timedOut) {
-      if (atMs - attempt.contactAtMs < attempt.settleLimitMs) {
-        throw new Error('Landing timeout cannot resolve before the settle limit');
+      if (atMs - attempt.firstContactAtMs < ORDINARY_SETTLE_LIMIT_MS) {
+        throw new Error('Landing timeout cannot resolve before the 4000 ms settle limit');
       }
     } else {
-      if (stableForMs < MIN_STABLE_MS || atMs - attempt.settlingAtMs < stableForMs) {
-        throw new Error('Stable landing requires a measured stable settling interval');
+      var stableWindowStart = atMs - stableForMs;
+      if (stableForMs < MIN_STABLE_MS || stableWindowStart < attempt.settlingAtMs ||
+          stableWindowStart < attempt.lastContactAtMs) {
+        throw new Error('Stable landing requires a final measured 80 ms window after recontact');
       }
-      if (atMs - attempt.contactAtMs >= attempt.settleLimitMs) {
+      if (atMs - attempt.firstContactAtMs >= ORDINARY_SETTLE_LIMIT_MS) {
         throw new Error('Stable landing passed its settle limit and must use the timeout path');
       }
     }
     var landing = landingData(source, timedOut);
     var handle = freeze({
-      schema: VERDICT_SCHEMA,
-      version: VERSION,
-      matchId: attempt.authority.matchId,
-      laneId: attempt.lane.laneId,
-      flipId: attempt.flipId,
-      playerId: attempt.playerId,
-      phase: 'resolved',
-      result: landing.result,
-      pose: landing.pose,
-      onCap: landing.onCap,
+      schema: VERDICT_SCHEMA, version: VERSION, matchId: attempt.authority.matchId,
+      laneId: attempt.lane.laneId, flipId: attempt.flipId, playerId: attempt.playerId,
+      phase: 'resolved', result: landing.result, pose: landing.pose, onCap: landing.onCap,
       reason: landing.reason,
-      firstContactMs: attempt.contactAtMs - attempt.launchedAtMs,
-      settleMs: atMs - attempt.contactAtMs,
-      settleLimitMs: attempt.settleLimitMs,
+      firstContactMs: attempt.firstContactAtMs - attempt.launchedAtMs,
+      settleMs: atMs - attempt.firstContactAtMs,
+      finalSettleMs: atMs - attempt.lastContactAtMs,
+      settleLimitMs: ORDINARY_SETTLE_LIMIT_MS, contacts: attempt.contactCount,
       timedOut: timedOut,
     });
     attempt.status = 'issued';
     attempt.phase = 'resolved';
     attempt.verdict = handle;
-    VERDICTS.set(handle, {
-      attempt: attempt,
-      authority: attempt.authority,
-      lane: attempt.lane,
-      resolutionIdentity: attempt.resolutionIdentity,
-      landing: landing,
-      status: 'issued',
-    });
+    VERDICTS.set(handle, { attempt: attempt, authority: attempt.authority, lane: attempt.lane,
+      resolutionIdentity: attempt.resolutionIdentity, landing: landing, status: 'issued' });
     return handle;
   }
 
   function createPhysicsLane(record, lane) {
-    var capability = Object.freeze({
-      schema: 'LandingPhysicsLaneAuthorityV1',
-      matchId: record.matchId,
-      laneId: lane.laneId,
+    return Object.freeze({
+      schema: 'LandingPhysicsLaneAuthorityV1', matchId: record.matchId, laneId: lane.laneId,
       beginFlip: function (value) {
         var source = exactFields(value,
           ['flipId', 'playerId', 'launchedAtMs', 'settleLimitMs', 'eventId'],
@@ -291,24 +281,22 @@
         var state = currentRulesSnapshot(record);
         var playerId = id(source.playerId == null ? expectedPlayer(state) : source.playerId,
           'playerId');
-        if (playerId !== expectedPlayer(state)) {
-          throw new Error('Landing attempt is for the wrong current player');
-        }
+        if (playerId !== expectedPlayer(state)) throw new Error('Landing attempt is for the wrong current player');
         var flipId = id(source.flipId, 'flipId');
         if (record.flipIds.has(flipId)) throw new Error('flipId was already used in this match');
-        var resolutionIdentity = record.rulesAdapter.nextResolutionIdentity(flipId);
+        var resolutionIdentity = record.rulesBridge.nextResolutionIdentity(record.claimantProof, flipId);
         if (!resolutionIdentity || resolutionIdentity.callerId !== flipId) {
-          throw new Error('Rules adapter did not bind the exact flip identity');
+          throw new Error('Rules connector did not bind the exact flip identity');
         }
+        var launchedAtMs = time(source.launchedAtMs, 'launchedAtMs');
+        settleLimit(source.settleLimitMs);
         var handle = freeze({ schema: ATTEMPT_SCHEMA, version: VERSION,
           matchId: record.matchId, laneId: lane.laneId, flipId: flipId, playerId: playerId });
-        var attempt = {
-          authority: record, lane: lane, handle: handle, flipId: flipId,
-          playerId: playerId, launchedAtMs: time(source.launchedAtMs, 'launchedAtMs'),
-          settleLimitMs: settleLimit(source.settleLimitMs), resolutionIdentity: resolutionIdentity,
-          phase: 'airborne', status: 'active', contactAtMs: null, settlingAtMs: null,
-          verdict: null,
-        };
+        var attempt = { authority: record, lane: lane, flipId: flipId, playerId: playerId,
+          launchedAtMs: launchedAtMs, resolutionIdentity: resolutionIdentity,
+          phase: 'airborne', status: 'active', lastObservedAtMs: launchedAtMs,
+          firstContactAtMs: null, lastContactAtMs: null, settlingAtMs: null,
+          contactCount: 0, verdict: null };
         record.flipIds.add(flipId);
         lane.active = attempt;
         ATTEMPTS.set(handle, attempt);
@@ -316,24 +304,42 @@
       },
       markContact: function (handle, atMs) {
         var attempt = attemptRecord(handle, lane, 'Landing contact');
-        assertActiveAttempt(attempt, 'Landing contact');
+        assertActive(attempt, 'Landing contact');
         if (attempt.phase !== 'airborne') throw new Error('Landing contact requires an airborne attempt');
         var timestamp = time(atMs, 'contact atMs');
-        if (timestamp <= attempt.launchedAtMs) throw new Error('Landing contact must follow launch');
-        attempt.contactAtMs = timestamp;
+        if (timestamp <= attempt.lastObservedAtMs) throw new Error('Landing contact must follow airborne motion');
+        if (attempt.firstContactAtMs == null) attempt.firstContactAtMs = timestamp;
+        attempt.lastContactAtMs = timestamp;
+        attempt.settlingAtMs = null;
+        attempt.contactCount += 1;
         attempt.phase = 'contact';
-        return freeze({ phase: 'contact', atMs: timestamp });
+        attempt.lastObservedAtMs = timestamp;
+        return freeze({ phase: 'contact', atMs: timestamp, contacts: attempt.contactCount });
+      },
+      markAirborne: function (handle, atMs) {
+        var attempt = attemptRecord(handle, lane, 'Landing separation');
+        assertActive(attempt, 'Landing separation');
+        if (attempt.phase !== 'contact' && attempt.phase !== 'settling') {
+          throw new Error('Landing separation requires contact or settling');
+        }
+        var timestamp = time(atMs, 'separation atMs');
+        if (timestamp <= attempt.lastObservedAtMs) throw new Error('Landing separation time must advance');
+        attempt.phase = 'airborne';
+        attempt.settlingAtMs = null;
+        attempt.lastObservedAtMs = timestamp;
+        return freeze({ phase: 'airborne', atMs: timestamp });
       },
       markSettling: function (handle, atMs) {
         var attempt = attemptRecord(handle, lane, 'Landing settling');
-        assertActiveAttempt(attempt, 'Landing settling');
-        if (attempt.phase !== 'contact') throw new Error('Landing settling requires first contact');
+        assertActive(attempt, 'Landing settling');
+        if (attempt.phase !== 'contact') throw new Error('Landing settling requires the latest contact');
         var timestamp = time(atMs, 'settling atMs');
-        if (timestamp <= attempt.contactAtMs) {
-          throw new Error('Landing settling cannot begin on the first contact frame');
+        if (timestamp <= attempt.lastObservedAtMs) {
+          throw new Error('Landing settling cannot begin on the latest contact frame');
         }
         attempt.settlingAtMs = timestamp;
         attempt.phase = 'settling';
+        attempt.lastObservedAtMs = timestamp;
         return freeze({ phase: 'settling', atMs: timestamp });
       },
       issueSettledVerdict: function (handle, input) {
@@ -344,23 +350,22 @@
       },
       abort: function (handle, reason) {
         var attempt = attemptRecord(handle, lane, 'Landing abort');
-        assertActiveAttempt(attempt, 'Landing abort');
+        assertActive(attempt, 'Landing abort');
+        if (reason != null && typeof reason !== 'string') {
+          throw new TypeError('Landing abort reason must be a string primitive');
+        }
         attempt.status = 'aborted';
         attempt.phase = 'aborted';
         return freeze({ schema: 'LandingAttemptAbortV1', matchId: record.matchId,
           laneId: lane.laneId, flipId: attempt.flipId,
-          reason: String(reason == null ? 'aborted' : reason).trim().slice(0, 160) });
+          reason: reason == null ? 'aborted' : reason.trim().slice(0, 160) });
       },
     });
-    PHYSICS_LANES.set(capability, lane);
-    return capability;
   }
 
   function createRulesLane(record, lane) {
-    var capability = Object.freeze({
-      schema: 'LandingRulesLaneAuthorityV1',
-      matchId: record.matchId,
-      laneId: lane.laneId,
+    return Object.freeze({
+      schema: 'LandingRulesLaneAuthorityV1', matchId: record.matchId, laneId: lane.laneId,
       resolve: function (verdict) {
         if (!verdict || (typeof verdict !== 'object' && typeof verdict !== 'function')) {
           throw new TypeError('Rules resolution requires a physics-issued LandingVerdict');
@@ -374,23 +379,19 @@
         if (expectedPlayer(state) !== issued.attempt.playerId) {
           throw new Error('LandingVerdict is stale for the current player');
         }
-        var expected = record.rulesAdapter.nextResolutionIdentity(issued.attempt.flipId);
+        var expected = record.rulesBridge.nextResolutionIdentity(record.claimantProof,
+          issued.attempt.flipId);
         if (!sameIdentity(expected, issued.resolutionIdentity)) {
           throw new Error('LandingVerdict is stale or future relative to the rules high-water mark');
         }
-        // Spend before crossing the mutation boundary. A throwing or malformed
-        // rules adapter cannot make the same physical verdict replayable.
         issued.status = 'consuming';
         issued.attempt.status = 'consuming';
         var transition;
         try {
-          transition = record.rulesAdapter.resolveFlip({
-            resolutionIdentity: issued.resolutionIdentity,
-            flipId: issued.attempt.flipId,
-            playerId: issued.attempt.playerId,
-            result: issued.landing.result,
-            pose: issued.landing.pose,
-            onCap: issued.landing.onCap,
+          transition = record.rulesBridge.resolve(record.claimantProof, {
+            resolutionIdentity: issued.resolutionIdentity, flipId: issued.attempt.flipId,
+            playerId: issued.attempt.playerId, result: issued.landing.result,
+            pose: issued.landing.pose, onCap: issued.landing.onCap,
             reason: issued.landing.reason,
           });
         } catch (error) {
@@ -412,42 +413,41 @@
         return transition;
       },
     });
-    RULES_LANES.set(capability, lane);
-    return capability;
   }
 
   function createAuthority(options) {
-    if (!commonJs) throw new Error('Landing verdict authority is available only to trusted composition');
-    var source = exactFields(options, ['matchId', 'rulesAdapter', 'laneIds'],
+    var source = exactFields(options, ['matchId', 'rulesConnector', 'laneIds'],
       'landing verdict authority');
     var matchId = id(source.matchId, 'matchId');
-    var rulesAdapter = source.rulesAdapter;
-    if (!rulesAdapter || typeof rulesAdapter.snapshot !== 'function' ||
-        typeof rulesAdapter.nextResolutionIdentity !== 'function' ||
-        typeof rulesAdapter.resolveFlip !== 'function') {
-      throw new TypeError('A trusted Rules adapter is required');
+    var laneIds = exactArray(source.laneIds, 'landing verdict authority laneIds', 1, 4);
+    var claimantProof = Object.freeze({});
+    var rulesBridge = Rules.claimLandingMatchConnector(source.rulesConnector, claimantProof);
+    if (!rulesBridge || rulesBridge.schema !== 'RulesLandingBridgeV1' ||
+        typeof rulesBridge.inspect !== 'function' ||
+        typeof rulesBridge.nextResolutionIdentity !== 'function' ||
+        typeof rulesBridge.resolve !== 'function' || !Object.isFrozen(rulesBridge)) {
+      throw new Error('Rules did not issue the exact landing bridge');
     }
-    var initial = rulesAdapter.snapshot();
+    var initial = rulesBridge.inspect(claimantProof);
     if (!initial || initial.matchId !== matchId) {
-      throw new Error('Rules adapter matchId does not match LandingVerdict authority');
+      throw new Error('Rules connector matchId does not match LandingVerdict authority');
     }
-    exactArray(source.laneIds, 'landing verdict authority laneIds', 1, 4);
-    var seen = new Set();
     var lanes = new Map();
-    source.laneIds.forEach(function (value) {
-      var laneId = id(value, 'laneId');
-      if (seen.has(laneId)) throw new Error('Duplicate landing laneId: ' + laneId);
-      seen.add(laneId);
+    for (var index = 0; index < laneIds.length; index += 1) {
+      var laneId = id(laneIds[index], 'laneId');
+      if (lanes.has(laneId)) throw new Error('Duplicate landing laneId: ' + laneId);
       lanes.set(laneId, { laneId: laneId, physicsClaimed: false, rulesClaimed: false,
         active: null });
-    });
-    var record = { matchId: matchId, rulesAdapter: rulesAdapter, lanes: lanes,
-      flipIds: new Set() };
-    var authority = Object.freeze({
-      schema: SCHEMA,
-      version: VERSION,
-      matchId: matchId,
-      laneIds: Object.freeze(Array.from(lanes.keys())),
+    }
+    var record = { matchId: matchId, rulesBridge: rulesBridge,
+      claimantProof: claimantProof, lanes: lanes, flipIds: new Set() };
+    var laneIdSnapshot = new Array(laneIds.length);
+    for (var copyIndex = 0; copyIndex < laneIds.length; copyIndex += 1) {
+      laneIdSnapshot[copyIndex] = laneIds[copyIndex];
+    }
+    return Object.freeze({
+      schema: SCHEMA, version: VERSION, matchId: matchId,
+      laneIds: Object.freeze(laneIdSnapshot),
       claimPhysicsLane: function (value) {
         var lane = lanes.get(id(value, 'laneId'));
         if (!lane) throw new Error('Unknown landing lane');
@@ -463,29 +463,12 @@
         return createRulesLane(record, lane);
       },
     });
-    AUTHORITIES.set(authority, record);
-    return authority;
   }
 
-  var browser = freeze({
-    schema: 'FlipgameV112LandingVerdictBrowserV1',
-    version: VERSION,
-    verdictSchema: VERDICT_SCHEMA,
-    settleLimitsMs: ALLOWED_SETTLE_LIMITS,
-    minimumStableMs: MIN_STABLE_MS,
-    liveAuthorityAvailable: false,
-  });
-
-  var trusted = freeze({
-    schema: SCHEMA,
-    version: VERSION,
-    VERDICT_SCHEMA: VERDICT_SCHEMA,
+  return freeze({
+    schema: SCHEMA, version: VERSION, VERDICT_SCHEMA: VERDICT_SCHEMA,
     ATTEMPT_SCHEMA: ATTEMPT_SCHEMA,
-    DEFAULT_SETTLE_LIMIT_MS: DEFAULT_SETTLE_LIMIT_MS,
-    MIN_STABLE_MS: MIN_STABLE_MS,
-    ALLOWED_SETTLE_LIMITS: ALLOWED_SETTLE_LIMITS,
-    browser: browser,
-    createAuthority: createAuthority,
+    ORDINARY_SETTLE_LIMIT_MS: ORDINARY_SETTLE_LIMIT_MS,
+    MIN_STABLE_MS: MIN_STABLE_MS, createAuthority: createAuthority,
   });
-  return commonJs ? trusted : { browser: browser };
 });

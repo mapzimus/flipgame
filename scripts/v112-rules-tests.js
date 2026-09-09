@@ -1178,6 +1178,36 @@ function testRulesOwnedEventTerminalAndRetryPath() {
   assert.equal(ordinary.state.players[0].lives, 3);
 }
 
+function testRulesOwnedLandingConnector() {
+  const adapter = Rules.createRulesAdapter({ formatId: 'classic',
+    matchId: 'rules-landing-connector', players: players(3), startingLives: 3 });
+  assert.throws(() => Rules.claimLandingMatchConnector(Object.freeze({
+    schema: 'RulesLandingConnectorV1',
+  }), Object.freeze({})), /Rules-issued landing connector/,
+  'a schema-shaped structural connector has no Rules authority');
+
+  const connector = adapter.claimLandingConnector();
+  assert.equal(Object.isFrozen(connector), true);
+  assert.equal(connector.schema, 'RulesLandingConnectorV1');
+  assert.throws(() => adapter.claimLandingConnector(), /already issued/);
+  const proof = Object.freeze({});
+  const bridge = Rules.claimLandingMatchConnector(connector, proof);
+  assert.equal(Object.isFrozen(bridge), true);
+  assert.equal(bridge.schema, 'RulesLandingBridgeV1');
+  assert.throws(() => Rules.claimLandingMatchConnector(connector, Object.freeze({})),
+    /already claimed/);
+  assert.throws(() => bridge.inspect(Object.freeze({})), /claimant proof is invalid/);
+  const before = bridge.inspect(proof);
+  assert.equal(before.matchId, 'rules-landing-connector');
+  const identity = bridge.nextResolutionIdentity(proof, 'physical-flip-1');
+  const transition = bridge.resolve(proof, {
+    flipId: 'physical-flip-1', resolutionIdentity: identity,
+    playerId: before.turn.current, result: 'MAKE', pose: 'upright',
+  });
+  assert.equal(transition.state.sequence, 1);
+  assert.equal(transition.outcome.resolutionIdentity.id, identity.id);
+}
+
 function testRulesCoreIsPrivate() {
   assert.equal(Object.prototype.hasOwnProperty.call(globalThis,
     'FlipgameV112Rules'), false,
@@ -1243,6 +1273,7 @@ function run() {
   testForceEliminateSuddenDeathReconciliation();
   testForgedSchemaTagsAreNeverTrusted();
   testRulesOwnedEventTerminalAndRetryPath();
+  testRulesOwnedLandingConnector();
   testRulesCoreIsPrivate();
   console.log('v1.12 Classic/Cup/Team/ON FIRE rules tests passed.');
 }

@@ -48,6 +48,7 @@
   // Capabilities are intentionally identity-bearing objects.  Schema tags and
   // public identity hashes are corruption checks, never authority.
   var EVENT_MATCH_CAPABILITIES = new WeakMap();
+  var LANDING_MATCH_CONNECTORS = new WeakMap();
   var CACHED_EVENT_KERNEL = null;
 
   function clone(value) {
@@ -408,6 +409,53 @@
       formatId: state.formatId, namespace: state.resolutionIdentity.namespace,
       resolvedThrough: state.resolutionIdentity.resolvedThrough,
       nextOrdinal: state.resolutionIdentity.nextOrdinal, phase: state.phase });
+  }
+
+  function landingConnectorRecord(value) {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+      throw new TypeError('A Rules-issued landing connector is required');
+    }
+    var record = LANDING_MATCH_CONNECTORS.get(value);
+    if (!record) throw new TypeError('A Rules-issued landing connector is required');
+    return record;
+  }
+
+  // This is a trusted-core handshake, not a browser API. The caller proof is
+  // created inside v112-landing-verdict.js and never appears in a verdict or
+  // facade. A schema-shaped copy therefore cannot acquire mutation authority.
+  function claimLandingMatchConnector(value, claimantProof) {
+    var record = landingConnectorRecord(value);
+    if (!claimantProof || (typeof claimantProof !== 'object' &&
+        typeof claimantProof !== 'function')) {
+      throw new TypeError('Landing connector claimant proof is required');
+    }
+    if (record.claimed) throw new Error('Rules landing connector was already claimed');
+    record.claimed = true;
+    record.claimantProof = claimantProof;
+    function assertProof(proof) {
+      if (proof !== record.claimantProof) {
+        throw new TypeError('Landing connector claimant proof is invalid');
+      }
+    }
+    return Object.freeze({
+      schema: 'RulesLandingBridgeV1',
+      inspect: function (proof) {
+        assertProof(proof);
+        var state = record.getState();
+        validateResolutionHighWater(state);
+        return freeze({ matchId: state.matchId, formatId: state.formatId,
+          phase: state.phase, turn: clone(state.turn),
+          resolutionIdentity: clone(state.resolutionIdentity) });
+      },
+      nextResolutionIdentity: function (proof, callerId) {
+        assertProof(proof);
+        return nextResolutionIdentity(record.getState(), callerId);
+      },
+      resolve: function (proof, input) {
+        assertProof(proof);
+        return record.resolve(input);
+      },
+    });
   }
 
   function eventKernelModule() {
@@ -2574,7 +2622,9 @@
   function createRulesAdapter(input) {
     var state = createMatchState(input);
     var eventCapability = Object.freeze({ schema: 'RulesEventMatchCapabilityV1' });
+    var landingConnector = Object.freeze({ schema: 'RulesLandingConnectorV1' });
     var eventAuthorityClaimed = false;
+    var landingConnectorIssued = false;
     function update(transition) {
       if (!transition || !transition.state || transition.state.matchId !== state.matchId ||
           transition.state.formatId !== state.formatId) {
@@ -2607,6 +2657,13 @@
         eventAuthorityClaimed = true;
         return authority;
       },
+      claimLandingConnector: function () {
+        if (landingConnectorIssued) {
+          throw new Error('This rules match already issued its landing connector');
+        }
+        landingConnectorIssued = true;
+        return landingConnector;
+      },
     };
     // This entire module is private CommonJS. The future generated lexical
     // browser composition must keep this raw mutation entry point private and
@@ -2620,6 +2677,14 @@
       getState: function () { return state; },
       setState: function (nextState) { update({ state: nextState }); },
       last: null,
+    });
+    LANDING_MATCH_CONNECTORS.set(landingConnector, {
+      getState: function () { return state; },
+      resolve: function (value) {
+        return update(resolveMatchFlip(state, normalizeOrdinaryAdapterInput(value)));
+      },
+      claimed: false,
+      claimantProof: null,
     });
     return api;
   }
@@ -2642,6 +2707,7 @@
     nextResolutionIdentity: nextResolutionIdentity,
     inspectEventMatchCapability: inspectEventMatchCapability,
     consumeEventMatchCapability: consumeEventMatchCapability,
+    claimLandingMatchConnector: claimLandingMatchConnector,
     normalizeLanding: normalizeLanding,
     normalizeEffects: normalizeEffects,
     normalizeClassicConfig: normalizeClassicConfig,
