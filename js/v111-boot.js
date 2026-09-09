@@ -17,6 +17,11 @@
     'js/v111-art-platform.js?v=111',
     'js/v111-object-manifest.js?v=111',
     'js/v111-art-reference.js?v=111',
+    // Optional, local-only sphere renderer. It must load before art pack B so
+    // the existing Desk Globe stand can delegate its sphere without changing
+    // any competitive art or physics.
+    'js/v112-globe.js?v=' + VERSION,
+    'js/v112-globe-live.js?v=' + VERSION,
     'js/v111-art-pack-a.js?v=111',
     'js/v111-art-pack-b.js?v=111',
     'js/v111-art-pack-c.js?v=111',
