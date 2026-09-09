@@ -1,6 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const Rules = require('../js/v112-rules.js');
 const Activity = require('../js/v112-activity.js');
 const V111Modes = require('../js/v111-modes.js');
@@ -1175,6 +1178,75 @@ function testRulesOwnedEventTerminalAndRetryPath() {
   assert.equal(ordinary.state.players[0].lives, 3);
 }
 
+function testBrowserRulesAuthoritySurface() {
+  assert.equal(Object.prototype.hasOwnProperty.call(globalThis,
+    'FlipgameV112Rules'), false,
+  'CommonJS loading must not publish the trusted Rules API on globalThis');
+
+  const rulesFilename = path.resolve(__dirname, '../js/v112-rules.js');
+  const rulesSource = fs.readFileSync(rulesFilename, 'utf8');
+  const context = vm.createContext({ console });
+  vm.runInContext(rulesSource, context, { filename: rulesFilename });
+
+  const installedRules = context.FlipgameV112Rules;
+  const descriptor = Object.getOwnPropertyDescriptor(context, 'FlipgameV112Rules');
+  assert.equal(installedRules.schema, 'FlipgameV112RulesV1');
+  assert.equal(Object.isFrozen(installedRules), true);
+  assert.equal(descriptor.writable, false,
+    'browser Rules authority must not be replaceable');
+  assert.equal(descriptor.configurable, false,
+    'browser Rules authority must not be deletable or redefined');
+  assert.equal(vm.runInContext(`(function () {
+    var forged = Object.freeze({ schema: 'FlipgameV112RulesV1',
+      toMatchOutcomeV2: function () { return { winnerIds: ['attacker'] }; } });
+    try { FlipgameV112Rules = forged; } catch (_) {}
+    return FlipgameV112Rules === forged;
+  })()`, context), false,
+  'a forged winner authority cannot replace the installed browser Rules module');
+
+  assert.throws(() => vm.runInContext(rulesSource, context,
+    { filename: rulesFilename }), /duplicate or preseeded/,
+  'a duplicate browser Rules load must fail closed');
+  assert.equal(context.FlipgameV112Rules, installedRules);
+
+  const preseed = vm.createContext({ console,
+    FlipgameV112Rules: Object.freeze({ schema: 'FlipgameV112RulesV1' }) });
+  assert.throws(() => vm.runInContext(rulesSource, preseed,
+    { filename: rulesFilename }), /duplicate or preseeded/,
+  'a schema-shaped Rules preseed must be rejected rather than trusted');
+
+  let shimRequireCalls = 0;
+  const shimExports = { sentinel: 'browser-module-shim' };
+  const shimmed = vm.createContext({ console,
+    module: {
+      exports: shimExports,
+      filename: 'browser-module-shim.js',
+      require: function () { shimRequireCalls += 1; throw new Error('unsafe require'); },
+    },
+    require: function () { shimRequireCalls += 1; throw new Error('unsafe require'); },
+  });
+  vm.runInContext(rulesSource, shimmed, { filename: rulesFilename });
+  assert.equal(shimRequireCalls, 0,
+    'a browser module shim must not select the trusted CommonJS path');
+  assert.equal(shimmed.module.exports, shimExports);
+  assert.equal(shimmed.FlipgameV112Rules.schema, 'FlipgameV112RulesV1');
+  const shimDescriptor = Object.getOwnPropertyDescriptor(shimmed,
+    'FlipgameV112Rules');
+  assert.equal(shimDescriptor.writable, false);
+  assert.equal(shimDescriptor.configurable, false);
+
+  const mutableKernelContext = vm.createContext({ console });
+  vm.runInContext(rulesSource, mutableKernelContext, { filename: rulesFilename });
+  mutableKernelContext.FlipgameV112EventKernel = Object.freeze({
+    schema: 'FlipgameEventKernelV2', createAuthority: function () { return {}; },
+  });
+  const mutableAdapter = mutableKernelContext.FlipgameV112Rules.createRulesAdapter({
+    formatId: 'classic', matchId: 'mutable-kernel', players: players(2),
+  });
+  assert.throws(() => mutableAdapter.claimEventAuthority(), /immutable owned authority/,
+  'Rules must reject a replaceable browser EventKernel even when its schema looks valid');
+}
+
 function run() {
   testPublicContract();
   testClassicAllCountsAndPresets();
@@ -1202,6 +1274,7 @@ function run() {
   testForceEliminateSuddenDeathReconciliation();
   testForgedSchemaTagsAreNeverTrusted();
   testRulesOwnedEventTerminalAndRetryPath();
+  testBrowserRulesAuthoritySurface();
   console.log('v1.12 Classic/Cup/Team/ON FIRE rules tests passed.');
 }
 

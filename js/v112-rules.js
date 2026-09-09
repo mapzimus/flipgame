@@ -3,12 +3,31 @@
 // match economy and emits versioned outcomes.
 (function (root, factory) {
   'use strict';
-  var api = factory(root);
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  if (root) root.FlipgameV112Rules = api;
+  var commonJs = typeof module === 'object' && module !== null
+    && Object.prototype.hasOwnProperty.call(module, 'exports')
+    && typeof module.require === 'function'
+    && typeof module.filename === 'string'
+    && typeof process === 'object' && process !== null
+    && process.versions && typeof process.versions.node === 'string';
+  if (!commonJs && root && 'FlipgameV112Rules' in Object(root)) {
+    throw new Error('Refusing duplicate or preseeded FlipgameV112Rules');
+  }
+  var loadEventKernel = commonJs ? function () {
+    return module.require('./v112-event-kernel.js');
+  } : null;
+  var api = factory(root, commonJs, loadEventKernel);
+  if (commonJs) {
+    module.exports = api;
+  } else {
+    if (!root) throw new Error('Browser rules require a global object');
+    Object.defineProperty(root, 'FlipgameV112Rules', {
+      value: api, enumerable: true, writable: false, configurable: false,
+    });
+  }
 })(typeof globalThis !== 'undefined' ? globalThis
   : (typeof self !== 'undefined' ? self
-  : (typeof window !== 'undefined' ? window : this)), function (root) {
+  : (typeof window !== 'undefined' ? window : this)), function (root, commonJs,
+    loadEventKernel) {
   'use strict';
 
   var VERSION = 1;
@@ -30,6 +49,7 @@
   // Capabilities are intentionally identity-bearing objects.  Schema tags and
   // public identity hashes are corruption checks, never authority.
   var EVENT_MATCH_CAPABILITIES = new WeakMap();
+  var CACHED_EVENT_KERNEL = null;
 
   function clone(value) {
     if (value == null || typeof value !== 'object') return value;
@@ -392,18 +412,27 @@
   }
 
   function eventKernelModule() {
-    var kernel = root && root.FlipgameV112EventKernel;
-    if (!kernel && typeof module === 'object' && module.exports) {
+    if (CACHED_EVENT_KERNEL) return CACHED_EVENT_KERNEL;
+    var kernel = null;
+    if (commonJs) {
       // Lazy loading avoids the Rules <-> EventKernel CommonJS cycle during
       // module initialization. By the time a live match claims its authority,
       // both modules have finished evaluating.
-      kernel = require('./v112-event-kernel.js');
+      kernel = loadEventKernel();
+    } else if (root) {
+      var descriptor = Object.getOwnPropertyDescriptor(root, 'FlipgameV112EventKernel');
+      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value') ||
+          descriptor.writable !== false || descriptor.configurable !== false) {
+        throw new Error('Browser event kernel must be an immutable owned authority');
+      }
+      kernel = descriptor.value;
     }
     if (!kernel || kernel.schema !== 'FlipgameEventKernelV2' ||
-        typeof kernel.createAuthority !== 'function') {
+        typeof kernel.createAuthority !== 'function' || !Object.isFrozen(kernel)) {
       throw new Error('FlipgameV112EventKernel V2 must load before event authority is claimed');
     }
-    return kernel;
+    CACHED_EVENT_KERNEL = kernel;
+    return CACHED_EVENT_KERNEL;
   }
 
   function normalizeLanding(input) {
