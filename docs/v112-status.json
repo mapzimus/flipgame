@@ -7,7 +7,7 @@
   "integrationBranch": "codex/v112-integration",
   "candidateState": "NOT RELEASE READY",
   "ownerApproval": false,
-  "headline": "Landing and Profile remediations are integrated; independent audit, Alien events, Plinko, and Easter eggs are active.",
+  "headline": "Playable integration underway: real variant previews and authored names are wired; separate Arena Select is being verified. Private browser composition and Plinko are active.",
   "workstreams": [
     {
       "id": "integrator",
@@ -21,7 +21,7 @@
       "name": "Landing verdict authority",
       "branch": "codex/v112-landing-verdict-remediation",
       "state": "review",
-      "detail": "Integrated as 791b6ca; independent adversarial re-audit is active."
+      "detail": "Integrated as 791b6ca; focused suites pass. Independent re-audit remains queued, not running."
     },
     {
       "id": "profile",
@@ -34,13 +34,13 @@
       "id": "alien-events",
       "name": "Alien event compatibility",
       "branch": "codex/v112-alien-events",
-      "state": "active",
-      "detail": "Building authored zero-gravity behavior for all thirty event IDs."
+      "state": "review",
+      "detail": "Authored adapters integrated as 70364da; live engine/renderer wiring and playtest remain."
     },
     {
       "id": "plinko",
       "name": "Plinko authority",
-      "branch": "codex/v112-plinko-authority-remediation",
+      "branch": "codex/v112-plinko-remediation",
       "state": "active",
       "detail": "Closing physical-command, board-geometry, slot, timing, and camera authority gaps."
     },
@@ -48,8 +48,22 @@
       "id": "secrets",
       "name": "Urth Easter eggs",
       "branch": "codex/v112-easter-eggs",
+      "state": "review",
+      "detail": "Twelve deterministic presentation secrets integrated as 4c5fd59; live presentation wiring remains."
+    },
+    {
+      "id": "browser-composition",
+      "name": "Playable browser composition",
+      "branch": "codex/v112-browser-composition",
       "state": "active",
-      "detail": "Adding deterministic lore secrets that cannot alter competitive outcomes."
+      "detail": "Connecting private Landing, Rules, Activity and Profile; real Chromium exposed a native Web Locks error now being fixed."
+    },
+    {
+      "id": "arena-preview",
+      "name": "Arena scene artwork",
+      "branch": "codex/v112-arena-preview",
+      "state": "active",
+      "detail": "Building 23 authored offline venue previews. All 300 new variant names are already integrated."
     }
   ],
   "waves": [
@@ -59,7 +73,7 @@
     { "id": 3, "name": "Rules and modes", "state": "partial", "note": "Core suites exist; private browser composition and live coordinator remain." },
     { "id": 4, "name": "Physical events", "state": "active", "note": "Alien compatibility and Plinko hardening are active; live event pass remains." },
     { "id": 5, "name": "Flipper artwork", "state": "blocked", "note": "Calibration exists, but the owner rejected current quality; bulk art is not approved." },
-    { "id": 6, "name": "Arenas and interface", "state": "queued", "note": "Sports-broadcast menu, arena route, camera, audio, and responsive rollout remain." },
+    { "id": 6, "name": "Arenas and interface", "state": "active", "note": "Variant gallery and broadcast styling are wired. Separate arena route and venue scenes are being verified; camera/audio remain." },
     { "id": 7, "name": "Progression and data", "state": "active", "note": "Profile authority is integrated; Store, Stats, names, APK, and Online removal remain." },
     { "id": 8, "name": "Independent qualification", "state": "queued", "note": "Begins only after a complete playable release-candidate commit exists." },
     { "id": 9, "name": "Defect closure", "state": "queued", "note": "Original owners fix audit findings; every affected gate reruns." },
@@ -78,9 +92,9 @@
     { "id": "post-release", "name": "Post-release verification", "state": "blocked", "detail": "Both sites, stale-cache upgrade, offline launch, and APK must match." }
   ],
   "focus": [
-    "Complete the independent LandingVerdict and Profile authority re-audits.",
+    "Connect tested v1.12 rules and progression to playable browser sessions; fix real-browser storage failures.",
     "Replace Plinko's old live eight-row generic-circle path with the selected Flipper and a physical trampoline/24-row board.",
-    "Give every Alien-mode event a distinct zero-gravity physical adaptation.",
-    "Add deterministic Urth Easter eggs without changing competitive results."
+    "Finish the separate Arena Select route and authored venue previews.",
+    "Wire Alien event adapters and Easter-egg presentation without changing ordinary competitive results."
   ]
 }

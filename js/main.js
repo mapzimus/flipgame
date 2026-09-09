@@ -392,12 +392,13 @@
     const sel = normalizeColor(selColor);
     const id = charId || defaultCharId();
     const values = FLAVORS.map((f) => {
-      const character = characterById(id);
-      const nm = character?.v111Art ? `${character.name} — ${f.name}` : defaultNameFor(id, f.color);
+      const nm = defaultNameFor(id, f.color);
       const open = isColorAvailable(id, f.color);
       if (!open) return null;
       return `<button type="button" role="gridcell" class="picker-tile variant-tile" data-color="${f.color}" ` +
-        `aria-pressed="${f.color === sel}" tabindex="${f.color === sel ? '0' : '-1'}" aria-label="${escapeHtml(nm)}"><span class="variant-swatch" style="background:${f.color}" aria-hidden="true"></span><span>${escapeHtml(nm)}</span></button>`;
+        `aria-pressed="${f.color === sel}" tabindex="${f.color === sel ? '0' : '-1'}" aria-label="${escapeHtml(nm)}">` +
+        `<canvas class="fam-art" width="200" height="280" data-preview-char="${escapeHtml(resolveCharForColor(id, f.color))}" data-preview-color="${f.color}" aria-hidden="true"></canvas>` +
+        `<span class="variant-caption"><span class="variant-swatch" style="background:${f.color}" aria-hidden="true"></span><span>${escapeHtml(nm)}</span></span></button>`;
     });
     const tiles = values.filter(Boolean);
     if (tiles.length < values.length) tiles.push(undiscoveredTileHtml());
@@ -644,8 +645,11 @@
   function renderCustomizeGrid(focusGrid = false) {
     const draft = currentDraft();
     if (!draft) return;
-    const name = draft.name || defaultNameFor(draft.charId, draft.color);
-    charPickTitle.textContent = `Customize P${pickerIndex + 1} · ${name}`;
+    charPickTitle.textContent = `Choose Your Flipper · P${pickerIndex + 1}`;
+    const previewName = document.getElementById('customize-preview-name');
+    const previewFamily = document.getElementById('customize-preview-family');
+    if (previewName) previewName.textContent = defaultNameFor(draft.charId, draft.color);
+    if (previewFamily) previewFamily.textContent = familyLabel(draft.charId);
     document.getElementById('customize-seat').textContent = `P${pickerIndex + 1}`;
     document.getElementById('customize-prev').disabled = pickerIndex === 0;
     document.getElementById('customize-next').disabled = pickerIndex === pickerDraftRows.length - 1;
@@ -707,9 +711,16 @@
     const col = normalizeColor(draft?.color || defaultColorFor(draft?.charId));
     charPickGrid.querySelectorAll('canvas[data-preview-char]').forEach((cv) => {
       const id = cv.dataset.previewChar;
+      const previewColor = cv.dataset.previewColor || col;
       const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
-      Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, col));
+      Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, previewColor));
     });
+    const hero = document.getElementById('customize-preview');
+    if (hero && draft) {
+      const id = resolveCharForColor(draft.charId, col);
+      const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
+      Renderer.drawPreview(hero, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, col));
+    }
   }
 
   if (charPickGrid) charPickGrid.addEventListener('click', (e) => {
@@ -771,6 +782,15 @@
     }
     mysteryCurrent = mysteryQueue.shift();
     mysteryOpened = false;
+    // A queued reveal must start with an empty canvas, including after a
+    // late sprite decode from the previous prize.
+    if (mysteryArtEl) {
+      const context = mysteryArtEl.getContext('2d');
+      context.save();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, mysteryArtEl.width, mysteryArtEl.height);
+      context.restore();
+    }
     // Warm the sprite for this character's own tint before it's on screen.
     const c = characterById(mysteryCurrent);
     const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
@@ -789,7 +809,7 @@
   }
 
   function paintMysteryArt() {
-    if (!mysteryCurrent || !mysteryArtEl || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
+    if (!mysteryCurrent || !mysteryOpened || !mysteryArtEl || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
     const c = characterById(mysteryCurrent);
     const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
     const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(mysteryCurrent) : mysteryCurrent;
@@ -802,7 +822,7 @@
     mysteryOpened = true;
     paintMysteryArt();
     mysteryScreen.classList.add('opening');
-    mysteryHeadlineEl.textContent = 'Unlocked — yours forever!';
+    mysteryHeadlineEl.textContent = 'A new Flipper joins the roster';
     mysteryNameEl.textContent = defaultNameFor(mysteryCurrent, null);
     mysteryFamilyEl.textContent = 'Added to Customize';
     mysteryGoBtn.textContent = mysteryQueue.length ? 'Next ▶' : 'Nice!';
@@ -1147,7 +1167,7 @@
     catch (_) {}
   }
 
-  startBtn.addEventListener('click', () => {
+  function launchConfiguredMatch() {
     if (!validateSetupNames()) return;
     const defs = rowsToDefs(readRows());
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
@@ -1171,6 +1191,74 @@
       visualArenaId,
       newMatch: true,
     });
+  }
+
+  // Venue selection is a separate pre-match step, never a per-player cosmetic.
+  const arenaSelectScreen = document.getElementById('arena-select-screen');
+  const arenaSelectGrid = document.getElementById('arena-select-grid');
+  let arenaFrame = 0;
+  let arenaChoices = [];
+  function availableArenaChoices() {
+    const state = window.FlipgameV111Progression?.snapshot() || {};
+    const views = window.FlipgameV111Cosmetics?.listForPlayer(state) || [];
+    return [{ id: '', displayName: 'Baseline Table' }, ...views.filter(v => !v.locked && v.id.startsWith('arena.'))];
+  }
+  function paintArenaPreview(time = 0) {
+    if (arenaSelectScreen.classList.contains('hidden')) return;
+    const canvas = document.getElementById('arena-preview');
+    const ctx = canvas.getContext('2d');
+    if (window.FlipgameV112ArenaPreview) {
+      FlipgameV112ArenaPreview.draw(ctx, {arenaId: arenaDraft || 'baseline-table', width: canvas.width, height: canvas.height, timeMs: time, reducedMotion: document.body.classList.contains('reduce-motion')});
+    } else {
+      ctx.fillStyle = '#172b39'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#415564'; ctx.fillRect(0, canvas.height * .7, canvas.width, canvas.height * .03);
+    }
+    arenaFrame = requestAnimationFrame(paintArenaPreview);
+  }
+  function selectArena(id, focus = false) {
+    const choice = arenaChoices.find(v => v.id === id) || arenaChoices[0];
+    arenaDraft = choice.id;
+    document.getElementById('arena-preview-name').textContent = choice.displayName;
+    document.getElementById('arena-play').textContent = `Play Now · ${choice.displayName}`;
+    arenaSelectGrid.querySelectorAll('[data-venue]').forEach(button => {
+      const selected = button.dataset.venue === choice.id;
+      button.setAttribute('aria-pressed', String(selected));
+      if (selected && focus) button.focus();
+    });
+  }
+  function closeArenaSelect() {
+    cancelAnimationFrame(arenaFrame);
+    arenaSelectScreen.classList.add('hidden');
+    setupScreen.classList.remove('hidden');
+    startBtn.focus();
+  }
+  startBtn.addEventListener('click', () => {
+    if (!validateSetupNames()) return;
+    arenaChoices = availableArenaChoices();
+    arenaSelectGrid.replaceChildren();
+    for (const choice of arenaChoices) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'picker-tile'; button.dataset.venue = choice.id;
+      button.textContent = choice.displayName;
+      button.addEventListener('click', () => selectArena(choice.id));
+      arenaSelectGrid.appendChild(button);
+    }
+    selectArena(visualArenaId || '');
+    setupScreen.classList.add('hidden');
+    arenaSelectScreen.classList.remove('hidden');
+    document.getElementById('arena-select-title').focus();
+    cancelAnimationFrame(arenaFrame); arenaFrame = requestAnimationFrame(paintArenaPreview);
+  });
+  document.getElementById('arena-select-back').addEventListener('click', closeArenaSelect);
+  document.getElementById('arena-random').addEventListener('click', () => selectArena(arenaChoices[Math.floor(Math.random() * arenaChoices.length)].id, true));
+  document.getElementById('arena-play').addEventListener('click', () => {
+    visualArenaId = arenaDraft || null;
+    cancelAnimationFrame(arenaFrame);
+    arenaSelectScreen.classList.add('hidden');
+    launchConfiguredMatch();
+  });
+  arenaSelectScreen.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); closeArenaSelect(); }
   });
 
   // ── Practice (solo, no lives) ───────────────────────────────────────────────

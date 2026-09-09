@@ -1069,3 +1069,29 @@ log, and defect ledger remain release history and are not rewritten.
 - Known residuals remain explicit: the Profile receipt window currently fails
   closed after 4,096 records, Android still needs an authoritative writer, and
   the final private browser composition/live gameplay coordinator is not built.
+
+## Revision 54 — Playable presentation and private browser composition
+
+- Integrated Alien event adapters (`70364da`), all 300 new variant names
+  (`923cfd2`), and twelve deterministic Easter-egg definitions (`4c5fd59`).
+  Their focused tests pass; event/secret renderer integration remains open.
+- Integrated private browser composition (`385e195`, checkout normalization
+  `245e0a4`). Real Chrome testing exposed the invalid combination of Web Locks
+  `ifAvailable` and `signal`; the production request now omits signal for an
+  immediate probe and retains cancellation for queued acquisition.
+- The browser entry supports ordinary Classic/Practice observations and owns
+  finalization. It must not run alongside legacy scoring for the same match.
+  Events, airborne terminals and other formats remain explicit adapter work.
+- Root's live picker now renders each variant at its exact color, adds a large
+  selected preview, and uses authored names without changing legacy names or
+  Bottle/T-Rex artwork. Closed mystery reveals clear and hide the old canvas.
+- Venue selection moves out of individual customization into its own pre-match
+  route. Back discards the draft; Play saves the selected visual venue. The
+  ownership source remains legacy until the authoritative V4 UI is connected.
+- Desktop and phone browser checks verify the picker and Arena Select to game
+  transition. Full art, accessibility, performance and all-mode QA remain open.
+- Program Integrator retains main/index/CSS/renderer ownership. Browser agent
+  owns passive physics observation seams only; no force/tolerance changes.
+  Arena agent owns a new offline preview module. Plinko agent owns its kernel.
+- Nothing deployed; public v1.11 remains unchanged. These are development
+  improvements, not a release-candidate declaration.

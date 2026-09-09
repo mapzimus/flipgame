@@ -4,7 +4,7 @@
 
   var VERSION = '111';
   var WORKER_URL = 'service-worker.js?v=' + VERSION;
-  var STYLE_URLS = ['css/style.css?v=' + VERSION];
+  var STYLE_URLS = ['css/style.css?v=' + VERSION, 'css/v112-broadcast.css?v=' + VERSION];
   var SCRIPT_URLS = [
     'js/vendor/matter.min.js?v=111',
     'js/polyfills.js?v=111',
@@ -41,6 +41,7 @@
     'js/records.js?v=111',
     'js/achievements.js?v=111',
     'js/cast25.js?v=111',
+    'js/v112-variant-names.js?v=' + VERSION,
     'js/skins.js?v=111',
     'js/v111-network-protocol.js?v=111',
     'js/net.js?v=111',

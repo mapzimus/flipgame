@@ -1965,6 +1965,9 @@ ${crown}
     // Default player name for a skin family + color (always unique per flavor).
     nameFor: (id, color) => {
       const c = character(id);
+      const authoredNames = typeof window !== 'undefined' && window.FLIP_V112_VARIANT_NAMES;
+      const authoredName = authoredNames && authoredNames.nameFor(id, color || (c && c.tint) || '#1f9bff');
+      if (authoredName) return authoredName;
       const family = (c && c.drawAs) || id;
       const list = FAMILY_COLOR_NAMES[family];
       const hex = colorToHexKey(color || (c && c.tint) || '#1f9bff');

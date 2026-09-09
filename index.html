@@ -79,8 +79,9 @@
   <section id="char-picker-screen" class="screen hidden app-shell" data-route="customize" aria-labelledby="charpick-title">
     <header class="app-header"><button type="button" id="charpick-close" class="back-btn">Back</button><h1 id="charpick-title" tabindex="-1">Customize P1</h1></header>
     <main class="app-main customize-main">
+      <aside class="customize-showcase" aria-label="Selected Flipper preview"><p class="eyebrow">Your entry</p><canvas id="customize-preview" width="300" height="420" aria-hidden="true"></canvas><h2 id="customize-preview-name"></h2><p id="customize-preview-family"></p><span class="equipment-mark">WFF · Fair-Form Certified</span></aside>
       <div class="seat-switcher" aria-label="Choose player"><button type="button" id="customize-prev">Previous player</button><strong id="customize-seat">P1</strong><button type="button" id="customize-next">Next player</button></div>
-      <div class="tab-list" role="tablist" aria-label="Customization category"><button type="button" role="tab" id="customize-tab-object" aria-controls="customize-panel" aria-selected="true" data-customize-tab="object">Object</button><button type="button" role="tab" id="customize-tab-variant" aria-controls="customize-panel" aria-selected="false" tabindex="-1" data-customize-tab="variant">Variant</button><button type="button" role="tab" id="customize-tab-cosmetic" aria-controls="customize-panel" aria-selected="false" tabindex="-1" data-customize-tab="cosmetic">Cosmetic</button><button type="button" role="tab" id="customize-tab-arena" aria-controls="customize-panel" aria-selected="false" tabindex="-1" data-customize-tab="arena">Arena</button></div>
+      <div class="tab-list" role="tablist" aria-label="Customization category"><button type="button" role="tab" id="customize-tab-object" aria-controls="customize-panel" aria-selected="true" data-customize-tab="object">Object</button><button type="button" role="tab" id="customize-tab-variant" aria-controls="customize-panel" aria-selected="false" tabindex="-1" data-customize-tab="variant">Variant</button><button type="button" role="tab" id="customize-tab-cosmetic" aria-controls="customize-panel" aria-selected="false" tabindex="-1" data-customize-tab="cosmetic">Cosmetic</button></div>
       <p id="arena-scope-note" class="scope-note hidden">Applies to everyone</p>
       <div id="customize-panel" role="tabpanel" aria-labelledby="customize-tab-object"><div id="charpick-grid" class="picker-grid" role="grid"></div></div>
     </main>
@@ -88,6 +89,15 @@
   </section>
 
   <section id="mystery-screen" class="screen hidden centered-screen" role="dialog" aria-modal="true" aria-labelledby="mystery-headline"><div class="mystery-card"><h2 id="mystery-headline">A new flippable appears!</h2><div class="mystery-stage" aria-hidden="true"><div id="mystery-box" class="mystery-box"><div class="mbox-lid"></div><div class="mbox-body">?</div></div><div id="mystery-prize" class="mystery-prize"><canvas id="mystery-art" class="mystery-art" width="300" height="420"></canvas></div></div><div id="mystery-name" class="mystery-name" aria-live="polite"></div><div id="mystery-family"></div><button type="button" id="mystery-go-btn" class="primary-action">Reveal</button><div id="mystery-queue" class="helper"></div></div></section>
+
+  <section id="arena-select-screen" class="screen hidden app-shell" data-route="arena-select" aria-labelledby="arena-select-title">
+    <header class="app-header"><button type="button" id="arena-select-back" class="back-btn">Back</button><h1 id="arena-select-title" tabindex="-1">Choose the venue</h1></header>
+    <main class="app-main arena-select-main">
+      <section class="arena-showcase" aria-labelledby="arena-preview-name"><canvas id="arena-preview" width="960" height="540" aria-hidden="true"></canvas><div class="arena-caption"><p class="eyebrow">WFC · Match venue</p><h2 id="arena-preview-name">Baseline Table</h2><p>Same rules. A different place to feel the pressure.</p></div></section>
+      <section class="arena-options" aria-label="Available arenas"><button type="button" id="arena-random" class="secondary-action">Random Unlocked</button><div id="arena-select-grid" class="arena-select-grid" role="group" aria-label="Arena choices"></div></section>
+    </main>
+    <footer class="app-footer"><p class="helper">Visual setting only. Competitive physics stay the same.</p><button type="button" id="arena-play" class="primary-action">Play Now · Baseline Table</button></footer>
+  </section>
 
   <!-- Online lobby -->
   <section id="online-screen" class="screen hidden app-shell" data-route="online" aria-labelledby="online-title">
