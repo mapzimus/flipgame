@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// HISTORICAL v1.11 SUITE — intentionally not an active executable test.
+// Online was removed in v1.12 at d8bd7e0 (integrated e059af5). These tests
+// require retired transport modules and document the former network contract.
+// Active local coverage is preserved in scripts/v112-platform-regression-tests.js.
+// The original file and transports can be recovered together from Git history.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
