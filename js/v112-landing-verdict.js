@@ -29,6 +29,7 @@
   var ATTEMPT_SCHEMA = 'LandingAttemptV1';
   var ORDINARY_SETTLE_LIMIT_MS = 4000;
   var MIN_STABLE_MS = 80;
+  var AIRBORNE_TIMEOUT_FRAME_LIMIT = 900;
   var MAX_ID_LENGTH = 128;
   var RESULT_FIELDS = Object.freeze([
     'result', 'pose', 'onCap', 'reason', 'atMs', 'stableForMs',
@@ -402,6 +403,9 @@
       issueDeadlineVerdict: function (handle, input) {
         return makeDeadlineVerdict(attemptRecord(handle, lane, 'Landing deadline'), input);
       },
+      issueAirborneTerminalVerdict: function (handle, input) {
+        return makeAirborneTerminalVerdict(attemptRecord(handle, lane, 'Airborne terminal'), input);
+      },
       abort: function (handle, reason) {
         var attempt = attemptRecord(handle, lane, 'Landing abort');
         assertActive(attempt, 'Landing abort');
@@ -415,6 +419,49 @@
           reason: reason == null ? 'aborted' : reason.trim().slice(0, 160) });
       },
     });
+  }
+
+  function makeAirborneTerminalVerdict(attempt, input) {
+    assertActive(attempt, 'Airborne terminal issuance');
+    if (attempt.phase !== 'airborne' || attempt.firstContactAtMs != null || attempt.contactCount !== 0) {
+      throw new Error('Airborne terminal requires an attempt with no prior scoring contact');
+    }
+    var source = exactFields(input, ['result', 'pose', 'reason', 'atMs', 'evidence'],
+      'airborne terminal');
+    if (source.result !== 'MISS' || source.pose !== 'miss' || source.reason !== 'timeout') {
+      throw new Error('Airborne terminal can only issue the engine flight-timeout MISS');
+    }
+    var evidence = exactFields(source.evidence,
+      ['schema', 'kind', 'wasAirborne', 'flightFrames', 'limitFrames'], 'airborne terminal evidence');
+    if (evidence.schema !== 'LandingAirborneTerminalEvidenceV1' ||
+        evidence.kind !== 'absolute-flight-timeout' || evidence.wasAirborne !== true ||
+        evidence.limitFrames !== AIRBORNE_TIMEOUT_FRAME_LIMIT ||
+        !Number.isSafeInteger(evidence.flightFrames) ||
+        evidence.flightFrames <= AIRBORNE_TIMEOUT_FRAME_LIMIT || evidence.flightFrames > 1000000) {
+      throw new Error('Airborne terminal requires measured flight frames beyond the strict 900-frame engine boundary');
+    }
+    var atMs = time(source.atMs, 'airborne terminal atMs');
+    // The engine accumulates 1/60 second fixed steps in floating point; the
+    // bridge records integer milliseconds. Permit that one-ms quantization.
+    if (atMs <= attempt.lastObservedAtMs ||
+        atMs - attempt.launchedAtMs + 1 < Math.floor(evidence.flightFrames * (1000 / 60))) {
+      throw new Error('Airborne terminal time contradicts its measured simulation frames');
+    }
+    var landing = landingData({ result: 'MISS', pose: 'miss', reason: 'timeout', atMs: atMs }, true);
+    var handle = freeze({
+      schema: VERDICT_SCHEMA, version: VERSION, matchId: attempt.authority.matchId,
+      laneId: attempt.lane.laneId, flipId: attempt.flipId, playerId: attempt.playerId,
+      phase: 'resolved', result: 'MISS', pose: 'miss', onCap: false, reason: 'timeout',
+      firstContactMs: null, settleMs: null, finalSettleMs: null,
+      settleLimitMs: ORDINARY_SETTLE_LIMIT_MS, contacts: 0,
+      timedOut: true, airborneTerminal: true,
+      terminalEvidence: { schema: evidence.schema, kind: evidence.kind,
+        wasAirborne: true, flightFrames: evidence.flightFrames, limitFrames: evidence.limitFrames },
+    });
+    attempt.status = 'issued'; attempt.phase = 'resolved'; attempt.verdict = handle;
+    VERDICTS.set(handle, { attempt: attempt, authority: attempt.authority, lane: attempt.lane,
+      resolutionIdentity: attempt.resolutionIdentity, landing: landing, status: 'issued' });
+    return handle;
   }
 
   function createRulesLane(record, lane) {

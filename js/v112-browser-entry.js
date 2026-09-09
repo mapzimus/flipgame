@@ -10,7 +10,10 @@
 //    launchId is unique per qualified shot. atMs is simulation milliseconds;
 //    fractional fixed steps are supported. landing stays null until the engine
 //    resolves, then is { result:'MAKE'|'MISS', pose:'upright'|'cap'|'miss',
-//    reason, stableForMs, deadlineEvidence? }. The optional deadline evidence
+//    reason, stableForMs, deadlineEvidence?, airborneTerminalEvidence? }.
+//    Airborne terminal evidence represents the engine's existing absolute
+//    flight timeout before any contact and can only produce a MISS.
+//    The optional deadline evidence
 //    is captured by the engine at its absolute on-plane pose check; the bridge
 //    never reconstructs it from a later body snapshot. Event frames require a
 //    separate event bridge.
@@ -22,8 +25,8 @@
 //    a completed Rules match after a storage failure. abandonSession preserves
 //    earned content and consumes the reservation without match rewards.
 //
-// This bounded bridge does not yet support events, airborne terminal outcomes,
-// Cup/Team/Battle, or starting Story gameplay. Story views and prescribed request
+// This bounded bridge does not yet support events, Cup/Team/Battle, or starting
+// Story gameplay. Story views and prescribed request
 // creation are composed; their match runner still needs its engine adapter.
 function createBrowserApplication(require, platform, sourceIdentity) {
   'use strict';
@@ -64,7 +67,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
         status: session.status, rules: session.practice ? null : session.rules.snapshot(),
         practice: session.practice ? copy(session.practiceScore) : null,
         flipPhase: session.flip ? session.flip.phase : 'ready',
-        lastLanding: session.lastLanding, resolution: session.resolution } : null });
+        lastLanding: session.lastLanding, lastRulesOutcome: session.lastRulesOutcome,
+        resolution: session.resolution } : null });
   }
   function emit(type) {
     var state = snapshot();
@@ -142,7 +146,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       status: 'active', practice: request.activityId === 'practice',
       practiceScore: { flips: 0, makes: 0, misses: 0, caps: 0 },
       flip: null, seenLaunchIds: new Set(), ordinaryShots: [], manualHumanFlips: 0,
-      resolution: null, lastLanding: null, finalPromise: null });
+      resolution: null, lastLanding: null, lastRulesOutcome: null, finalPromise: null });
     warning = null;
     emit('session-started');
     return snapshot();
@@ -231,18 +235,19 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (atMs < flip.atMs || (atMs === flip.atMs && !frame.landing)) return;
     flip.atMs = atMs;
     var measuredDeadline = !!(frame.landing && frame.landing.deadlineEvidence);
-    if (!measuredDeadline && frame.grounded !== true) {
+    var measuredAirborneTerminal = !!(frame.landing && frame.landing.airborneTerminalEvidence);
+    if (!measuredDeadline && !measuredAirborneTerminal && frame.grounded !== true) {
       if (flip.phase === 'contact' || flip.phase === 'settling') {
         session.physics.markAirborne(flip.handle, atMs); flip.phase = 'airborne';
       }
       flip.stableAt = null; flip.angles = []; return;
     }
-    if (!measuredDeadline && flip.phase === 'airborne') {
+    if (!measuredDeadline && !measuredAirborneTerminal && flip.phase === 'airborne') {
       session.physics.markContact(flip.handle, atMs); flip.phase = 'contact';
       flip.contactAt = atMs; if (flip.firstContactAt == null) flip.firstContactAt = atMs;
       emit('flip-contact'); return;
     }
-    if (!measuredDeadline && flip.phase === 'contact') {
+    if (!measuredDeadline && !measuredAirborneTerminal && flip.phase === 'contact') {
       session.physics.markSettling(flip.handle, atMs); flip.phase = 'settling';
       flip.stableAt = null; flip.angles = []; return;
     }
@@ -257,14 +262,21 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var made = result === 'MAKE';
     var data = { result: result, pose: pose, reason: frame.landing.reason,
       atMs: atMs, stableForMs: Math.floor(finite(frame.landing.stableForMs, 'engine stable duration')) };
-    var verdict = measuredDeadline ? session.physics.issueDeadlineVerdict(flip.handle, {
+    var airborneEvidence = measuredAirborneTerminal && frame.landing.airborneTerminalEvidence;
+    var verdict = measuredAirborneTerminal ? session.physics.issueAirborneTerminalVerdict(flip.handle, {
+      result: result, pose: pose, reason: data.reason, atMs: atMs,
+      evidence: { schema: airborneEvidence.schema, kind: airborneEvidence.kind,
+        wasAirborne: airborneEvidence.wasAirborne, flightFrames: airborneEvidence.flightFrames,
+        limitFrames: airborneEvidence.limitFrames },
+    }) : measuredDeadline ? session.physics.issueDeadlineVerdict(flip.handle, {
       result: result, pose: pose, reason: data.reason, atMs: atMs,
       evidence: { schema: frame.landing.deadlineEvidence.schema,
         onLandingPlane: frame.landing.deadlineEvidence.onLandingPlane,
         rotationComplete: frame.landing.deadlineEvidence.rotationComplete },
     }) : timeout ? session.physics.issueTimeoutVerdict(flip.handle, data)
       : session.physics.issueSettledVerdict(flip.handle, data);
-    session.consumer.resolve(verdict);
+    var transition = session.consumer.resolve(verdict);
+    session.lastRulesOutcome = transition.outcome;
     flip.phase = 'resolved'; session.lastLanding = verdict;
     if (flip.manualHuman) {
       session.ordinaryShots.push({ made: made });

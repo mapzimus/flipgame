@@ -19,6 +19,7 @@ const Physics = (() => {
   let observedLaunchSequence = 0;
   let observationAngleTimes = [];
   let observationDeadlineEvidence = null;
+  let observationAirborneEvidence = null;
   function getObservation(kind = 'snapshot') {
     const observedLanding = landingPhase === 'resolved' && lastLandingInfo;
     const measuredStableMs = angleWin.length && angleWin.length === observationAngleTimes.length
@@ -38,6 +39,7 @@ const Physics = (() => {
         reason: observedLanding.reason,
         stableForMs: measuredStableMs,
         deadlineEvidence: observationDeadlineEvidence,
+        airborneTerminalEvidence: observationAirborneEvidence,
       }) : null,
     });
   }
@@ -1377,6 +1379,13 @@ const Physics = (() => {
         onLandingPlane: withinLandingPlaneTolerance(),
         rotationComplete: !profile.requireFlip || hasFlipped,
       }) : null;
+    observationAirborneEvidence = !activeEventDefinition &&
+      !(lastFlickInfo && lastFlickInfo.eventId) && result === 'MISS' && reason === 'timeout' &&
+      launched && wasAirborne && firstContactMs == null && contactCount === 0 &&
+      flightFrames > ABS_MISS_FRAMES ? Object.freeze({
+        schema: 'LandingAirborneTerminalEvidenceV1', kind: 'absolute-flight-timeout',
+        wasAirborne: true, flightFrames, limitFrames: ABS_MISS_FRAMES,
+      }) : null;
     publishObservation('landing');
     return result;
   }
@@ -1867,6 +1876,7 @@ const Physics = (() => {
     angleWin       = [];
     observationAngleTimes = [];
     observationDeadlineEvidence = null;
+    observationAirborneEvidence = null;
     totalRotation  = 0;
     hasFlipped     = false;
     requiredRotation = 5.6;
@@ -2680,6 +2690,7 @@ const Physics = (() => {
     observedLaunchSequence++;
     observationAngleTimes = [];
     observationDeadlineEvidence = null;
+    observationAirborneEvidence = null;
     publishObservation('launch');
   }
 

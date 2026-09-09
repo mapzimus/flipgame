@@ -118,8 +118,54 @@ async function testActualEngineComposition() {
   h.app.abandonSession(); h.app.close(); driver.close();
   console.log('Actual game engine integration:', results.length, 'flips,', fxp, 'FXP; Practice excluded');
 }
+async function testRealOffworldAndUnderrotatedRecovery() {
+  const h = load(true); await h.app.ready;
+  const driver = Driver.create(h.physics); h.app.attachPhysics(driver);
+  let state; h.app.subscribe(value => { state = value; });
+  h.app.beginSession({ startingLives: 1, roster: [{ name: 'One' }, { name: 'Two' }] });
+  for (let index = 1; index < 20 && state.session.rules.stake === 0; index++) {
+    launch(h, driver, index, 1400 + index % 9 * 300);
+  }
+  assert(state.session.rules.stake > 0);
+  h.physics.resetBottle(); h.physics.seedTurn(222); driver.armLaunch({ manual: true });
+  h.physics.applyFlick(0, -2400, 222, 1, 'disabled');
+  // Reproduce an escaped body using actual Matter geometry. Only the initial
+  // bad position is injected; the original engine advances every step and its
+  // untouched 900-frame guard is solely responsible for the final MISS.
+  h.context.__escapedBody = h.physics.getBottle();
+  vm.runInContext('Matter.Body.setPosition(__escapedBody,{x:640,y:-1000000})', h.context);
+  let verdict;
+  for (let tick = 1; tick <= 901; tick++) {
+    h.physics.step(1 / 60); verdict = h.physics.checkLanding();
+    if (tick <= 900) assert.equal(verdict, null, 'the original strict frame boundary remains unchanged');
+  }
+  assert.equal(verdict, 'MISS');
+  assert.equal(driver.snapshot().supported, true);
+  assert.equal(driver.status().warning, null); assert.equal(state.warning, null);
+  assert.equal(state.session.lastLanding.airborneTerminal, true);
+  assert.equal(state.session.lastLanding.firstContactMs, null);
+  assert.equal(state.session.lastLanding.contacts, 0);
+  assert.equal(state.session.lastRulesOutcome.landing.result, 'MISS');
+  assert(Object.isFrozen(state.session.lastRulesOutcome));
+  assert(Object.isFrozen(state.session.lastRulesOutcome.lives));
+  const sequence = state.session.rules.sequence;
+  h.physics.checkLanding(); h.physics.step(1 / 60);
+  assert.equal(state.session.rules.sequence, sequence);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(state.session.status, 'completed');
+  const fxp = state.profile.fxp; await h.app.retryFinalization();
+  assert.equal(h.app.snapshot().profile.fxp, fxp);
+  h.app.beginSession({ activityId: 'practice', roster: [{ name: 'One' }] });
+  const underrotated = launch(h, driver, 987, 80);
+  assert.equal(underrotated.result, 'MISS');
+  assert.equal(underrotated.info.reason, 'underrotated');
+  assert.equal(h.app.snapshot().session.practice.flips, 1);
+  assert.equal(h.app.snapshot().profile.fxp, fxp);
+  h.app.abandonSession(); h.app.close(); driver.close();
+}
 (async () => {
   testPassiveParityAndExactLanding(); testMarkersAndUnsupportedEvents();
   await testActualEngineComposition();
+  await testRealOffworldAndUnderrotatedRecovery();
   console.log('Physics driver: exact engine parity, launch qualification, CPU marker, one-use landing and real composition passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

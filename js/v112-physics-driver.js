@@ -49,7 +49,8 @@
       if (!active || active.sequence !== observation.launchSequence || active.resolved) return;
       const eventId = observation.eventId || null;
       let unsupportedReason = eventId ? 'event-adapter-required' : null;
-      if (observation.landing && !eventId && observation.firstContactMs == null) {
+      if (observation.landing && !eventId && observation.firstContactMs == null &&
+          !observation.landing.airborneTerminalEvidence) {
         unsupportedReason = 'airborne-terminal-adapter-required';
       }
       if (unsupportedReason) warning = unsupportedReason;
