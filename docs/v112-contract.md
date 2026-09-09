@@ -189,6 +189,12 @@ twelve signature encounters:
   independently; launches released before the horn finish; ties use a paired
   sudden-death volley. Horn eligibility uses the monotonic input timestamp and
   absolute deadline rather than depending on animation-frame delivery.
+- Every Timed Rush result must consume a unique launch lease created at
+  `markLaunch`. The lease binds the attempt and owner to the exact heat, clock
+  bucket, rotation, volley and sudden-death state. A pre-horn flight may settle
+  after a handoff or horn using its original lease; an unmarked, duplicated,
+  wrong-owner, wrong-bucket or post-horn launch is invalid. One player/lane can
+  hold at most one pending attempt.
 - A Battle series contains at most three heats. A competitor or team reaching
   two heat wins clinches immediately and no later heat is legal. In a
   multi-competitor series where nobody has two wins after Heat 3, Heat 3 is the

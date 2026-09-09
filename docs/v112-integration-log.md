@@ -753,12 +753,20 @@ log, and defect ledger remain release history and are not rewritten.
   **Pressure Heat** and its winner wins the series; its terminal reason is
   `battle-pressure-heat`. A normal two-win clinch remains
   `battle-heat-target`, and any post-clinch history is invalid.
+- Timed Rush evidence now starts at `markLaunch`, not at settlement. One
+  `BattleLaunchLeaseV1` binds a unique pending attempt/player to the exact heat,
+  elapsed clock bucket, rotation, volley and sudden-death state. Settlement
+  consumes that lease even after a later handoff or the horn; direct unmarked
+  results, post-horn launches, duplicate pending attempts for one lane and
+  altered lease facts fail closed.
 - Migration action: Battle state is match-ephemeral and v1.12 is unreleased, so
   no persisted-state migration is permitted or required. Older structural test
   fixtures must be rebuilt through the canonical Battle transition API.
 - Required verification: 1v1v1v1 and rotating-team sequences in both Equal
-  Volley and Timed Rush; a Pressure Heat result; an earlier two-win clinch; and
-  rejection of post-clinch, forged-winner and non-final-heat winner histories.
+  Volley and Timed Rush; a Pressure Heat result; an earlier two-win clinch;
+  cross-bucket and pre-horn-through-settlement launches; human/CPU leases; and
+  rejection of unmarked, post-horn, duplicate-lane, wrong-bucket, post-clinch,
+  forged-winner and non-final-heat winner histories.
 - Integration commit: pending the isolated Battle outcome-integrity gate.
 
 ## Revision 45 — fail-closed browser reward authority
