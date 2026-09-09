@@ -787,6 +787,29 @@ log, and defect ledger remain release history and are not rewritten.
 - Integration commits: achievement facade candidate `e425747`; Profile/Runtime
   remediation and independent re-audit pending.
 
+## Revision 46 — Plinko trampoline ascent
+
+- Affected interfaces: Plinko event phases/telemetry, event physics controller,
+  tracked camera, selected-Flipper rendering, timing tests and reduced-motion
+  representation. Slot order and rules-owned rewards are unchanged.
+- Old behavior: a qualified gesture entered the tall peg board directly.
+- New behavior: Plinko first turns the launch surface into a visibly deforming
+  trampoline. The selected object compresses and springs physically upward;
+  the camera follows it continuously through the apex, reveals the first board
+  rows below, and hands the same body into the 24-row descent. There is no
+  bottle substitution, teleport, camera cut, scripted delay or favorable-slot
+  steering.
+- Timing migration: `transportMs` measures qualified release through board
+  entry. The contracted 10–15-second normal band and 12-second median apply to
+  `dropMs` from first-row downward entry to stable slot verdict, so the new
+  ascent does not shorten the requested visible fall.
+- Required tests: compression depth/rebound impulse, positive ascent/apex/
+  downward entry, camera continuity, object/variant/collider identity, internal
+  dynamics, distribution neutrality, deterministic replay, resize, reduced
+  motion, anti-wedge boundaries and exact cleanup.
+- Integration commit: pending the isolated Plinko event pass and independent
+  simulation review.
+
 ## Revision 44 — strict seed and Alien lifecycle hardening
 
 - Affected interfaces: public Physics seed entry points, `CpuLaunchIntentV1`,

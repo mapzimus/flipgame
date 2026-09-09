@@ -261,8 +261,13 @@ leaving discards it.
   retain at least 5% misses.
 - Mitosis uses complete selected-Flipper clones. Cap Toss uses an authored
   object part; living Flippers toss WFC headgear, never body parts.
-- Plinko has 24 peg rows, normally 10–15s with 12s median, bottle/object tracking,
-  deterministic anti-wedge impulses and slots:
+- Plinko begins on a visibly deforming trampoline. The selected Flipper
+  compresses it, receives a real upward spring impulse, and remains centered by
+  a continuous camera through the apex before entering the top of the physical
+  board. The spring preserves the selected object/variant and its internal
+  dynamics, affects entry position/spin, and cannot preselect or favor a slot.
+- After the apex handoff, Plinko has 24 peg rows, a normal 10–15s board descent
+  with 12s median, object tracking, deterministic anti-wedge impulses and slots:
   `Lives Doubled | Everyone Else Halved | Always Magnet | Automatic Loss |
   Automatic Win | Automatic Loss | Always Magnet | Everyone Else Halved |
   Lives Doubled`. It remains the only automatic-win event.

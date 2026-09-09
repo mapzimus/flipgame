@@ -437,10 +437,15 @@ count is three times the current eight-row board and the first-to-last-row span
 is more than three times as tall; shortening it and compensating with slower
 time, invisible geometry, or a scripted wait is forbidden.
 
-The event is bound before input and shows the top of the board and nine-slot
-prize ribbon during the cue. The ordinary gesture still supplies the physical
-entry velocity; the event does not preselect a slot. On release, the table
-opening and board are live immediately.
+The event is bound before input and changes the launch surface into a clearly
+deforming trampoline while showing the nine-slot prize ribbon. The selected
+object visibly loads/compresses the trampoline; the ordinary gesture supplies
+horizontal entry intent and spin, while the spring supplies a large real upward
+impulse. The camera follows the same object continuously through the ascent and
+apex. The top of the board is revealed beneath it during the handoff, and the
+falling object enters the first peg rows without a cut, teleport, hidden pause,
+or replacement body. The spring may change the physical board-entry position
+and rotation but must not map a seed or gesture to a preferred prize slot.
 
 For reliable peg collision, physics may use the existing radius-34 circular
 Plinko envelope with density `0.008`, friction `0.15`, air friction `0.004`,
@@ -458,9 +463,12 @@ is computed from the settled physical envelope center.
 
 ### 6.2 Twelve-second timing and recovery
 
-`dropMs` is measured from release/input application to the first stable
-physical slot verdict. The 900 ms prelaunch telegraph and post-verdict result
-hold are excluded. On the frozen clean-drop corpus:
+`dropMs` is measured from downward entry into the visible first peg rows to the
+first stable physical slot verdict. Trampoline compression/ascent/apex time, the
+prelaunch telegraph, and the post-verdict result hold are excluded. A separate
+`transportMs` begins at qualified release and ends at board entry; it must come
+from simulated spring/ascent motion and may not be replaced by a scripted wait.
+On the frozen clean-drop corpus:
 
 - median `dropMs` is `12,000 ± 500 ms`;
 - at least 80% of drops finish from `10,000–15,000 ms`;
