@@ -115,7 +115,7 @@ async function main() {
   assert.equal(await upgrade.window.__FLIPGAME_BOOT_PROMISE__, true);
   assert.ok(upgrade.scripts.length > 20, 'ordered runtime did not load after v111 control');
   assert.equal(upgrade.scripts.at(-1), 'js/main.js?v=111');
-  assert.deepEqual(upgrade.styles, ['css/style.css?v=111']);
+  assert.deepEqual(upgrade.styles, ['css/style.css?v=111', 'css/v112-broadcast.css?v=111']);
   assert.equal(upgrade.document.body.classList.contains('flipgame-boot-ready'), true);
 
   const installedOffline = harness({
