@@ -37,6 +37,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   var Names = require('./v111-name-policy.js');
   var Runtime = require('./v112-progression-runtime.js');
   var Story = require('./v112-story-runtime.js');
+  var Achievements = require('./v112-achievements.js');
+  var diagnostics = require('./v112-data.js').createDataPipeline();
   var rewardAuthority;
   var handle = Runtime.connectBrowserRuntime(function (authority) { rewardAuthority = authority; });
   var progression = handle.runtime;
@@ -94,9 +96,15 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       if (!name.ok) throw new Error('Please choose another name');
       var objectId = player.objectId || 'bottle';
       if (!progression.isObjectAvailable(objectId)) throw new Error('Choose an available Flipper');
-      var variant = player.variantId || 0;
+      var gallery = progression.viewObject(objectId).variants;
+      var selection = player.variantId == null ? 0 : player.variantId;
+      var variant = typeof selection === 'number' ? gallery[selection]
+        : gallery.find(function (item) { return item.id === selection || item.variantId === selection; });
+      if (!variant) throw new Error('Choose an available variant');
+      var cosmeticId = player.cosmeticId || null;
+      if (cosmeticId && !progression.isCosmeticAvailable(cosmeticId)) throw new Error('Choose an available cosmetic');
       return { id: 'seat-' + (index + 1), name: name.value, human: player.human !== false,
-        isAI: player.human === false, objectId: objectId, variantId: variant };
+        isAI: player.human === false, objectId: objectId, variantId: variant.id, cosmeticId: cosmeticId };
     });
   }
   function makeRules(request, practice) {
@@ -146,7 +154,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       status: 'active', practice: request.activityId === 'practice',
       practiceScore: { flips: 0, makes: 0, misses: 0, caps: 0 },
       flip: null, seenLaunchIds: new Set(), ordinaryShots: [], manualHumanFlips: 0,
-      resolution: null, lastLanding: null, lastRulesOutcome: null, finalPromise: null });
+      resolution: null, lastLanding: null, lastRulesOutcome: null, finalPromise: null,
+      startedAt: Date.now(), totalFlips: 0, testData: progression.snapshot().ownerTestMode === true });
     warning = null;
     emit('session-started');
     return snapshot();
@@ -165,11 +174,18 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (activityId === 'practice' && roster.length !== 1) throw new Error('Practice needs one player');
     var startingLives = source.startingLives == null ? 10 : source.startingLives;
     if (!Number.isSafeInteger(startingLives) || startingLives < 1 || startingLives > 100) throw new RangeError('Choose 1–100 starting lives');
+    var arenaId = source.arenaId || 'baseline-table';
+    if (!progression.isArenaAvailable(arenaId)) throw new Error('Choose an available arena');
+    var activityContext = { arenaId: arenaId, testData: activityId === 'practice' };
+    if (source.viewport && Number.isFinite(source.viewport.width) && Number.isFinite(source.viewport.height)) {
+      activityContext.viewport = { width: Math.max(1, Math.min(16384, Math.round(source.viewport.width))),
+        height: Math.max(1, Math.min(16384, Math.round(source.viewport.height))) };
+    }
     var request = Activity.MatchRequestV2({ matchId: id(), activityId: activityId,
       formatId: 'classic', physicsModeId: 'normal', roster: roster,
       seed: source.seed == null ? 1 : source.seed,
       rulesOptions: { startingLives: startingLives, suddenDeathEnabled: source.suddenDeathEnabled !== false },
-      activityContext: activityId === 'practice' ? { testData: true } : {} });
+      activityContext: activityContext });
     // Validate Rules before opening a durable reward reservation.
     makeRules(request, activityId === 'practice');
     coordinator.start(request);
@@ -186,6 +202,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var outcome = current.rules.toMatchOutcome({ telemetry: telemetry });
     current.finalPromise = current.owner.finalize(outcome).then(function (result) {
       current.resolution = result; current.status = 'completed'; current.finalPromise = null;
+      diagnostics.recordMatch({ request: current.request, outcome: outcome, startedAt: current.startedAt,
+        players: current.rules.snapshot().players, totalFlips: current.totalFlips, testData: current.testData });
       emit('match-completed'); return result;
     }).catch(function (error) {
       current.finalPromise = null; current.status = 'finalization-failed';
@@ -201,6 +219,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (session.status === 'completed') return snapshot();
     if (session.flip && session.flip.phase !== 'resolved') session.physics.abort(session.flip.handle, 'session-left');
     session.owner.abandon(session.request.matchId, 'left-game');
+    diagnostics.recordMatch({ request: session.request, startedAt: session.startedAt, completed: false,
+      players: session.practice ? session.request.roster : session.rules.snapshot().players,
+      totalFlips: session.totalFlips, testData: session.testData });
     session.status = 'abandoned'; emit('session-left'); return snapshot();
   }
 
@@ -222,6 +243,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       var player = state.players[state.currentPlayerIndex];
       var attempt = session.physics.beginFlip({ flipId: launchId, playerId: player.id, launchedAtMs: atMs });
       session.flip = { handle: attempt, launchId: launchId, phase: 'airborne', atMs: atMs,
+        launchedAtMs: atMs,
+        player: copy(player), before: copy(state), seat: state.currentPlayerIndex,
         firstContactAt: null, contactAt: null, stableAt: null, angles: [],
         manualHuman: frame.manual === true && player.human === true };
       session.seenLaunchIds.add(launchId);
@@ -278,6 +301,11 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var transition = session.consumer.resolve(verdict);
     session.lastRulesOutcome = transition.outcome;
     flip.phase = 'resolved'; session.lastLanding = verdict;
+    session.totalFlips++;
+    diagnostics.recordFlip({ request: session.request, launchId: launchId, player: flip.player,
+      before: flip.before, seat: flip.seat, launchedAtMs: flip.launchedAtMs,
+      firstContactAtMs: flip.firstContactAt, landing: data, frame: frame,
+      after: session.rules.snapshot(), rulesOutcome: transition.outcome, testData: session.testData });
     if (flip.manualHuman) {
       session.ordinaryShots.push({ made: made });
       if (session.ordinaryShots.length > 24) session.ordinaryShots.shift();
@@ -320,6 +348,11 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     beginSession: beginSession, abandonSession: abandon, retryFinalization: finish,
     attachPhysics: attachPhysics,
     objects: progression.listObjects, arenas: progression.listArenas, store: progression.viewStore,
+    object: progression.viewObject, arena: progression.viewArena,
+    isObjectAvailable: progression.isObjectAvailable, isArenaAvailable: progression.isArenaAvailable,
+    isCosmeticAvailable: progression.isCosmeticAvailable, isFeatureAvailable: progression.isFeatureAvailable,
+    achievements: function () { return Achievements.listViews(progression.snapshot().achievementIds); },
+    statistics: diagnostics.view,
     feature: progression.viewFeature, variant: progression.viewVariant,
     purchaseCosmetic: progression.purchaseCosmetic, dismissReveal: progression.dismissReveal,
     enableOwnerTesting: function (code) { assertIdle(); return progression.activateOwnerTestMode(code); },
