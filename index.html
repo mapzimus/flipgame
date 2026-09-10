@@ -34,7 +34,14 @@
     <main class="app-main broadcast-home-main">
       <section class="broadcast-lead"><p class="broadcast-eyebrow">From the table. To the wurld.</p><h1 id="broadcast-home-title" tabindex="-1">One table.<br>All the pressure.</h1><p class="broadcast-deck">Build your lineup. Pick your Flipper. Find out who can hold it together.</p><div class="broadcast-home-actions"><button id="broadcast-setup" class="primary-action" type="button">Set up a match <span aria-hidden="true">→</span></button><button id="broadcast-practice" class="secondary-action" type="button">Practice</button></div><p class="broadcast-local">Local play · One screen · Your people</p></section>
       <figure class="broadcast-object-stage"><div class="broadcast-stage-rule" aria-hidden="true"></div><canvas id="broadcast-home-object" width="500" height="620" aria-hidden="true"></canvas><figcaption><span class="broadcast-eyebrow">WFC Standard</span><strong>Ten lives.<br>Every one public.</strong><span>Eight entries. One table.</span></figcaption></figure>
+      <nav class="journey-home-links" aria-label="More ways to play"><button id="journey-story" type="button">Story · Pressure Signal</button><button id="journey-rivals" type="button">Rival Board</button><button id="journey-tour" type="button">First Flip Tour</button><p id="journey-home-status" role="status"></p></nav>
     </main><footer class="app-footer broadcast-home-footer"><span>WFF · Fair-Form Certified</span><span>Pressure Signal</span></footer>
+  </section>
+
+  <section id="journey-screen" class="screen hidden app-shell" aria-labelledby="journey-title">
+    <header class="app-header"><button id="journey-back" class="back-btn" type="button">Home</button><h1 id="journey-title" tabindex="-1">Pressure Signal</h1></header>
+    <main class="app-main journey-main"><p id="journey-message" class="journey-message" role="status" aria-live="polite"></p><div id="journey-body"></div></main>
+    <footer class="app-footer"><p class="helper">Local play. Checkpoints save between completed matches.</p></footer>
   </section>
 
   <section id="setup-screen" class="screen hidden app-shell" data-route="setup" aria-labelledby="setup-title">

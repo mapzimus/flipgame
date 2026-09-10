@@ -1,4 +1,19 @@
 /* Pressure Signal: broadcast menu presentation. Gameplay coordinates unchanged. */
+.journey-home-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.journey-home-links button { min-block-size: 48px; border-radius: 3px; background: #182b38; color: #d1dce5; }
+#journey-home-status { flex: 1 1 100%; margin: 0; color: #e7bb70; font-size: 13px; }
+.journey-main { inline-size: 100%; max-inline-size: 1480px; margin-inline: auto; }
+.journey-message { color: #bbc9d3; line-height: 1.6; }
+.journey-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 14px; margin-block: 20px; }
+.journey-card { min-inline-size: 0; padding: 20px; border: 1px solid #354958; background: #172937; }
+.journey-card h2 { font-size: 24px; margin-block: 12px; }
+.journey-card p { color: #b7c7d3; }
+.journey-card button { min-block-size: 48px; inline-size: 100%; margin-block-start: 16px; }
+.journey-play-style { display: grid; grid-template-columns: auto minmax(120px,240px); gap: 20px; align-items: center; max-inline-size: 400px; }
+#journey-body > button { min-block-size: 48px; margin: 16px 10px 0 0; }
+#journey-body > p { line-height: 1.65; max-inline-size: 65ch; }
+@media (min-width:768px) { .journey-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (min-width:1100px) { .journey-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 .broadcast-wordmark { font-size: 22px; letter-spacing: -.04em; font-weight: 900; }
 .broadcast-kicker, .broadcast-eyebrow { color: #d6b67f; font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
 .broadcast-masthead { justify-content: space-between; }

@@ -1172,6 +1172,29 @@
   document.getElementById('broadcast-practice').addEventListener('click', () => {
     showBroadcastSetup(); practiceBtn.click();
   });
+  // Presentation host is injected by the private activity composition. Missing
+  // capability means no Story reservation, simulated victory or reward write.
+  if (window.FlipgameV112JourneyRoutes) {
+    FlipgameV112JourneyRoutes.mount({ document,
+      getHost: () => window.FlipgameV112JourneyHost || null,
+      getHumans: count => {
+        if (!validateSetupNames()) return [];
+        return rowsToDefs(readRows()).filter(entry => !entry.isAI).slice(0, count).map(entry => ({
+          id: entry.id, displayName: entry.name, flipperId: entry.skin,
+          variantId: entry.variantId, cosmeticId: entry.cosmeticId,
+        }));
+      },
+      onOpen: () => broadcastHome.classList.add('hidden'),
+      onHome: showBroadcastHome,
+      onPlay: () => broadcastHome.classList.add('hidden'),
+    });
+  } else {
+    for (const id of ['journey-story', 'journey-rivals', 'journey-tour']) {
+      document.getElementById(id).addEventListener('click', () => {
+        document.getElementById('journey-home-status').textContent = 'This activity is not connected in this development build. Your progress has not changed.';
+      });
+    }
+  }
   // Platform owns the single wake lock and visibility lifecycle.
   async function enterImmersive() {
     try { if (v111Platform && v111Platform.enterMatch) await v111Platform.enterMatch({ fullscreen: true }); }
