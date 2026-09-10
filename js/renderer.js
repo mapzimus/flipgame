@@ -17,6 +17,7 @@ const Renderer = (() => {
   let fxCosmeticId = null;
   let fxVisualArenaId = null;
   let fxPlinko = null;   // plinko board geometry while a drop is live
+  let plinkoPresentation = null;
   let trailAccumulator = 0;
   const rainbowTrailPoints = [];
   let motionFlipKey = null, motionElapsed = 0;
@@ -55,6 +56,7 @@ const Renderer = (() => {
     W = canvas.width;
     H = canvas.height;
     camZoom = 1; camX = W / 2; camY = H / 2;
+    plinkoPresentation = null; fxPlinko = null;
     motionFlipKey = null; motionElapsed = 0;
     if (reactionFocus) reactionFocus.reset();
   }
@@ -71,6 +73,7 @@ const Renderer = (() => {
 
   function projectBottleCenter(bottle, groundY) {
     const p = projectPoint(bottle.position.x, bottle.position.y, groundY);
+    if (plinkoPresentation) return p;
     return {
       x: p.x,
       y: p.y - (BOTTLE_DRAW_SCALE - 1) * 43,
@@ -679,9 +682,10 @@ const Renderer = (() => {
     // tiny/giant name eggs scale the paint; the extra y shift keeps the drawn
     // base on the table (projectBottleCenter compensates for the stock scale).
     const drawScale = BOTTLE_DRAW_SCALE * (fxSize || 1);
-    ctx.translate(x, y + (BOTTLE_DRAW_SCALE - drawScale) * 43);
+    ctx.translate(x, y + (plinkoPresentation ? 0 : (BOTTLE_DRAW_SCALE - drawScale) * 43));
     ctx.rotate(angle);
     ctx.scale(drawScale, drawScale);
+    if (plinkoPresentation) ctx.scale(plinkoPresentation.scale.x, plinkoPresentation.scale.y);
     // Ghost name egg: the object flips see-through. Cosmetic only.
     if (fxGhost) ctx.globalAlpha = 0.55;
     // Ninja: darken toward silhouette where ctx.filter is supported (the dark
@@ -1236,7 +1240,7 @@ const Renderer = (() => {
     }
   }
 
-  // ── Plinko board (1/1000 drop) ──────────────────────────────────────────────
+  // ── Plinko board ───────────────────────────────────────────────────────────
   function drawPlinko(p) {
     const bw = p.right - p.left;
     ctx.save();
@@ -1279,6 +1283,10 @@ const Renderer = (() => {
         ctx.fillStyle = s.kind === 'halve' ? 'rgba(140, 90, 255, 0.18)' : 'rgba(90, 220, 140, 0.15)';
       }
       ctx.fillRect(x + 3, p.bottom - p.slotH, slotW - 6, p.slotH);
+      if (plinkoPresentation && plinkoPresentation.selectedSlot === i) {
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 5;
+        ctx.strokeRect(x + 3, p.bottom - p.slotH, slotW - 6, p.slotH);
+      }
       // Two compact lines remain readable across nine bins.
       const labels = {
         win: ['👑 AUTO', 'WIN'],
@@ -1323,6 +1331,46 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  function drawPlinkoSpring(p) {
+    if (!p || !p.visible) return;
+    ctx.save();
+    const x0 = p.x - p.width / 2, y0 = p.y - p.height / 2;
+    ctx.strokeStyle = '#92a6b8'; ctx.lineWidth = 5;
+    // Real compression state drives deck and coils; no timed pretend launch.
+    for (const x of [x0 + 20, x0 + p.width - 20]) {
+      ctx.beginPath(); ctx.moveTo(x, y0);
+      for (let i = 1; i <= 6; i++) ctx.lineTo(x + (i % 2 ? -8 : 8), y0 + p.height * i / 6);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#1a3444'; ctx.beginPath();
+    ctx.roundRect(x0, y0 - 8, p.width, 16, 8); ctx.fill();
+    ctx.strokeStyle = '#69dfc0'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.fillStyle = '#455c6e'; ctx.fillRect(x0 - 10, y0 + p.height, p.width + 20, 10);
+    ctx.restore();
+  }
+
+  function drawPlinkoStatus(p) {
+    if (!p) return;
+    ctx.save();
+    const width = Math.min(W - 24, 680), x = (W - width) / 2;
+    ctx.fillStyle = 'rgba(10,20,32,.93)'; ctx.beginPath();
+    ctx.roundRect(x, H - 96, width, 82, 12); ctx.fill();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '700 16px system-ui, sans-serif'; ctx.fillStyle = '#edf5fb';
+    ctx.fillText('PLINKO · ' + (p.timedOut ? 'Drop ended' : p.status), W / 2, H - 75, width - 20);
+    const symbols = { double: '×2', halve: '½', magnet: 'MAG', lose: 'LOSS', win: 'WIN' };
+    const cell = (width - 16) / 9;
+    for (let i = 0; i < 9; i++) {
+      const slot = p.board.slots[i], left = x + 8 + cell * i;
+      ctx.fillStyle = slot.kind === 'win' ? '#6f5719' : slot.kind === 'lose' ? '#672e38' : '#263f52';
+      ctx.fillRect(left + 1, H - 55, cell - 2, 28);
+      if (p.selectedSlot === i) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(left + 1, H - 55, cell - 2, 28); }
+      ctx.fillStyle = '#ffffff'; ctx.font = '700 11px system-ui, sans-serif';
+      ctx.fillText(symbols[slot.kind], left + cell / 2, H - 41, cell - 4);
+    }
+    ctx.restore();
+  }
+
   function applyCamera(view) {
     const targetZoom = view && view.zoom != null ? view.zoom : 1;
     const tx = view && view.camX != null ? view.camX : W / 2;
@@ -1331,9 +1379,12 @@ const Renderer = (() => {
     // frame. Other arena zooms retain the gentler cinematic ease.
     const k = reduceMotion ? 1 : (view && view.tracking === 'plinko' ? 0.30
       : (view && view.tracking === 'reaction' ? 0.24 : 0.14));
-    camZoom += (targetZoom - camZoom) * k;
-    camX += (tx - camX) * k;
-    camY += (ty - camY) * k;
+    // Qualified Plinko already supplies a centered camera. A second smoothing
+    // layer creates frame-rate-dependent lag and can lose the opening launch.
+    const follow = view && view.directTracking ? 1 : k;
+    camZoom += (targetZoom - camZoom) * follow;
+    camX += (tx - camX) * follow;
+    camY += (ty - camY) * follow;
     ctx.translate(W / 2, H / 2);
     ctx.scale(camZoom, camZoom);
     ctx.translate(-camX, -camY);
@@ -1341,6 +1392,13 @@ const Renderer = (() => {
   }
 
   function frame(dt, state) {
+    const plinkoBridge = typeof FlipgameV112PlinkoPresentation !== 'undefined' ? FlipgameV112PlinkoPresentation : null;
+    plinkoPresentation = state.plinkoSnapshot && plinkoBridge
+      ? plinkoBridge.project(state.plinkoSnapshot, { width: W, height: H }) : null;
+    if (plinkoPresentation) state = Object.assign({}, state, {
+      bottle: plinkoPresentation.bottle, view: plinkoPresentation.view,
+      plinkoBoard: plinkoPresentation.board,
+    });
     const { bottle, liquid, drag, groundY, result, resultAlpha, specialLabel, showGlow, isOnFire,
             liquidColor, intense, suddenDeath, awaitingFlick, stake, skin,
             target, obstacles, view } = state;
@@ -1356,8 +1414,8 @@ const Renderer = (() => {
     fxTrail   = state.rareEvent === 'rainbow-trail' || state.rareEvent === 'rainbow-corkscrew' || fxEventState?.eventId === 'rainbow-corkscrew';
     fxRareEvent = fxEventState?.eventId || state.rareEvent || (state.alwaysMagnet ? 'magnet' : null);
     fxPlinko  = state.plinkoBoard || null;
-    // During a plinko drop the physics body is a ball — draw the character
-    // curled up small so it visually fits the peg gaps it's bouncing through.
+    // Preserve the selected authored Flipper. Only its event presentation is
+    // compacted; never paint the hidden contact chassis as a replacement ball.
     fxSize    = (state.sizeFx || 1) * (fxPlinko ? 0.6 : 1);
     clock += dt;
     const nextMotionKey = state.flipSeed == null ? 'idle' : `flip:${String(state.flipSeed)}`;
@@ -1386,7 +1444,7 @@ const Renderer = (() => {
     }) : null;
     const face = reactions ? reactions.faceFor(window, skin || 'bottle', state.variantId) : null;
     let activeView = view;
-    if (reactionFocus && face && bottle) {
+    if (reactionFocus && face && bottle && !plinkoPresentation) {
       const center = projectBottleCenter(bottle, groundY);
       const drawScale = BOTTLE_DRAW_SCALE * (fxSize || 1);
       const centerY = center.y + (BOTTLE_DRAW_SCALE - drawScale) * 43;
@@ -1445,13 +1503,14 @@ const Renderer = (() => {
     ctx.save();
     applyCamera(activeView);
     drawBackground(groundY, isOnFire, { tableOnly: true });
-    drawVisualArena('table', groundY);
+    if (!plinkoPresentation) drawVisualArena('table', groundY);
     drawWalls(groundY, activeView ? activeView.sideWalls : true, activeView && activeView.worldW);
     if (target) drawCeiling(activeView);
     const aimingPad = !!(target && drag && awaitingFlick);
     drawTargetPad(target, groundY, aimingPad);
     drawObstacles(obstacles);
-    if (fxPlinko) drawPlinko(fxPlinko);
+    if (fxPlinko && (!plinkoPresentation || plinkoPresentation.boardVisible)) drawPlinko(fxPlinko);
+    if (plinkoPresentation) drawPlinkoSpring(plinkoPresentation.spring);
     drawFlickIndicator(drag, bottle, groundY);
     if (showGlow && !fxPlinko) drawLandingGlow(bottle, groundY);
     drawRareEventWorld(fxRareEvent, bottle, groundY);
@@ -1472,6 +1531,7 @@ const Renderer = (() => {
     drawStake(stake);
     drawIntense(intense, suddenDeath, awaitingFlick);
     drawCosmeticNameplate(state.playerName);
+    drawPlinkoStatus(plinkoPresentation);
 
     if (result) {
       const color = result === 'MAKE' ? '#69f0ae' : '#ff5252';
@@ -1504,6 +1564,8 @@ const Renderer = (() => {
       return;
     }
     const prevCanvas = canvas, prevCtx = ctx, prevW = W, prevH = H;
+    const prevPlinkoPresentation = plinkoPresentation, prevPlinko = fxPlinko;
+    plinkoPresentation = null; fxPlinko = null;
     fxGolden = fxGhost = fxNinja = fxRainbow = fxTrail = false; // never leak cosmetics into previews
     fxRareEvent = null;
     fxSize = 1;
@@ -1532,6 +1594,7 @@ const Renderer = (() => {
         false, liquidColor, -10000, skin, null);
     } finally {
       canvas = prevCanvas; ctx = prevCtx; W = prevW; H = prevH;
+      plinkoPresentation = prevPlinkoPresentation; fxPlinko = prevPlinko;
     }
   }
 
