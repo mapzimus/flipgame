@@ -505,12 +505,12 @@
     if (pickerRow) closeCharPicker();
     playerCount = defs.length;
     playerInputs.innerHTML = defs.map((d, i) => rowHtml(i, d)).join('');
-    addPlayerBtn.disabled = playerCount >= 8;
-    addPlayerBtn.tabIndex = playerCount >= 8 ? -1 : 0;
+    addPlayerBtn.disabled = playerCount >= 16;
+    addPlayerBtn.tabIndex = playerCount >= 16 ? -1 : 0;
     const countLabel = document.getElementById('player-count-label');
     const limitNote = document.getElementById('player-limit-note');
     if (countLabel) countLabel.textContent = `${playerCount} players`;
-    if (limitNote) limitNote.textContent = playerCount >= 8 ? '8 player maximum' : 'Up to 8 players';
+    if (limitNote) limitNote.textContent = playerCount >= 16 ? '16 player maximum' : 'Up to 16 players';
     syncCpuDifficulty();
     syncFormatControls();
     paintAllPreviews();
@@ -533,7 +533,7 @@
   }
 
   function addPlayerInput() {
-    if (playerCount >= 8) return;
+    if (playerCount >= 16) return;
     const defs = readRows();
     defs.push(seatDefaults(defs.length, defs.map((d) => d.color)));
     renderFrom(defs);
@@ -905,12 +905,12 @@
   }
   function syncFormatControls() {
     const format = chosenFormat();
-    const teamAllowed = [2, 4, 6, 8].includes(playerCount);
+    const teamAllowed = playerCount >= 2 && playerCount <= 16 && playerCount % 2 === 0;
     const teamLabel = document.getElementById('team-format-option');
     if (teamLabel) teamLabel.setAttribute('aria-disabled', teamAllowed ? 'false' : 'true');
     if (!teamAllowed && format === 'team-clash') {
       document.querySelector('input[name="match-format"][value="classic"]').checked = true;
-      announce('Team Clash needs 2, 4, 6, or 8 players.');
+      announce('Team Clash needs an even roster from 2 to 16 players.');
     }
     const active = !teamAllowed && format === 'team-clash' ? 'classic' : format;
     document.getElementById('classic-lives')?.classList.toggle('hidden', active !== 'classic');
@@ -926,10 +926,11 @@
   }
   document.querySelectorAll('input[name="match-format"], input[name="cup-length"]').forEach((input) => {
     input.addEventListener('change', (event) => {
-      if (event.target.value === 'team-clash' && ![2,4,6,8].includes(playerCount)) {
+      if (event.target.value === 'team-clash' &&
+          !(playerCount >= 2 && playerCount <= 16 && playerCount % 2 === 0)) {
         event.target.checked = false;
         document.querySelector('input[name="match-format"][value="classic"]').checked = true;
-        announce('Team Clash needs 2, 4, 6, or 8 players.');
+        announce('Team Clash needs an even roster from 2 to 16 players.');
       }
       syncFormatControls(); saveSetup();
     });
@@ -1100,7 +1101,7 @@
     try {
       const s = JSON.parse(localStorage.getItem(SETUP_KEY));
       if (!s || !Array.isArray(s.rows) || s.rows.length < 1) return false;
-      const rows = s.rows.slice(0, 8).map((r, i) => {
+      const rows = s.rows.slice(0, 16).map((r, i) => {
         const color = normalizeColor(r.color || defaultColorFor(r.charId || defaultCharId()));
         const charId = resolveCharForColor(r.charId || defaultCharId(), color);
         return {
@@ -1181,6 +1182,16 @@
     if (!validateSetupNames()) return;
     const defs = rowsToDefs(readRows());
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
+    const format = chosenFormat();
+    const cupLimit = chosenCupLength() === 'full' ? 8 : 12;
+    if (format === 'cup' && defs.length > cupLimit) {
+      announce(`${chosenCupLength() === 'full' ? 'Full' : 'Short'} Cup supports up to ${cupLimit} players.`, true);
+      return;
+    }
+    if (format === 'team-clash' && (defs.length > 16 || defs.length % 2 !== 0)) {
+      announce('Team Clash needs an even roster from 2 to 16 players.', true);
+      return;
+    }
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
     saveSetup();
     Sound.unlock();   // first user gesture — unlock audio
@@ -1193,7 +1204,7 @@
       feel: chosenFeel(),
       startingLives: chosenStartingLives(),
       insanity: chosenGameMode() === 'insanity',
-      format: chosenFormat(),
+      format,
       cupLength: chosenCupLength(),
       arenaProfileId: chosenArenaProfile(),
       visualArenaId,
