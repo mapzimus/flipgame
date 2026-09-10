@@ -244,11 +244,16 @@ function testLifeDrainReward() {
 function loadPhysics() {
   const window = { matchMedia: () => ({ matches: false }) };
   const context = vm.createContext({ console, window, Math });
-  const matterSource = fs.readFileSync(path.join(root, 'js', 'vendor', 'matter.min.js'), 'utf8');
-  vm.runInContext(matterSource, context, { filename: 'js/vendor/matter.min.js' });
-  const source = fs.readFileSync(path.join(root, 'js', 'physics.js'), 'utf8') +
-    '\nthis.__physics = Physics;';
-  vm.runInContext(source, context, { filename: 'js/physics.js' });
+  for (const relative of [
+    'js/vendor/matter.min.js',
+    'js/v112-plinko-matter.js',
+    'js/v112-plinko-live.js',
+    'js/physics.js',
+  ]) {
+    let source = fs.readFileSync(path.join(root, relative), 'utf8');
+    if (relative === 'js/physics.js') source += '\nthis.__physics = Physics;';
+    vm.runInContext(source, context, { filename: relative });
+  }
   return context.__physics;
 }
 
@@ -305,13 +310,16 @@ function testLongPlinkoBoardResolves() {
     assert.deepEqual(Array.from(board.slots, (slot) => slot.kind),
       ['double', 'halve', 'magnet', 'lose', 'win', 'lose', 'magnet', 'halve', 'double'],
       'Plinko must expose the exact symmetric nine-slot reward layout');
-    assert.ok(board.bottom - board.top > 900, 'Plinko board must provide a long drop');
-    assert.equal(new Set(board.pegs.map((p) => p.y)).size, 8, 'Plinko board must have eight peg rows');
+    assert.equal(board.bottom - board.top, 2450, 'Plinko board must provide the canonical long drop');
+    assert.equal(new Set(board.pegs.map((p) => p.y)).size, 24,
+      'Plinko board must have 24 physical peg rows');
+    assert.equal(board.pegs.length, 252);
     const launchView = physics.getViewHint();
     assert.equal(launchView.tracking, 'plinko');
     assert.ok(launchView.zoom >= 0.68, `Plinko follow-cam zoomed out to ${launchView.zoom}`);
     assert.equal(launchView.camX, physics.getBottle().position.x);
-    assert.equal(launchView.camY, physics.getBottle().position.y + 20);
+    assert.equal(launchView.trackingData.phase, 'trampoline-lock');
+    assert.equal(launchView.trackingData.trampoline.compressed, true);
 
     let verdict = null;
     for (let frame = 0; frame < 3000 && !verdict; frame++) {
@@ -324,6 +332,7 @@ function testLongPlinkoBoardResolves() {
     assert.equal(verdict, info.plinko === 'lose' ? 'MISS' : 'MAKE',
       `Plinko seed ${seed} returned the wrong automatic verdict`);
     const finishView = physics.getViewHint();
+    assert.equal(finishView.trackingData.allSlotsVisible, true);
     const visibleBottom = finishView.camY + 800 / (2 * finishView.zoom);
     assert.ok(visibleBottom >= board.bottom,
       `Plinko reward bins are below the tracked frame (${visibleBottom} < ${board.bottom})`);

@@ -376,6 +376,12 @@
       finite(viewport.height, 'Plinko viewport height', 240, 100000);
       originalGravity = { x: engine.gravity.x, y: engine.gravity.y,
         scale: engine.gravity.scale };
+      // Plinko owns one deterministic gravity profile. The host's active
+      // Classic/Alien/event profile must not change the spring arc or drop
+      // duration before the board switches to its slow-fall scale.
+      engine.gravity.x = 0;
+      engine.gravity.y = 1;
+      engine.gravity.scale = 0.001;
       originalMaterial = rememberMaterial(selectedBody);
       previousPosition = copyPoint(selectedBody.position);
       buildContactChassis();

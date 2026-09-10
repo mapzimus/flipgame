@@ -19,6 +19,8 @@ function loadPhysics() {
     'js/vendor/matter.min.js',
     'js/v111-interfaces.js',
     'js/v111-physics-events.js',
+    'js/v112-plinko-matter.js',
+    'js/v112-plinko-live.js',
     'js/physics.js',
   ]) {
     let source = fs.readFileSync(path.join(root, relative), 'utf8');
@@ -210,8 +212,9 @@ function testEveryEventHasPhysicalRuntime() {
     }
     if (definition.id === 'plinko') {
       const board = physics.getPlinko();
-      assert.equal(board.rows, 8);
-      assert.ok(board.bottom - board.top > 900);
+      assert.equal(board.rows, 24);
+      assert.equal(board.pegs.length, 252);
+      assert.equal(board.bottom - board.top, 2450);
       assert.equal(physics.getViewHint().trackingData.slots.length, 9);
     }
 

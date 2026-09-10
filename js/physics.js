@@ -696,24 +696,17 @@ const Physics = (() => {
     }
   }
 
-  // ── PLINKO DROP (1/1000 easter egg) ────────────────────────────────────────
-  // On the roll, the floor vanishes at the flick and the object falls through
-  // into a plinko board below the table. The nine slots are mirrored around
-  // one jackpot: double, halve, magnet, loss, WIN, loss, magnet, halve, double.
-  // Seed-derived
-  // but main.js disables it for online games (it rewrites lives directly).
-  // The board can be WIDER than the screen; the follow camera stays with the
-  // falling object so all nine bins remain large and legible on a phone.
-  const PLINKO_KINDS = [
-    'double', 'halve', 'magnet', 'lose', 'win',
-    'lose', 'magnet', 'halve', 'double',
-  ];
+  // ── PLINKO DROP ────────────────────────────────────────────────────────────
+  // The live bridge owns a canonical 24-row Matter board and a physical
+  // trampoline opening. It never swaps the selected compound Flipper for a
+  // generic puck, never teleports a wedged body, and never derives a prize
+  // from elapsed time or an unverified horizontal coordinate.
   let plinkoEnabled = true;
   let forcedSpecialEvent = null; // secret test trigger — consumed by the next flick
-  let plinko = null;          // { left, right, top, bottom, pegs, dividers, slots }
-  let plinkoBodies = [];
-  let plinkoSettle = 0;
-  let plinkoNudges = 0;       // "machine shakes" applied to a wedged object
+  let plinko = null;          // renderer-compatible projection of authoritative geometry
+  let plinkoLive = null;      // FlipgameV112PlinkoLive lane bridge
+  let plinkoContactCursor = 0;
+  let plinkoAppearance = null;
 
   function setPlinkoEnabled(v) { plinkoEnabled = !!v; }
   function forceSpecialEvent(id) {
@@ -735,114 +728,98 @@ const Physics = (() => {
   }
   function forcePlinko() { return forceSpecialEvent('plinko'); }
 
-  function startPlinko() {
+  function plinkoSystem() {
+    return typeof globalThis !== 'undefined'
+      ? globalThis.FlipgameV112PlinkoLive || null : null;
+  }
+
+  // Optional presentation binding. Physics remains correct without it; the
+  // renderer/main integration may provide the selected art revision so the
+  // authority snapshot can prove exactly which authored Flipper stayed live.
+  function setPlinkoAppearance(value) {
+    if (value == null) { plinkoAppearance = null; return; }
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      throw new TypeError('Plinko appearance binding must be an object');
+    }
+    plinkoAppearance = {
+      flipperId: String(value.flipperId || 'selected-flipper'),
+      variantId: String(value.variantId || 'selected-variant'),
+      appearanceRevision: String(value.appearanceRevision || 'live-selected-v1'),
+      cosmeticId: String(value.cosmeticId || 'none'),
+      physicsProfileId: String(value.physicsProfileId || 'competitive-shared'),
+      authoredParts: Array.isArray(value.authoredParts)
+        ? value.authoredParts.map(String).slice(0, 32) : [],
+      internalDynamics: Array.isArray(value.internalDynamics)
+        ? value.internalDynamics.map(String).slice(0, 32) : [],
+    };
+  }
+
+  function startPlinko(seed, entryVelocityX, angularVelocity) {
     clearPlinko();
-    // Bank-shot furniture (alien wedges/saucers) would steal the drop — clear
-    // them for this throw. Next turn's setProfile/buildObstacles rebuilds.
     clearObstacles();
-    // Board width is independent of the screen — at least 990 so nine slots
-    // stay ball-sized; the camera follows the object through it.
-    const bw = Math.max(990, Math.min(canvasW - 36, 1440));
-    const left = canvasW / 2 - bw / 2;
-    const right = left + bw;
-    const top = groundY + 26;
-    // The flipped object is BIG (~74×140), so peg gaps and slots must be wide
-    // enough for it to tumble through — this is bottle plinko, not puck plinko.
-    // v100: twice the peg field of the original board. Eight staggered rows
-    // create a long, suspenseful fall worthy of a one-in-a-thousand event.
-    const rows = 8, rowGap = 92, slotH = 150;
-    const bottom = top + 42 + rows * rowGap + slotH;
-    const pegs = [];
-    const dividers = [];
-    const opts = { isStatic: true, label: 'plinko', friction: 0.05, restitution: 0.55 };
-
-    // Offset peg grid — the object becomes a ball (r=34) for the drop, so
-    // ~110px gaps give real plinko action without wedging.
-    const cols = Math.max(7, Math.min(13, Math.floor(bw / 100)));
-    for (let r = 0; r < rows; r++) {
-      const y = top + 42 + r * rowGap;
-      const n = cols + (r % 2 ? 0 : 1);
-      for (let i = 0; i < n; i++) {
-        const x = r % 2
-          ? left + (bw / (n + 1)) * (i + 1)
-          : left + (bw / n) * (i + 0.5);
-        if (x < left + 20 || x > right - 20) continue;
-        pegs.push({ x, y, r: 9 });
-        plinkoBodies.push(Bodies.circle(x, y, 9, opts));
+    const live = plinkoSystem();
+    if (!live || live.schema !== 'FlipgameV112PlinkoLiveV1') {
+      throw new Error('Canonical live Plinko bridge is not loaded');
+    }
+    plinkoLive = live.create({ Matter });
+    try {
+      const attached = plinkoLive.attach({
+        engine,
+        world,
+        selectedBody: bottle,
+        width: canvasW,
+        height: viewH || arenaH,
+        groundY,
+        seed,
+        entryVelocityX,
+        angularVelocity,
+        appearance: plinkoAppearance,
+      });
+      if (!attached.selectedBodyPreserved) {
+        throw new Error('Live Plinko detached the selected compound Flipper');
       }
+      plinko = attached.board;
+    } catch (error) {
+      try { plinkoLive.cleanup(); } catch (_) {}
+      plinkoLive = null;
+      plinko = null;
+      buildObstacles(arenaH);
+      throw error;
     }
-    // Dividers get a pointed cap so the object sheds off instead of balancing.
-    const kinds = PLINKO_KINDS;
-    for (let k = 1; k < kinds.length; k++) {
-      const x = left + (bw / kinds.length) * k;
-      dividers.push({ x, y0: bottom - slotH, y1: bottom });
-      plinkoBodies.push(Bodies.rectangle(x, bottom - slotH / 2, 10, slotH, opts));
-      plinkoBodies.push(Bodies.circle(x, bottom - slotH, 9, opts));
-    }
-    plinkoBodies.push(Bodies.rectangle(canvasW / 2, bottom + 22, Math.max(canvasW, bw) * 2, 44, {
-      ...opts, friction: 0.8, restitution: 0.02,
-    }));
-    // The board brings its own side rails (it may be wider than the arena).
-    const railH = bottom + 500;
-    plinkoBodies.push(Bodies.rectangle(left - 24, bottom - railH / 2, 48, railH, opts));
-    plinkoBodies.push(Bodies.rectangle(right + 24, bottom - railH / 2, 48, railH, opts));
-    const slots = kinds.map((kind, i) => ({
-      kind,
-      x0: left + (bw / kinds.length) * i,
-      x1: left + (bw / kinds.length) * (i + 1),
-    }));
-    World.add(world, plinkoBodies);
 
-    // The floor "disappears", and the arena walls/ceiling go dead too — the
-    // board's own rails take over (the board may extend past the screen edges).
-    // Alien mode keeps a live ceiling for bank shots; kill it for the drop so
-    // the ball isn't trapped bouncing under the roof.
+    // The canonical board and trampoline now own every collision. Arena
+    // furniture and landing planes remain disabled until cleanup.
     ground.collisionFilter.mask = 0;
     if (leftWall)  leftWall.collisionFilter.mask = 0;
     if (rightWall) rightWall.collisionFilter.mask = 0;
     if (ceilingBody) ceilingBody.collisionFilter.mask = 0;
-
-    plinko = { left, right, top, bottom, slotH, pegs, dividers, slots,
-               drift: randEvent() < 0.5 ? -1 : 1, rows, antiWedge: true };
-    plinkoSettle = 0;
-    plinkoNudges = 0;
-
-    // The object "curls up" into a ball for the drop — a bottle-shaped body
-    // bridges pegs and wedges, a ball plinkos properly. The renderer draws
-    // the character at ~60% scale so it reads as the same object tumbling.
-    const pos = { x: bottle.position.x, y: bottle.position.y };
-    World.remove(world, bottle);
-    bottle = Bodies.circle(pos.x, pos.y, 34, {
-      label: 'bottle',
-      density: 0.008,
-      friction: 0.15,
-      frictionAir: 0.004,
-      restitution: 0.5,
-    });
-    World.add(world, bottle);
+    plinkoContactCursor = 0;
+    return plinko;
   }
 
   function clearPlinko() {
-    for (const b of plinkoBodies) World.remove(world, b);
-    plinkoBodies = [];
+    if (plinkoLive) {
+      const report = plinkoLive.cleanup();
+      if (!report.clean || !report.selectedBodyPreserved) {
+        throw new Error('Live Plinko cleanup did not preserve the selected Flipper');
+      }
+    }
+    plinkoLive = null;
     plinko = null;
-    plinkoSettle = 0;
+    plinkoContactCursor = 0;
     if (ground) ground.collisionFilter.mask = 0xFFFFFFFF;
     if (ceilingBody) ceilingBody.collisionFilter.mask = profile.ceiling ? 0xFFFFFFFF : 0;
     syncSideWalls();
   }
 
-  function plinkoVerdict() {
-    const bw = plinko.right - plinko.left;
-    const n = plinko.slots.length;
-    const i = Math.max(0, Math.min(n - 1,
-      Math.floor((bottle.position.x - plinko.left) / (bw / n))));
-    const prize = plinko.slots[i].kind;
-    const result = prize === 'lose' ? 'MISS' : 'MAKE';
-    const canonicalPrize = {
-      double: 'lives-doubled', halve: 'everyone-else-halved', magnet: 'always-magnet',
-      lose: 'automatic-loss', win: 'automatic-win',
-    }[prize];
+  function plinkoVerdict(authoritativeSnapshot) {
+    const snapshot = authoritativeSnapshot || (plinkoLive && plinkoLive.snapshot());
+    const outcome = snapshot && snapshot.outcome;
+    if (!outcome || outcome.actualSensorContact !== true) return null;
+    const i = outcome.slotIndex;
+    const prize = outcome.legacyPrize;
+    const result = outcome.result;
+    const canonicalPrize = outcome.canonicalPrize;
     lastLandingInfo = {
       result,
       tilt: null,
@@ -855,17 +832,21 @@ const Physics = (() => {
       maxTilt: 0,
       padOffset: null,
       eventId: 'plinko',
-      contacts: contactCount,
+      contacts: snapshot.contactCount,
       bounces: bounceCount,
       firstContactMs,
-      settleMs: firstContactMs == null ? null : Math.max(0, simElapsedMs - firstContactMs),
+      settleMs: outcome.dropMs,
+      plinkoSensorRef: outcome.sensorRef,
+      plinkoContactDigest: outcome.contactDigest,
     };
     const plinkoSpec = activeEventMetadata && activeEventMetadata.reward;
     const slotEffect = plinkoSpec && plinkoSpec.slotEffects
       ? plinkoSpec.slotEffects[canonicalPrize] : null;
     eventResultMetadata = {
       eventId: 'plinko',
-      meta: { onCap: false, pose: 'other', contacts: contactCount, bounces: bounceCount, banks: 0 },
+      meta: { onCap: false, pose: 'other', contacts: snapshot.contactCount,
+        bounces: bounceCount, banks: 0, physical: true,
+        sensorRef: outcome.sensorRef, contactDigest: outcome.contactDigest },
       eventReward: Object.assign({ plinkoPrize: canonicalPrize, slotIndex: i, legacyPrize: prize },
         slotEffect || {}),
       plinkoPrize: canonicalPrize,
@@ -885,6 +866,7 @@ const Physics = (() => {
   }
 
   function getPlinko() { return plinko; }
+  function getPlinkoSnapshot() { return plinkoLive ? plinkoLive.snapshot() : null; }
 
   // ── Obstacles: deflector wedges + saucers (alien bank shot) ────────────────
   let deflectors = [];
@@ -1530,57 +1512,17 @@ const Physics = (() => {
       return checkSplitEventLanding();
     }
 
-    // Plinko drop: the only verdict is which slot it settles in.
-    if (plinko && launched) {
-      if (flightFrames > 3000) return plinkoVerdict();   // ~50s failsafe for the long board
-      const speed = Math.hypot(bottle.velocity.x, bottle.velocity.y);
-      const inPegZone = bottle.position.y < plinko.bottom - plinko.slotH - 20;
-      if (inPegZone) {
-        // A bottle-sized puck loves to bridge two pegs and doze off, so the
-        // machine "shakes" while it's slow up here: a continuous seeded drift
-        // push (reversing periodically if it stays stuck) until it drops into
-        // the slot zone. Verdict only happens down in the slots.
-        if (speed < 2.5) {
-          plinkoNudges++;   // shake-frame counter
-          const dir = plinko.drift * (Math.floor(plinkoNudges / 70) % 2 === 0 ? 1 : -1);
-          Body.setVelocity(bottle, {
-            x: bottle.velocity.x + dir * 0.45,
-            y: bottle.velocity.y + 0.35,
-          });
-        }
-        if (plinkoNudges > 700) {
-          Body.setPosition(bottle, {
-            x: Math.max(plinko.left + 36, Math.min(plinko.right - 36, bottle.position.x + plinko.drift * 48)),
-            y: plinko.bottom - plinko.slotH + 34,
-          });
-          Body.setVelocity(bottle, { x: plinko.drift * 2.5, y: 5 });
-          plinkoNudges = 0;
-        }
-        plinkoSettle = 0;
-        return null;
-      }
-      if (firstContactMs == null) {
-        firstContactMs = simElapsedMs;
-        landingPhase = 'contact';
-        contactCount = 1;
-        if (eventController && eventController.active()) {
-          eventController.onContact(Object.assign(eventContext(lastFlickInfo && lastFlickInfo.seed), {
-            contactIndex: 1, elapsedMs: simElapsedMs,
-          }));
-        }
-        return null;
-      }
-      if (landingPhase === 'contact') {
-        landingPhase = 'settling';
-        settlingStartedMs = simElapsedMs;
-        return null;
-      }
-      if (speed < 1.2 && Math.abs(bottle.angularVelocity) < 0.05) plinkoSettle++;
-      else plinkoSettle = 0;
-      if (plinkoSettle > 40) return plinkoVerdict();
-      const plinkoSettleLimit = activeEventMetadata && activeEventMetadata.physics
-        ? activeEventMetadata.physics.settleLimitMs : 4000;
-      if (simElapsedMs - firstContactMs >= plinkoSettleLimit) return plinkoVerdict();
+    // Plinko drop: elapsed time and horizontal position are never verdicts.
+    // The Matter adapter resolves only after the selected body's tethered
+    // contact chassis has physically touched the matching canonical sensor and
+    // slot floor, then remained settled for the required fixed ticks.
+    if (plinkoLive && launched) {
+      const authoritative = plinkoLive.snapshot();
+      plinko = authoritative.board;
+      if (authoritative.outcome) return plinkoVerdict(authoritative);
+      // A timeout is deliberately exposed in getPlinkoSnapshot() as a
+      // no-contest signal for the rules/session owner. It cannot fabricate a
+      // prize or convert elapsed time into MAKE/MISS here.
       return null;
     }
 
@@ -1860,6 +1802,9 @@ const Physics = (() => {
 
   function resetBottle() {
     cleanupActiveEvent('reset');
+    // Plinko cleanup must happen while the selected body still belongs to the
+    // world so the adapter can prove it preserved that exact compound body.
+    if (plinkoLive || plinko) clearPlinko();
     if (pendingReflow && engine) {
       const deferred = pendingReflow;
       pendingReflow = null;
@@ -1871,7 +1816,6 @@ const Physics = (() => {
     }
     if (bottle) World.remove(world, bottle);
     if (engine) engine.gravity.y = profile.gravity;   // clear any moon throw
-    if (plinko) clearPlinko();                        // restore the floor
     groundedFrames = 0;
     angleWin       = [];
     observationAngleTimes = [];
@@ -2527,7 +2471,6 @@ const Physics = (() => {
     const plinkoRoll = forcedEvent === 'plinko' ||
       (plinkoEnabled && (rolledEvent === 'plinko' || rolledEvent === true));
     const effectiveEvent = rolledEvent === 'plinko' && !plinkoRoll ? null : rolledEvent;
-    if (plinkoRoll) startPlinko();
 
     rareEvent = plinkoRoll ? null : effectiveEvent;
     rareImpulseUsed = false;
@@ -2656,6 +2599,13 @@ const Physics = (() => {
       spin *= 1.12;
     }
 
+    // Plinko consumes the player's horizontal aim and spin, while its physical
+    // trampoline owns the vertical launch. Attach only after those values are
+    // final so ordinary launch code cannot overwrite the spring sequence.
+    if (plinkoRoll) startPlinko(s,
+      Math.max(-12, Math.min(12, launchX)),
+      Math.max(-1.5, Math.min(1.5, spin)));
+
     lastFlickInfo = {
       upSpeed: Math.round(upSpeed),
       power: +power.toFixed(2),
@@ -2685,8 +2635,10 @@ const Physics = (() => {
     groundedFrames = 0;
     angleWin = [];
     lastLandingInfo = null;
-    Body.setVelocity(bottle, { x: launchX, y: launchY });
-    Body.setAngularVelocity(bottle, spin);
+    if (!plinkoRoll) {
+      Body.setVelocity(bottle, { x: launchX, y: launchY });
+      Body.setAngularVelocity(bottle, spin);
+    }
     observedLaunchSequence++;
     observationAngleTimes = [];
     observationDeadlineEvidence = null;
@@ -2696,8 +2648,16 @@ const Physics = (() => {
 
   function stepOnce() {
     if (alienShotActive() && launched) alienStepTick++;
-    Engine.update(engine, FIXED_DT * 1000);
-    applyPendingAlienBankDamping();
+    let livePlinkoSnapshot = null;
+    if (plinkoLive) {
+      // The adapter advances this same engine by exactly one fixed tick. Never
+      // also call Engine.update here or Plinko would run at double speed.
+      livePlinkoSnapshot = plinkoLive.step();
+      plinko = livePlinkoSnapshot.board;
+    } else {
+      Engine.update(engine, FIXED_DT * 1000);
+      applyPendingAlienBankDamping();
+    }
     arenaTime += FIXED_DT;
     simElapsedMs += FIXED_DT * 1000;
 
@@ -2707,6 +2667,34 @@ const Physics = (() => {
 
     if (launched && !wasAirborne && bottle.bounds.max.y < groundY - 24) wasAirborne = true;
     if (launched && wasAirborne) flightFrames++;
+
+    if (launched && livePlinkoSnapshot) {
+      const previousContactCount = plinkoContactCursor;
+      plinkoContactCursor = livePlinkoSnapshot.contactCount;
+      contactCount = livePlinkoSnapshot.contactCount;
+      if (livePlinkoSnapshot.boardEnabled &&
+          plinkoContactCursor > previousContactCount) {
+        if (firstContactMs == null) {
+          firstContactMs = simElapsedMs;
+          landingPhase = 'contact';
+        } else {
+          bounceCount += plinkoContactCursor - previousContactCount;
+        }
+        if (eventController && eventController.active()) {
+          for (let index = previousContactCount; index < plinkoContactCursor; index++) {
+            eventController.onContact(Object.assign(
+              eventContext(lastFlickInfo && lastFlickInfo.seed), {
+                contactIndex: index + 1,
+                elapsedMs: simElapsedMs,
+              }));
+          }
+        }
+      } else if (landingPhase === 'contact' && simElapsedMs > firstContactMs) {
+        landingPhase = 'settling';
+        settlingStartedMs = simElapsedMs;
+        if (eventRuntime) eventRuntime.phase = 'settling';
+      }
+    }
 
     if (launched && !plinko &&
         !(eventRuntime && eventRuntime.kind === 'rewind' && eventRuntime.flags.reversing)) {
@@ -3046,30 +3034,36 @@ const Physics = (() => {
     // long board into one frame. This keeps the character readable and clear
     // of a crowded 8-player HUD; when it reaches the bins, their labels travel
     // into view with it.
-    if (plinko && bottle) {
-      const boardW = plinko.right - plinko.left;
-      // Wide classroom boards stay nearly full-size. Compact screens still
-      // retain enough nearby pegs to make the fall understandable.
-      const contextW = Math.min(1100, Math.max(720, boardW + 120));
-      const zoom = Math.max(0.68, Math.min(0.92, vw / contextW));
+    if (plinkoLive && plinko && bottle) {
+      const liveSnapshot = plinkoLive.snapshot();
+      const camera = liveSnapshot.camera;
       return {
         openArena,
         sideWalls: false,   // arena walls are dead + the board has its own rails
-        zoom,
-        camX: bottle.position.x,
-        camY: bottle.position.y + 20,
+        zoom: camera.zoom,
+        camX: camera.camX,
+        camY: camera.camY,
         worldW: canvasW,
         worldH: plinko.bottom + 90,
         tracking: 'plinko',
         trackingData: {
+          cameraSchema: camera.schema,
+          phase: camera.mode,
+          targetRef: camera.targetRef,
+          allSlotsVisible: camera.allSlotsVisible,
+          fitBounds: camera.fitBounds,
           boardTop: plinko.top,
           boardBottom: plinko.bottom,
           slotBandTop: plinko.bottom - plinko.slotH,
           progress: Math.max(0, Math.min(1,
             (bottle.position.y - plinko.top) / Math.max(1, plinko.bottom - plinko.top))),
-          antiWedgeNudges: plinkoNudges,
+          antiWedgeNudges: liveSnapshot.recovery.antiBalanceApplied,
+          recoveryImpulses: liveSnapshot.recovery.applied,
+          trampoline: liveSnapshot.spring,
+          boardEnabled: liveSnapshot.boardEnabled,
           slots: plinko.slots.map((slot, index) => ({
-            index, kind: slot.kind, x0: slot.x0, x1: slot.x1,
+            index, kind: slot.kind, canonicalKind: slot.canonicalKind,
+            sensorRef: slot.sensorRef, x0: slot.x0, x1: slot.x1,
           })),
         },
       };
@@ -3255,7 +3249,8 @@ const Physics = (() => {
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
     seedTurn, setPlinkoEnabled, forcePlinko, forceSpecialEvent, forceSpecialEventName,
-    getPlinko, setFeel, previewInput: transferInputForFeel,
+    getPlinko, getPlinkoSnapshot, setPlinkoAppearance,
+    setFeel, previewInput: transferInputForFeel,
     rareEventForSeed, insanityEventForSeed,
     getFeel: () => feelMode, setImpactCallback,
     getLandingLifecycle, getEventMetadata, getEventResultMetadata,
