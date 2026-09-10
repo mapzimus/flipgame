@@ -22,6 +22,7 @@
     // any competitive art or physics.
     'js/v112-globe.js?v=' + VERSION,
     'js/v112-globe-live.js?v=' + VERSION,
+    'js/v112-art-system.js?v=' + VERSION,
     'js/v111-art-pack-a.js?v=111',
     'js/v111-art-pack-b.js?v=111',
     'js/v111-art-pack-c.js?v=111',

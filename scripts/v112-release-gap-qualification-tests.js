@@ -34,7 +34,8 @@ function skinEnvironment() {
   // Sprite prewarm may allocate Image asynchronously; this metadata-only probe
   // deliberately does not claim to decode/raster-approve those image assets.
   const context = vm.createContext({ console, setTimeout, clearTimeout, Image: class Image {} }); context.window = context;
-  for (const file of ['js/v111-art-platform.js', 'js/v111-object-manifest.js', 'js/v111-art-reference.js',
+  for (const file of ['js/v112-globe.js', 'js/v112-art-system.js',
+    'js/v111-art-platform.js', 'js/v111-object-manifest.js', 'js/v111-art-reference.js',
     'js/v111-art-pack-a.js', 'js/v111-art-pack-b.js', 'js/v111-art-pack-c.js', 'js/cast25.js', 'js/v112-variant-names.js', 'js/skins.js']) {
     vm.runInContext(read(file), context, { filename: file });
   }

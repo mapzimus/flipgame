@@ -22,6 +22,7 @@ const PRECACHE_URLS = [
   './js/v111-art-reference.js',
   './js/v112-globe.js',
   './js/v112-globe-live.js',
+  './js/v112-art-system.js',
   './js/v111-art-pack-a.js',
   './js/v111-art-pack-b.js',
   './js/v111-art-pack-c.js',
