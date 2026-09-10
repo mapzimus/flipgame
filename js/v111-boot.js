@@ -13,6 +13,9 @@
     'js/v111-name-policy.js?v=111',
     'js/v111-save-backup.js?v=111',
     'js/v111-stats.js?v=111',
+    // The private v1.12 authority captures the already-loaded shared Stats
+    // writer. Its readiness gate must resolve before legacy presentation boots.
+    'js/v112-browser-bundle.js?v=' + VERSION,
     'js/v111-platform.js?v=111',
     'js/v111-art-platform.js?v=111',
     'js/v111-object-manifest.js?v=111',
@@ -157,7 +160,16 @@
     started = true;
     await ensureReleaseController();
     for (var style of STYLE_URLS) await loadStyle(style);
-    for (var script of SCRIPT_URLS) await loadScript(script);
+    for (var script of SCRIPT_URLS) {
+      await loadScript(script);
+      if (script.indexOf('js/v112-browser-bundle.js') === 0) {
+        var application = window.FlipgameV112;
+        if (!application || !application.ready || typeof application.ready.then !== 'function') {
+          throw new Error('The v1.12 application authority did not initialize.');
+        }
+        await application.ready;
+      }
+    }
     var status = document.getElementById('flipgame-boot-status');
     if (status && status.parentNode) status.parentNode.removeChild(status);
     document.body.classList.add('flipgame-boot-ready');

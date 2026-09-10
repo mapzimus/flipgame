@@ -16,6 +16,7 @@ const PRECACHE_URLS = [
   './js/v111-name-policy.js',
   './js/v111-save-backup.js',
   './js/v111-stats.js',
+  './js/v112-browser-bundle.js',
   './js/v111-platform.js',
   './js/v111-art-platform.js',
   './js/v111-object-manifest.js',

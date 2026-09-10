@@ -56,6 +56,9 @@ function harness({ protocol = 'https:', hostname = 'example.test', registerError
       if (element.tagName === 'SCRIPT') {
         scripts.push(element.src);
         queueMicrotask(() => {
+          if (element.src === 'js/v112-browser-bundle.js?v=111') {
+            window.FlipgameV112 = { ready: Promise.resolve({ ready: true }) };
+          }
           if (element.src === executionErrorAt) {
             const error = new Error('injected runtime execution failure');
             window.dispatch('error', { error, message: error.message, filename: element.src });
