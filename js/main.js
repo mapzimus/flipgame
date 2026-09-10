@@ -1150,6 +1150,27 @@
   syncPreferenceControls();
 
   // ── Start game ─────────────────────────────────────────────────────────────
+  // Presentation routes only: these screens never resolve shots or grant
+  // progression. The existing launchConfiguredMatch remains the sole action.
+  const broadcastHome = document.getElementById('broadcast-home');
+  const broadcastReady = document.getElementById('broadcast-ready');
+  function showBroadcastHome() {
+    setupScreen.classList.add('hidden');
+    broadcastReady.classList.add('hidden');
+    broadcastHome.classList.remove('hidden');
+    document.getElementById('broadcast-home-title').focus({ preventScroll: true });
+    Renderer.drawPreview(document.getElementById('broadcast-home-object'), 'bottle', '#0b86ff');
+  }
+  function showBroadcastSetup() {
+    broadcastHome.classList.add('hidden');
+    setupScreen.classList.remove('hidden');
+    document.getElementById('setup-title').focus({ preventScroll: true });
+  }
+  document.getElementById('broadcast-setup').addEventListener('click', showBroadcastSetup);
+  document.getElementById('broadcast-home-back').addEventListener('click', showBroadcastHome);
+  document.getElementById('broadcast-practice').addEventListener('click', () => {
+    showBroadcastSetup(); practiceBtn.click();
+  });
   // Platform owns the single wake lock and visibility lifecycle.
   async function enterImmersive() {
     try { if (v111Platform && v111Platform.enterMatch) await v111Platform.enterMatch({ fullscreen: true }); }
@@ -1239,10 +1260,48 @@
   document.getElementById('arena-select-back').addEventListener('click', closeArenaSelect);
   document.getElementById('arena-random').addEventListener('click', () => selectArena(arenaChoices[Math.floor(Math.random() * arenaChoices.length)].id, true));
   document.getElementById('arena-play').addEventListener('click', () => {
-    visualArenaId = arenaDraft || null;
+    if (!validateSetupNames()) return;
     cancelAnimationFrame(arenaFrame);
     arenaSelectScreen.classList.add('hidden');
-    launchConfiguredMatch();
+    const lineup = document.getElementById('broadcast-ready-lineup');
+    lineup.replaceChildren();
+    rowsToDefs(readRows()).forEach((entry, index) => {
+      const card = document.createElement('article'); card.className = 'broadcast-ready-entry';
+      const art = document.createElement('canvas'); art.width = 120; art.height = 150; art.setAttribute('aria-hidden', 'true');
+      const body = document.createElement('div');
+      const seat = document.createElement('span'); seat.className = 'broadcast-eyebrow'; seat.textContent = `Entry ${String(index + 1).padStart(2, '0')}`;
+      const name = document.createElement('h3'); name.textContent = entry.name;
+      const kind = document.createElement('p'); kind.textContent = entry.isAI ? 'CPU' : 'Human';
+      body.append(seat, name, kind); card.append(art, body); lineup.append(card);
+      Renderer.drawPreview(art, entry.skin || 'bottle', entry.color);
+    });
+    document.getElementById('broadcast-ready-arena').textContent = document.getElementById('arena-preview-name').textContent;
+    const details = document.getElementById('broadcast-ready-details'); details.replaceChildren();
+    const summary = [['Format', document.querySelector('input[name="match-format"]:checked')?.nextElementSibling?.textContent || 'Classic'],
+      ['Players', String(readRows().length)], ['Feel', chosenFeel()],
+      ['Direction', document.querySelector('input[name="direction"]:checked')?.nextElementSibling?.textContent || 'Left to right']];
+    if (chosenFormat() === 'classic') summary.splice(2, 0, ['Starting lives', String(chosenStartingLives())]);
+    for (const [label, value] of summary) {
+      const term = document.createElement('dt'), definition = document.createElement('dd');
+      term.textContent = label; definition.textContent = value; details.append(term, definition);
+    }
+    broadcastReady.classList.remove('hidden');
+    document.getElementById('broadcast-ready-title').focus({ preventScroll: true });
+  });
+  function closeBroadcastReady() {
+    broadcastReady.classList.add('hidden'); arenaSelectScreen.classList.remove('hidden');
+    document.getElementById('arena-play').focus();
+    cancelAnimationFrame(arenaFrame); arenaFrame = requestAnimationFrame(paintArenaPreview);
+  }
+  document.getElementById('broadcast-ready-back').addEventListener('click', closeBroadcastReady);
+  broadcastReady.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); closeBroadcastReady(); }
+  });
+  document.getElementById('broadcast-ready-play').addEventListener('click', () => {
+    if (broadcastReady.classList.contains('hidden')) return;
+    if (!validateSetupNames()) return;
+    visualArenaId = arenaDraft || null;
+    broadcastReady.classList.add('hidden'); launchConfiguredMatch();
   });
   arenaSelectScreen.addEventListener('keydown', event => {
     if (event.key === 'Escape') { event.preventDefault(); closeArenaSelect(); }
@@ -3891,8 +3950,7 @@
       requestAnimationFrame(() => document.getElementById('lab-title')?.focus({ preventScroll: true }));
     } else {
       labScreen?.classList.add('hidden');
-      setupScreen.classList.remove('hidden');
-      requestAnimationFrame(() => document.getElementById('setup-title')?.focus({ preventScroll: true }));
+      showBroadcastHome();
     }
   }
   if (menuBtn) menuBtn.addEventListener('click', () => {
@@ -3990,8 +4048,8 @@
   if (window.FLIP_CAST25 && FLIP_CAST25.onSpriteLoad) FLIP_CAST25.onSpriteLoad(schedulePreviewRepaint);
   paintAllPreviews();
 
-  // Show setup on load
-  setupScreen.classList.remove('hidden');
+  // Home is the first presentation route; setup and saved values stay intact.
+  showBroadcastHome();
   gameScreen.classList.add('hidden');
   gameOverEl.classList.add('hidden');
 })();
