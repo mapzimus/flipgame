@@ -1414,9 +1414,10 @@ const Renderer = (() => {
     fxTrail   = state.rareEvent === 'rainbow-trail' || state.rareEvent === 'rainbow-corkscrew' || fxEventState?.eventId === 'rainbow-corkscrew';
     fxRareEvent = fxEventState?.eventId || state.rareEvent || (state.alwaysMagnet ? 'magnet' : null);
     fxPlinko  = state.plinkoBoard || null;
-    // Preserve the selected authored Flipper. Only its event presentation is
-    // compacted; never paint the hidden contact chassis as a replacement ball.
-    fxSize    = (state.sizeFx || 1) * (fxPlinko ? 0.6 : 1);
+    // Preserve the selected authored Flipper at its normal competitive scale.
+    // The Plinko camera owns framing; shrinking here made the selected art and
+    // its internal dynamics look like a replacement token.
+    fxSize    = state.sizeFx || 1;
     clock += dt;
     const nextMotionKey = state.flipSeed == null ? 'idle' : `flip:${String(state.flipSeed)}`;
     if (nextMotionKey !== motionFlipKey) {

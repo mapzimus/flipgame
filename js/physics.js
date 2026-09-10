@@ -836,6 +836,12 @@ const Physics = (() => {
       bounces: bounceCount,
       firstContactMs,
       settleMs: outcome.dropMs,
+      // Standardized collision evidence for observation, statistics, and
+      // independent qualification consumers. Keep the legacy-prefixed fields
+      // during migration, but never require callers to infer a slot from x.
+      sensorRef: outcome.sensorRef,
+      actualSensorContact: true,
+      settled: true,
       plinkoSensorRef: outcome.sensorRef,
       plinkoContactDigest: outcome.contactDigest,
     };

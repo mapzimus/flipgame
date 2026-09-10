@@ -15,6 +15,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   let driverSerial = 0;
+  const SUPPORTED_EVENT_ADAPTERS = Object.freeze({ plinko: true });
   function create(physics) {
     if (!physics || typeof physics.getObservation !== 'function' ||
         typeof physics.subscribeObservations !== 'function') {
@@ -48,7 +49,8 @@
       }
       if (!active || active.sequence !== observation.launchSequence || active.resolved) return;
       const eventId = observation.eventId || null;
-      let unsupportedReason = eventId ? 'event-adapter-required' : null;
+      let unsupportedReason = eventId && !SUPPORTED_EVENT_ADAPTERS[eventId]
+        ? 'event-adapter-required' : null;
       if (observation.landing && !eventId && observation.firstContactMs == null &&
           !observation.landing.airborneTerminalEvidence) {
         unsupportedReason = 'airborne-terminal-adapter-required';

@@ -18,7 +18,8 @@ function test(name, run) {
 function load() {
   const context = vm.createContext({ console, window: { matchMedia: () => ({ matches: false }) } });
   for (const file of ['js/vendor/matter.min.js', 'js/v111-interfaces.js', 'js/v111-physics-events.js',
-    'js/v112-plinko-matter.js', 'js/physics.js', 'js/v112-physics-driver.js', 'js/skins.js']) {
+    'js/v112-plinko-matter.js', 'js/v112-plinko-live.js', 'js/physics.js',
+    'js/v112-physics-driver.js', 'js/skins.js']) {
     vm.runInContext(source(file) + (file === 'js/physics.js' ? '\nthis.physics=Physics;' : ''), context, { filename: file });
   }
   let engine;

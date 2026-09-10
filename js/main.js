@@ -2001,6 +2001,7 @@
                    : isGiantName(activeName) ? 1.28 : 1,
       party:       konamiParty || game.players.some((pl) => isPartyName(pl.name)),
       plinkoBoard: Physics.getPlinko ? Physics.getPlinko() : null,
+      plinkoSnapshot: Physics.getPlinkoSnapshot ? Physics.getPlinkoSnapshot() : null,
       rareEvent:   rareEventActive,
       eventRenderState,
       landingLifecycle,
@@ -3196,6 +3197,26 @@
     const mirrorPolicy = mirrorClaim?.policy || null;
     const mirrorEventsDisabled = !!(mirrorPolicy &&
       (mirrorPolicy.eventMode === 'disabled' || mirrorPolicy.eventPolicy?.eventsDisabled || mirrorPolicy.nestingDisabled));
+    if (Physics.setPlinkoAppearance) {
+      const player = game.currentPlayer();
+      const definition = currentMatchDefs[game.currentPlayerIndex] || {};
+      const selectedBody = Physics.getBottle ? Physics.getBottle() : null;
+      const objectId = definition.skin || player?.skin || BASE_SKIN;
+      const variantId = definition.variantId || flavorIdForColor(player?.color);
+      const artProfile = window.FlipgameV111Art?.platform?.dynamicProfile?.(objectId) || null;
+      Physics.setPlinkoAppearance({
+        flipperId: objectId,
+        variantId,
+        appearanceRevision: 'v1.12-live-selected',
+        cosmeticId: definition.cosmeticId || 'none',
+        physicsProfileId: activeArenaPhysicsId || activeLaunchProfile?.id || 'competitive-shared',
+        authoredParts: selectedBody?.parts?.map((part, index) =>
+          String(part.label || `compound-part-${index}`)) || [],
+        internalDynamics: artProfile
+          ? [artProfile.internal, artProfile.accessory].filter((value) => value && value !== 'none')
+          : [],
+      });
+    }
     Physics.applyFlick(vx, vy, seed, eventMultiplier,
       mirrorEventsDisabled ? 'disabled' : (currentMatchOptions.eventsDisabled ? 'disabled' : (game.insanity ? 'insanity' : 'normal')),
       mirrorClaim ? false : !!game.currentPlayer()?.alwaysMagnet,
