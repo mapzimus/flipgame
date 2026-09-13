@@ -26,12 +26,20 @@
 //    a completed Rules match after a storage failure. abandonSession preserves
 //    earned content and consumes the reservation without match rewards.
 //
-// Battle is advertised as a supported format; its live runner is still the
-// dedicated Battle host. Story views and prescribed requests are composed;
-// start them through createStoryRequest rather than beginSession.
+// 5. Battle runs through the battle facade, not beginSession. Report a measured
+//    display with observeDisplay({width,observedContacts}) before prepare: the
+//    verified-contact count only ever rises from simultaneous contacts a host
+//    actually saw, and it decides how many lanes may be active. prepare opens
+//    the reservation, start opens Heat 1, and from then on the same physics
+//    driver frames record attempts against Battle Rules. choosePower stores an
+//    offered card and advanceClock drives a Timed Rush gameplay clock. The host
+//    never supplies a pose, a score or a series verdict.
+// Story views and prescribed requests are composed; start them through
+// createStoryRequest rather than beginSession.
 function createBrowserApplication(require, platform, sourceIdentity) {
   'use strict';
   var Rules = require('./v112-rules.js');
+  var Battle = require('./v112-battle.js');
   var Landing = require('./v112-landing-verdict.js');
   var Activity = require('./v112-activity.js');
   var Economy = require('./v112-economy.js');
@@ -46,6 +54,10 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   var progression = handle.runtime;
   var listeners = new Set();
   var session = null;
+  var battle = null;
+  // Verified contacts are only ever raised by simultaneous contacts a host
+  // actually observed. No navigator estimate can qualify a lane.
+  var battleDisplay = { width: 0, verifiedContacts: 1 };
   var serial = 0;
   var physicsDriver = null;
   var detachPhysics = null;
@@ -67,6 +79,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     return freeze({ schema: 'FlipgameBrowserSnapshotV1', sourceIdentity: sourceIdentity,
       ready: !closed, writer: progression.writerStatus(), warning: warning,
       profile: progression.snapshot(), pendingReveals: progression.pendingReveals(),
+      battle: battleSnapshot(),
       session: session ? { matchId: session.request.matchId, request: session.request,
         status: session.status, rules: session.practice ? null : session.rules.snapshot(),
         play: playState(session.rules.snapshot()),
@@ -97,6 +110,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (session && ['active', 'finalizing', 'finalization-failed'].indexOf(session.status) >= 0) {
       throw new Error('Finish or leave the current session first');
     }
+    if (battle && ['reserved', 'playing', 'finalizing', 'finalization-failed'].indexOf(battle.status) >= 0) {
+      throw new Error('Finish or leave the current Battle first');
+    }
   }
   function id() {
     var random = platform.crypto && typeof platform.crypto.randomUUID === 'function'
@@ -117,8 +133,11 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       if (!variant) throw new Error('Choose an available variant');
       var cosmeticId = player.cosmeticId || null;
       if (cosmeticId && !progression.isCosmeticAvailable(cosmeticId)) throw new Error('Choose an available cosmetic');
-      return { id: 'seat-' + (index + 1), name: name.value, human: player.human !== false,
-        isAI: player.human === false, objectId: objectId, variantId: variant.id, cosmeticId: cosmeticId,
+      var type = String(player.type || '').toLowerCase();
+      var cpu = player.human === false || player.isAI === true || player.cpu === true ||
+        type === 'cpu' || type === 'ai';
+      return { id: 'seat-' + (index + 1), name: name.value, human: !cpu,
+        isAI: cpu, objectId: objectId, variantId: variant.id, cosmeticId: cosmeticId,
         teamId: player.teamId == null ? null : String(player.teamId) };
     });
   }
@@ -141,8 +160,10 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   var coordinator = Activity.createMatchSessionCoordinator({
     registry: registry, rewardAuthority: rewardAuthority,
     transaction: function (command, rewards) {
-      if (!session || command.matchId !== session.request.matchId) throw new Error('Finalization session mismatch');
-      var claim = rewards.rewardsEligible ? rewards.consumeMatch(rewardInput(session, command.outcome)) : null;
+      var owner = session && command.matchId === session.request.matchId ? session
+        : (battle && command.matchId === battle.request.matchId ? battle : null);
+      if (!owner) throw new Error('Finalization session mismatch');
+      var claim = rewards.rewardsEligible ? rewards.consumeMatch(rewardInput(owner, command.outcome)) : null;
       return { duplicate: !!(claim && claim.duplicate),
         presentation: { title: 'Match complete', rewards: claim ? {
           fxpAwarded: claim.fxpAwarded, fcAwarded: claim.fcAwarded,
@@ -157,12 +178,19 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var shots = current.ordinaryShots;
     var made = shots.filter(function (shot) { return shot.made; }).length;
     var performance = Economy.performanceMultiplier({ eligibleShots: shots.length,
-      makeRate: shots.length ? made / shots.length : 0.5, feel: 'standard', laneCount: 1 });
-    return { completed: true, resolved: true, activityId: current.request.activityId,
+      makeRate: shots.length ? made / shots.length : 0.5, feel: 'standard',
+      laneCount: current.config ? current.config.hardware.activeLaneLimit : 1 });
+    var telemetry = { completed: true, resolved: true, activityId: current.request.activityId,
       qualifiedManualHumanFlips: current.manualHumanFlips, humanPlayers: humans.length,
-      formatId: current.request.formatId, startingLives: current.request.rulesOptions.startingLives,
+      formatId: current.request.formatId,
       performanceMultiplier: performance.multiplier,
       humanWon: outcome.winnerIds.some(function (winner) { return humanIds.has(winner); }) };
+    // Battle counts heats rather than lives, and earns its own reward mode from
+    // the format the roster actually played. Each field belongs to exactly one
+    // kind of match, so neither may be sent as an empty value by the other.
+    if (current.config) telemetry.battleFormatId = current.config.formatId;
+    else telemetry.startingLives = current.request.rulesOptions.startingLives;
+    return telemetry;
   }
   function installSession(request, owner) {
     var practice = request.activityId === 'practice' || request.activityId === 'tutorial';
@@ -257,10 +285,230 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     session.status = 'abandoned'; emit('session-left'); return snapshot();
   }
 
+  // Battle. Its Rules own the relay order, the launch lease, volley batching,
+  // power offers and the series verdict. The host contributes only a measured
+  // display, engine landings and the player's card choice.
+  function observeBattleDisplay(input) {
+    var source = input || {};
+    var width = Number(source.width);
+    if (!Number.isFinite(width) || width <= 0) throw new RangeError('Battle needs a measured display width');
+    var observed = Math.floor(Number(source.observedContacts));
+    if (!Number.isFinite(observed) || observed < 1) observed = 1;
+    battleDisplay = { width: Math.floor(width),
+      verifiedContacts: Math.max(battleDisplay.verifiedContacts, Math.min(16, observed)) };
+    return battleCapabilities();
+  }
+  function battleCapabilities() { return Battle.hardwareProfile(battleDisplay); }
+  function battleOwnerKey(playerId) {
+    var player = battle.config.players.find(function (entry) { return entry.id === playerId; });
+    if (!player) throw new Error('That player is not in this Battle');
+    return battle.config.formatId === 'doubles' || battle.config.formatId === 'team'
+      ? player.teamId : player.id;
+  }
+  // Whose launch the engine is allowed to attribute next: an active participant
+  // that has neither resolved this volley nor left an attempt in flight.
+  function battleLauncher() {
+    if (!battle || !battle.state || battle.state.phase !== 'active') return null;
+    var state = battle.state;
+    var owners = state.pendingLaunchOwners || {};
+    var inFlight = Object.keys(owners).map(function (key) { return owners[key]; });
+    var resolved = state.volleyPlayerIds || [];
+    var active = state.activePlayerIds || [];
+    for (var index = 0; index < active.length; index += 1) {
+      if (resolved.indexOf(active[index]) < 0 && inFlight.indexOf(active[index]) < 0) return active[index];
+    }
+    return null;
+  }
+  function battleSnapshot() {
+    if (!battle) return null;
+    return freeze({ schema: 'BattlePrivateViewV1', matchId: battle.request.matchId,
+      status: battle.status, config: copy(battle.config), state: copy(battle.state),
+      launcherId: battleLauncher(), message: battle.message || '',
+      resolution: copy(battle.resolution) });
+  }
+  function battleRoster(source, formatId) {
+    var roster = names(source);
+    if (formatId !== 'doubles' && formatId !== 'team') {
+      return roster.map(function (player) { return Object.assign({}, player, { teamId: null }); });
+    }
+    if (roster.length % 2) throw new RangeError('Team Battle needs an even roster');
+    var authored = roster.every(function (player) { return player.teamId; });
+    if (authored) return roster;
+    // Seats alternate so a table can pair off left to right without reseating.
+    return roster.map(function (player, index) {
+      return Object.assign({}, player, { teamId: index % 2 ? 'team-b' : 'team-a' });
+    });
+  }
+  function prepareBattle(input) {
+    assertIdle();
+    var source = input || {};
+    var formatId = String(source.battleFormatId || source.formatId || 'duel');
+    if (['duel', 'doubles', 'four-way', 'team'].indexOf(formatId) < 0) throw new Error('Choose a supported Battle format');
+    var paceId = String(source.paceId || 'volley');
+    if (['volley', 'rush'].indexOf(paceId) < 0) throw new Error('Choose Equal Volley or Timed Rush');
+    var powerProfileId = String(source.powerProfileId || 'sport');
+    if (['sport', 'mayhem'].indexOf(powerProfileId) < 0) throw new Error('Choose Sport or Mayhem cards');
+    var physicsModeId = String(source.physicsModeId || 'normal');
+    if (['normal', 'insane'].indexOf(physicsModeId) < 0) throw new Error('Battle runs Normal or INSANE MODE');
+    if (physicsModeId === 'insane' && !progression.isFeatureAvailable('insane-mode')) throw new Error('INSANE MODE is locked');
+    if (!progression.writerStatus().writable) throw new Error('Waiting for this tab’s profile writer');
+    var hardware = battleCapabilities();
+    if (!hardware.width) throw new Error('Battle needs a measured display before a heat can start');
+    var arenaId = source.arenaId || 'baseline-table';
+    if (!progression.isArenaAvailable(arenaId)) throw new Error('Choose an available arena');
+    var roster = battleRoster(source.players || source.roster || [], formatId);
+    var request = Activity.MatchRequestV2({ matchId: id(), activityId: 'free-play',
+      formatId: 'battle', physicsModeId: physicsModeId, roster: roster,
+      seed: source.seed == null ? 1 : source.seed,
+      rulesOptions: { battleFormatId: formatId, paceId: paceId,
+        powerProfileId: powerProfileId, hardware: hardware, arenaId: arenaId },
+      activityContext: { arenaId: arenaId } });
+    var config = Battle.normalizeConfig(request);
+    coordinator.start(request);
+    battle = { request: request, config: config, state: null, status: 'reserved',
+      owner: coordinator, handle: 'battle-' + request.matchId, message: '',
+      manualHumanFlips: 0, ordinaryShots: [], attempts: 0, totalFlips: 0,
+      flip: null, seen: new Set(), resolution: null, finalPromise: null,
+      startedAt: Date.now(), testData: progression.snapshot().ownerTestMode === true };
+    emit('battle-reserved');
+    return freeze({ handle: battle.handle, request: request, config: copy(config) });
+  }
+  function battleReservation(handle) {
+    assertOpen();
+    if (!battle || battle.handle !== String(handle)) throw new Error('That Battle reservation is not current');
+    return battle;
+  }
+  function startBattle(handle) {
+    var current = battleReservation(handle);
+    if (current.status !== 'reserved') throw new Error('This Battle already started');
+    current.state = Battle.startHeat(Battle.createState(current.config));
+    current.status = 'playing';
+    emit('battle-started');
+    return battleSnapshot();
+  }
+  function cancelBattle(handle) {
+    var current = battleReservation(handle);
+    if (current.status !== 'reserved') throw new Error('Leave the running Battle instead');
+    current.owner.abandon(current.request.matchId, 'cancelled');
+    battle = null; emit('battle-cancelled');
+    return null;
+  }
+  function abandonBattle(reason) {
+    assertOpen();
+    if (!battle) return null;
+    if (battle.status === 'finalizing' || battle.status === 'finalization-failed') {
+      throw new Error('Retry the completed Battle’s rewards first');
+    }
+    if (battle.status !== 'completed') {
+      battle.owner.abandon(battle.request.matchId, reason ? String(reason) : 'left-game');
+      diagnostics.recordMatch({ request: battle.request, startedAt: battle.startedAt,
+        completed: false, players: battle.config.players,
+        totalFlips: battle.totalFlips, testData: battle.testData });
+    }
+    battle = null; emit('battle-left');
+    return null;
+  }
+  function chooseBattlePower(input) {
+    assertOpen();
+    if (!battle || battle.status !== 'playing') throw new Error('No Battle is running');
+    var source = input || {};
+    var playerId = String(source.playerId);
+    var key = battleOwnerKey(playerId);
+    var offer = (battle.state.powerOffers || {})[key] || [];
+    var index = offer.findIndex(function (card) { return card.id === source.cardId; });
+    if (index < 0) throw new Error('That card is not on offer');
+    battle.state = Battle.choosePower(battle.state, { playerId: playerId, index: index,
+      targetId: source.targetId });
+    emit('battle-power-stored');
+    return battleSnapshot();
+  }
+  function advanceBattleClock(deltaMs) {
+    assertOpen();
+    if (!battle || battle.status !== 'playing') throw new Error('No Battle is running');
+    if (battle.config.paceId !== 'rush') return battleSnapshot();
+    battle.state = Battle.advanceClock(battle.state, deltaMs);
+    settleBattlePhase();
+    return battleSnapshot();
+  }
+  function settleBattlePhase() {
+    if (battle.state.phase === 'between-heats') battle.state = Battle.startHeat(battle.state);
+    emit('battle-advanced');
+    if (battle.state.phase === 'complete') finishBattle().catch(function () {});
+  }
+  function battleOutcome() {
+    var verdict = Battle.toMatchOutcomeV2(battle.state);
+    return Battle.toMatchOutcomeV2(battle.state, { telemetry: rewardInput(battle, verdict) });
+  }
+  function finishBattle() {
+    if (!battle) return Promise.reject(new Error('No Battle to finish'));
+    var current = battle;
+    if (current.status === 'completed') return Promise.resolve(current.resolution);
+    if (current.finalPromise) return current.finalPromise;
+    if (!current.state || current.state.phase !== 'complete') return Promise.reject(new Error('The Battle is still running'));
+    current.status = 'finalizing';
+    var outcome = battleOutcome();
+    current.finalPromise = current.owner.finalize(outcome).then(function (result) {
+      current.resolution = result; current.status = 'completed'; current.finalPromise = null;
+      diagnostics.recordMatch({ request: current.request, outcome: outcome,
+        startedAt: current.startedAt, players: current.config.players,
+        totalFlips: current.totalFlips, testData: current.testData });
+      emit('battle-completed'); return result;
+    }).catch(function (error) {
+      current.finalPromise = null; current.status = 'finalization-failed';
+      current.message = 'Battle saved pending reward retry: ' + error.message;
+      warning = current.message;
+      emit('battle-finalization-failed'); throw error;
+    });
+    return current.finalPromise;
+  }
+  // A Battle heat disables ordinary rare events, so an event frame here can only
+  // be a host defect rather than something to score.
+  function observeBattleFrame(frame) {
+    if (!frame || frame.qualified !== true || frame.launchId == null) return;
+    var launchId = String(frame.launchId);
+    if (Math.floor(finite(frame.atMs, 'physics time')) < 0) throw new RangeError('Physics time must be non-negative');
+    if (frame.eventId != null) throw new Error('Battle heats disable ordinary events');
+    var flip = battle.flip;
+    if (!flip || flip.launchId !== launchId) {
+      if (battle.seen.has(launchId)) return;
+      if (flip && flip.phase !== 'resolved') throw new Error('A Battle flip is still in flight');
+      var playerId = battleLauncher();
+      if (!playerId) throw new Error('Battle is not waiting for a launch');
+      var player = battle.config.players.find(function (entry) { return entry.id === playerId; });
+      var attemptId = 'attempt-' + (battle.attempts + 1);
+      if (battle.config.paceId === 'rush') {
+        battle.state = Battle.markLaunch(battle.state, { attemptId: attemptId, playerId: playerId });
+      }
+      battle.attempts += 1;
+      battle.flip = { launchId: launchId, attemptId: attemptId, playerId: playerId,
+        phase: 'airborne', manual: frame.manual === true && player.human === true };
+      battle.seen.add(launchId);
+      if (battle.flip.manual) battle.manualHumanFlips += 1;
+      emit('battle-flip-launched');
+      return;
+    }
+    if (flip.phase === 'resolved' || !frame.landing) return;
+    var result = frame.landing.result;
+    if (result !== 'MAKE' && result !== 'MISS') throw new TypeError('Invalid engine landing result');
+    var pose = result === 'MAKE' ? frame.landing.pose : 'miss';
+    if (result === 'MAKE' && pose !== 'upright' && pose !== 'cap') throw new TypeError('Invalid engine landing pose');
+    battle.state = Battle.recordAttempt(battle.state, { attemptId: flip.attemptId,
+      playerId: flip.playerId, pose: pose, qualifiedManual: flip.manual });
+    flip.phase = 'resolved';
+    battle.totalFlips += 1;
+    if (flip.manual) {
+      battle.ordinaryShots.push({ made: result === 'MAKE' });
+      if (battle.ordinaryShots.length > 24) battle.ordinaryShots.shift();
+    }
+    settleBattlePhase();
+  }
+
   // The host engine owns the driver. Its subscriber only wakes this private
   // observer; it cannot submit a make/miss or a reward-bearing outcome.
   function observePhysics() {
-    if (!session || session.status !== 'active' || !physicsDriver) return;
+    if (!physicsDriver) return;
+    if (battle && battle.status === 'playing') { observeBattleFrame(physicsDriver.snapshot()); return; }
+    if (!session || session.status !== 'active') return;
     var frame = physicsDriver.snapshot();
     if (!frame || frame.qualified !== true || frame.launchId == null) return;
     var launchId = String(frame.launchId);
@@ -386,6 +634,18 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     },
     beginSession: beginSession, abandonSession: abandon, retryFinalization: finish,
     attachPhysics: attachPhysics,
+    // Battle authority. The presentation host measures the display and reports
+    // observed simultaneous contacts; it never submits a pose or a verdict.
+    battle: freeze({
+      formats: ['duel', 'doubles', 'four-way', 'team'],
+      paces: ['volley', 'rush'],
+      powerProfiles: ['sport', 'mayhem'],
+      observeDisplay: observeBattleDisplay, capabilities: battleCapabilities,
+      prepare: prepareBattle, start: startBattle, cancel: cancelBattle,
+      choosePower: chooseBattlePower, advanceClock: advanceBattleClock,
+      snapshot: battleSnapshot, launcherId: battleLauncher,
+      abandon: abandonBattle, retryFinalization: finishBattle,
+    }),
     objects: progression.listObjects, arenas: progression.listArenas, store: progression.viewStore,
     object: progression.viewObject, arena: progression.viewArena,
     isObjectAvailable: progression.isObjectAvailable, isArenaAvailable: progression.isArenaAvailable,
@@ -402,7 +662,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     importBackup: function (value, setup, options) { assertIdle(); return progression.importBackup(value, setup, options); },
     close: function () {
       if (closed) return;
-      abandon(); if (detachPhysics) detachPhysics(); progression.close(); closed = true;
+      abandonBattle('closed'); abandon();
+      if (detachPhysics) detachPhysics(); progression.close(); closed = true;
       emit('closed'); listeners.clear();
     },
   };
