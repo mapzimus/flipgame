@@ -9,6 +9,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 const Runtime = require('../js/v112-battle-runtime.js');
+const Catalog = require('../js/v112-progression-catalog.js');
 
 const Root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(Root, file), 'utf8');
@@ -169,6 +170,41 @@ async function testRosterAndFormatRules(app) {
   assert.equal(app.battle.snapshot(), null);
 }
 
+// The setup screen gates its Flipper picker on isObjectAvailable and a Battle
+// reservation gates its roster on the same question. If those two ever answer
+// differently the screen either offers a Flipper that stops a Battle opening at
+// all, or hides one the player has already earned. Every object in the catalogue
+// is checked both ways, so neither ladder can drift from the other.
+async function testThePickerGateIsTheReservationGate(app) {
+  app.battle.observeDisplay({ width: 1280, observedContacts: 2 });
+  const seat = (flipperId) => [
+    { id: 'entry-1', displayName: 'Entry 1', type: 'human', flipperId },
+    { id: 'entry-2', displayName: 'Entry 2', type: 'human', flipperId: 'bottle' },
+  ];
+  // app.objects() answers for a picker, so it redacts what is still locked. The
+  // shipped catalogue is the only list that names every Flipper either way.
+  const catalogue = Catalog.objects.map((object) => object.id);
+  assert.ok(catalogue.length > 8, 'The object catalogue names its Flippers');
+  let available = 0;
+  let refused = 0;
+  for (const objectId of catalogue) {
+    if (app.isObjectAvailable(objectId)) {
+      available += 1;
+      const prepared = app.battle.prepare({ battleFormatId: 'duel', players: seat(objectId) });
+      assert.equal(prepared.config.players[0].flipperId, objectId,
+        objectId + ' is offered, so a Battle has to accept it');
+      app.battle.cancel(prepared.handle);
+    } else {
+      refused += 1;
+      assert.throws(() => app.battle.prepare({ battleFormatId: 'duel', players: seat(objectId) }),
+        /available Flipper/, objectId + ' is refused, so it must never be offered');
+      assert.equal(app.battle.snapshot(), null, 'A refused Flipper leaves no reservation');
+    }
+  }
+  assert.ok(available >= 1, 'At least one Flipper is always available');
+  assert.ok(refused >= 1, 'A fresh profile still has Flippers left to earn');
+}
+
 async function testTheHostOwnsNoRulesAuthority(app) {
   app.battle.observeDisplay({ width: 1280, observedContacts: 2 });
   const prepared = app.battle.prepare({ players: roster(2) });
@@ -306,13 +342,14 @@ async function run() {
   await withApplication(async (app) => {
     await testDisplayQualification(app);
     await testRosterAndFormatRules(app);
+    await testThePickerGateIsTheReservationGate(app);
     await testTheHostOwnsNoRulesAuthority(app);
   });
   await testACompletedSeriesEarnsRealRewards({ width: 360, observedContacts: 1 }, 'duel', 2);
   await testACompletedSeriesEarnsRealRewards({ width: 1280, observedContacts: 2 }, 'doubles', 4);
   await testForgedSeriesEarnNothing();
   await testAnUnfinishedSeriesEarnsNothing();
-  console.log('v1.12 Battle authority tests passed: measured display qualification, format and roster rules, no host rules authority, real one-lane and two-lane series rewarded through the runtime, and forged or unfinished series earning nothing.');
+  console.log('v1.12 Battle authority tests passed: measured display qualification, format and roster rules, one gate for the picker and the reservation, no host rules authority, real one-lane and two-lane series rewarded through the runtime, and forged or unfinished series earning nothing.');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

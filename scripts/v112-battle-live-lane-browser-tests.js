@@ -40,6 +40,25 @@ async function scenario(){
   check(offered.every(id=>w.FlipgameV112.isObjectAvailable(id)),
     `The lineup offers a Flipper the reward authority refuses: ${offered.join(', ')}`);
   report.offeredFlippers=offered;
+  // The picker and the reward authority have to be one gate, in both directions.
+  // Offering a Flipper authority refuses stops a Battle opening at all; hiding
+  // one it has granted keeps a reward the player already earned off the screen.
+  // The grid lists one tile per family, so families are what get compared.
+  d.querySelector('.player-input-row .char-change-btn').click();
+  await sleep(200);
+  const tiles=[...d.querySelectorAll('#char-picker-screen .picker-grid .picker-tile')];
+  check(tiles.length,'The Flipper picker never opened');
+  const family=id=>w.Skins.familyKey(id);
+  const shown=[...new Set(tiles.filter(tile=>tile.dataset.char).map(tile=>family(tile.dataset.char)))].sort();
+  const granted=[...new Set(w.Skins.list().filter(entry=>w.FlipgameV112.isObjectAvailable(entry.id))
+    .map(entry=>family(entry.id)))].sort();
+  report.pickerGate={shown,granted};
+  check(shown.length===granted.length&&shown.every((key,index)=>key===granted[index]),
+    `The picker and the reward authority disagree: picker ${shown.join(', ')} vs authority ${granted.join(', ')}`);
+  check(tiles.some(tile=>tile.classList.contains('locked-tile')),
+    'The picker never shows there is more to earn');
+  d.getElementById('charpick-close').click();
+  await sleep(150);
   click('broadcast-home-back');
   click('battle-open');
   const battleText=()=>d.getElementById('battle-body').textContent;

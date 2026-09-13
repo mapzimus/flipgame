@@ -233,12 +233,15 @@
   function isCharUnlocked(id) {
     const c = characterById(id);
     if (!c) return false;
-    // Whoever pays the rewards decides what is unlocked. A Flipper the private
-    // v1.12 authority has not granted must never be offered: it would refuse
-    // the reservation outright, and a classic match built on one would play to
-    // the end and earn nothing.
-    if (v112App && typeof v112App.isObjectAvailable === 'function' &&
-        !v112App.isObjectAvailable(id)) return false;
+    // Whoever pays the rewards decides what is unlocked, and when the private
+    // v1.12 composition is here that is the whole answer. Consulting an older
+    // ladder as well takes the intersection of the two: it would offer nothing
+    // that authority refuses -- which is the point -- but it would also withhold
+    // Flippers that authority has already granted, so earned rewards never
+    // reach the picker.
+    if (v112App && typeof v112App.isObjectAvailable === 'function') {
+      return v112App.isObjectAvailable(id) === true;
+    }
     if (window.FlipgameV111Content && window.FlipgameV111Progression) {
       const view = FlipgameV111Content.viewObject(FlipgameV111Progression.snapshot(), id);
       if (view) return !view.locked;
