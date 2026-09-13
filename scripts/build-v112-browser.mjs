@@ -34,6 +34,11 @@ const modules = [
   ['v112-story-view', 'Story, Urth', [dep('v112-story'), dep('v112-urth')]],
   ['v112-story-runtime', 'Activity, Story, Profile, View, root, commonJs', [dep('v112-activity'), dep('v112-story'), dep('v112-profile'), dep('v112-story-view'), 'platform', 'true']],
   ['v112-data', 'Stats', ['platform.statsModule']],
+  ['v111-physics-events', 'Interfaces', [dep('v111-interfaces')]],
+  ['v112-alien-event-adapters', '', []],
+  ['v112-events', 'Legacy, AlienAdapters', [dep('v111-physics-events'), dep('v112-alien-event-adapters')]],
+  ['v112-tutorial', 'Events', [dep('v112-events')]],
+  ['v112-training', 'Activity, Events, Tutorial', [dep('v112-activity'), dep('v112-events'), dep('v112-tutorial')]],
 ];
 const normalize = source => source.replace(/\r\n/g, '\n');
 function extractFactory(source, signature, id) {

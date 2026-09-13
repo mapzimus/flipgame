@@ -17,17 +17,18 @@
 //    is captured by the engine at its absolute on-plane pose check; the bridge
 //    never reconstructs it from a later body snapshot. Event frames require a
 //    separate event bridge.
-// 3. beginSession({activityId:'free-play'|'practice', formatId:'classic',
-//    physicsModeId:'normal', roster:[{name,human,objectId,variantId}],
-//    startingLives,seed,suddenDeathEnabled}). The facade owns immutable IDs.
+// 3. beginSession({activityId:'free-play'|'practice',
+//    formatId:'classic'|'cup'|'team-clash', physicsModeId:'normal'|'insane'|'alien',
+//    roster:[{name,human,objectId,variantId,teamId}],
+//    startingLives,cupLength,seed,suddenDeathEnabled}). The facade owns immutable IDs.
 // 4. Observe session.rules/lastLanding/resolution. Do not also invoke the legacy
 //    scoring/progression path for this session. retryFinalization retries only
 //    a completed Rules match after a storage failure. abandonSession preserves
 //    earned content and consumes the reservation without match rewards.
 //
-// This bounded bridge does not yet support events, Cup/Team/Battle, or starting
-// Story gameplay. Story views and prescribed request
-// creation are composed; their match runner still needs its engine adapter.
+// Battle is advertised as a supported format; its live runner is still the
+// dedicated Battle host. Story views and prescribed requests are composed;
+// start them through createStoryRequest rather than beginSession.
 function createBrowserApplication(require, platform, sourceIdentity) {
   'use strict';
   var Rules = require('./v112-rules.js');
@@ -37,6 +38,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   var Names = require('./v111-name-policy.js');
   var Runtime = require('./v112-progression-runtime.js');
   var Story = require('./v112-story-runtime.js');
+  var Training = require('./v112-training.js');
   var Achievements = require('./v112-achievements.js');
   var diagnostics = require('./v112-data.js').createDataPipeline();
   var rewardAuthority;
@@ -67,10 +69,22 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       profile: progression.snapshot(), pendingReveals: progression.pendingReveals(),
       session: session ? { matchId: session.request.matchId, request: session.request,
         status: session.status, rules: session.practice ? null : session.rules.snapshot(),
+        play: playState(session.rules.snapshot()),
         practice: session.practice ? copy(session.practiceScore) : null,
         flipPhase: session.flip ? session.flip.phase : 'ready',
         lastLanding: session.lastLanding, lastRulesOutcome: session.lastRulesOutcome,
         resolution: session.resolution } : null });
+  }
+  function playState(state) {
+    var physical = state.currentHeat || state;
+    var players = physical.players || (state.config && state.config.players) || [];
+    var currentId = state.turn && state.turn.current;
+    return freeze({ players: copy(players),
+      currentPlayerIndex: players.findIndex(function (player) { return player.id === currentId; }),
+      currentPlayerId: currentId, turn: copy(state.turn), phase: state.phase,
+      stake: physical.stake || 0, heat: state.heatNumber || null, round: state.roundNumber || null,
+      scores: copy(state.scores || null), heatWins: copy(state.heatWins || null),
+      suddenDeath: copy(physical.suddenDeath || null) });
   }
   function emit(type) {
     var state = snapshot();
@@ -92,9 +106,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   function names(roster) {
     if (!Array.isArray(roster) || !roster.length || roster.length > 16) throw new RangeError('Choose 1–16 players');
     return roster.map(function (player, index) {
-      var name = Names.validate(player.name || 'Player ' + (index + 1));
+      var name = Names.validate(player.name || player.displayName || 'Player ' + (index + 1));
       if (!name.ok) throw new Error('Please choose another name');
-      var objectId = player.objectId || 'bottle';
+      var objectId = player.objectId || player.flipperId || 'bottle';
       if (!progression.isObjectAvailable(objectId)) throw new Error('Choose an available Flipper');
       var gallery = progression.viewObject(objectId).variants;
       var selection = player.variantId == null ? 0 : player.variantId;
@@ -104,7 +118,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       var cosmeticId = player.cosmeticId || null;
       if (cosmeticId && !progression.isCosmeticAvailable(cosmeticId)) throw new Error('Choose an available cosmetic');
       return { id: 'seat-' + (index + 1), name: name.value, human: player.human !== false,
-        isAI: player.human === false, objectId: objectId, variantId: variant.id, cosmeticId: cosmeticId };
+        isAI: player.human === false, objectId: objectId, variantId: variant.id, cosmeticId: cosmeticId,
+        teamId: player.teamId == null ? null : String(player.teamId) };
     });
   }
   function makeRules(request, practice) {
@@ -120,8 +135,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       consumer: authority.claimRulesLane('main') };
   }
   var registry = Activity.createActivityRegistry([
-    { id: 'free-play' }, { id: 'practice' },
+    { id: 'free-play' }, { id: 'practice' }, { id: 'story' },
   ]);
+  Training.registerActivities(registry);
   var coordinator = Activity.createMatchSessionCoordinator({
     registry: registry, rewardAuthority: rewardAuthority,
     transaction: function (command, rewards) {
@@ -149,9 +165,10 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       humanWon: outcome.winnerIds.some(function (winner) { return humanIds.has(winner); }) };
   }
   function installSession(request, owner) {
-    var runtime = makeRules(request, request.activityId === 'practice');
+    var practice = request.activityId === 'practice' || request.activityId === 'tutorial';
+    var runtime = makeRules(request, practice);
     session = Object.assign(runtime, { request: request, owner: owner,
-      status: 'active', practice: request.activityId === 'practice',
+      status: 'active', practice: practice,
       practiceScore: { flips: 0, makes: 0, misses: 0, caps: 0 },
       flip: null, seenLaunchIds: new Set(), ordinaryShots: [], manualHumanFlips: 0,
       resolution: null, lastLanding: null, lastRulesOutcome: null, finalPromise: null,
@@ -165,14 +182,28 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var source = input || {};
     var activityId = source.activityId || 'free-play';
     if (activityId !== 'free-play' && activityId !== 'practice') throw new Error('Use the Story request flow for this activity');
-    if ((source.formatId || 'classic') !== 'classic' || (source.physicsModeId || 'normal') !== 'normal') {
-      throw new Error('This browser bridge currently supports Classic and ordinary Practice');
-    }
+    var formatId = source.formatId || 'classic';
+    var physicsModeId = source.physicsModeId || 'normal';
+    if (['classic', 'cup', 'team-clash'].indexOf(formatId) < 0) throw new Error('Choose a supported local format');
+    if (['normal', 'insane', 'alien'].indexOf(physicsModeId) < 0) throw new Error('Choose a supported physics mode');
+    if (activityId === 'practice' && formatId !== 'classic') throw new Error('Practice uses the Classic format');
+    if (physicsModeId === 'alien' && !progression.isFeatureAvailable('alien')) throw new Error('Alien is locked');
+    if (physicsModeId === 'insane' && !progression.isFeatureAvailable('insane-mode')) throw new Error('INSANE MODE is locked');
     if (activityId === 'free-play' && !progression.writerStatus().writable) throw new Error('Waiting for this tab’s profile writer');
     var roster = names(source.roster || [{ name: 'Player 1' }, { name: 'Player 2' }]);
     if (activityId === 'free-play' && roster.length < 2) throw new Error('Classic needs at least two players');
     if (activityId === 'practice' && roster.length !== 1) throw new Error('Practice needs one player');
-    var startingLives = source.startingLives == null ? 10 : source.startingLives;
+    if (formatId === 'team-clash') {
+      if (roster.length % 2) throw new RangeError('Team Clash requires an even 2–16 players');
+      var split = roster.length / 2;
+      roster = roster.map(function (player, index) {
+        return Object.assign({}, player, { teamId: player.teamId || (index < split ? 'team-a' : 'team-b') });
+      });
+    }
+    var cupLength = source.cupLength || 'short';
+    if (formatId === 'cup' && ['short', 'full'].indexOf(cupLength) < 0) throw new Error('Choose Short or Full Cup');
+    var startingLives = formatId === 'cup' ? (cupLength === 'short' ? 3 : 10)
+      : (source.startingLives == null ? 10 : source.startingLives);
     if (!Number.isSafeInteger(startingLives) || startingLives < 1 || startingLives > 100) throw new RangeError('Choose 1–100 starting lives');
     var arenaId = source.arenaId || 'baseline-table';
     if (!progression.isArenaAvailable(arenaId)) throw new Error('Choose an available arena');
@@ -182,9 +213,10 @@ function createBrowserApplication(require, platform, sourceIdentity) {
         height: Math.max(1, Math.min(16384, Math.round(source.viewport.height))) };
     }
     var request = Activity.MatchRequestV2({ matchId: id(), activityId: activityId,
-      formatId: 'classic', physicsModeId: 'normal', roster: roster,
+      formatId: formatId, physicsModeId: physicsModeId, roster: roster,
       seed: source.seed == null ? 1 : source.seed,
-      rulesOptions: { startingLives: startingLives, suddenDeathEnabled: source.suddenDeathEnabled !== false },
+      rulesOptions: { startingLives: startingLives, suddenDeathEnabled: source.suddenDeathEnabled !== false,
+        cupLength: cupLength, arenaId: arenaId },
       activityContext: activityContext });
     // Validate Rules before opening a durable reward reservation.
     makeRules(request, activityId === 'practice');
@@ -203,7 +235,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     current.finalPromise = current.owner.finalize(outcome).then(function (result) {
       current.resolution = result; current.status = 'completed'; current.finalPromise = null;
       diagnostics.recordMatch({ request: current.request, outcome: outcome, startedAt: current.startedAt,
-        players: current.rules.snapshot().players, totalFlips: current.totalFlips, testData: current.testData });
+        players: playState(current.rules.snapshot()).players, totalFlips: current.totalFlips, testData: current.testData });
       emit('match-completed'); return result;
     }).catch(function (error) {
       current.finalPromise = null; current.status = 'finalization-failed';
@@ -220,7 +252,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (session.flip && session.flip.phase !== 'resolved') session.physics.abort(session.flip.handle, 'session-left');
     session.owner.abandon(session.request.matchId, 'left-game');
     diagnostics.recordMatch({ request: session.request, startedAt: session.startedAt, completed: false,
-      players: session.practice ? session.request.roster : session.rules.snapshot().players,
+      players: session.practice ? session.request.roster : playState(session.rules.snapshot()).players,
       totalFlips: session.totalFlips, testData: session.testData });
     session.status = 'abandoned'; emit('session-left'); return snapshot();
   }
@@ -240,11 +272,13 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       if (session.flip && session.flip.phase !== 'resolved') throw new Error('A flip is still in flight');
       if (session.practice) Object.assign(session, makeRules(session.request, true));
       var state = session.rules.snapshot();
-      var player = state.players[state.currentPlayerIndex];
+      var play = playState(state);
+      var player = play.players[play.currentPlayerIndex];
+      if (!player) throw new Error('The match is not ready for a launch');
       var attempt = session.physics.beginFlip({ flipId: launchId, playerId: player.id, launchedAtMs: atMs });
       session.flip = { handle: attempt, launchId: launchId, phase: 'airborne', atMs: atMs,
         launchedAtMs: atMs,
-        player: copy(player), before: copy(state), seat: state.currentPlayerIndex,
+        player: copy(player), before: copy(state.currentHeat || state), seat: play.currentPlayerIndex,
         firstContactAt: null, contactAt: null, stableAt: null, angles: [],
         manualHuman: frame.manual === true && player.human === true };
       session.seenLaunchIds.add(launchId);
@@ -337,7 +371,12 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   }
   var facade = {
     schema: 'FlipgameBrowserApplicationV1', sourceIdentity: sourceIdentity,
-    supported: freeze({ formats: ['classic'], activities: ['free-play', 'practice'], physics: ['normal'], storyRequests: true }),
+    supported: freeze({
+      formats: ['classic', 'cup', 'team-clash', 'battle'],
+      activities: ['free-play', 'practice', 'story', 'tutorial', 'physics-lab'],
+      physics: ['normal', 'insane', 'alien'],
+      storyRequests: true,
+    }),
     ready: handle.ready.then(function () { emit('ready'); return snapshot(); }),
     snapshot: snapshot,
     subscribe: function (listener) {

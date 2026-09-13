@@ -64,6 +64,56 @@
       return typeof fn === 'function' ? fn(payload) : fallback;
     } catch (_) { return fallback; }
   }
+
+  // One private v1.12 application owns session, physics observation, and
+  // progression writes. Legacy Records/Achievements stay display-only for
+  // those matches so rewards cannot be scored twice.
+  const v112App = window.FlipgameV112 || null;
+  const v112PhysicsDriver = (v112App && window.FlipgameV112PhysicsDriver && window.Physics)
+    ? FlipgameV112PhysicsDriver.create(Physics) : null;
+  if (v112App && v112PhysicsDriver) FlipgameV112.attachPhysics(v112PhysicsDriver);
+  let v112OwnsMatch = false;
+  function privateRewardAuthorityActive() { return v112OwnsMatch === true; }
+  function abandonPrivateSession() {
+    if (v112App) {
+      try {
+        const session = v112App.snapshot && v112App.snapshot().session;
+        if (session && session.status === 'active') v112App.abandonSession();
+      } catch (_) {}
+    }
+    v112OwnsMatch = false;
+  }
+  function startPrivateSession(defs, opts) {
+    v112OwnsMatch = false;
+    if (!v112App || typeof v112App.beginSession !== 'function') return false;
+    const options = opts || {};
+    if (options.lab || options.forced || options.testData) return false;
+    const activityId = options.practice ? 'practice' : 'free-play';
+    const formatId = options.format === 'team' || options.format === 'team-clash' ? 'team-clash'
+      : options.format === 'cup' ? 'cup' : 'classic';
+    const physicsModeId = options.insanity || options.physicsModeId === 'insane' ? 'insane'
+      : options.physicsModeId === 'alien' ? 'alien' : 'normal';
+    const roster = (defs || []).map((definition) => ({
+      name: definition.name, human: !definition.isAI,
+      objectId: definition.skin || BASE_SKIN, variantId: definition.variantId,
+      cosmeticId: definition.cosmeticId, teamId: definition.teamId || null,
+    }));
+    try {
+      const current = v112App.snapshot && v112App.snapshot().session;
+      if (current && current.status === 'active') v112App.abandonSession();
+      FlipgameV112.beginSession({
+        activityId, formatId, physicsModeId, roster,
+        startingLives: options.startingLives, cupLength: options.cupLength,
+        arenaId: options.visualArenaId || options.arenaId || visualArenaId || 'baseline-table',
+        suddenDeathEnabled: true,
+      });
+      v112OwnsMatch = true;
+      return true;
+    } catch (error) {
+      console.warn('Private v1.12 session not started', error);
+      return false;
+    }
+  }
   function announce(message, assertive = false) {
     const target = assertive ? appErrorEl : appStatusEl;
     if (!target) return;
@@ -1195,6 +1245,59 @@
       });
     }
   }
+  function showAppRoute(screen) {
+    document.getElementById('broadcast-home')?.classList.add('hidden');
+    setupScreen.classList.add('hidden');
+    ['journey-screen', 'battle-screen', 'store-screen', 'tutorial-screen'].forEach((id) => {
+      document.getElementById(id)?.classList.toggle('hidden', id !== screen.id);
+    });
+    screen.classList.remove('hidden');
+    screen.querySelector('h1')?.focus();
+  }
+  function hideAppRoute(screen) {
+    screen.classList.add('hidden');
+    document.getElementById('broadcast-home')?.classList.remove('hidden');
+  }
+  function renderStoreGrid() {
+    const grid = document.getElementById('store-grid');
+    const wallet = document.getElementById('store-wallet');
+    if (!grid) return;
+    const items = (v112App && typeof v112App.store === 'function') ? v112App.store() : [];
+    const profile = v112App && v112App.snapshot ? v112App.snapshot().profile : null;
+    if (wallet) wallet.textContent = profile && profile.fc != null
+      ? `${profile.fc} Flip Credits · looks only`
+      : 'Flip Credits buy looks only.';
+    grid.replaceChildren();
+    items.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'picker-tile';
+      button.textContent = item.owned ? item.displayName : `${item.displayName} · ${item.price || item.fc || ''} FC`;
+      if (item.owned) button.disabled = true;
+      else button.addEventListener('click', () => {
+        try { v112App.purchaseCosmetic(item.id); renderStoreGrid(); }
+        catch (error) { announce(error.message || 'Could not buy that cosmetic.', true); }
+      });
+      grid.appendChild(button);
+    });
+  }
+  document.getElementById('journey-battle')?.addEventListener('click', () => {
+    showAppRoute(document.getElementById('battle-screen'));
+  });
+  document.getElementById('journey-store')?.addEventListener('click', () => {
+    renderStoreGrid();
+    showAppRoute(document.getElementById('store-screen'));
+  });
+  document.getElementById('journey-tutorial')?.addEventListener('click', () => {
+    showAppRoute(document.getElementById('tutorial-screen'));
+  });
+  document.getElementById('battle-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('battle-screen')));
+  document.getElementById('store-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('store-screen')));
+  document.getElementById('tutorial-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('tutorial-screen')));
+  document.getElementById('tutorial-start-tour')?.addEventListener('click', () => {
+    hideAppRoute(document.getElementById('tutorial-screen'));
+    document.getElementById('journey-tour')?.click();
+  });
   // Platform owns the single wake lock and visibility lifecycle.
   async function enterImmersive() {
     try { if (v111Platform && v111Platform.enterMatch) await v111Platform.enterMatch({ fullscreen: true }); }
@@ -1241,9 +1344,15 @@
   let arenaFrame = 0;
   let arenaChoices = [];
   function availableArenaChoices() {
-    const state = window.FlipgameV111Progression?.snapshot() || {};
-    const views = window.FlipgameV111Cosmetics?.listForPlayer(state) || [];
-    return [{ id: '', displayName: 'Baseline Table' }, ...views.filter(v => !v.locked && v.id.startsWith('arena.'))];
+    if (v112App && typeof v112App.arenas === 'function') {
+      return v112App.arenas().map((row, index) => row.locked
+        ? { id: null, displayName: '🔒', locked: true, key: 'locked-' + index }
+        : { id: row.id, displayName: row.displayName, locked: false, key: row.id });
+    }
+    if (window.FlipgameV112ArenaPreview) return FlipgameV112ArenaPreview.list().map((row) => ({
+      id: row.id, displayName: row.displayName, locked: false, key: row.id,
+    }));
+    return [{ id: 'baseline-table', displayName: 'Baseline Table', locked: false, key: 'baseline-table' }];
   }
   function paintArenaPreview(time = 0) {
     if (arenaSelectScreen.classList.contains('hidden')) return;
@@ -1258,7 +1367,7 @@
     arenaFrame = requestAnimationFrame(paintArenaPreview);
   }
   function selectArena(id, focus = false) {
-    const choice = arenaChoices.find(v => v.id === id) || arenaChoices[0];
+    const choice = arenaChoices.find(v => !v.locked && v.id === id) || arenaChoices.find(v => !v.locked) || arenaChoices[0];
     arenaDraft = choice.id;
     document.getElementById('arena-preview-name').textContent = choice.displayName;
     document.getElementById('arena-play').textContent = `Play Now · ${choice.displayName}`;
@@ -1280,19 +1389,24 @@
     arenaSelectGrid.replaceChildren();
     for (const choice of arenaChoices) {
       const button = document.createElement('button');
-      button.type = 'button'; button.className = 'picker-tile'; button.dataset.venue = choice.id;
+      button.type = 'button'; button.className = 'picker-tile';
+      button.dataset.venue = choice.key || choice.id || '';
       button.textContent = choice.displayName;
-      button.addEventListener('click', () => selectArena(choice.id));
+      if (choice.locked) { button.disabled = true; button.setAttribute('aria-label', 'Locked'); }
+      else button.addEventListener('click', () => selectArena(choice.id));
       arenaSelectGrid.appendChild(button);
     }
-    selectArena(visualArenaId || '');
+    selectArena(visualArenaId || 'baseline-table');
     setupScreen.classList.add('hidden');
     arenaSelectScreen.classList.remove('hidden');
     document.getElementById('arena-select-title').focus();
     cancelAnimationFrame(arenaFrame); arenaFrame = requestAnimationFrame(paintArenaPreview);
   });
   document.getElementById('arena-select-back').addEventListener('click', closeArenaSelect);
-  document.getElementById('arena-random').addEventListener('click', () => selectArena(arenaChoices[Math.floor(Math.random() * arenaChoices.length)].id, true));
+  document.getElementById('arena-random').addEventListener('click', () => {
+    const unlocked = arenaChoices.filter((choice) => !choice.locked && choice.id);
+    selectArena((unlocked[Math.floor(Math.random() * unlocked.length)] || arenaChoices[0]).id, true);
+  });
   document.getElementById('arena-play').addEventListener('click', () => {
     if (!validateSetupNames()) return;
     cancelAnimationFrame(arenaFrame);
@@ -1937,6 +2051,13 @@
       perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0, lowestLives: Infinity })),
     };
     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
+    startPrivateSession(defs, Object.assign({
+      format: game.format || currentMatchOptions.format || chosenFormat(),
+      cupLength: currentMatchOptions.cupLength || chosenCupLength(),
+      startingLives: game.startingLives || currentMatchOptions.startingLives,
+      insanity: !!(game.insanity || currentMatchOptions.insanity),
+      visualArenaId: currentMatchOptions.visualArenaId || visualArenaId,
+    }, opts || {}));
     v111Bridge('matchStarted', { game, options: opts || {}, online: false }, null);
 
     if (loopId) cancelAnimationFrame(loopId);
@@ -2472,7 +2593,7 @@
     goldenShowActive = !!(game.lastResult === 'MAKE' && game.goldenFlip);
     document.body.classList.toggle('life-drain-active', !!game.lifeDrainActive);
     // Cap land wins the special label over Great Save (mutually exclusive anyway).
-    const counts = progressCounts();
+    const counts = progressCounts() && !privateRewardAuthorityActive();
     const rec = counts
       ? Records.recordFlip(game, { greatSave: greatSaveActive, capLand: capLandActive }, {
           mode: currentMatchOptions.lab ? 'physics-lab' : game.practice ? 'practice' : game.format,
@@ -2563,7 +2684,7 @@
         const replay = document.getElementById('lab-replay-btn');
         if (replay) replay.disabled = false;
       }
-      if (typeof Achievements !== 'undefined') {
+      if (typeof Achievements !== 'undefined' && !privateRewardAuthorityActive()) {
         announceAchievements(Achievements.check({
           mode: 'physics-lab',
           physicsLab: true,
@@ -3065,7 +3186,7 @@
           playerId: currentMatchDefs[winnerIndex]?.id || winner.netId || `seat-${winnerIndex + 1}`,
           winner: { isAI: !!winner.isAI && !winningTeamHasHuman, name: winner.name },
         };
-        winRec = Records.recordWin(qualification);
+        winRec = privateRewardAuthorityActive() ? null : Records.recordWin(qualification);
         renderRecordsPanel();
         if (winner && window.Skins) {
           const unlockedObjects = (winRec?.unlocked || []).filter((entry) => entry.type === 'object').map((entry) => entry.contentId);
@@ -3080,7 +3201,7 @@
       Sound.play('win');
 
       // Win-based achievements (display-only) — human required in the lobby.
-      if (qualifyingResult && typeof Achievements !== 'undefined' && winner && gameStats) {
+      if (qualifyingResult && typeof Achievements !== 'undefined' && winner && gameStats && !privateRewardAuthorityActive()) {
         const wIdx = game.players.indexOf(winner);
         const pp = (gameStats.perPlayer && gameStats.perPlayer[wIdx]) || { makes: 0, flips: 0, lowestLives: Infinity };
         const heatResults = modeState?.heatResults || [];
@@ -3309,6 +3430,11 @@
           ? [artProfile.internal, artProfile.accessory].filter((value) => value && value !== 'none')
           : [],
       });
+    }
+    if (v112PhysicsDriver && v112OwnsMatch) {
+      try { v112PhysicsDriver.cancelArmedLaunch(); } catch (_) {}
+      try { v112PhysicsDriver.armLaunch({ manual: !game.currentPlayer()?.isAI }); }
+      catch (error) { console.warn('Private physics launch marker failed', error); }
     }
     Physics.applyFlick(vx, vy, seed, eventMultiplier,
       mirrorEventsDisabled ? 'disabled' : (currentMatchOptions.eventsDisabled ? 'disabled' : (game.insanity ? 'insanity' : 'normal')),
@@ -3886,16 +4012,22 @@
   let achievementFilter = 'all', achievementCategory = null;
   function renderAchievements() {
     const grid = document.getElementById('achievement-grid');
-    if (!grid || typeof Achievements === 'undefined') return;
-    const all = Achievements.list();
+    if (!grid) return;
+    if (!v112App && typeof Achievements === 'undefined') return;
+    const all = (v112App && typeof v112App.achievements === 'function')
+      ? v112App.achievements().map((view) => ({
+          locked: !!view.locked, name: view.name, desc: view.description || view.desc,
+          emoji: view.icon || view.emoji || '★', category: view.category, earnedAt: view.earnedAt || null,
+        }))
+      : [];
     let views = achievementFilter === 'earned' ? all.filter((view) => !view.locked) : all;
     if (achievementCategory) views = views.filter((view) => !view.locked && (view.category === achievementCategory || (achievementCategory === 'lab-stats' && /lab|stat/.test(view.category))));
     const discovered = views.filter((view) => !view.locked);
     const tiles = discovered.map((view, index) =>
-      `<button type="button" role="gridcell" class="picker-tile achievement-tile" aria-label="${escapeHtml(view.name)}" tabindex="${index ? -1 : 0}"><span aria-hidden="true">${escapeHtml(view.emoji)}</span><strong>${escapeHtml(view.name)}</strong><span>${escapeHtml(view.desc)}</span>${view.earnedAt ? `<time datetime="${escapeHtml(view.earnedAt)}">Earned ${new Date(view.earnedAt).toLocaleDateString()}</time>` : ''}</button>`);
+      `<button type="button" role="gridcell" class="picker-tile achievement-tile" aria-label="${escapeHtml(view.name)}" tabindex="${index ? -1 : 0}"><span aria-hidden="true">${escapeHtml(view.emoji)}</span><strong>${escapeHtml(view.name)}</strong><span>${escapeHtml(view.desc || '')}</span>${view.earnedAt ? `<time datetime="${escapeHtml(view.earnedAt)}">Earned ${new Date(view.earnedAt).toLocaleDateString()}</time>` : ''}</button>`);
     if (achievementFilter !== 'earned' && views.some((view) => view.locked)) tiles.push(undiscoveredTileHtml());
     grid.innerHTML = tiles.join('');
-    document.getElementById('achievement-summary').textContent = `${Achievements.unlockedCount()} discovered`;
+    document.getElementById('achievement-summary').textContent = `${discovered.length} discovered`;
     document.getElementById('achievement-empty').classList.toggle('hidden', views.length > 0);
   }
   achievementsBtn?.addEventListener('click', () => { enterRoute(achievementsScreen, achievementsBtn); renderAchievements(); });
@@ -3966,6 +4098,7 @@
       activeMirrorClaim = null;
     }
     document.body.classList.remove('life-drain-active');
+    abandonPrivateSession();
     v111Bridge('menuEntered', { game, reason: 'menu' }, null);
     try { if (v111Platform && v111Platform.leaveMatch) await v111Platform.leaveMatch(); } catch (_) {}
     game.state = GAME_STATES.SETUP;

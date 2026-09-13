@@ -40,6 +40,8 @@ const PRECACHE_URLS = [
   './js/v112-plinko-matter.js',
   './js/v112-plinko-live.js',
   './js/physics.js',
+  './js/v112-physics-driver.js',
+  './js/v112-hud-projection.js',
   './js/v112-cpu.js',
   './js/input.js',
   './js/v112-plinko-presentation.js',
