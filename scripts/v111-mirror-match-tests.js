@@ -51,8 +51,8 @@ test('exports the frozen v1 browser and Node call shape', () => {
   assert.equal(Object.isFrozen(queue), true);
 });
 
-test('queues every other active opponent for all 2 through 8 player rosters', () => {
-  for (let count = 2; count <= 8; count++) {
+test('queues every other active opponent for all 2 through 16 player rosters', () => {
+  for (let count = 2; count <= 16; count++) {
     const queue = mirror.create({ matchId: `players-${count}` });
     const state = arm(queue, count);
     assert.equal(state.targets.length, count - 1);

@@ -27,6 +27,17 @@ function testFrozenInterfaceCatalog() {
   assert.ok(Object.isFrozen(Interfaces));
   assert.ok(Object.isFrozen(Interfaces.EVENT_CATALOG));
   assert.equal(Interfaces.EVENT_CATALOG[26].normalDenominator, 4500);
+  assert.equal(Interfaces.PLAYER_LIMITS.rosterMax, 16);
+  assert.equal(Interfaces.PLAYER_LIMITS.seatIndexMax, 15);
+  assert.deepEqual(Interfaces.supportedPlayerCounts('classic'),
+    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  assert.deepEqual(Interfaces.supportedPlayerCounts('team-clash'),
+    [2, 4, 6, 8, 10, 12, 14, 16]);
+  assert.deepEqual(Interfaces.supportedPlayerCounts('cup-full'), [2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(Interfaces.supportedPlayerCounts('cup-short'),
+    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.equal(Interfaces.isSupportedPlayerCount('team-clash', 9), false);
+  assert.equal(Interfaces.isSupportedPlayerCount('classic', 16), true);
 }
 
 function testEventsArePluggableButInactiveByDefault() {

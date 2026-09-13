@@ -13,6 +13,7 @@
   const scoreboardEl = document.getElementById('scoreboard');
   const playAgainBtn = document.getElementById('play-again-btn');
   const playerListEl = document.getElementById('player-list');
+  let rosterDrawerOpen = false;
   const pointCountEl = document.getElementById('point-count');
   const turnBannerEl = document.getElementById('turn-banner');
   const streakBannerEl = document.getElementById('streak-banner');
@@ -611,12 +612,14 @@
     playerCount = defs.length;
     playerInputs.innerHTML = defs.map((d, i) => rowHtml(i, d)).join('');
     showRosterPage('setup', rosterPages.setup);
-    addPlayerBtn.disabled = playerCount >= 16;
-    addPlayerBtn.tabIndex = playerCount >= 16 ? -1 : 0;
+    const rosterMax = (window.FlipgameV111Interfaces && window.FlipgameV111Interfaces.PLAYER_LIMITS
+      ? window.FlipgameV111Interfaces.PLAYER_LIMITS.rosterMax : 16);
+    addPlayerBtn.disabled = playerCount >= rosterMax;
+    addPlayerBtn.tabIndex = playerCount >= rosterMax ? -1 : 0;
     const countLabel = document.getElementById('player-count-label');
     const limitNote = document.getElementById('player-limit-note');
     if (countLabel) countLabel.textContent = `${playerCount} players`;
-    if (limitNote) limitNote.textContent = playerCount >= 16 ? '16 player maximum' : 'Up to 16 players';
+    if (limitNote) limitNote.textContent = playerCount >= rosterMax ? rosterMax + ' player maximum' : 'Up to ' + rosterMax + ' players';
     syncCpuDifficulty();
     syncFormatControls();
     paintAllPreviews();
@@ -639,7 +642,9 @@
   }
 
   function addPlayerInput() {
-    if (playerCount >= 16) return;
+    const rosterMax = (window.FlipgameV111Interfaces && window.FlipgameV111Interfaces.PLAYER_LIMITS
+      ? window.FlipgameV111Interfaces.PLAYER_LIMITS.rosterMax : 16);
+    if (playerCount >= rosterMax) return;
     const defs = readRows();
     defs.push(seatDefaults(defs.length, defs.map((d) => d.color)));
     renderFrom(defs);
@@ -1777,7 +1782,10 @@
     const defs = rowsToDefs(readRows());
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
     const format = chosenFormat();
-    const cupLimit = chosenCupLength() === 'full' ? 8 : 12;
+    const limits = window.FlipgameV111Interfaces;
+    const cupLimit = chosenCupLength() === 'full'
+      ? (limits && limits.PLAYER_LIMITS ? limits.PLAYER_LIMITS.cupFull.max : 8)
+      : (limits && limits.PLAYER_LIMITS ? limits.PLAYER_LIMITS.cupShort.max : 12);
     if (format === 'cup' && defs.length > cupLimit) {
       announce(`${chosenCupLength() === 'full' ? 'Full' : 'Short'} Cup supports up to ${cupLimit} players.`, true);
       return;
@@ -4089,9 +4097,44 @@
       { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
 
+  function playerCardHtml(p, i, extraClass, focusLabel) {
+    const active = i === game.currentPlayerIndex && !p.eliminated;
+    let cls = 'player-card';
+    if (extraClass) cls += ' ' + extraClass;
+    if (p.eliminated)       cls += ' eliminated';
+    else if (active)        cls += ' active';
+    if (p.isOnFire)         cls += ' on-fire';
+    else if (p.isHeatingUp) cls += ' heating-up';
+    if (!p.eliminated && p.lives <= 3) cls += ' low-lives';
+    if (game.maxLives >= 100) cls += ' marathon-lives';
+    const label = focusLabel
+      ? `<span class="p-focus-label">${escapeHtml(focusLabel)}</span>`
+      : '';
+    return `<div class="${cls}" data-seat="${i}">
+      ${label}
+      <span class="p-name">${escapeHtml(p.name)}${p.alwaysMagnet ? ' 🧲' : ''}</span>
+      <span class="p-lives-num">${p.lives}</span>
+      <span class="p-lives-label">lives</span>
+    </div>`;
+  }
+
+  function upcomingActiveSeats() {
+    const order = [];
+    if (!game || !game.players.length) return order;
+    let idx = game.currentPlayerIndex;
+    for (let n = 0; n < game.players.length; n++) {
+      const player = game.players[idx];
+      if (player && !player.eliminated) order.push({ player, index: idx });
+      idx = ((idx + game.direction) + game.players.length) % game.players.length;
+    }
+    return order;
+  }
+
   function updateHUD() {
     document.body.classList.toggle('on-fire-live', !!(game && game.onFirePlayer));
     if (game.practice) {
+      rosterDrawerOpen = false;
+      playerListEl.classList.remove('player-list-focus', 'roster-open');
       const pct = game.practiceAttempts ? Math.round(game.practiceMakes / game.practiceAttempts * 100) : 0;
       playerListEl.innerHTML = `<div class="practice-stats">
         <div class="ps-item"><span class="ps-num">${game.practiceMakes}/${game.practiceAttempts}</span><span class="ps-label">makes</span></div>
@@ -4101,23 +4144,34 @@
       </div>`;
       return;
     }
-    playerListEl.innerHTML = game.players.map((p, i) => {
-      const active = i === game.currentPlayerIndex && !p.eliminated;
-      let cls = 'player-card';
-      if (p.eliminated)       cls += ' eliminated';
-      else if (active)        cls += ' active';
-      if (p.isOnFire)         cls += ' on-fire';
-      else if (p.isHeatingUp) cls += ' heating-up';
-      if (!p.eliminated && p.lives <= 3) cls += ' low-lives';
-      if (game.maxLives >= 100) cls += ' marathon-lives';
-
-      return `<div class="${cls}">
-        <span class="p-name">${escapeHtml(p.name)}${p.alwaysMagnet ? ' 🧲' : ''}</span>
-        <span class="p-lives-num">${p.lives}</span>
-        <span class="p-lives-label">lives</span>
-      </div>`;
-    }).join('');
+    const focusHud = game.players.length >= 9;
+    if (!focusHud) rosterDrawerOpen = false;
+    playerListEl.classList.toggle('player-list-focus', focusHud);
+    playerListEl.classList.toggle('roster-open', !!(focusHud && rosterDrawerOpen));
+    if (focusHud && !rosterDrawerOpen) {
+      const upcoming = upcomingActiveSeats();
+      const labels = ['Current', 'On Deck', 'After That'];
+      const cards = upcoming.slice(0, 3).map((entry, order) =>
+        playerCardHtml(entry.player, entry.index, order === 0 ? 'focus-current' : 'focus-next', labels[order]));
+      const activeCount = upcoming.length;
+      cards.push(`<button type="button" class="roster-drawer-btn" id="roster-drawer-btn">${activeCount} active · ${game.players.length} seats</button>`);
+      playerListEl.innerHTML = cards.join('');
+      return;
+    }
+    playerListEl.innerHTML = game.players.map((p, i) => playerCardHtml(p, i)).join('')
+      + (focusHud
+        ? `<button type="button" class="roster-drawer-btn" id="roster-drawer-btn">Hide roster</button>`
+        : '');
+    const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    playerListEl.querySelector('.player-card.active')?.scrollIntoView({
+      inline: 'center', block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth',
+    });
   }
+  playerListEl?.addEventListener('click', (event) => {
+    if (!event.target.closest('#roster-drawer-btn')) return;
+    rosterDrawerOpen = !rosterDrawerOpen;
+    updateHUD();
+  });
 
   // ── Non-game routes, local statistics, and achievement gallery ─────────────
   let routeOpener = null;
@@ -4205,7 +4259,7 @@
   }
   function statsSeatLabel(value) {
     const seat = Number(value);
-    return Number.isInteger(seat) && seat >= 0 && seat <= 7 ? `P${seat + 1}` : 'Other';
+    return Number.isInteger(seat) && seat >= 0 && seat <= 15 ? `P${seat + 1}` : 'Other';
   }
   function dimensionName(value) {
     return String(value == null || value === '' ? 'None' : value)

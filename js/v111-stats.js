@@ -706,7 +706,7 @@
       var rotations = Math.max(0, integer(value, 0)); return rotations >= 6 ? '6+' : String(rotations);
     }
     if (group === 'seats') {
-      var seat = integer(value, -1); return seat >= 0 && seat <= 7 ? String(seat) : 'other';
+      var seat = integer(value, -1); return seat >= 0 && seat <= 15 ? String(seat) : 'other';
     }
     if (group === 'playerTypes') return key === 'cpu' ? 'cpu' : 'human';
     if (group === 'powerDirection') {
