@@ -39,6 +39,10 @@
     airborne: 'In flight', contact: 'Landing', settling: 'Settling',
     resolved: 'Scored', disabled: 'Waiting',
   };
+  // A CPU lane never takes a pointer, so if nothing can supply its gesture the
+  // heat cannot go on. The screen has to be told, or it invites a person to wait
+  // for a turn that will never come.
+  var CPU_UNAVAILABLE = 'Nothing here can flick for a CPU competitor. Leave and give every seat to a person.';
   function copy(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
 
   function defaultLaneRects(stage, count) {
@@ -82,6 +86,7 @@
     var lastFrameAt = 0;
     var series = null;        // last BattleStateV1 this host saw
     var message = '';
+    var cpuBlocked = '';      // set while a CPU lane has no gesture to be given
     var submission = null;
     var cpuTurns = new Map(); // laneId -> { playerId, dueAt }
     var unsubscribeApplication = application.subscribe
@@ -114,7 +119,7 @@
       // The last series goes before the new reservation is asked for, not after.
       // Reserving makes the application emit, and a screen woken in between would
       // be handed the finished heat under the new match's status.
-      series = null; message = ''; submission = null;
+      series = null; message = ''; cpuBlocked = ''; submission = null;
       var ticket = application.battle.prepare({ battleFormatId: source.formatId,
         paceId: source.paceId, powerProfileId: source.powerProfileId,
         players: source.players });
@@ -214,7 +219,7 @@
     // host's, because only this host owns the frame clock. Neither decides a
     // pose: the CPU attempt lands the same way a person's does.
     function driveCpuLanes(state) {
-      if (!cpuLaunch || !runtime || state.phase !== 'active') return;
+      if (!runtime || state.phase !== 'active') return;
       var active = state.activePlayerIds || [];
       runtime.snapshot().lanes.forEach(function (lane) {
         if (!(lane.cpu && lane.playerId && lane.state === 'ready' &&
@@ -222,6 +227,11 @@
           cpuTurns.delete(lane.laneId);
           return;
         }
+        // A CPU lane takes no pointer, so a gesture nobody can supply is not a
+        // slow turn, it is a lane that waits for ever. Saying so is the only way
+        // out of it: the screen keeps its way back, and a page that supplies the
+        // gesture later still plays on.
+        if (!cpuLaunch) { cpuBlocked = CPU_UNAVAILABLE; return; }
         var turn = cpuTurns.get(lane.laneId);
         if (!turn || turn.playerId !== lane.playerId) {
           cpuTurns.set(lane.laneId, { playerId: lane.playerId, dueAt: now() + cpuThinkMs });
@@ -232,7 +242,8 @@
         try {
           var signal = cpuLaunch({ laneId: lane.laneId, playerId: lane.playerId,
             matchId: state.matchId });
-          if (!signal) return;
+          if (!signal) { cpuBlocked = CPU_UNAVAILABLE; return; }
+          cpuBlocked = '';
           runtime.prepareCpuLaunch(lane.playerId, { launchSignal: signal, startedAt: now() });
         } catch (error) {
           message = error && error.message ? error.message : String(error);
@@ -290,6 +301,7 @@
     function stopRuntime() {
       stageElement = null;
       cpuTurns.clear();
+      cpuBlocked = '';
       if (frameId != null) { cancelFrame(frameId); frameId = null; }
       if (detachPointers) { try { detachPointers(); } catch (_) {} detachPointers = null; }
       if (runtime) { try { runtime.destroy(); } catch (_) {} runtime = null; }
@@ -324,9 +336,11 @@
       return runtime.snapshot().lanes.filter(function (lane) {
         return lane.playerId && active.indexOf(lane.playerId) >= 0;
       }).slice(0, series.config.hardware.activeLaneLimit).map(function (lane) {
-        // A CPU lane takes no pointer, so it must never invite a flick.
+        // A CPU lane takes no pointer, so it must never invite a flick — and it
+        // must not claim to be lining one up when nothing can flick for it.
         return { laneId: lane.laneId, playerId: lane.playerId,
-          status: lane.cpu && lane.state === 'ready' ? 'CPU is lining up'
+          status: lane.cpu && lane.state === 'ready'
+            ? (cpuBlocked ? 'Waiting' : 'CPU is lining up')
             : (LANE_STATUS[lane.state] || 'Waiting') };
       });
     }
@@ -345,7 +359,9 @@
 
     function snapshot() {
       if (!series) return null;
-      return { status: status(), state: series, lanes: lanes(), message: message };
+      // A real fault says more than a stalled CPU lane does, so it keeps the line.
+      return { status: status(), state: series, lanes: lanes(),
+        message: message || cpuBlocked };
     }
 
     function abandon() {

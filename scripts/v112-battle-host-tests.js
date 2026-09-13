@@ -282,11 +282,17 @@ function testACpuCompetitorTakesItsOwnTurns() {
   });
 }
 
-// A CPU that never gets asked must not silently stall the match either: without
-// an injected intent the host has nothing to flick with, and that has to be
-// visible rather than a lane that waits for ever.
+// A CPU lane takes no pointer, so a Battle whose CPU gesture nobody can supply is
+// not a slow turn: it is a lane that waits for ever. That has to be said on the
+// screen, and the lane must stop claiming a launch is coming.
 function testAMissingCpuIntentIsNotSilent() {
-  return withHost({}, async (context) => {
+  const composed = { cpu: brain() };
+  const gate = { supply: false };
+  composed.cpu.launch = (request) => {
+    composed.cpu.asked.push(request);
+    return gate.supply ? { vx: 6, vy: -18 } : null;
+  };
+  return withHost(composed, async (context) => {
     context.host.capabilities();
     const ticket = context.host.prepare({ formatId: 'duel', paceId: 'volley',
       powerProfileId: 'sport',
@@ -297,10 +303,31 @@ function testAMissingCpuIntentIsNotSilent() {
     flick(context, 'lane-1', 1, counter);
     await context.lane.land('upright');
     for (let turn = 0; turn < 5; turn += 1) context.clock.advance(1000);
-    const view = context.host.snapshot();
-    assert.equal(view.lanes[0].playerId, 'seat-2', 'The lane did rotate to the CPU');
-    assert.equal(view.state.scores['seat-2'], 0, 'A CPU with no intent scores nothing');
-    assert.equal(view.status, 'playing');
+
+    const stalled = context.host.snapshot();
+    assert.equal(stalled.lanes[0].playerId, 'seat-2', 'The lane did rotate to the CPU');
+    assert.equal(stalled.state.scores['seat-2'], 0, 'A CPU with no intent scores nothing');
+    assert.match(stalled.message, /flick for a CPU/i,
+      'A stalled CPU lane has to say so: ' + JSON.stringify(stalled.message));
+    assert.notEqual(stalled.lanes[0].status, 'CPU is lining up',
+      'Nothing is lining up a launch nobody can supply');
+    // Saying so is not giving up: the screen keeps its way out, and the route can
+    // still project and leave it.
+    assert.equal(stalled.status, 'playing');
+    assert.equal(Routes.project(stalled).message, stalled.message);
+
+    // A page that can supply the gesture after all plays on, and stops saying it.
+    gate.supply = true;
+    for (let turn = 0; turn < 5; turn += 1) context.clock.advance(1000);
+    assert.equal(context.host.snapshot().message, '',
+      'A CPU turn that arrives clears the stall');
+    assert.equal(context.lane.airborne.length, 1,
+      'The CPU gesture reached the same lane a person flicks into');
+    await context.lane.land('upright');
+    context.clock.advance(1000);
+    assert.ok(context.host.snapshot().state.resolvedAttempts
+      .some((attempt) => attempt.playerId === 'seat-2' && attempt.pose === 'upright'),
+      'The CPU attempt landed through the same collider a person flicks into');
   });
 }
 
