@@ -137,10 +137,20 @@ async function scenario(){
   const heading=()=>d.querySelector('#battle-body h2').textContent;
   const opening=heading();
   const flicks=[first];
+  // Every invitation to flick, not just the first. A lane handed back to the same
+  // competitor for the next volley never announces a new assignment, so that turn
+  // is exactly where a fallen bottle survives into somebody's aim.
+  const tableFor=[];
   for(let turn=0;turn<5;turn++){
     if(!/Flick to launch/.test(laneText()))break;
+    const set=bottle();
+    tableFor.push({lane:laneText(),bottle:set});
+    check(Math.abs(set.angle)<0.05&&set.x===report.restingBottle.x&&
+      Math.abs(set.y-report.restingBottle.y)<=8,
+      `A flick was invited over a bottle nobody set up: ${JSON.stringify(tableFor[tableFor.length-1])}`);
     flicks.push(await flick());
   }
+  report.tableEveryTurn=tableFor;
   report.flicks=flicks.length;
   report.heading=heading();
   report.scores=scores();

@@ -213,15 +213,21 @@
         if(live)body.append(element('p',h.hardware.simultaneous?'Simultaneous lanes':'Alternating relay · wait for your active lane','battle-capability'));
         const scores=element('div',null,'battle-scoreboard');
         for(const s of h.scores){const card=element('article',null,'battle-score');card.append(element('h3',s.label),element('strong',String(s.score)),element('p',`${s.heatWins} heats · ${s.charges}/3 charges`));
+          scores.append(card);
+          // Cards only apply to a launch that has not been armed. Once the series
+          // stops taking launches there is nothing left for one to affect, so an
+          // offer on the result would be dead chrome.
+          if(!live)continue;
           if(s.stored)card.append(element('p',`Stored: ${labels[s.stored.id]||s.stored.id} · applies to an eligible upcoming launch`));
           for(const offer of s.offers){
             if(offer.scope==='target') for(const targetId of s.targets)card.append(button(`${labels[offer.id]||offer.id} → ${h.scores.find(x=>x.id===targetId).label}`,()=>controller.choosePower({playerId:s.playerId,cardId:offer.id,targetId}),stateBusy(),`${s.id}:${offer.id}:${targetId}`));
             else card.append(button(labels[offer.id]||offer.id,()=>controller.choosePower({playerId:s.playerId,cardId:offer.id}),stateBusy(),`${s.id}:${offer.id}`));
-          } scores.append(card);
+          }
         }
         function stateBusy(){return s.busy||h.status!=='playing';}
         body.append(scores);
-        const lanes=element('div',null,'battle-lane-status');for(const lane of h.lanes)lanes.append(element('p',`${lane.label} · ${lane.status}`));body.append(lanes);
+        // An empty lane list is a lane-sized hole on the result, not a status.
+        if(h.lanes.length){const lanes=element('div',null,'battle-lane-status');for(const lane of h.lanes)lanes.append(element('p',`${lane.label} · ${lane.status}`));body.append(lanes);}
         body.append(element('p',h.message || ({finalizing:'Saving the authoritative result…',retryable:'Result waiting to be saved.',settled:'Battle complete.'}[h.status]||'')));
         if(h.status==='retryable')body.append(button('Retry saving',()=>controller.retry(),s.busy));
       }

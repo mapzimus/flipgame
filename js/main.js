@@ -1448,7 +1448,12 @@
           // they touch it. Waiting for their flick would show them the last
           // bottle lying where it fell, wearing their colour.
           onAssignment(assignment) { setTableFor(assignment.playerId); },
-          reset() {},
+          // A resolved attempt leaves the bottle wherever it fell, and the lane
+          // is handed straight back — to the next competitor, or to the same one
+          // for the next volley. Only an assignment change announces itself, so
+          // relying on that alone left whoever leads the next volley staring at
+          // the last bottle lying on its side in their own colour.
+          reset(info) { if (info && info.playerId) setTableFor(info.playerId); },
         };
       },
       enter(context) {
