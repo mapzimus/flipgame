@@ -17,6 +17,9 @@
 //   openLane/closeLane,   // bring the physics surface up and give it back
 //   requestFrame/cancelFrame/now,
 // })
+//
+// The page must call resize() when the glass changes size: lane rectangles are
+// client pixels, and the runtime qualifies gestures against them.
 (function (root, factory) {
   'use strict';
   var Runtime = root && root.FlipgameV112BattleRuntime;
@@ -65,6 +68,7 @@
     var listeners = new Set();
     var reservation = null;   // { handle, config }
     var runtime = null;
+    var stageElement = null;
     var detachPointers = null;
     var frameId = null;
     var laneOpen = false;
@@ -107,9 +111,12 @@
       return { handle: ticket.handle };
     }
 
+    // The authority decides whether a reservation may be dropped. Nothing is
+    // torn down until it has agreed, so a refusal leaves the lane exactly as it
+    // was instead of taking the table away from a Battle that is still running.
     function cancel(handle) {
-      stopRuntime();
       application.battle.cancel(handle);
+      stopRuntime();
       reservation = null; series = null; wake();
       return null;
     }
@@ -126,6 +133,7 @@
         // The surface has to exist before lane geometry is measured against it
         // or an attempt is launched into it.
         if (openLane) { laneOpen = true; openLane({ stage: stage, config: config }); }
+        stageElement = stage;
         var rects = laneRectsFor(stage, config.hardware.activeLaneLimit);
         runtime = buildRuntime({ matchId: config.matchId, config: config, laneRects: rects,
           laneAdapterFactory: opts.laneAdapterFactory, captureTarget: stage,
@@ -191,8 +199,9 @@
 
     function submit() {
       var handle = reservation.handle;
+      var completed = series;
       submission = Promise.resolve()
-        .then(function () { return application.battle.submitResult(handle, series); })
+        .then(function () { return application.battle.submitResult(handle, completed); })
         .then(function () { stopRuntime(); wake(); })
         .catch(function (error) {
           message = error && error.message ? error.message : String(error);
@@ -203,7 +212,23 @@
 
     // Every path out of a running series comes through here, so the lane is
     // given back exactly once however the series ended.
+    // A lane rectangle is client pixels on real glass. When the glass changes
+    // size the rules keep running, so the pointer router has to be re-aimed or
+    // every flick after a rotation is qualified against a lane that has moved.
+    function resize() {
+      if (!runtime || !stageElement || !reservation) return snapshot();
+      try {
+        runtime.updateLaneRects(laneRectsFor(stageElement,
+          reservation.config.hardware.activeLaneLimit));
+      } catch (error) {
+        message = error && error.message ? error.message : String(error);
+      }
+      wake();
+      return snapshot();
+    }
+
     function stopRuntime() {
+      stageElement = null;
       if (frameId != null) { cancelFrame(frameId); frameId = null; }
       if (detachPointers) { try { detachPointers(); } catch (_) {} detachPointers = null; }
       if (runtime) { try { runtime.destroy(); } catch (_) {} runtime = null; }
@@ -261,8 +286,8 @@
     }
 
     function abandon() {
-      stopRuntime();
       var left = Promise.resolve(application.battle.abandon('left-battle'));
+      stopRuntime();
       reservation = null;
       wake();
       return left;
@@ -274,6 +299,7 @@
       prepare: prepare,
       start: start,
       cancel: cancel,
+      resize: resize,
       snapshot: snapshot,
       subscribe: function (listener) {
         listeners.add(listener);

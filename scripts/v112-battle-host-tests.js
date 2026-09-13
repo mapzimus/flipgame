@@ -39,10 +39,13 @@ async function application() {
 function stage(width = 1200, height = 600) {
   const handlers = new Map();
   const captured = new Set();
+  const box = { width, height };
   return {
-    width,
+    get width() { return box.width; },
+    resizeTo(next, tall) { box.width = next; box.height = tall == null ? box.height : tall; },
     attached: () => handlers.size,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width, height, right: width, bottom: height }),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: box.width, height: box.height,
+      right: box.width, bottom: box.height }),
     addEventListener(type, handler) { handlers.set(type, handler); },
     removeEventListener(type) { handlers.delete(type); },
     setPointerCapture(id) { captured.add(id); },
@@ -126,7 +129,7 @@ function build(app, options = {}) {
   const tick = options.clock || clock();
   const lent = options.table || table();
   const host = Host.createBattleHost({
-    application: app,
+    application: options.application ? options.application(app) : app,
     laneAdapterFactory: track.factory,
     laneCapacity: options.laneCapacity || 1,
     measureDisplay: () => options.display || { width: 360, observedContacts: 1 },
@@ -163,6 +166,16 @@ function flick(context, laneId, laneCount, counter) {
   context.stage.fire('pointerdown', pointerEvent(counter.pointerId, x, 420, counter.at));
   context.stage.fire('pointermove', pointerEvent(counter.pointerId, x + 4, 340, counter.at + 40));
   context.stage.fire('pointerup', pointerEvent(counter.pointerId, x + 8, 250, counter.at + 80));
+}
+
+// The reward write is a real promise. A series is only over once the authority
+// has finished with it, so a test that stops at 'finalizing' is still holding a
+// Battle that is owed rewards and cannot be left.
+async function awaitReward(context) {
+  for (let turn = 0; turn < 50 && context.host.snapshot().status === 'finalizing'; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return context.host.snapshot();
 }
 
 // Plays whichever lanes the screen is currently showing until the series settles.
@@ -250,10 +263,7 @@ function testAWholeRelaySeriesReachesTheReward() {
     assert.equal(seen.size, 2, 'An alternating relay gives both competitors a turn');
     assert.ok(attempts >= 10, 'A best-of-three series takes more than a few flips');
 
-    for (let turn = 0; turn < 50 && context.host.snapshot().status === 'finalizing'; turn += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    view = context.host.snapshot();
+    view = await awaitReward(context);
     assert.equal(view.status, 'settled');
     assert.equal(view.state.phase, 'complete');
     assert.ok(view.state.winnerId);
@@ -282,10 +292,7 @@ function testTwoVerifiedContactsPlayTwoLanesAtOnce() {
 
     const { seen } = await playSeries(context);
     assert.equal(seen.size, 4, 'A 2v2 rotation seats every player');
-    for (let turn = 0; turn < 50 && context.host.snapshot().status === 'finalizing'; turn += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    const view = context.host.snapshot();
+    const view = await awaitReward(context);
     assert.equal(view.status, 'settled');
     assert.ok(['team-a', 'team-b'].includes(view.state.winnerId), 'A 2v2 series is won by a team');
     assert.ok(app.snapshot().profile.fxp > 0);
@@ -330,6 +337,83 @@ function testALaneSurfaceThatWillNotOpenLeavesNothingBehind() {
   });
 }
 
+// A lane rectangle is client pixels on real glass, and a phone can be rotated
+// mid-heat. After the page reports the new size, a flick has to be qualified
+// against the lane that is under the finger now, not the one that used to be.
+function testTheGlassCanChangeSizeMidSeries() {
+  return withHost({ display: { width: 1280, observedContacts: 2 }, laneCapacity: 2 },
+    async (context, app) => {
+      context.host.capabilities();
+      const ticket = context.host.prepare({ formatId: 'doubles', paceId: 'volley',
+        powerProfileId: 'sport', players: roster(4) });
+      context.host.start(ticket.handle, { stage: context.stage });
+      const aiming = () => Routes.project(context.host.snapshot()).lanes
+        .filter((entry) => entry.status === 'Aiming').map((entry) => entry.laneId);
+      // x=450 sits in the left half of a 1200px stage, so it is lane 1's.
+      const touch = (pointerId) => {
+        context.stage.fire('pointerdown', pointerEvent(pointerId, 450, 420, pointerId * 100));
+        const held = aiming();
+        context.stage.fire('pointercancel', pointerEvent(pointerId, 450, 420, pointerId * 100 + 10));
+        return held;
+      };
+      assert.deepEqual(touch(1), ['lane-1'], 'The left half of the stage is the first lane');
+
+      context.stage.resizeTo(600, 600);
+      assert.deepEqual(touch(2), ['lane-1'],
+        'Until the page reports the resize the router is still aiming at the old lane');
+      context.host.resize();
+      // The same pixel is now in the right half of a 600px stage.
+      assert.deepEqual(touch(3), ['lane-2'], 'A reported resize re-aims the lanes');
+      assert.equal(context.host.snapshot().message, '', 'A resize is not an error');
+      assert.deepEqual(context.table.log, ['open'], 'A resize does not give the lane surface back');
+
+      const { seen } = await playSeries(context);
+      assert.equal(seen.size, 4, 'The series still seats every player after the resize');
+      assert.equal((await awaitReward(context)).status, 'settled');
+      assert.deepEqual(context.table.log, ['open', 'close']);
+    });
+}
+
+// The reward authority decides whether a series may be left at all. When it
+// refuses, the page must keep the table it was given: taking the lane away from
+// a Battle that is still owed rewards leaves nobody able to finish or leave it.
+function testARefusedAbandonKeepsTheTable() {
+  const gate = { refuse: false };
+  const guarded = (app) => ({
+    subscribe: (listener) => app.subscribe(listener),
+    battle: {
+      observeDisplay: (input) => app.battle.observeDisplay(input),
+      prepare: (input) => app.battle.prepare(input),
+      start: (handle) => app.battle.start(handle),
+      cancel: (handle) => app.battle.cancel(handle),
+      submitResult: (handle, state) => app.battle.submitResult(handle, state),
+      retryFinalization: () => app.battle.retryFinalization(),
+      snapshot: () => app.battle.snapshot(),
+      abandon: (reason) => {
+        if (gate.refuse) throw new Error('Retry the completed Battle’s rewards first');
+        return app.battle.abandon(reason);
+      },
+    },
+  });
+  return withHost({ application: guarded }, async (context, app) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'volley',
+      powerProfileId: 'sport', players: roster(2) });
+    context.host.start(ticket.handle, { stage: context.stage });
+    gate.refuse = true;
+    assert.throws(() => context.host.abandon(), /rewards first/);
+    assert.deepEqual(context.table.log, ['open'], 'A refused abandon keeps the table');
+    assert.equal(context.stage.attached() > 0, true, 'A refused abandon keeps the lane listening');
+    assert.equal(context.host.snapshot().status, 'playing', 'The series is still running');
+
+    gate.refuse = false;
+    await context.host.abandon();
+    assert.deepEqual(context.table.log, ['open', 'close']);
+    assert.equal(app.battle.snapshot(), null);
+    assert.equal(app.snapshot().profile.fxp, 0);
+  });
+}
+
 function testAnUnstartedReservationCancels() {
   return withHost({}, async (context, app) => {
     context.host.capabilities();
@@ -350,9 +434,11 @@ async function run() {
   await testAnUnstartedReservationCancels();
   await testALaneSurfaceThatWillNotOpenLeavesNothingBehind();
   await testLeavingMidSeriesEarnsNothing();
+  await testARefusedAbandonKeepsTheTable();
   await testAWholeRelaySeriesReachesTheReward();
   await testTwoVerifiedContactsPlayTwoLanesAtOnce();
-  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, a whole relay series and a two-lane 2v2 series from reservation to reward, and reservations released on cancel and on leaving.');
+  await testTheGlassCanChangeSizeMidSeries();
+  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, lanes re-aimed when the glass changes size, a refused abandon that keeps the table, a whole relay series and a two-lane 2v2 series from reservation to reward, and reservations released on cancel and on leaving.');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });
