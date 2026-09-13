@@ -1202,7 +1202,7 @@
       settled: booleanField },
     rewind: { replayCount: integerField(0, 1), correctiveImpulseApplied: booleanField },
     plinko: { objectColliderRef: stringField, slotSensorRef: nullableStringField,
-      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(10000, 30000),
+      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(0, 30000),
       settled: booleanField, completionKind: stringField,
       recoveryStartedMs: nullableIntegerField(22000, 30000),
       recoveryImpulseCount: integerField(0, 1000) },
@@ -1236,10 +1236,9 @@
       }
       if (values.completionKind === 'clean') {
         if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||
-            values.dropDurationMs < PLINKO_TRANSPORT.cleanDropMinMs ||
-            values.dropDurationMs > PLINKO_TRANSPORT.cleanDropMaxMs ||
+            values.dropDurationMs >= PLINKO_TRANSPORT.recoveryStartDropMs ||
             values.recoveryStartedMs != null || values.recoveryImpulseCount !== 0) {
-          throw new Error('Plinko clean completion requires a settled 10-15 second sensor result');
+          throw new Error('Plinko clean completion requires a settled sensor result before recovery');
         }
       } else if (values.completionKind === 'recovered') {
         if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||

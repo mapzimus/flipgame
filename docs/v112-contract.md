@@ -280,8 +280,11 @@ leaving discards it.
   encode a slot, and is removed before ordinary physics resumes.
 - After the apex handoff, Plinko has 24 peg rows, a normal 10–15s board descent
   with a 12s median, object tracking, deterministic anti-wedge impulses and
-  slots. A physically active drop may continue beyond that normal band; timing
-  never converts a moving Flipper into a prize or loss:
+  slots. That range is a distribution and experience-quality target, not an
+  outcome-authority window: any physically settled, actual-sensor result before
+  the 30-second no-contest deadline resolves immediately. A physically active
+  drop may continue beyond the normal band; timing never converts a moving
+  Flipper into a prize or loss:
   `Lives Doubled | Everyone Else Halved | Always Magnet | Automatic Loss |
   Automatic Win | Automatic Loss | Always Magnet | Everyone Else Halved |
   Lives Doubled`. It remains the only automatic-win event.

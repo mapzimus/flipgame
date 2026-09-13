@@ -757,8 +757,10 @@ function testNarrowDirectiveFrameFactAndSizeSchemas() {
     primaryLanded: true, secondaryLanded: false, landedCopies: 2 }), /conflicts/);
   assert.throws(() => Kernel.normalizeOutcomeFacts('roulette-table', Object.assign({},
     Harness.DEFAULT_FACTS['roulette-table'], { settled: false })), /settled sector evidence/);
-  assert.throws(() => Kernel.normalizeOutcomeFacts('plinko', Object.assign({},
-    Harness.DEFAULT_FACTS.plinko, { dropDurationMs: 9999 })), /minimum/);
+  assert.equal(Kernel.normalizeOutcomeFacts('plinko', Object.assign({},
+    Harness.DEFAULT_FACTS.plinko, { dropDurationMs: 9999 }))
+    .values.dropDurationMs, 9999,
+  'a physical sensor result is authoritative even outside the target duration band');
   assert.throws(() => Kernel.normalizeOutcomeFacts('cap-toss', {
     bodyColliderRef: 'body:same', topColliderRef: 'body:same',
     bodyLanded: true, topLanded: true }), /distinct/);
@@ -1476,7 +1478,8 @@ function testHighValueColliderOwnership() {
   assert.throws(() => capToss.runtime.evaluate(Harness.makeProbe({ elapsedMs: 2000 })),
     /collider landing verdicts/);
 
-  [10000, 15000].forEach(duration => {
+  [7983 + (1 / 3), 10000, 15000, 17383 + (1 / 3),
+    22000 - (1000 / 60)].forEach(duration => {
     const facts = plinkoFacts({ dropDurationMs: duration });
     const boundary = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard', facts,
       laneId: `clean-${duration}` });
@@ -1509,9 +1512,16 @@ function testHighValueColliderOwnership() {
   lateClean.runtime.contact(Harness.makeContact({ contactId: 'slot-late-clean',
     entityBRef: lateCleanFacts.slotSensorRef,
     elapsedMs: plinkoElapsed(lateCleanFacts) }));
-  assert.throws(() => lateClean.runtime.evaluate(Harness.makeProbe({
-    elapsedMs: plinkoElapsed(lateCleanFacts) })),
-  /clean completion requires a settled 10-15 second sensor result/);
+  assert.equal(lateClean.runtime.evaluate(Harness.makeProbe({
+    elapsedMs: plinkoElapsed(lateCleanFacts) }))
+    .facts.values.completionKind, 'clean',
+  'the 10-15 second duration target cannot veto a physical sensor result');
+  lateClean.runtime.cleanup('done');
+
+  assert.throws(() => Kernel.normalizeOutcomeFacts('plinko', plinkoFacts({
+    dropDurationMs: 22000, completionKind: 'clean' })),
+  /settled sensor result before recovery/,
+  'a post-recovery result must carry its actual recovery provenance');
 
   const contradictorySlot = Harness.createHarness({ eventId: 'plinko', eventClass: 'wildcard',
     laneId: 'contradictory-slot', resolveCollider(collider) {
