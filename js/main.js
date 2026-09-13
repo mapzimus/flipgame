@@ -1268,6 +1268,8 @@
     let airborne = null;
     let aim = null;
     let arenaTurn = 0;
+    let armedFor = null;
+    let struck = true;
     let seats = new Map();
     let laneSeat = null;
     // The reward authority renames every competitor to its seat position, so the
@@ -1309,13 +1311,23 @@
           const pose = result !== 'MAKE' ? 'miss' : (info.onCap ? 'cap' : 'upright');
           const settled = airborne;
           airborne = null;
+          // Whatever it landed as, it is lying there now and has to be set up
+          // again before anyone flicks it.
+          struck = true;
           Sound.play(result === 'MAKE' ? 'make' : 'miss');
           settled.resolve({ pose, reason: info.reason || null });
         }
       }
       paint(dt);
     }
-    function armSeat(seat) {
+    // Set the table for whoever the lane belongs to now: their Flipper, their
+    // colour, an upright bottle and a fresh arena seed. A flip in the air is
+    // never disturbed, and a table already set for the same competitor is left
+    // alone so a waiting bottle does not twitch every frame.
+    function setTableFor(playerId) {
+      const seat = seatFor(playerId);
+      if (airborne) return;
+      if (!struck && armedFor === playerId) { laneSeat = seat || laneSeat; return; }
       laneSeat = seat;
       if (Physics.setProfile) {
         Physics.setProfile(window.Skins && Skins.physicsFor
@@ -1327,6 +1339,8 @@
       // table for the whole series.
       arenaTurn += 1;
       if (Physics.seedTurn) Physics.seedTurn((arenaTurn * 0x9E3779B1) >>> 0);
+      armedFor = playerId;
+      struck = false;
     }
     return {
       capacity: 1,
@@ -1351,8 +1365,7 @@
           cancelAim() { aim = null; },
           launch(launch) {
             aim = null;
-            const seat = seatFor(launch.playerId);
-            armSeat(seat);
+            setTableFor(launch.playerId);
             const signal = launch.gesture && launch.gesture.launchSignal || {};
             const power = (launch.powerEffects || []).find(effect => effect && effect.eventAdapterId);
             // A stored card is the only event a Battle flick may run: with one
@@ -1364,14 +1377,17 @@
               undefined, 1, power ? 'normal' : 'disabled');
             return new Promise(resolve => { airborne = { resolve }; });
           },
-          onAssignment(assignment) { laneSeat = seatFor(assignment.playerId) || laneSeat; },
+          // The lane is someone else's now, so the table is set for them before
+          // they touch it. Waiting for their flick would show them the last
+          // bottle lying where it fell, wearing their colour.
+          onAssignment(assignment) { setTableFor(assignment.playerId); },
           reset() {},
         };
       },
       enter(context) {
         if (live) return;
         live = true;
-        airborne = null; aim = null;
+        airborne = null; aim = null; armedFor = null; struck = true;
         gameScreen.classList.remove('hidden');
         gameScreen.classList.add('battle-lane');
         document.body.classList.add('battle-lane-live');
@@ -1386,7 +1402,9 @@
         resize();
         Physics.init(window.innerWidth, window.innerHeight, stageBottomInset());
         if (Physics.setFeel) Physics.setFeel(chosenFeel());
-        armSeat(roster[0] || null);
+        // A first heat opens on the first seat's table; the runtime's own
+        // assignment corrects it the moment it decides who actually leads.
+        setTableFor('seat-1');
         lastAt = performance.now();
         frameId = requestAnimationFrame(frame);
       },
@@ -1397,7 +1415,7 @@
         frameId = null;
         // A lane that leaves mid-flight resolves nothing: an attempt with no
         // reported pose never enters the ledger, so it can never be scored.
-        airborne = null; aim = null; laneSeat = null;
+        airborne = null; aim = null; laneSeat = null; armedFor = null; struck = true;
         gameScreen.classList.add('hidden');
         gameScreen.classList.remove('battle-lane');
         document.body.classList.remove('battle-lane-live');

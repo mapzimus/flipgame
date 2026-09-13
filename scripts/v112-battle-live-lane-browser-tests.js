@@ -98,6 +98,14 @@ async function scenario(){
     `The real bottle never moved: ${JSON.stringify(first)}`);
   report.firstFlick=first;
   check(/Scored|Flick to launch/.test(laneText()),`The first attempt never settled: ${laneText()}`);
+  // A relay has to set the table for whoever is next. Inviting a flick while the
+  // last bottle is still lying where it fell would hand the next competitor a
+  // fallen bottle wearing their own colour.
+  const waiting=bottle();
+  check(Math.abs(waiting.angle)<0.05&&waiting.x===report.restingBottle.x&&
+    Math.abs(waiting.y-report.restingBottle.y)<=8,
+    `The table was not set for the next competitor: ${JSON.stringify(waiting)} vs ${JSON.stringify(report.restingBottle)}`);
+  report.tableSetForNext=waiting;
   report.afterFirstFlick={lanes:laneText(),scores:scores(),heading:d.querySelector('#battle-body h2').textContent};
 
   // A relay hands the table to the other competitor. Five more flicks is enough
