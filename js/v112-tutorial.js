@@ -39,7 +39,7 @@
       instruction: 'Use the meter to read the exact launch signal.' },
     { id: 'settling', kind: 'attempt', objective: 'resolved', objectId: 'bottle',
       instruction: 'Let the object finish settling before the verdict.' },
-    { id: 'lives-turns', kind: 'card', title: 'Ten lives. Every one public.',
+    { id: 'lives-turns', kind: 'card', title: 'Ten lives. Everybody saw that.',
       instruction: 'A miss costs a life, then the turn moves on.' },
     { id: 'upright', kind: 'attempt', objective: 'upright-make', objectId: 'bottle',
       instruction: 'Land upright. Retry freely until it sticks.' },

@@ -137,7 +137,7 @@
       sky(c, '#d7d6ca', '#f1e7d4', '#908c80');
       rect(c, 0, 279, 960, 78, '#a6aca2'); line(c, [[0, 280], [960, 280]], '#75837d', 5);
       for (let x = 65; x < 960; x += 140) line(c, [[x, 290], [x, 355]], '#818f87', 2);
-      poster(c, 355, 126, 250, 'WURLD FLIP CHAMPIONSHIP', 'TEN LIVES. EVERY ONE PUBLIC.');
+      poster(c, 355, 126, 250, 'WURLD FLIP CHAMPIONSHIP', 'TEN LIVES. EVERYBODY SAW THAT.');
       lamp(c, 180, 62, '#6a7f78'); lamp(c, 780, 62, '#6a7f78');
       floor(c, '#a9a18e', '#8e877c'); table(c, '#b98252');
     },
@@ -379,7 +379,7 @@
         line(c, [[x, 289], [x, 64]], '#8d9da1', 7); rect(c, x - 58, 59, 116, 39, '#636c76', INK);
         for (let i = 0; i < 6; i++) rect(c, x - 49 + i * 17, 68, 12, 21, '#ede2bc');
       }
-      poster(c, 369, 104, 222, 'WFC / FINAL', 'TEN LIVES. EVERY ONE PUBLIC.');
+      poster(c, 369, 104, 222, 'WFC / FINAL', 'TEN LIVES. EVERYBODY SAW THAT.');
       person(c, 89, 359, '#c6b694', true); person(c, 868, 359, '#899c96'); table(c, '#ab8a64');
     },
     'space-station'(c, t) {

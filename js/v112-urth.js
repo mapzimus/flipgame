@@ -13,7 +13,7 @@
     championship: 'Wurld Flip Championship',
     championshipShort: 'WFC',
     standardFormat: 'WFC Standard',
-    refrain: 'Ten lives. Every one public.',
+    refrain: 'Ten lives. Everybody saw that.',
     storyTitle: 'Pressure Signal',
     physicsUnit: 'Field Physics Unit',
   });
