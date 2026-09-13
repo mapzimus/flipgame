@@ -54,10 +54,16 @@
         lanes.some(l=>!players.some(p=>p.id===l.playerId) || !state.activePlayerIds.includes(l.playerId))) throw new Error('Battle lane projection is invalid.');
     const team = ['doubles','team'].includes(state.config.formatId);
     const competitors = [...new Set(players.map(p=>team?p.teamId:p.id))];
+    const nameOf = id => team ? (id==='team-a'?'Team A':id==='team-b'?'Team B':id)
+      : (players.find(p=>p.id===id).displayName || 'Player');
     return freeze({ status:view.status, message:String(view.message || ''), hardware,
       heat:state.heatNumber, volley:state.volleyIndex+1, suddenDeath:!!state.suddenDeath,
       remainingMs:Math.max(0, state.config.rushDurationMs-state.elapsedMs), paceId:state.config.paceId,
-      scores:competitors.map(id=>({ id, label:team ? (id==='team-a'?'Team A':id==='team-b'?'Team B':id) : (players.find(p=>p.id===id).displayName || 'Player'),
+      // Whoever the rules named. A Battle that has run its heats and cannot say
+      // who won is not a finished match, it is an unread scoreboard.
+      winnerId:competitors.includes(state.winnerId) ? state.winnerId : null,
+      winnerLabel:competitors.includes(state.winnerId) ? nameOf(state.winnerId) : null,
+      scores:competitors.map(id=>({ id, label:nameOf(id),
         score:state.scores[id], heatWins:state.heatWins[id], charges:state.charges[id],
         offers:copy(state.powerOffers[id] || []), stored:copy(state.storedPowers[id]),
         playerId:players.find(p=>(team?p.teamId:p.id)===id).id,
@@ -162,7 +168,10 @@
       const focusKey=d.activeElement && d.activeElement.dataset && d.activeElement.dataset.battleFocus;
       body.replaceChildren(); message.textContent=s.message;
       d.getElementById('battle-back').disabled=s.busy || !!s.hud && ['finalizing','retryable'].includes(s.hud.status);
-      d.getElementById('battle-stage').classList.toggle('hidden',s.route!=='game');
+      // The stage is the pointer surface for a running heat. A series that is no
+      // longer taking launches must not leave an empty lane-sized hole behind.
+      d.getElementById('battle-stage').classList.toggle('hidden',
+        s.route!=='game' || !!(s.hud && s.hud.status!=='playing'));
       if(s.route==='setup') {
         for(const [key,title,choices] of [['formatId','Format',formats],['paceId','Pace',[{id:'volley',label:'Equal Volley'},{id:'rush',label:'Timed Rush'}]],['powerProfileId','Power cards',[{id:'sport',label:'Sport'},{id:'mayhem',label:'Mayhem'}]]]) {
           const field=element('fieldset'),legend=element('legend',title);field.append(legend);
@@ -178,8 +187,13 @@
         body.append(button('Begin Battle',()=>controller.start(),s.busy||!s.available||s.rosterCount!==format.count));
       } else if(s.hud) {
         const h=s.hud;
-        body.append(element('h2',`Heat ${h.heat} · ${h.suddenDeath?'Paired sudden death':h.paceId==='rush'?`${Math.ceil(h.remainingMs/1000)} seconds`:`Volley ${h.volley}`}`));
-        body.append(element('p',h.hardware.simultaneous?'Simultaneous lanes':'Alternating relay · wait for your active lane','battle-capability'));
+        // A finished series stops counting volleys and stops telling people to
+        // wait for a lane. It says who won.
+        const live=h.status==='playing';
+        body.append(element('h2',live
+          ? `Heat ${h.heat} · ${h.suddenDeath?'Paired sudden death':h.paceId==='rush'?`${Math.ceil(h.remainingMs/1000)} seconds`:`Volley ${h.volley}`}`
+          : h.winnerLabel ? `${h.winnerLabel} takes it` : `Heat ${h.heat} · final`));
+        if(live)body.append(element('p',h.hardware.simultaneous?'Simultaneous lanes':'Alternating relay · wait for your active lane','battle-capability'));
         const scores=element('div',null,'battle-scoreboard');
         for(const s of h.scores){const card=element('article',null,'battle-score');card.append(element('h3',s.label),element('strong',String(s.score)),element('p',`${s.heatWins} heats · ${s.charges}/3 charges`));
           if(s.stored)card.append(element('p',`Stored: ${labels[s.stored.id]||s.stored.id} · applies to an eligible upcoming launch`));

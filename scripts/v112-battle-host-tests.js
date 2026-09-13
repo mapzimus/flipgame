@@ -268,6 +268,11 @@ function testAWholeRelaySeriesReachesTheReward() {
     assert.equal(view.state.phase, 'complete');
     assert.ok(view.state.winnerId);
     assert.equal(view.state.heatResults.length >= 2, true);
+    // A finished match has to be able to say who won it.
+    const settled = Routes.project(view);
+    assert.equal(settled.winnerId, view.state.winnerId, 'The screen is told who won');
+    assert.equal(settled.winnerLabel,
+      settled.scores.find((entry) => entry.id === settled.winnerId).label);
     assert.deepEqual(view.lanes, [], 'A settled series shows no live lane');
     assert.ok(app.snapshot().profile.fxp > 0, 'The completed series was rewarded');
     assert.ok(woken.length > 3, 'The screen was woken as the series moved');
@@ -295,6 +300,8 @@ function testTwoVerifiedContactsPlayTwoLanesAtOnce() {
     const view = await awaitReward(context);
     assert.equal(view.status, 'settled');
     assert.ok(['team-a', 'team-b'].includes(view.state.winnerId), 'A 2v2 series is won by a team');
+    assert.equal(Routes.project(view).winnerLabel,
+      view.state.winnerId === 'team-a' ? 'Team A' : 'Team B', 'A team is named as the winner');
     assert.ok(app.snapshot().profile.fxp > 0);
   });
 }
