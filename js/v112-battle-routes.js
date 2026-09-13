@@ -132,7 +132,14 @@
           state.route='game'; emit(); // Reveal the persistent stage before host measures lane geometry.
           await host.start(ticket.handle, {stage:opts.getStage ? opts.getStage() : null});
           ticket=null; state.hud=project(host.snapshot());
-        } catch(error) { if(ticket) { await host.cancel(ticket.handle); state.route='setup'; } ticket=null; throw error; }
+        } catch(error) {
+          // Getting back to the lineup must not depend on the host still taking a
+          // cancel. A host that already dropped the reservation itself refuses
+          // this call, and letting that refusal escape would strand the player on
+          // a heat that never opened.
+          try { await host.cancel(ticket.handle); } catch (_) {}
+          ticket=null; state.route='setup'; state.hud=null; throw error;
+        }
       });
     }
     function choosePower(input) {
@@ -144,11 +151,21 @@
         ...(offered.scope==='target'?{targetId:input.targetId}:{})}); refresh(); });
     }
     function close() {
-      if (state.busy || (state.route==='game' && !state.hud) || (state.hud && ['finalizing','retryable'].includes(state.hud.status))) return Promise.resolve(false);
+      if (state.busy || (state.hud && ['finalizing','retryable'].includes(state.hud.status))) return Promise.resolve(false);
       return run(async()=>{
-        if (state.route==='game' && state.hud.status!=='settled') await host.abandon();
+        // A running series is the host's to release, so a refusal there keeps this
+        // screen where it is. A game route with no scoreboard has no series at
+        // all: whatever the host is still holding is released best effort, because
+        // refusing to leave a blank screen strands the player and this screen has
+        // no result to protect.
+        if (state.route==='game' && state.hud) {
+          if (state.hud.status!=='settled') await host.abandon();
+        } else if (state.route==='game') {
+          try { await host.abandon(); } catch (_) {}
+          if (ticket) { try { await host.cancel(ticket.handle); } catch (_) {} ticket=null; }
+        }
         if (ticket) await host.cancel(ticket.handle);
-        ticket=null; if(unsubscribe)unsubscribe(); unsubscribe=null; state.route='closed';
+        ticket=null; if(unsubscribe)unsubscribe(); unsubscribe=null; state.route='closed'; state.hud=null;
       });
     }
     return freeze({snapshot,open,configure,start,choosePower,close,refresh,
