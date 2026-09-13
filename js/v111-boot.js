@@ -62,6 +62,14 @@
     'js/v112-easter-eggs.js?v=' + VERSION,
     'js/v112-easter-presentation.js?v=' + VERSION,
     'js/v112-journey-routes.js?v=' + VERSION,
+    // Battle plays its series in the page, because only the page owns pointers,
+    // lanes and physics. These are the rules, input router and coordinator it
+    // needs; the private application still owns the reward for a finished one.
+    'js/v112-battle.js?v=' + VERSION,
+    'js/v112-activity.js?v=' + VERSION,
+    'js/v112-multipointer.js?v=' + VERSION,
+    'js/v112-battle-runtime.js?v=' + VERSION,
+    'js/v112-battle-host.js?v=' + VERSION,
     'js/v112-battle-routes.js?v=' + VERSION,
     'js/skins.js?v=111',
     'js/main.js?v=111',
