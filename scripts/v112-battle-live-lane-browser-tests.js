@@ -85,17 +85,22 @@ async function scenario(){
     // peak velocity instead of falling back to raw drag distance.
     for(let step=1;step<=6;step++){await sleep(9);send('pointermove',x+step*2,y-step*46);}
     send('pointerup',x+14,y-282);
-    // The flip is now the world's business: wait for the collider to settle it.
+    // The flip is now the world's business, so watch it while it is still in the
+    // air. Reading only the end state proves nothing: once the attempt resolves
+    // the relay sets the table for whoever is next, which puts the bottle back
+    // where this one started.
+    let peak=before;
     for(let i=0;i<400;i++){
       await sleep(25);
+      const at=bottle();
+      if(Math.abs(at.y-before.y)>Math.abs(peak.y-before.y))peak=at;
       if(!/In flight|Landing|Settling|Launching|Aiming/.test(laneText()))break;
     }
-    return {before,after:bottle()};
+    return {before,peak,after:bottle(),flew:Math.abs(peak.y-before.y)>60};
   }
 
   const first=await flick();
-  check(first.after.x!==first.before.x||first.after.y!==first.before.y||first.after.angle!==first.before.angle,
-    `The real bottle never moved: ${JSON.stringify(first)}`);
+  check(first.flew,`The real bottle never left the table: ${JSON.stringify(first)}`);
   report.firstFlick=first;
   check(/Scored|Flick to launch/.test(laneText()),`The first attempt never settled: ${laneText()}`);
   // A relay has to set the table for whoever is next. Inviting a flick while the
@@ -122,7 +127,40 @@ async function scenario(){
   report.scores=scores();
   check(flicks.length>=4,`The relay stopped inviting flicks after ${flicks.length}`);
   check(heading()!==opening,`The series never advanced past "${opening}"`);
-  check(report.scores.reduce((sum,entry)=>sum+entry.score,0)>=0,'Scores are readable');
+  check(report.scores.length===2&&report.scores.every(entry=>Number.isInteger(entry.score)&&entry.score>=0),
+    `Scores are not whole non-negative points: ${JSON.stringify(report.scores)}`);
+  // A cap land is worth two, so no series can outscore two points per attempt.
+  check(report.scores.reduce((sum,entry)=>sum+entry.score,0)<=flicks.length*2,
+    `${flicks.length} flicks cannot be worth ${JSON.stringify(report.scores)}`);
+
+  // A phone gets rotated mid-heat. The table has to be re-fitted to the new glass
+  // and the lane re-aimed with it, or the bottle flips against a floor that is no
+  // longer there and every later flick is measured against a lane that has moved.
+  const geometry=()=>({innerWidth:w.innerWidth,innerHeight:w.innerHeight,
+    groundY:w.eval('Math.round(Physics.getGroundY())'),bottleX:bottle().x,
+    stageWidth:Math.round(stage.getBoundingClientRect().width)});
+  const beforeResize=geometry();
+  frame.style.width='760px';frame.style.height='990px';
+  await sleep(500);
+  const afterResize=geometry();
+  report.resize={before:beforeResize,after:afterResize};
+  check(afterResize.innerWidth===760&&afterResize.innerWidth!==beforeResize.innerWidth,
+    `The glass never changed size: ${JSON.stringify(report.resize)}`);
+  check(afterResize.stageWidth>=afterResize.innerWidth-1,
+    `The Battle stage did not follow the resize: ${JSON.stringify(report.resize)}`);
+  check(Math.abs(afterResize.bottleX-afterResize.innerWidth/2)<=2,
+    `The table was not re-centred on the new glass: ${JSON.stringify(report.resize)}`);
+  check(afterResize.groundY!==beforeResize.groundY&&afterResize.groundY<afterResize.innerHeight,
+    `The floor did not follow the new glass: ${JSON.stringify(report.resize)}`);
+  check(!d.getElementById('battle-message').textContent,
+    `The resize broke the series: ${d.getElementById('battle-message').textContent}`);
+  if(/Flick to launch/.test(laneText())){
+    const rotated=await flick();
+    report.flickAfterResize=rotated;
+    check(rotated.flew,`A flick on the resized table never launched: ${JSON.stringify(rotated)}`);
+    check(/Scored|Flick to launch/.test(laneText()),
+      `The attempt after the resize never settled: ${laneText()}`);
+  }
 
   // Leaving must return the screen to the app and take the table back with it.
   click('battle-back');
@@ -166,6 +204,6 @@ const REPORTER=`window.report=async payload=>{for(let attempt=0;attempt<6;attemp
     const output=await Promise.race([result,new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('Browser timeout')),180000))]);
     if(output.error)throw new Error(output.error);
     console.log(JSON.stringify(output,null,2));
-    console.log('v1.12 Battle live lane browser test passed: a flick on the Battle stage moved the shipping bottle, the collider pose scored the series, the relay advanced, and leaving took the table back and awarded nothing.');
+    console.log('v1.12 Battle live lane browser test passed: a flick on the Battle stage moved the shipping bottle, the collider pose scored the series, the relay advanced, a mid-heat resize re-fitted the table and re-aimed the lane, and leaving took the table back and awarded nothing.');
   }finally{clearTimeout(timer);child.kill();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}
 })().catch(error=>{console.error(error);process.exitCode=1;});

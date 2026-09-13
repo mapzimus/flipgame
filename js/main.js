@@ -164,6 +164,14 @@
   function scheduleReflow() {
     clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => {
+      // A live Battle holds the table instead of a classic match, and its lane
+      // rectangles are client pixels, so the runtime has to be told the glass
+      // moved as well or it keeps aiming flicks at the old lane.
+      if (battleLane.live()) {
+        battleLane.reflow();
+        if (battleHost) battleHost.resize();
+        return;
+      }
       if (!gameStarted) return;
       Physics.reflow(window.innerWidth, window.innerHeight, stageBottomInset());
       // B2: only re-place the bottle when one is genuinely at rest — never mid-flick
@@ -945,16 +953,21 @@
     if (valid && result.value != null) input.value = String(result.value);
     return valid;
   }
+  function setupNameInputs() { return [...playerInputs.querySelectorAll('input[type="text"]')]; }
+  // Marks every field but announces nothing and takes no focus, so a screen that
+  // is not on the glass can ask whether the roster is usable without speaking
+  // over the screen the player is actually looking at.
+  function firstInvalidSetupName(inputs) {
+    return inputs.filter((input) => !validateNameInput(input))[0] || null;
+  }
   function validateSetupNames() {
-    const inputs = [...playerInputs.querySelectorAll('input[type="text"]')];
-    const invalid = inputs.filter((input) => !validateNameInput(input));
-    if (invalid.length) {
-      announce('Please choose another name', true);
-      showRosterPage('setup', Math.floor(inputs.indexOf(invalid[0]) / 8));
-      invalid[0].focus();
-      return false;
-    }
-    return true;
+    const inputs = setupNameInputs();
+    const invalid = firstInvalidSetupName(inputs);
+    if (!invalid) return true;
+    announce('Please choose another name', true);
+    showRosterPage('setup', Math.floor(inputs.indexOf(invalid) / 8));
+    invalid.focus();
+    return false;
   }
   playerInputs.addEventListener('focusout', (event) => {
     if (event.target && event.target.matches('input[type="text"]')) validateNameInput(event.target);
@@ -1343,12 +1356,20 @@
       struck = false;
     }
     return {
-      capacity: 1,
       // One physics surface plays one lane, so the lane covers the whole table
-      // and every competitor takes it in turn.
-      laneRects: () => [{ laneId: 'lane-1', left: 0, top: 0,
-        width: window.innerWidth, height: window.innerHeight }],
+      // and every competitor takes it in turn. The host measures that lane off
+      // the stage itself, which is the same glass this table is painted on.
+      capacity: 1,
       measure: () => ({ width: window.innerWidth, observedContacts: 1 }),
+      live: () => live,
+      // The glass changed size, so the table is re-fitted under a bottle that is
+      // only waiting. A flip already in the air keeps the world it was launched
+      // into: Physics holds the reflow back until that flip resolves.
+      reflow() {
+        if (!live) return;
+        Physics.reflow(window.innerWidth, window.innerHeight, stageBottomInset());
+        if (!airborne) Physics.resetBottle();
+      },
       remember(defs) { seats = new Map(defs.map((def, index) => ['seat-' + (index + 1), def])); },
       adapter(context) {
         return {
@@ -1430,15 +1451,20 @@
         laneAdapterFactory: context => battleLane.adapter(context),
         laneCapacity: battleLane.capacity,
         measureDisplay: battleLane.measure,
-        laneRects: () => battleLane.laneRects(),
         openLane: battleLane.enter,
         closeLane: battleLane.exit,
+        // A Battle is a game loop, so it runs on the paint clock and on a clock
+        // that only moves forward. Wall time can step sideways, and a Timed Rush
+        // horn must not be decided by the system clock being corrected.
+        requestFrame: callback => requestAnimationFrame(callback),
+        cancelFrame: id => cancelAnimationFrame(id),
+        now: () => performance.now(),
       });
     }
     FlipgameV112BattleRoutes.mount({ document,
       getHost: () => battleHost,
       getPlayers: () => {
-        if (!validateSetupNames()) return [];
+        if (firstInvalidSetupName(setupNameInputs())) return [];
         const defs = rowsToDefs(readRows());
         // The lane needs the look of each competitor; the Battle rules need only
         // their identity. Both read the same roster so a seat cannot drift.
