@@ -63,9 +63,12 @@
   // are distributions, not scripted outcomes: every tier retains genuine
   // variance and all shots are resolved by the ordinary physics engine.
   var CLASSIC = freeze({
-    easy:   { upMean: 2380, upSigma: 1750, sideSigma: 560, sideLimit: 980 },
-    medium: { upMean: 2430, upSigma: 1150, sideSigma: 390, sideLimit: 780 },
-    hard:   { upMean: 2500, upSigma: 500,  sideSigma: 210, sideLimit: 500 },
+    // Hard used to sit on the 2500 sweet spot with almost no shank. That is
+    // how a CPU heater can run for a whole match. Mishits are weak physical
+    // releases, not fabricated MISS verdicts.
+    easy:   { upMean: 2320, upSigma: 1850, sideSigma: 620, sideLimit: 1040, mishit: 0.16 },
+    medium: { upMean: 2410, upSigma: 1280, sideSigma: 440, sideLimit: 840, mishit: 0.07 },
+    hard:   { upMean: 2480, upSigma: 640,  sideSigma: 260, sideLimit: 560, mishit: 0.04 },
   });
 
   // Alien is a different physical technique: aim away from the ring to earn a
@@ -179,10 +182,18 @@
 
   function classicLaunch(source, difficulty, seed) {
     var profile = CLASSIC[difficulty];
+    if (profile.mishit && unit(seed, 0xbe5466cf) < profile.mishit) {
+      var side = (unit(seed, 0x34e90c6c) < 0.5 ? -1 : 1) *
+        (90 + Math.abs(gaussian(seed, 0xc97c50dd, 0x3f84d5b5)) * 70);
+      return {
+        vx: Math.max(-profile.sideLimit, Math.min(profile.sideLimit, side)),
+        vy: -(420 + Math.abs(gaussian(seed, 0x243f6a88, 0x85a308d3)) * 240),
+      };
+    }
     var up = profile.upMean + gaussian(seed, 0x243f6a88, 0x85a308d3) * profile.upSigma;
-    var side = gaussian(seed, 0x13198a2e, 0x03707344) * profile.sideSigma;
+    var sideAim = gaussian(seed, 0x13198a2e, 0x03707344) * profile.sideSigma;
     return {
-      vx: Math.max(-profile.sideLimit, Math.min(profile.sideLimit, side)),
+      vx: Math.max(-profile.sideLimit, Math.min(profile.sideLimit, sideAim)),
       vy: -Math.max(500, Math.min(4400, up)),
     };
   }

@@ -2168,17 +2168,36 @@
   let matchTelemetry = null;
   let flipTelemetry = null;
   const RARE_EVENT_LABELS = {
+    'rainbow-corkscrew': '🌈 RAINBOW CORKSCREW!',
     'rainbow-trail': '🌈 RAINBOW TRAIL!',
+    'half-full': '💧 HALF FULL!',
     'power-launch': '⚡ POWER LAUNCH!',
+    'fizz-jet': '🫧 FIZZ JET!',
+    'golden-flip': '✨ GOLDEN FLIP!',
+    'bouncy-bottle': '🟢 BOUNCY BOTTLE!',
+    earthquake: '🌋 EARTHQUAKE!',
     'moon-gravity': '🌙 MOON GRAVITY!',
     'ice-slide': '🧊 ICE SLIDE!',
     'alien-invasion': '👽 ALIEN INVASION!',
     'gravity-slam': '💥 GRAVITY SLAM!',
-    trampoline:  '🟢 TRAMPOLINE TABLE!',
+    trampoline: '🟢 TRAMPOLINE TABLE!',
     'wind-tunnel': '🌪️ WIND TUNNEL!',
+    'shrink-ray': '📉 SHRINK RAY!',
+    'portal-pair': '🌀 PORTAL PAIR!',
+    'tether-swing': '🪢 TETHER SWING!',
+    mitosis: '🦠 MITOSIS!',
     'double-flip': '🚀 DOUBLE FLIP!',
-    magnet:       '🧲 MAGNET LANDING!',
+    'ceiling-flip': '🔝 CEILING FLIP!',
+    'meteor-shower': '☄️ METEOR SHOWER!',
+    magnet: '🧲 MAGNET LANDING!',
     'heart-rush': '💗 HEART RUSH!',
+    'black-hole': '🕳️ BLACK HOLE!',
+    boomerang: '🪃 BOOMERANG!',
+    'roulette-table': '🎰 ROULETTE TABLE!',
+    rewind: '⏪ REWIND!',
+    plinko: '🎰 PLINKO DROP!',
+    'mirror-match': '🪞 MIRROR MATCH!',
+    'cap-toss': '🧢 CAP TOSS!',
     'life-drain': '☣️ LIFE DRAIN!',
   };
   function rareEventLabel(id) {
@@ -2549,14 +2568,18 @@
     loop(lastTime);
   }
 
-  // Playback speed: AI turns run fast, and once every human is out we blitz to
-  // the end so the all-CPU finish + stats come up quickly. 1 = real-time.
+  // Playback speed: ordinary AI turns run fast, and once every human is out
+  // we blitz to the end. Events and ON FIRE stay at 1× so a heater or a
+  // power-up is actually visible instead of a 4× smear.
   function gameSpeed() {
     if (game.practice) return 1;
     const humansLeft = game.players.some(p => !p.eliminated && !p.isAI);
-    if (!humansLeft) return 25;            // all humans out → fast-forward to the end
+    if (!humansLeft) return 25;
     const cur = game.currentPlayer();
-    if (cur && cur.isAI) return 4;         // an AI is shooting → speed it up
+    if (cur && cur.isAI) {
+      if (rareEventActive || plinkoFlipActive || cur.isOnFire) return 1;
+      return 4;
+    }
     return 1;
   }
 
