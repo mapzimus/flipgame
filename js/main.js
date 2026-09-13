@@ -72,6 +72,9 @@
   const v112PhysicsDriver = (v112App && window.FlipgameV112PhysicsDriver && window.Physics)
     ? FlipgameV112PhysicsDriver.create(Physics) : null;
   if (v112App && v112PhysicsDriver) FlipgameV112.attachPhysics(v112PhysicsDriver);
+  // Assigned once the Battle lane host is composed below. Until then the Battle
+  // route has no host and refuses to start a heat.
+  let battleHost = null;
   let v112OwnsMatch = false;
   function privateRewardAuthorityActive() { return v112OwnsMatch === true; }
   function abandonPrivateSession() {
@@ -222,6 +225,12 @@
   function isCharUnlocked(id) {
     const c = characterById(id);
     if (!c) return false;
+    // Whoever pays the rewards decides what is unlocked. A Flipper the private
+    // v1.12 authority has not granted must never be offered: it would refuse
+    // the reservation outright, and a classic match built on one would play to
+    // the end and earn nothing.
+    if (v112App && typeof v112App.isObjectAvailable === 'function' &&
+        !v112App.isObjectAvailable(id)) return false;
     if (window.FlipgameV111Content && window.FlipgameV111Progression) {
       const view = FlipgameV111Content.viewObject(FlipgameV111Progression.snapshot(), id);
       if (view) return !view.locked;
@@ -549,12 +558,34 @@
     syncRowChrome(row);
   }
 
+  // Paging changes visibility only: every seat remains in readRows/saveSetup.
+  const rosterPages = { setup: 0, ready: 0 };
+  function showRosterPage(kind, page) {
+    const container = kind === 'setup' ? playerInputs : document.getElementById('broadcast-ready-lineup');
+    const rows = [...container.children];
+    const pages = Math.max(1, Math.ceil(rows.length / 8));
+    rosterPages[kind] = Math.max(0, Math.min(pages - 1, page));
+    rows.forEach((row, index) => { row.hidden = Math.floor(index / 8) !== rosterPages[kind]; });
+    document.getElementById(`${kind}-roster-pages`).classList.toggle('hidden', pages === 1);
+    document.getElementById(`${kind}-roster-page`).textContent = `Entries ${rosterPages[kind] * 8 + 1}–${Math.min(rows.length, (rosterPages[kind] + 1) * 8)} of ${rows.length}`;
+    document.getElementById(`${kind}-roster-prev`).disabled = rosterPages[kind] === 0;
+    document.getElementById(`${kind}-roster-next`).disabled = rosterPages[kind] === pages - 1;
+  }
+  for (const kind of ['setup', 'ready']) {
+    for (const [direction, change] of [['prev', -1], ['next', 1]]) {
+      document.getElementById(`${kind}-roster-${direction}`).addEventListener('click', () => {
+        showRosterPage(kind, rosterPages[kind] + change);
+      });
+    }
+  }
+
   function renderFrom(defs) {
     // Re-rendering replaces the rows wholesale; an open picker would be left
     // holding a detached node whose mutations go nowhere.
     if (pickerRow) closeCharPicker();
     playerCount = defs.length;
     playerInputs.innerHTML = defs.map((d, i) => rowHtml(i, d)).join('');
+    showRosterPage('setup', rosterPages.setup);
     addPlayerBtn.disabled = playerCount >= 16;
     addPlayerBtn.tabIndex = playerCount >= 16 ? -1 : 0;
     const countLabel = document.getElementById('player-count-label');
@@ -587,6 +618,7 @@
     const defs = readRows();
     defs.push(seatDefaults(defs.length, defs.map((d) => d.color)));
     renderFrom(defs);
+    showRosterPage('setup', Math.floor((defs.length - 1) / 8));
     if (typeof saveSetup === 'function') saveSetup();
     const row = playerInputs.lastElementChild;
     if (row) row.querySelector('input[type="text"]')?.focus();
@@ -630,6 +662,7 @@
       const defs = readRows();
       defs.splice(removedIndex, 1);
       renderFrom(defs);
+      showRosterPage('setup', Math.floor(Math.max(0, removedIndex - 1) / 8));
       if (typeof saveSetup === 'function') saveSetup();
       const previous = playerInputs.children[Math.max(0, removedIndex - 1)];
       (previous?.querySelector('.remove-player-btn') || addPlayerBtn).focus();
@@ -917,6 +950,7 @@
     const invalid = inputs.filter((input) => !validateNameInput(input));
     if (invalid.length) {
       announce('Please choose another name', true);
+      showRosterPage('setup', Math.floor(inputs.indexOf(invalid[0]) / 8));
       invalid[0].focus();
       return false;
     }
@@ -1222,6 +1256,207 @@
   document.getElementById('broadcast-practice').addEventListener('click', () => {
     showBroadcastSetup(); practiceBtn.click();
   });
+  // ── Battle lane ────────────────────────────────────────────────────────────
+  // Battle borrows the one physics surface this build has: the live table, the
+  // real bottle, the real collider. The lane runtime decides whose launch this
+  // is; the adapter below only launches what it is handed and reports what
+  // settled. It never chooses a player, a score or a winner.
+  const battleLane = (() => {
+    let live = false;
+    let frameId = null;
+    let lastAt = 0;
+    let airborne = null;
+    let aim = null;
+    let arenaTurn = 0;
+    let armedFor = null;
+    let struck = true;
+    let seats = new Map();
+    let laneSeat = null;
+    // The reward authority renames every competitor to its seat position, so the
+    // look of a seat is found by where it sat in the lineup, never by the id the
+    // setup screen happened to generate for that row.
+    function seatFor(playerId) { return seats.get(String(playerId)) || null; }
+    function paint(dt) {
+      const seat = laneSeat || {};
+      Renderer.frame(dt, {
+        bottle: Physics.getBottle(), liquid: Physics.getLiquid(),
+        groundY: Physics.getGroundY(), drag: aim,
+        liquidColor: seat.color, skin: seat.skin || BASE_SKIN,
+        variantId: seat.variantId || null, cosmeticId: seat.cosmeticId || null,
+        playerName: seat.name || 'Player',
+        visualArenaId: visualArenaId || null,
+        awaitingFlick: !airborne,
+        eventRenderState: Physics.getEventRenderState
+          ? Physics.getEventRenderState(reduceMotionActive()) : null,
+        landingLifecycle: Physics.getLandingLifecycle ? Physics.getLandingLifecycle() : null,
+        eventBodies: Physics.getEventBodies ? Physics.getEventBodies() : [],
+        plinkoBoard: null, plinkoSnapshot: null,
+        target: Physics.getTarget ? Physics.getTarget() : null,
+        obstacles: Physics.getObstacles ? Physics.getObstacles() : null,
+        view: Physics.getViewHint ? Physics.getViewHint() : null,
+      });
+    }
+    function frame(now) {
+      if (!live) return;
+      frameId = requestAnimationFrame(frame);
+      const dt = Math.min((now - lastAt) / 1000, 0.05);
+      lastAt = now;
+      Physics.step(dt);
+      if (airborne) {
+        const result = Physics.checkLanding();
+        if (result) {
+          const info = Physics.getLastLandingInfo() || {};
+          // The pose is whatever the collider settled into. Nothing here may
+          // upgrade a miss or invent a cap.
+          const pose = result !== 'MAKE' ? 'miss' : (info.onCap ? 'cap' : 'upright');
+          const settled = airborne;
+          airborne = null;
+          // Whatever it landed as, it is lying there now and has to be set up
+          // again before anyone flicks it.
+          struck = true;
+          Sound.play(result === 'MAKE' ? 'make' : 'miss');
+          settled.resolve({ pose, reason: info.reason || null });
+        }
+      }
+      paint(dt);
+    }
+    // Set the table for whoever the lane belongs to now: their Flipper, their
+    // colour, an upright bottle and a fresh arena seed. A flip in the air is
+    // never disturbed, and a table already set for the same competitor is left
+    // alone so a waiting bottle does not twitch every frame.
+    function setTableFor(playerId) {
+      const seat = seatFor(playerId);
+      if (airborne) return;
+      if (!struck && armedFor === playerId) { laneSeat = seat || laneSeat; return; }
+      laneSeat = seat;
+      if (Physics.setProfile) {
+        Physics.setProfile(window.Skins && Skins.physicsFor
+          ? Skins.physicsFor(seat && seat.skin || BASE_SKIN) : null);
+      }
+      Physics.resetBottle();
+      // Battle keeps its own arena seed. The classic turn counter never advances
+      // during a Battle, so borrowing it would deal every competitor the same
+      // table for the whole series.
+      arenaTurn += 1;
+      if (Physics.seedTurn) Physics.seedTurn((arenaTurn * 0x9E3779B1) >>> 0);
+      armedFor = playerId;
+      struck = false;
+    }
+    return {
+      capacity: 1,
+      // One physics surface plays one lane, so the lane covers the whole table
+      // and every competitor takes it in turn.
+      laneRects: () => [{ laneId: 'lane-1', left: 0, top: 0,
+        width: window.innerWidth, height: window.innerHeight }],
+      measure: () => ({ width: window.innerWidth, observedContacts: 1 }),
+      remember(defs) { seats = new Map(defs.map((def, index) => ['seat-' + (index + 1), def])); },
+      adapter(context) {
+        return {
+          resources: context.resources,
+          // The aim trail is paint only: the runtime's qualifier reads the
+          // pointer samples itself, and nothing here feeds back into a launch.
+          beginAim() { aim = null; },
+          sampleAim(sample) {
+            const point = sample && sample.sample;
+            if (!point) return;
+            if (!aim) aim = { startX: point.clientX, startY: point.clientY, curX: point.clientX, curY: point.clientY };
+            else { aim.curX = point.clientX; aim.curY = point.clientY; }
+          },
+          cancelAim() { aim = null; },
+          launch(launch) {
+            aim = null;
+            setTableFor(launch.playerId);
+            const signal = launch.gesture && launch.gesture.launchSignal || {};
+            const power = (launch.powerEffects || []).find(effect => effect && effect.eventAdapterId);
+            // A stored card is the only event a Battle flick may run: with one
+            // forced adapter the engine rolls nothing of its own.
+            if (power && Physics.forceSpecialEvent) Physics.forceSpecialEvent(power.eventAdapterId);
+            Sound.unlock();
+            Sound.play('flick');
+            Physics.applyFlick(Number(signal.vx) || 0, Number(signal.vy) || 0,
+              undefined, 1, power ? 'normal' : 'disabled');
+            return new Promise(resolve => { airborne = { resolve }; });
+          },
+          // The lane is someone else's now, so the table is set for them before
+          // they touch it. Waiting for their flick would show them the last
+          // bottle lying where it fell, wearing their colour.
+          onAssignment(assignment) { setTableFor(assignment.playerId); },
+          reset() {},
+        };
+      },
+      enter(context) {
+        if (live) return;
+        live = true;
+        airborne = null; aim = null; armedFor = null; struck = true;
+        gameScreen.classList.remove('hidden');
+        gameScreen.classList.add('battle-lane');
+        document.body.classList.add('battle-lane-live');
+        // The runtime owns every pointer in a Battle, so the classic flick
+        // router must not be listening to the same glass.
+        if (Input.disable) Input.disable();
+        Renderer.init(canvas);
+        Renderer.setReduceMotion(reduceMotionActive());
+        const roster = ((context && context.config && context.config.players) || [])
+          .map(player => seatFor(player.id)).filter(Boolean);
+        if (window.Skins) Skins.preload(roster.map(seat => ({ id: seat.skin || BASE_SKIN, color: seat.color })));
+        resize();
+        Physics.init(window.innerWidth, window.innerHeight, stageBottomInset());
+        if (Physics.setFeel) Physics.setFeel(chosenFeel());
+        // A first heat opens on the first seat's table; the runtime's own
+        // assignment corrects it the moment it decides who actually leads.
+        setTableFor('seat-1');
+        lastAt = performance.now();
+        frameId = requestAnimationFrame(frame);
+      },
+      exit() {
+        if (!live) return;
+        live = false;
+        if (frameId) cancelAnimationFrame(frameId);
+        frameId = null;
+        // A lane that leaves mid-flight resolves nothing: an attempt with no
+        // reported pose never enters the ledger, so it can never be scored.
+        airborne = null; aim = null; laneSeat = null; armedFor = null; struck = true;
+        gameScreen.classList.add('hidden');
+        gameScreen.classList.remove('battle-lane');
+        document.body.classList.remove('battle-lane-live');
+        if (Input.enable) Input.enable();
+      },
+    };
+  })();
+  if (window.FlipgameV112BattleRoutes) {
+    if (v112App && window.FlipgameV112BattleHost) {
+      battleHost = FlipgameV112BattleHost.createBattleHost({
+        application: v112App,
+        laneAdapterFactory: context => battleLane.adapter(context),
+        laneCapacity: battleLane.capacity,
+        measureDisplay: battleLane.measure,
+        laneRects: () => battleLane.laneRects(),
+        openLane: battleLane.enter,
+        closeLane: battleLane.exit,
+      });
+    }
+    FlipgameV112BattleRoutes.mount({ document,
+      getHost: () => battleHost,
+      getPlayers: () => {
+        if (!validateSetupNames()) return [];
+        const defs = rowsToDefs(readRows());
+        // The lane needs the look of each competitor; the Battle rules need only
+        // their identity. Both read the same roster so a seat cannot drift.
+        battleLane.remember(defs);
+        return defs.map(entry => ({
+          id: entry.id, displayName: entry.name, type: entry.isAI ? 'cpu' : 'human',
+          flipperId: entry.skin, variantId: entry.variantId, cosmeticId: entry.cosmeticId,
+        }));
+      },
+      onOpen: () => broadcastHome.classList.add('hidden'),
+      onHome: showBroadcastHome,
+      onEditRoster: showBroadcastSetup,
+    });
+  } else {
+    document.getElementById('battle-open').addEventListener('click', () => {
+      document.getElementById('journey-home-status').textContent = 'Battle is not connected in this development build. Your progress has not changed.';
+    });
+  }
   // Presentation host is injected by the private activity composition. Missing
   // capability means no Story reservation, simulated victory or reward write.
   if (window.FlipgameV112JourneyRoutes) {
@@ -1248,7 +1483,7 @@
   function showAppRoute(screen) {
     document.getElementById('broadcast-home')?.classList.add('hidden');
     setupScreen.classList.add('hidden');
-    ['journey-screen', 'battle-screen', 'store-screen', 'tutorial-screen'].forEach((id) => {
+    ['journey-screen', 'store-screen', 'tutorial-screen'].forEach((id) => {
       document.getElementById(id)?.classList.toggle('hidden', id !== screen.id);
     });
     screen.classList.remove('hidden');
@@ -1281,9 +1516,6 @@
       grid.appendChild(button);
     });
   }
-  document.getElementById('journey-battle')?.addEventListener('click', () => {
-    showAppRoute(document.getElementById('battle-screen'));
-  });
   document.getElementById('journey-store')?.addEventListener('click', () => {
     renderStoreGrid();
     showAppRoute(document.getElementById('store-screen'));
@@ -1291,7 +1523,6 @@
   document.getElementById('journey-tutorial')?.addEventListener('click', () => {
     showAppRoute(document.getElementById('tutorial-screen'));
   });
-  document.getElementById('battle-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('battle-screen')));
   document.getElementById('store-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('store-screen')));
   document.getElementById('tutorial-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('tutorial-screen')));
   document.getElementById('tutorial-start-tour')?.addEventListener('click', () => {
@@ -1423,6 +1654,7 @@
       body.append(seat, name, kind); card.append(art, body); lineup.append(card);
       Renderer.drawPreview(art, entry.skin || 'bottle', entry.color);
     });
+    showRosterPage('ready', 0);
     document.getElementById('broadcast-ready-arena').textContent = document.getElementById('arena-preview-name').textContent;
     const details = document.getElementById('broadcast-ready-details'); details.replaceChildren();
     const summary = [['Format', document.querySelector('input[name="match-format"]:checked')?.nextElementSibling?.textContent || 'Classic'],

@@ -1238,3 +1238,30 @@ log, and defect ledger remain release history and are not rewritten.
 - Required tests: journey-authority application suite; release-gap
   qualification except the deliberate identity bump; existing composition and
   authority-boundary suites.
+## Revision 63 — Battle plays on the live table
+
+- Trigger: the Battle route, rules, runtime and private reward authority all
+  existed, but nothing in the page ever launched a bottle, so Battle announced
+  itself as unconnected.
+- New behavior: three authorities compose without overlapping. The lane runtime
+  plays the series in the page, because only the page owns pointers, lanes and
+  physics. `js/v112-battle-host.js` carries one reservation from setup to reward
+  and satisfies `FlipgameV112BattleHostV1`. The private composition reserves the
+  match and rejects any submitted series whose scores, heat wins, winner or
+  launch leases do not follow from its own attempt ledger. `js/main.js` supplies
+  the lane adapter: it borrows the one physics surface this build has — the real
+  table, the real bottle, the real collider — launches only what the runtime
+  hands it, and reports only the pose the collider settled into. It never
+  chooses a player, a score or a winner. Ordinary random events stay disabled;
+  a stored power card is the only event a Battle flick can run.
+- Presentation: the game canvas paints under a transparent Battle screen, the
+  Battle stage spans the viewport and takes every flick, the canvas itself stops
+  listening, and the live scoreboard collapses into a strip so the table keeps
+  the lower half of the glass.
+- Migration: none. Release identity stays v1.11/111.
+- Required tests: Battle host, Battle authority, Battle runtime/routes/outcome
+  suites; boot and service-worker precache agreement; the six-viewport Battle
+  roster browser suite; and `scripts/v112-battle-live-lane-browser-tests.js`,
+  which flicks the real stage in Chromium and requires the shipping bottle to
+  move, the relay to advance, the table to be set for whoever is next, and
+  leaving to award nothing.
