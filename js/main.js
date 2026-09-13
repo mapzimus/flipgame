@@ -1250,13 +1250,177 @@
   document.getElementById('broadcast-practice').addEventListener('click', () => {
     showBroadcastSetup(); practiceBtn.click();
   });
+  // ── Battle lane ────────────────────────────────────────────────────────────
+  // Battle borrows the one physics surface this build has: the live table, the
+  // real bottle, the real collider. The lane runtime decides whose launch this
+  // is; the adapter below only launches what it is handed and reports what
+  // settled. It never chooses a player, a score or a winner.
+  const battleLane = (() => {
+    let live = false;
+    let frameId = null;
+    let lastAt = 0;
+    let airborne = null;
+    let aim = null;
+    let arenaTurn = 0;
+    let seats = new Map();
+    let laneSeat = null;
+    function seatFor(playerId) { return seats.get(String(playerId)) || null; }
+    function paint(dt) {
+      const seat = laneSeat || {};
+      Renderer.frame(dt, {
+        bottle: Physics.getBottle(), liquid: Physics.getLiquid(),
+        groundY: Physics.getGroundY(), drag: aim,
+        liquidColor: seat.color, skin: seat.skin || BASE_SKIN,
+        variantId: seat.variantId || null, cosmeticId: seat.cosmeticId || null,
+        playerName: seat.name || 'Player',
+        visualArenaId: visualArenaId || null,
+        awaitingFlick: !airborne,
+        eventRenderState: Physics.getEventRenderState
+          ? Physics.getEventRenderState(reduceMotionActive()) : null,
+        landingLifecycle: Physics.getLandingLifecycle ? Physics.getLandingLifecycle() : null,
+        eventBodies: Physics.getEventBodies ? Physics.getEventBodies() : [],
+        plinkoBoard: null, plinkoSnapshot: null,
+        target: Physics.getTarget ? Physics.getTarget() : null,
+        obstacles: Physics.getObstacles ? Physics.getObstacles() : null,
+        view: Physics.getViewHint ? Physics.getViewHint() : null,
+      });
+    }
+    function frame(now) {
+      if (!live) return;
+      frameId = requestAnimationFrame(frame);
+      const dt = Math.min((now - lastAt) / 1000, 0.05);
+      lastAt = now;
+      Physics.step(dt);
+      if (airborne) {
+        const result = Physics.checkLanding();
+        if (result) {
+          const info = Physics.getLastLandingInfo() || {};
+          // The pose is whatever the collider settled into. Nothing here may
+          // upgrade a miss or invent a cap.
+          const pose = result !== 'MAKE' ? 'miss' : (info.onCap ? 'cap' : 'upright');
+          const settled = airborne;
+          airborne = null;
+          Sound.play(result === 'MAKE' ? 'make' : 'miss');
+          settled.resolve({ pose, reason: info.reason || null });
+        }
+      }
+      paint(dt);
+    }
+    function armSeat(seat) {
+      laneSeat = seat;
+      if (Physics.setProfile) {
+        Physics.setProfile(window.Skins && Skins.physicsFor
+          ? Skins.physicsFor(seat && seat.skin || BASE_SKIN) : null);
+      }
+      Physics.resetBottle();
+      // Battle keeps its own arena seed. The classic turn counter never advances
+      // during a Battle, so borrowing it would deal every competitor the same
+      // table for the whole series.
+      arenaTurn += 1;
+      if (Physics.seedTurn) Physics.seedTurn((arenaTurn * 0x9E3779B1) >>> 0);
+    }
+    return {
+      capacity: 1,
+      // One physics surface plays one lane, so the lane covers the whole table
+      // and every competitor takes it in turn.
+      laneRects: () => [{ laneId: 'lane-1', left: 0, top: 0,
+        width: window.innerWidth, height: window.innerHeight }],
+      measure: () => ({ width: window.innerWidth, observedContacts: 1 }),
+      remember(defs) { seats = new Map(defs.map(def => [String(def.id), def])); },
+      adapter(context) {
+        return {
+          resources: context.resources,
+          // The aim trail is paint only: the runtime's qualifier reads the
+          // pointer samples itself, and nothing here feeds back into a launch.
+          beginAim() { aim = null; },
+          sampleAim(sample) {
+            const point = sample && sample.sample;
+            if (!point) return;
+            if (!aim) aim = { startX: point.clientX, startY: point.clientY, curX: point.clientX, curY: point.clientY };
+            else { aim.curX = point.clientX; aim.curY = point.clientY; }
+          },
+          cancelAim() { aim = null; },
+          launch(launch) {
+            aim = null;
+            const seat = seatFor(launch.playerId);
+            armSeat(seat);
+            const signal = launch.gesture && launch.gesture.launchSignal || {};
+            const power = (launch.powerEffects || []).find(effect => effect && effect.eventAdapterId);
+            // A stored card is the only event a Battle flick may run: with one
+            // forced adapter the engine rolls nothing of its own.
+            if (power && Physics.forceSpecialEvent) Physics.forceSpecialEvent(power.eventAdapterId);
+            Sound.unlock();
+            Sound.play('flick');
+            Physics.applyFlick(Number(signal.vx) || 0, Number(signal.vy) || 0,
+              undefined, 1, power ? 'normal' : 'disabled');
+            return new Promise(resolve => { airborne = { resolve }; });
+          },
+          onAssignment(assignment) { laneSeat = seatFor(assignment.playerId) || laneSeat; },
+          reset() {},
+        };
+      },
+      enter(context) {
+        if (live) return;
+        live = true;
+        airborne = null; aim = null;
+        gameScreen.classList.remove('hidden');
+        gameScreen.classList.add('battle-lane');
+        document.body.classList.add('battle-lane-live');
+        // The runtime owns every pointer in a Battle, so the classic flick
+        // router must not be listening to the same glass.
+        if (Input.disable) Input.disable();
+        Renderer.init(canvas);
+        Renderer.setReduceMotion(reduceMotionActive());
+        const roster = ((context && context.config && context.config.players) || [])
+          .map(player => seatFor(player.id)).filter(Boolean);
+        if (window.Skins) Skins.preload(roster.map(seat => ({ id: seat.skin || BASE_SKIN, color: seat.color })));
+        resize();
+        Physics.init(window.innerWidth, window.innerHeight, stageBottomInset());
+        if (Physics.setFeel) Physics.setFeel(chosenFeel());
+        armSeat(roster[0] || null);
+        lastAt = performance.now();
+        frameId = requestAnimationFrame(frame);
+      },
+      exit() {
+        if (!live) return;
+        live = false;
+        if (frameId) cancelAnimationFrame(frameId);
+        frameId = null;
+        // A lane that leaves mid-flight resolves nothing: an attempt with no
+        // reported pose never enters the ledger, so it can never be scored.
+        airborne = null; aim = null; laneSeat = null;
+        gameScreen.classList.add('hidden');
+        gameScreen.classList.remove('battle-lane');
+        document.body.classList.remove('battle-lane-live');
+        if (Input.enable) Input.enable();
+      },
+    };
+  })();
   if (window.FlipgameV112BattleRoutes) {
+    if (v112App && window.FlipgameV112BattleHost) {
+      battleHost = FlipgameV112BattleHost.createBattleHost({
+        application: v112App,
+        laneAdapterFactory: context => battleLane.adapter(context),
+        laneCapacity: battleLane.capacity,
+        measureDisplay: battleLane.measure,
+        laneRects: () => battleLane.laneRects(),
+        openLane: battleLane.enter,
+        closeLane: battleLane.exit,
+      });
+    }
     FlipgameV112BattleRoutes.mount({ document,
       getHost: () => battleHost,
-      getPlayers: () => validateSetupNames() ? rowsToDefs(readRows()).map(entry => ({
-        id: entry.id, displayName: entry.name, type: entry.isAI ? 'cpu' : 'human',
-        flipperId: entry.skin, variantId: entry.variantId, cosmeticId: entry.cosmeticId,
-      })) : [],
+      getPlayers: () => {
+        if (!validateSetupNames()) return [];
+        const defs = rowsToDefs(readRows());
+        // The lane needs the look of each competitor; the Battle rules need only
+        // their identity. Both read the same roster so a seat cannot drift.
+        battleLane.remember(defs);
+        return defs.map(entry => ({
+          id: entry.id, displayName: entry.name, type: entry.isAI ? 'cpu' : 'human',
+          flipperId: entry.skin, variantId: entry.variantId, cosmeticId: entry.cosmeticId,
+        }));
+      },
       onOpen: () => broadcastHome.classList.add('hidden'),
       onHome: showBroadcastHome,
       onEditRoster: showBroadcastSetup,

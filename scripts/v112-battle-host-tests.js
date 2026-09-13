@@ -86,6 +86,21 @@ function lane() {
   };
 }
 
+// The physics surface a Battle borrows from the page. Only the order in which it
+// is taken and given back matters here.
+function table(options = {}) {
+  const log = [];
+  return {
+    log,
+    open(context) {
+      log.push('open');
+      if (options.failsToOpen) throw new Error('The table could not be brought up');
+      return context;
+    },
+    close() { log.push('close'); },
+  };
+}
+
 // Runs the host's frame clock by hand so a series never depends on wall time.
 function clock() {
   let pending = null;
@@ -109,14 +124,16 @@ function build(app, options = {}) {
   const surface = options.stage || stage();
   const track = options.lane || lane();
   const tick = options.clock || clock();
+  const lent = options.table || table();
   const host = Host.createBattleHost({
     application: app,
     laneAdapterFactory: track.factory,
     laneCapacity: options.laneCapacity || 1,
     measureDisplay: () => options.display || { width: 360, observedContacts: 1 },
+    openLane: lent.open, closeLane: lent.close,
     now: tick.now, requestFrame: tick.requestFrame, cancelFrame: tick.cancelFrame,
   });
-  return { host, stage: surface, lane: track, clock: tick };
+  return { host, stage: surface, lane: track, clock: tick, table: lent };
 }
 
 const roster = (count) => Array.from({ length: count }, (_, index) => ({
@@ -222,6 +239,7 @@ function testAWholeRelaySeriesReachesTheReward() {
 
     context.host.start(ticket.handle, { stage: context.stage });
     assert.ok(context.stage.attached() > 0, 'The runtime listens on the stage it was given');
+    assert.deepEqual(context.table.log, ['open'], 'A live heat opens the lane surface once');
     let view = context.host.snapshot();
     assert.equal(view.status, 'playing');
     assert.equal(view.state.schema, 'BattleStateV1');
@@ -244,6 +262,8 @@ function testAWholeRelaySeriesReachesTheReward() {
     assert.ok(app.snapshot().profile.fxp > 0, 'The completed series was rewarded');
     assert.ok(woken.length > 3, 'The screen was woken as the series moved');
     assert.ok(!context.clock.pending(), 'A settled series stops the frame clock');
+    assert.deepEqual(context.table.log, ['open', 'close'],
+      'A rewarded series gives the lane surface back');
     assert.equal(app.battle.snapshot().status, 'completed');
   });
 }
@@ -284,6 +304,29 @@ function testLeavingMidSeriesEarnsNothing() {
     assert.equal(app.battle.snapshot(), null, 'Leaving consumes the reservation');
     assert.ok(!context.clock.pending(), 'Leaving stops the frame clock');
     assert.equal(context.stage.attached(), 0, 'Leaving releases the stage listeners');
+    assert.deepEqual(context.table.log, ['open', 'close'], 'Leaving gives the lane surface back');
+  });
+}
+
+// The lane surface is the page's, not the host's. A heat that cannot get it must
+// leave nothing behind: no listeners, no frame clock, and no reservation the
+// route cannot cancel.
+function testALaneSurfaceThatWillNotOpenLeavesNothingBehind() {
+  return withHost({ table: table({ failsToOpen: true }) }, async (context, app) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'volley',
+      powerProfileId: 'sport', players: roster(2) });
+    assert.throws(() => context.host.start(ticket.handle, { stage: context.stage }),
+      /could not be brought up/);
+    assert.deepEqual(context.table.log, ['open', 'close']);
+    assert.equal(context.stage.attached(), 0, 'A failed heat listens to nothing');
+    assert.ok(!context.clock.pending(), 'A failed heat runs no frame clock');
+    assert.equal(context.host.snapshot(), null, 'A failed heat is not a series');
+    assert.equal(app.battle.snapshot().status, 'reserved',
+      'The reservation never went live, so it is still the route s to cancel');
+    context.host.cancel(ticket.handle);
+    assert.equal(app.battle.snapshot(), null);
+    assert.equal(app.snapshot().profile.fxp, 0);
   });
 }
 
@@ -305,10 +348,11 @@ async function run() {
   await testTheRouteAcceptsThisHost();
   await testOneLaneCapacityNeverClaimsSimultaneousPlay();
   await testAnUnstartedReservationCancels();
+  await testALaneSurfaceThatWillNotOpenLeavesNothingBehind();
   await testLeavingMidSeriesEarnsNothing();
   await testAWholeRelaySeriesReachesTheReward();
   await testTwoVerifiedContactsPlayTwoLanesAtOnce();
-  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a whole relay series and a two-lane 2v2 series from reservation to reward, and reservations released on cancel and on leaving.');
+  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, a whole relay series and a two-lane 2v2 series from reservation to reward, and reservations released on cancel and on leaving.');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

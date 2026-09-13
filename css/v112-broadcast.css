@@ -176,6 +176,38 @@
   .broadcast-ready-lineup { overflow-y: auto; min-block-size: 0; align-content: start; }
 }
 .battle-stage { position: relative; min-block-size: 300px; inline-size: 100%; touch-action: none; }
+/* A live Battle borrows the real table. The game canvas keeps painting the
+   bottle underneath while the Battle screen, now transparent, stays on top: the
+   stage spans the viewport so a flick anywhere over the table reaches the lane,
+   and only the controls above it still take a tap. The canvas itself stops
+   listening, because in a Battle the lane runtime owns every pointer. */
+body.battle-lane-live #battle-screen { z-index: 2; background: none; }
+body.battle-lane-live #game-screen.battle-lane { z-index: 1; }
+body.battle-lane-live #game-canvas { pointer-events: none; cursor: default; }
+body.battle-lane-live #game-screen.battle-lane #hud,
+body.battle-lane-live #game-screen.battle-lane #flip-hint,
+body.battle-lane-live #game-screen.battle-lane #practice-meter,
+body.battle-lane-live #game-screen.battle-lane #player-list { display: none; }
+body.battle-lane-live .battle-main { overflow: visible; pointer-events: none; }
+body.battle-lane-live #battle-message,
+body.battle-lane-live #battle-body { position: relative; z-index: 1; }
+body.battle-lane-live #battle-body button { pointer-events: auto; }
+body.battle-lane-live #battle-stage { position: fixed; inset: 0; min-block-size: 0; pointer-events: auto; }
+/* The table needs the lower half of the glass, so the live scoreboard collapses
+   into a strip of chips at the top and the footer stands down entirely. */
+body.battle-lane-live #battle-screen .app-footer { display: none; }
+body.battle-lane-live .battle-capability { display: none; }
+body.battle-lane-live #battle-body h2 { margin-block: 0 6px; font-size: 18px; }
+body.battle-lane-live #battle-message,
+body.battle-lane-live #battle-body h2,
+body.battle-lane-live #battle-body > p,
+body.battle-lane-live .battle-lane-status p { margin-block: 4px; text-shadow: 0 1px 3px #060c13; }
+body.battle-lane-live .battle-scoreboard { display: flex; flex-wrap: wrap; gap: 6px; }
+body.battle-lane-live .battle-score { flex: 1 1 130px; padding: 6px 9px; background: rgba(11,19,28,.84); }
+body.battle-lane-live .battle-score h3 { margin-block: 0 2px; font-size: 13px; }
+body.battle-lane-live .battle-score strong { font-size: 22px; }
+body.battle-lane-live .battle-score p { margin-block: 2px 0; font-size: 12px; }
+body.battle-lane-live .battle-main button { min-block-size: 40px; padding: 6px 10px; font-size: 13px; }
 @media (min-width: 1100px) { .battle-scoreboard { grid-template-columns: repeat(4,minmax(0,1fr)); } }
 @media (max-width: 767px) { .battle-scoreboard { grid-template-columns: minmax(0,1fr); } }
 @media (min-width: 1280px) {

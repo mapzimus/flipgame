@@ -14,6 +14,7 @@
 //   laneCapacity,         // lanes that factory can genuinely run at once
 //   measureDisplay,       // () -> {width, observedContacts}
 //   laneRects,            // (stage, count) -> lane rectangles in client pixels
+//   openLane/closeLane,   // bring the physics surface up and give it back
 //   requestFrame/cancelFrame/now,
 // })
 (function (root, factory) {
@@ -53,6 +54,8 @@
     if (typeof opts.laneAdapterFactory !== 'function') throw new TypeError('A lane adapter factory is required');
     var laneRectsFor = opts.laneRects || defaultLaneRects;
     var buildRuntime = opts.createRuntime || Runtime.createBattleRuntime;
+    var openLane = opts.openLane || null;
+    var closeLane = opts.closeLane || null;
     // A contact is only worth a lane if the injected adapter can actually run
     // that lane. One physics surface means one lane, whatever the glass reports.
     var laneCapacity = Math.max(1, Math.floor(opts.laneCapacity || 1));
@@ -64,6 +67,7 @@
     var runtime = null;
     var detachPointers = null;
     var frameId = null;
+    var laneOpen = false;
     var lastFrameAt = 0;
     var series = null;        // last BattleStateV1 this host saw
     var message = '';
@@ -115,21 +119,26 @@
       var stage = (context || {}).stage;
       if (!stage) throw new Error('Battle needs its stage before a heat can open');
       var config = reservation.config;
-      var rects = laneRectsFor(stage, config.hardware.activeLaneLimit);
-      runtime = buildRuntime({ matchId: config.matchId, config: config, laneRects: rects,
-        laneAdapterFactory: opts.laneAdapterFactory, captureTarget: stage,
-        onError: function (error) { message = error && error.message ? error.message : String(error); },
-      });
-      application.battle.start(handle);
-      // From here the reservation is live, so a failure has to release it rather
-      // than leave a match nobody can finish or leave.
+      // A failure from here has to give back whatever it took rather than leave
+      // a lane on screen, or a match nobody can finish or leave.
+      var live = false;
       try {
+        // The surface has to exist before lane geometry is measured against it
+        // or an attempt is launched into it.
+        if (openLane) { laneOpen = true; openLane({ stage: stage, config: config }); }
+        var rects = laneRectsFor(stage, config.hardware.activeLaneLimit);
+        runtime = buildRuntime({ matchId: config.matchId, config: config, laneRects: rects,
+          laneAdapterFactory: opts.laneAdapterFactory, captureTarget: stage,
+          onError: function (error) { message = error && error.message ? error.message : String(error); },
+        });
+        application.battle.start(handle);
+        live = true;
         detachPointers = runtime.attach(stage);
         runtime.startHeat();
         series = copy(runtime.snapshot().battle);
       } catch (error) {
         stopRuntime();
-        application.battle.abandon('start-failed');
+        if (live) application.battle.abandon('start-failed');
         reservation = null; series = null; wake();
         throw error;
       }
@@ -192,10 +201,16 @@
       return submission;
     }
 
+    // Every path out of a running series comes through here, so the lane is
+    // given back exactly once however the series ended.
     function stopRuntime() {
       if (frameId != null) { cancelFrame(frameId); frameId = null; }
       if (detachPointers) { try { detachPointers(); } catch (_) {} detachPointers = null; }
       if (runtime) { try { runtime.destroy(); } catch (_) {} runtime = null; }
+      if (laneOpen) {
+        laneOpen = false;
+        if (closeLane) { try { closeLane(); } catch (_) {} }
+      }
     }
 
     function choosePower(input) {
