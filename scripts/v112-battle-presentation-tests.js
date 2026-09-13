@@ -22,7 +22,15 @@ function fakeDocument(ids) {
     const node = {
       tagName: String(tag).toUpperCase(), children: [], parent: null, dataset: {},
       classes: new Set(), disabled: false, type: '', listeners: new Map(),
-      _text: '',
+      _text: '', _className: '',
+      // mount() styles nodes by assigning className, and selectors are how this
+      // file reads the screen back, so the two have to be the same list.
+      get className() { return this._className; },
+      set className(value) {
+        this._className.split(' ').filter(Boolean).forEach((name) => node.classes.delete(name));
+        this._className = String(value == null ? '' : value);
+        this._className.split(' ').filter(Boolean).forEach((name) => node.classes.add(name));
+      },
       get textContent() {
         return this.children.length
           ? this.children.map((child) => child.textContent).join('') : this._text;
@@ -179,6 +187,13 @@ async function testAFinishedSeriesShowsAResultAndNothingLive() {
     'A finished series stops telling people to wait');
   assert.doesNotMatch(view.body(), /charges/,
     'Charges only matter to a launch that can still be armed');
+  // A series is won on heats. Leading the result with the last heat's points reads
+  // as the series score, and on a 2-1 series those two numbers disagree.
+  const cards = view.doc.getElementById('battle-body').querySelectorAll('article.battle-score');
+  const decided = view.state.heatWins;
+  assert.deepEqual(cards.map((card) => card.querySelectorAll('strong')[0].textContent),
+    Object.values(decided).map(String), 'A result leads with the heats that decided it');
+  assert.match(view.body(), /in the last heat/, 'The final points are still reported');
   assert.equal(view.laneBoxes(), 0, 'A result has no lane-sized hole in it');
   assert.equal(view.stageHidden(), true, 'A settled series gives the glass back');
   assert.equal(view.backDisabled(), false, 'A settled series can be left');

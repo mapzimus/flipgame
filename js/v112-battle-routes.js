@@ -224,10 +224,14 @@
           : h.winnerLabel ? `${h.winnerLabel} takes it` : `Heat ${h.heat} · final`));
         if(live)body.append(element('p',h.hardware.simultaneous?'Simultaneous lanes':'Alternating relay · wait for your active lane','battle-capability'));
         const scores=element('div',null,'battle-scoreboard');
-        // A charge is progress towards an offer, and offers only apply to a launch
-        // that has not been armed. On a result there are none left to arm, so the
-        // count is a number about nothing.
-        for(const s of h.scores){const card=element('article',null,'battle-score');card.append(element('h3',s.label),element('strong',String(s.score)),element('p',live?`${s.heatWins} heats · ${s.charges}/3 charges`:`${s.heatWins} heats`));
+        // Points are a heat's currency and heats are the series': a live heat leads
+        // with the points being played for, and a result leads with the heats that
+        // decided it. A charge is progress towards an offer, and offers only apply
+        // to a launch that has not been armed, so a result has none left to count.
+        for(const s of h.scores){const card=element('article',null,'battle-score');
+          card.append(element('h3',s.label),element('strong',String(live?s.score:s.heatWins)),
+            element('p',live?`${s.heatWins} heats · ${s.charges}/3 charges`
+              :`${s.heatWins===1?'1 heat':`${s.heatWins} heats`} won · ${s.score} in the last heat`));
           scores.append(card);
           // Cards only apply to a launch that has not been armed. Once the series
           // stops taking launches there is nothing left for one to affect, so an
