@@ -215,12 +215,19 @@
         // The live heading is the only text a lane-mode Battle shows, so it is
         // where a Rush clock has to admit it is a gameplay clock. Counting plain
         // seconds reads as wall time, which a relay heat is not.
+        // Sudden death is paired on hardware that can run two lanes at once. A
+        // relay owns one lane, so it takes those two turns one after the other,
+        // and calling that paired describes play this table cannot give.
+        const suddenLabel=h.hardware.activeLaneLimit>1?'Paired sudden death':'Sudden death';
         body.append(element('h2',live
-          ? `Heat ${h.heat} · ${h.suddenDeath?'Paired sudden death':h.paceId==='rush'?`${Math.ceil(h.remainingMs/1000)}s gameplay clock`:`Volley ${h.volley}`}`
+          ? `Heat ${h.heat} · ${h.suddenDeath?suddenLabel:h.paceId==='rush'?`${Math.ceil(h.remainingMs/1000)}s gameplay clock`:`Volley ${h.volley}`}`
           : h.winnerLabel ? `${h.winnerLabel} takes it` : `Heat ${h.heat} · final`));
         if(live)body.append(element('p',h.hardware.simultaneous?'Simultaneous lanes':'Alternating relay · wait for your active lane','battle-capability'));
         const scores=element('div',null,'battle-scoreboard');
-        for(const s of h.scores){const card=element('article',null,'battle-score');card.append(element('h3',s.label),element('strong',String(s.score)),element('p',`${s.heatWins} heats · ${s.charges}/3 charges`));
+        // A charge is progress towards an offer, and offers only apply to a launch
+        // that has not been armed. On a result there are none left to arm, so the
+        // count is a number about nothing.
+        for(const s of h.scores){const card=element('article',null,'battle-score');card.append(element('h3',s.label),element('strong',String(s.score)),element('p',live?`${s.heatWins} heats · ${s.charges}/3 charges`:`${s.heatWins} heats`));
           scores.append(card);
           // Cards only apply to a launch that has not been armed. Once the series
           // stops taking launches there is nothing left for one to affect, so an
