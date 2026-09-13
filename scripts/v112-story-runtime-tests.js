@@ -1231,7 +1231,7 @@ function testViewsHideSecretsAndUseAuthoredCopy() {
   const card = View.broadcastCard({ attempt });
   assert.equal(card.storyTitle, 'Pressure Signal');
   assert.equal(card.headline, 'WFC Qualifier');
-  assert.equal(card.refrain, 'Ten lives. Everybody saw that.');
+  assert.equal(card.refrain, 'Ten lives. Try not to yeet it.');
   assert.equal(card.rival, null);
   assert.deepEqual(View.broadcastCard({ attempt }), card,
     'authored copy is deterministic rather than randomly misspelled');

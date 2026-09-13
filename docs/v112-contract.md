@@ -27,7 +27,7 @@ owners, accompanied by migration/test changes, and acknowledged before merge.
   scene.
 - Flipgame is Urth's dominant pressure sport. Its premier event is the
   **Wurld Flip Championship** (WFC); **WFC Standard** is Normal physics,
-  eight entries and ten lives. Refrain: **Ten lives. Everybody saw that.**
+  eight entries and ten lives. Refrain: **Ten lives. Try not to yeet it.**
 - `Urth` and `Wurld` are fixed canon spellings. In the championship name,
   `Wurld` is the only altered word: `Flip Championship` uses normal spelling.
   Other altered spellings use one narrow timeline quirk: a word whose standard

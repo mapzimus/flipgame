@@ -13,7 +13,7 @@
     championship: 'Wurld Flip Championship',
     championshipShort: 'WFC',
     standardFormat: 'WFC Standard',
-    refrain: 'Ten lives. Everybody saw that.',
+    refrain: 'Ten lives. Try not to yeet it.',
     storyTitle: 'Pressure Signal',
     physicsUnit: 'Field Physics Unit',
   });

@@ -1211,3 +1211,13 @@ log, and defect ledger remain release history and are not rewritten.
 - Migration: none. No save, reward, physics, or identity change.
 - Required tests: Story broadcast-card copy stays deterministic and reads the
   new refrain; browser bundle is regenerated from source.
+
+## Revision 61 — Owner picked the yeet refrain
+
+- Trigger: after Revision 60, the product owner chose **Try not to yeet it**
+  over **Everybody saw that.**
+- New behavior: the official WFC Standard refrain is **Ten lives. Try not to
+  yeet it.** Flavor only. Same surfaces and no rule change.
+- Migration: none.
+- Required tests: Story broadcast-card copy stays deterministic and reads the
+  yeet refrain; browser bundle is regenerated from source.
