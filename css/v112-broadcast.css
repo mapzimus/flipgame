@@ -152,6 +152,25 @@
   #customize-panel { grid-column: 2; grid-row: 3; overflow-y: auto; }
   .customize-main .picker-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
 }
+.player-input-row[hidden], .broadcast-ready-entry[hidden] { display: none !important; }
+.roster-pages { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-block-start: 6px; }
+.roster-pages button { min-block-size: 48px; padding: 8px 14px; }
+.roster-pages span { text-align: center; font-size: 13px; }
+.battle-main { inline-size: min(100%,1480px); margin-inline: auto; overflow-y: auto; }
+.battle-main fieldset { border: 1px solid #637383; border-radius: 12px; padding: 12px; margin: 0 0 14px; min-inline-size: 0; }
+.battle-main legend { font-weight: 800; padding-inline: 8px; }
+.battle-main button { min-block-size: 48px; padding: 10px 16px; margin: 3px; white-space: normal; overflow-wrap: anywhere; }
+.battle-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.battle-options button[aria-pressed="true"] { color: #101c29; background: #dfb774; border-color: #dfb774; }
+.battle-capability { padding: 12px; border-inline-start: 4px solid #dfb774; background: #172b3d; }
+.battle-scoreboard { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.battle-score { background: #162a3a; border: 1px solid #43586b; border-radius: 12px; padding: 14px; overflow-wrap: anywhere; }
+.battle-score h3 { margin-block: 0 8px; }
+.battle-score strong { font-size: 36px; }
+.battle-lane-status { display: flex; flex-wrap: wrap; gap: 16px; }
+.battle-stage { position: relative; min-block-size: 300px; inline-size: 100%; touch-action: none; }
+@media (min-width: 1100px) { .battle-scoreboard { grid-template-columns: repeat(4,minmax(0,1fr)); } }
+@media (max-width: 767px) { .battle-scoreboard { grid-template-columns: minmax(0,1fr); } }
 @media (min-width: 1280px) {
   .setup-main { overflow-y: auto; }
   .setup-layout { min-block-size: 0; }
