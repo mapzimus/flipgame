@@ -1221,3 +1221,20 @@ log, and defect ledger remain release history and are not rewritten.
 - Migration: none.
 - Required tests: Story broadcast-card copy stays deterministic and reads the
   yeet refrain; browser bundle is regenerated from source.
+
+## Revision 62 — Journey authority and live private session host
+
+- Trigger: recovery handover required the interrupted journey-authority slice
+  to be repaired, then real `main.js` launches connected to one private
+  application without parallel reward writers.
+- New behavior: the browser application accepts Classic, Cup, and Team Clash,
+  plus Normal/Insane/Alien physics. Story, Tutorial, and Battle are advertised
+  as supported application routes. Live `main.js` attaches the physics driver
+  and calls `FlipgameV112.beginSession` for ordinary matches; Records and
+  Achievements writers are skipped while that session owns rewards. Arena
+  Select and the achievement gallery consume the canonical v1.12 providers.
+- Migration: none. Release identity stays v1.11/111 until a later approved
+  candidate.
+- Required tests: journey-authority application suite; release-gap
+  qualification except the deliberate identity bump; existing composition and
+  authority-boundary suites.

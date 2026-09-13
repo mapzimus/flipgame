@@ -44,6 +44,8 @@
     'js/v112-plinko-matter.js?v=' + VERSION,
     'js/v112-plinko-live.js?v=' + VERSION,
     'js/physics.js?v=111',
+    'js/v112-physics-driver.js?v=' + VERSION,
+    'js/v112-hud-projection.js?v=' + VERSION,
     // Staged v1.12 development dependency. The release integrator will fold
     // this into the v1.12 cache identity and precache at the release gate.
     'js/v112-cpu.js?v=' + VERSION,
