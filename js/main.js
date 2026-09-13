@@ -75,6 +75,7 @@
   // Assigned once the Battle lane host is composed below. Until then the Battle
   // route has no host and refuses to start a heat.
   let battleHost = null;
+  let journeyHost = null;
   let v112OwnsMatch = false;
   function privateRewardAuthorityActive() { return v112OwnsMatch === true; }
   function abandonPrivateSession() {
@@ -91,6 +92,12 @@
     if (!v112App || typeof v112App.beginSession !== 'function') return false;
     const options = opts || {};
     if (options.lab || options.forced || options.testData) return false;
+    // Story already reserved the match. A second beginSession would double-book
+    // the coordinator. Tour is Test Data and never opens a reward session.
+    if (options.reservedSession) {
+      v112OwnsMatch = options.tour !== true;
+      return v112OwnsMatch;
+    }
     const activityId = options.practice ? 'practice' : 'free-play';
     const formatId = options.format === 'team' || options.format === 'team-clash' ? 'team-clash'
       : options.format === 'cup' ? 'cup' : 'classic';
@@ -924,6 +931,22 @@
     else nextMysteryReveal();
   });
 
+  function rosterToLiveDefs(roster) {
+    return (roster || []).map((entry, index) => {
+      const skin = entry.flipperId || entry.objectId || entry.skin || BASE_SKIN;
+      const flavor = FLAVORS[index % FLAVORS.length];
+      return {
+        id: entry.id || ('seat-' + (index + 1)),
+        name: entry.displayName || entry.name || ('Player ' + (index + 1)),
+        color: flavor.color,
+        isAI: entry.human === false || entry.kind === 'cpu' || entry.isAI === true,
+        skin,
+        variantId: entry.variantId || flavorIdForColor(flavor.color),
+        cosmeticId: entry.cosmeticId || null,
+        teamId: entry.teamId || entry.allianceId || null,
+      };
+    });
+  }
   function rowsToDefs(rows) {
     return rows.map((r) => {
       const color = normalizeColor(r.color || defaultColorFor(r.charId || defaultCharId()));
@@ -1546,18 +1569,66 @@
   // Presentation host is injected by the private activity composition. Missing
   // capability means no Story reservation, simulated victory or reward write.
   if (window.FlipgameV112JourneyRoutes) {
+    if (v112App && window.FlipgameV112JourneyHost) {
+      journeyHost = FlipgameV112JourneyHost.createJourneyHost({
+        application: v112App,
+        startLiveMatch(spec) {
+          broadcastHome.classList.add('hidden');
+          document.getElementById('journey-screen')?.classList.add('hidden');
+          if (spec.kind === 'tour') {
+            const attempt = spec.tour && spec.tour.activeAttempt;
+            const human = spec.tour && spec.tour.request && spec.tour.request.roster
+              ? spec.tour.request.roster[0] : { displayName: 'Player', flipperId: 'bottle' };
+            const skin = (attempt && attempt.flipperId) || human.flipperId || BASE_SKIN;
+            const eventId = attempt && attempt.eventSelection && attempt.eventSelection.eventId;
+            startGame(rosterToLiveDefs([{
+              id: human.id || 'tour-human', displayName: human.displayName || 'Player',
+              flipperId: skin, variantId: human.variantId, cosmeticId: human.cosmeticId, human: true,
+            }]), 1, {
+              practice: true, testData: true, reservedSession: true, tour: true,
+              forced: !!eventId, labEventId: eventId || null, startingLives: 10,
+            });
+            return;
+          }
+          const request = spec.request;
+          if (!request || !Array.isArray(request.roster)) {
+            throw new Error('A prescribed Story request is required');
+          }
+          startGame(rosterToLiveDefs(request.roster), 1, {
+            format: 'classic',
+            startingLives: request.rulesOptions && request.rulesOptions.startingLives,
+            physicsModeId: request.physicsModeId,
+            insanity: request.physicsModeId === 'insane',
+            visualArenaId: (request.rulesOptions && request.rulesOptions.arenaId)
+              || (request.activityContext && request.activityContext.arenaId),
+            reservedSession: true, journey: 'story',
+            eventsDisabled: !!(request.rulesOptions && request.rulesOptions.events
+              && request.rulesOptions.events.enabled === false),
+          });
+        },
+        closeLiveMatch() {
+          gameStarted = false;
+          if (loopId) { cancelAnimationFrame(loopId); loopId = null; }
+          gameScreen.classList.add('hidden');
+          document.getElementById('journey-screen')?.classList.remove('hidden');
+        },
+      });
+    }
     FlipgameV112JourneyRoutes.mount({ document,
-      getHost: () => window.FlipgameV112JourneyHost || null,
+      getHost: () => journeyHost,
       getHumans: count => {
         if (!validateSetupNames()) return [];
-        return rowsToDefs(readRows()).filter(entry => !entry.isAI).slice(0, count).map(entry => ({
-          id: entry.id, displayName: entry.name, flipperId: entry.skin,
+        return rowsToDefs(readRows()).filter(entry => !entry.isAI).slice(0, count).map((entry, index) => ({
+          id: entry.id || ('human-' + (index + 1)), displayName: entry.name, flipperId: entry.skin,
           variantId: entry.variantId, cosmeticId: entry.cosmeticId,
         }));
       },
       onOpen: () => broadcastHome.classList.add('hidden'),
       onHome: showBroadcastHome,
-      onPlay: () => broadcastHome.classList.add('hidden'),
+      onPlay: () => {
+        broadcastHome.classList.add('hidden');
+        if (journeyHost && typeof journeyHost.enterLive === 'function') journeyHost.enterLive();
+      },
     });
   } else {
     for (const id of ['journey-story', 'journey-rivals', 'journey-tour']) {
@@ -2157,6 +2228,13 @@
   function resolveGameFlip(result, landingInfo) {
     const meta = landingMeta(landingInfo);
     bridgeLandingInfo = landingInfo || null;
+    if (currentMatchOptions.tour && journeyHost) {
+      const pose = result === 'MAKE' ? (meta.onCap ? 'cap' : 'upright') : 'miss';
+      try {
+        journeyHost.resolveTourLanding({ phase: 'resolved', result, pose });
+      } catch (error) { console.warn('Tour landing was not accepted', error); }
+      return;
+    }
     const handled = v111Bridge('resolveFlip', {
       game,
       result,
@@ -2179,7 +2257,7 @@
 
   function predictedCpuEvent(seed) {
     if (currentMatchOptions.eventsDisabled) return null;
-    if (currentMatchOptions.lab && currentMatchOptions.labEventId) {
+    if ((currentMatchOptions.lab || currentMatchOptions.tour) && currentMatchOptions.labEventId) {
       return String(currentMatchOptions.labEventId);
     }
     if (currentMatchOptions.arenaProfile?.physicsProfileId) {
@@ -3700,11 +3778,21 @@
     // Typed test commands mark the session as Test Data.
     testDataFlipActive = false;
     beginFlipTelemetry();
-    if (currentMatchOptions.lab && Physics.forceSpecialEvent) {
+    if ((currentMatchOptions.lab || currentMatchOptions.tour) && Physics.forceSpecialEvent) {
       if (currentMatchOptions.labEventId) Physics.forceSpecialEvent(currentMatchOptions.labEventId);
       testDataFlipActive = true;
       matchTestDataActive = true;
       currentMatchOptions.testData = true;
+      if (currentMatchOptions.tour && journeyHost) {
+        try {
+          journeyHost.qualifyTourLaunch({
+            qualifiedManual: !game.currentPlayer()?.isAI,
+            normalizedPower: lastFlickPower || 0.6,
+            normalizedDirection: 0,
+            pointerType: 'touch',
+          }, 10000);
+        } catch (error) { console.warn('Tour launch was not accepted', error); }
+      }
     } else if (!mirrorClaim && !currentMatchOptions.eventsDisabled && currentMatchOptions.arenaProfile?.physicsProfileId && Physics.forceSpecialEvent) {
       activeArenaPhysicsId = currentMatchOptions.arenaProfile.physicsProfileId;
       Physics.forceSpecialEvent(activeArenaPhysicsId);

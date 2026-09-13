@@ -36,8 +36,11 @@
 //    submitResult(handle,state). A submitted series is rejected unless Battle's
 //    own validator re-derives its scores, heat wins, winner and launch leases
 //    from its attempt ledger under exactly the reserved setup.
-// Story views and prescribed requests are composed; start them through
-// createStoryRequest rather than beginSession.
+// Story views and prescribed requests are composed. prepareStory reserves
+// through StoryRuntime.start, startPreparedStory installs that SAME request
+// without a second coordinator.start, and cancelPreparedStory abandons an
+// unstarted reservation. Tour is Test Data: startTour / acknowledgeTour /
+// launchTourAttempt / skipTour never write FXP, FC or ownership.
 function createBrowserApplication(require, platform, sourceIdentity) {
   'use strict';
   var Rules = require('./v112-rules.js');
@@ -48,6 +51,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   var Names = require('./v111-name-policy.js');
   var Runtime = require('./v112-progression-runtime.js');
   var Story = require('./v112-story-runtime.js');
+  var View = require('./v112-story-view.js');
   var Training = require('./v112-training.js');
   var Achievements = require('./v112-achievements.js');
   var diagnostics = require('./v112-data.js').createDataPipeline();
@@ -64,6 +68,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   var physicsDriver = null;
   var detachPhysics = null;
   var storyRuntime = null;
+  var storyReservation = null;
+  var tour = null;
   var closed = false;
   var warning = null;
 
@@ -91,6 +97,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       ready: !closed, writer: progression.writerStatus(), warning: warning,
       profile: progression.snapshot(), pendingReveals: progression.pendingReveals(),
       battle: battleSnapshot(),
+      story: storyReservation ? { handle: storyReservation.handle, matchId: storyReservation.request.matchId,
+        status: storyReservation.status } : null,
+      tour: tour ? tour.snapshot() : null,
       session: session ? { matchId: session.request.matchId, request: session.request,
         status: session.status, rules: session.practice ? null : session.rules.snapshot(),
         play: playState(session.rules.snapshot()),
@@ -123,6 +132,12 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     }
     if (battle && ['reserved', 'playing', 'finalizing', 'finalization-failed'].indexOf(battle.status) >= 0) {
       throw new Error('Finish or leave the current Battle first');
+    }
+    if (storyReservation && storyReservation.status !== 'completed') {
+      throw new Error('Finish or leave the current Story match first');
+    }
+    if (tour && !tour.snapshot().skipped && !tour.snapshot().state.completed) {
+      throw new Error('Finish or skip the First Flip Tour first');
     }
   }
   function id() {
@@ -273,6 +288,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var outcome = current.rules.toMatchOutcome({ telemetry: telemetry });
     current.finalPromise = current.owner.finalize(outcome).then(function (result) {
       current.resolution = result; current.status = 'completed'; current.finalPromise = null;
+      if (storyReservation && storyReservation.request.matchId === current.request.matchId) {
+        storyReservation.status = 'completed';
+      }
       diagnostics.recordMatch({ request: current.request, outcome: outcome, startedAt: current.startedAt,
         players: playState(current.rules.snapshot()).players, totalFlips: current.totalFlips, testData: current.testData });
       emit('match-completed'); return result;
@@ -293,6 +311,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     diagnostics.recordMatch({ request: session.request, startedAt: session.startedAt, completed: false,
       players: session.practice ? session.request.roster : playState(session.rules.snapshot()).players,
       totalFlips: session.totalFlips, testData: session.testData });
+    if (storyReservation && storyReservation.request.matchId === session.request.matchId) {
+      storyReservation = null;
+    }
     session.status = 'abandoned'; emit('session-left'); return snapshot();
   }
 
@@ -449,6 +470,120 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     return current.finalPromise;
   }
 
+  function clearIdleSession() {
+    if (session && ['abandoned', 'completed'].indexOf(session.status) >= 0) session = null;
+  }
+  function prepareStory(input) {
+    assertIdle();
+    clearIdleSession();
+    var started = getStory().start(Object.assign({}, input, { matchId: input && input.matchId ? input.matchId : id() }));
+    var request = started.request || started;
+    if (!request || request.schema !== 'MatchRequestV2') throw new TypeError('A prescribed Story request is required');
+    var handle = 'story-' + request.matchId;
+    var card = View.broadcastCard({
+      chapterId: request.activityContext.chapterId,
+      attempt: request.activityContext.attempt,
+      replay: request.activityContext.storyReplay === true,
+    });
+    storyReservation = { handle: handle, request: request, status: 'reserved' };
+    emit('story-reserved');
+    return freeze({ handle: handle, request: copy(request), card: card });
+  }
+  function storyTicket(handle) {
+    assertOpen();
+    if (!storyReservation || storyReservation.handle !== String(handle)) {
+      throw new Error('That Story reservation is not current');
+    }
+    return storyReservation;
+  }
+  function startPreparedStory(handle) {
+    var current = storyTicket(handle);
+    if (current.status !== 'reserved') throw new Error('This Story match already started');
+    // StoryRuntime.start already reserved the durable match. Installing the
+    // same request here must not call coordinator.start a second time.
+    installSession(current.request, getStory());
+    current.status = 'playing';
+    emit('story-started');
+    return snapshot();
+  }
+  function cancelPreparedStory(handle) {
+    var current = storyTicket(handle);
+    if (current.status !== 'reserved') throw new Error('Leave the running Story match instead');
+    getStory().abandon(current.request.matchId, 'cancelled');
+    storyReservation = null;
+    emit('story-cancelled');
+    return null;
+  }
+  function requireTour() {
+    assertOpen();
+    if (!tour) throw new Error('Start the First Flip Tour first');
+    return tour;
+  }
+  function startTour(input) {
+    assertIdle();
+    clearIdleSession();
+    var source = input || {};
+    var human = source.human || {};
+    tour = Training.createTutorialSession({
+      sessionId: id(),
+      roster: [{
+        id: human.id || 'tour-human',
+        displayName: human.displayName || human.name || 'Player',
+        flipperId: human.flipperId || human.objectId || 'bottle',
+        variantId: human.variantId || null,
+        cosmeticId: human.cosmeticId || null,
+        human: true,
+      }],
+      seed: source.seed == null ? 1 : source.seed,
+    });
+    emit('tour-started');
+    return tour.snapshot();
+  }
+  function acknowledgeTour() {
+    var snapshot = requireTour().acknowledge();
+    emit('tour-acknowledged');
+    return snapshot;
+  }
+  function launchTourAttempt() {
+    var attempt = requireTour().prepareAttempt();
+    emit('tour-attempt-armed');
+    return attempt;
+  }
+  function skipTour() {
+    if (!tour) return null;
+    var snapshot = tour.skip();
+    tour = null;
+    emit('tour-skipped');
+    return snapshot;
+  }
+  function qualifyTourLaunch(signal, elapsedMs) {
+    var current = requireTour();
+    var pending = current.snapshot().activeAttempt;
+    if (!pending) throw new Error('Arm a Tour attempt before a launch');
+    return current.qualifyLaunch(pending.attemptId, signal, elapsedMs == null ? 10000 : elapsedMs);
+  }
+  function resolveTourLanding(outcome) {
+    var current = requireTour();
+    var pending = current.snapshot().activeAttempt;
+    if (!pending) throw new Error('No airborne Tour attempt to resolve');
+    var result = current.resolveAttempt(pending.attemptId, outcome);
+    emit('tour-resolved');
+    return result;
+  }
+
+  // Event frames have their own bridge. Ordinary landing authority rejects
+  // eventId, so a branded event is admitted here: supported engine landings
+  // score as the pose the engine already classified, and unsupported frames
+  // stay unscored instead of taking down the reservation.
+  function observeEventPhysics(frame) {
+    if (frame.supported === false) {
+      warning = frame.unsupportedReason || 'Event frame requires a live event adapter';
+      emit('event-frame-deferred');
+      return;
+    }
+    observeOrdinaryPhysics(frame, { eventId: frame.eventId });
+  }
+
   // The host engine owns the driver. Its subscriber only wakes this private
   // observer; it cannot submit a make/miss or a reward-bearing outcome.
   function observePhysics() {
@@ -456,10 +591,13 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (!session || session.status !== 'active') return;
     var frame = physicsDriver.snapshot();
     if (!frame || frame.qualified !== true || frame.launchId == null) return;
+    if (frame.eventId != null) { observeEventPhysics(frame); return; }
+    observeOrdinaryPhysics(frame, null);
+  }
+  function observeOrdinaryPhysics(frame, eventMeta) {
     var launchId = String(frame.launchId);
     var atMs = Math.floor(finite(frame.atMs, 'physics time'));
     if (atMs < 0) throw new RangeError('Physics time must be non-negative');
-    if (frame.eventId != null) throw new Error('Event frame requires its dedicated event bridge');
     if (session.seenLaunchIds.has(launchId) && (!session.flip || session.flip.launchId !== launchId || session.flip.phase === 'resolved')) return;
     if (!session.flip || session.flip.launchId !== launchId) {
       if (session.flip && session.flip.phase !== 'resolved') throw new Error('A flip is still in flight');
@@ -473,10 +611,11 @@ function createBrowserApplication(require, platform, sourceIdentity) {
         launchedAtMs: atMs,
         player: copy(player), before: copy(state.currentHeat || state), seat: play.currentPlayerIndex,
         firstContactAt: null, contactAt: null, stableAt: null, angles: [],
-        manualHuman: frame.manual === true && player.human === true };
+        manualHuman: frame.manual === true && player.human === true,
+        eventId: eventMeta && eventMeta.eventId ? String(eventMeta.eventId) : null };
       session.seenLaunchIds.add(launchId);
       if (session.flip.manualHuman) session.manualHumanFlips++;
-      emit('flip-launched'); return;
+      emit(eventMeta ? 'event-frame-bridged' : 'flip-launched'); return;
     }
     var flip = session.flip;
     // checkLanding follows the fixed step at the same simulation timestamp.
@@ -603,11 +742,23 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     disableOwnerTesting: function () { assertIdle(); return progression.deactivateOwnerTestMode(); },
     storyViews: function () { return getStory().views(); },
     createStoryRequest: function (input) { assertIdle(); return getStory().createMatchRequest(Object.assign({}, input, { matchId: id() })); },
+    prepareStory: prepareStory, startPreparedStory: startPreparedStory,
+    cancelPreparedStory: cancelPreparedStory,
+    startTour: startTour, acknowledgeTour: acknowledgeTour,
+    launchTourAttempt: launchTourAttempt, skipTour: skipTour,
+    qualifyTourLaunch: qualifyTourLaunch, resolveTourLanding: resolveTourLanding,
+    tourSnapshot: function () { return tour ? tour.snapshot() : null; },
     exportBackup: progression.exportBackup,
     importBackup: function (value, setup, options) { assertIdle(); return progression.importBackup(value, setup, options); },
     close: function () {
       if (closed) return;
-      abandonBattle('closed'); abandon();
+      abandonBattle('closed');
+      if (storyReservation && storyReservation.status === 'reserved') {
+        try { getStory().abandon(storyReservation.request.matchId, 'closed'); } catch (_) {}
+        storyReservation = null;
+      }
+      abandon();
+      if (tour) { try { tour.skip(); } catch (_) {} tour = null; }
       if (detachPhysics) detachPhysics(); progression.close(); closed = true;
       emit('closed'); listeners.clear();
     },

@@ -79,6 +79,7 @@ const game = {
     this.suddenDeathFlipThreshold = Number.isInteger(opts.suddenDeathFlipThreshold) &&
       opts.suddenDeathFlipThreshold >= 0 ? opts.suddenDeathFlipThreshold : SD_THRESHOLD;
     this.players = defs.map(d => ({
+      id: d.id || null,
       name: d.name,
       color: d.color || '#0b86ff',
       isAI: !!d.isAI,

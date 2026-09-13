@@ -56,6 +56,7 @@ const PRECACHE_URLS = [
   './js/v112-easter-eggs.js',
   './js/v112-easter-presentation.js',
   './js/v112-journey-routes.js',
+  './js/v112-journey-host.js',
   './js/v112-battle.js',
   './js/v112-activity.js',
   './js/v112-multipointer.js',
