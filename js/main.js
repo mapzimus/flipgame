@@ -1285,6 +1285,7 @@
     let struck = true;
     let seats = new Map();
     let laneSeat = null;
+    let openLanes = 0;
     // The reward authority renames every competitor to its seat position, so the
     // look of a seat is found by where it sat in the lineup, never by the id the
     // setup screen happened to generate for that row.
@@ -1372,8 +1373,14 @@
       },
       remember(defs) { seats = new Map(defs.map((def, index) => ['seat-' + (index + 1), def])); },
       adapter(context) {
+        // One physics surface, one bottle, one attempt in the air. A second lane
+        // built here would share all three and report one competitor's pose as
+        // another's, so raising the capacity has to fail loudly instead.
+        if (openLanes) throw new Error('The live table runs one Battle lane at a time');
+        openLanes += 1;
         return {
           resources: context.resources,
+          destroy() { openLanes = 0; },
           // The aim trail is paint only: the runtime's qualifier reads the
           // pointer samples itself, and nothing here feeds back into a launch.
           beginAim() { aim = null; },
@@ -1408,7 +1415,7 @@
       enter(context) {
         if (live) return;
         live = true;
-        airborne = null; aim = null; armedFor = null; struck = true;
+        airborne = null; aim = null; armedFor = null; struck = true; openLanes = 0;
         gameScreen.classList.remove('hidden');
         gameScreen.classList.add('battle-lane');
         document.body.classList.add('battle-lane-live');
@@ -1437,6 +1444,7 @@
         // A lane that leaves mid-flight resolves nothing: an attempt with no
         // reported pose never enters the ledger, so it can never be scored.
         airborne = null; aim = null; laneSeat = null; armedFor = null; struck = true;
+        openLanes = 0;
         gameScreen.classList.add('hidden');
         gameScreen.classList.remove('battle-lane');
         document.body.classList.remove('battle-lane-live');

@@ -1265,3 +1265,39 @@ log, and defect ledger remain release history and are not rewritten.
   which flicks the real stage in Chromium and requires the shipping bottle to
   move, the relay to advance, the table to be set for whoever is next, and
   leaving to award nothing.
+
+## Revision 64 — Battle review pass
+
+- Trigger: a bug hunt over Revision 63 rather than new behaviour. Five defects
+  came out of it (V112-117 … V112-121); all five are fixed here.
+- Composition: the private entry carried two copies of `cancelBattle` and
+  `abandonBattle`. Hoisting meant the live behaviour was already the correct
+  one, but the dead copy read a field the Battle rework had removed and nothing
+  said which body the bundle held. `scripts/build-v112-browser.mjs` now refuses
+  to compose an entry that declares the same function twice, so the reward
+  authority cannot ship with a shadowed function again.
+- Live geometry: a mid-Battle resize left the world at its entry size, because
+  `scheduleReflow` returns early unless a classic match is running. The lane now
+  re-fits the world and the host re-aims the runtime's lane rectangles, which
+  are client pixels. A flip in the air is not disturbed: Physics holds its own
+  reflow back until that flip resolves.
+- Ordering: the host asked the lane surface for the table back before the
+  authority agreed to release the reservation, and retired a finished series
+  only after asking for the next one. Both are now the other way round, which
+  removes the "waiting for a valid host update" a second Battle used to open on.
+- Clock: the host's frame clock is the paint clock on `performance.now`, not
+  `setTimeout` on wall time, so a Timed Rush horn cannot be decided by the
+  system clock being corrected.
+- Result presentation: a finished series now names its winner. The route
+  projects the winner the rules named, the heading announces it, and live-play
+  chrome and the stage stand down once the series stops taking launches.
+- Migration: none. Release identity stays v1.11/111.
+- Required tests: the Battle host suite gained coverage for lanes re-aimed on
+  resize, a refused abandon that keeps the table, two consecutive series through
+  the real route controller, and the projected winner — each fails against the
+  behaviour it replaced. The live-lane browser suite now resizes mid-heat and
+  watches the bottle while it is in the air, because reading only the end state
+  proved nothing once the relay began setting the table for whoever was next.
+- Manually verified in Chromium: a duel played to a real winner, "Ivo takes it"
+  at 14-13 over three heats and paired sudden death, with the reward written and
+  the table given back; and three consecutive Battles opening cleanly.
