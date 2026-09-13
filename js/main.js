@@ -1373,7 +1373,14 @@
       reflow() {
         if (!live) return;
         Physics.reflow(window.innerWidth, window.innerHeight, stageBottomInset());
-        if (!airborne) Physics.resetBottle();
+        if (airborne) return;
+        Physics.resetBottle();
+        // Anything the arena seed places belongs to the glass it was placed on.
+        // Re-fitting the world alone moves the floor and leaves a target pad or a
+        // tractor ring at the height it was dealt for the old viewport, so the
+        // same seed is dealt again for the new one. A classic turn does this
+        // through prepareTurnArena; the lane has to do it too.
+        if (Physics.seedTurn) Physics.seedTurn(arenaSeed());
       },
       remember(defs) { seats = new Map(defs.map((def, index) => ['seat-' + (index + 1), def])); },
       // A CPU competitor still has to flick something. The intent comes from the
