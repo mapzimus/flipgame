@@ -15,13 +15,19 @@ const Root = path.resolve(__dirname, '..');
 // The runtime resolves a lane's promise in a microtask; let those drain.
 const settle = async () => { for (let turn = 0; turn < 4; turn += 1) await Promise.resolve(); };
 
-async function application() {
+// A real device runs out of room. `disk` lets a test close the profile store for
+// a while, which is the only honest way to reach a reward that was earned and
+// could not be written down.
+async function application(disk) {
   const store = new Map();
   const context = vm.createContext({
     console, crypto: webcrypto, AbortController, setTimeout,
     localStorage: {
       getItem: (key) => store.get(key) || null,
-      setItem: (key, value) => store.set(key, String(value)),
+      setItem: (key, value) => {
+        if (disk && disk.full) { disk.refused = (disk.refused || 0) + 1; throw new Error('The profile store is full'); }
+        store.set(key, String(value));
+      },
       removeItem: (key) => store.delete(key),
     },
     navigator: { locks: { request(_name, _options, callback) {
@@ -160,7 +166,7 @@ const roster = (count) => Array.from({ length: count }, (_, index) => ({
 // a plain finally would replace the assertion that left it there. The first
 // failure always wins, and a teardown fault still fails a passing body.
 async function withHost(options, body) {
-  const app = await application();
+  const app = await application(options.disk);
   const context = build(app, options);
   let failure = null;
   try { await body(context, app); } catch (error) { failure = error; }
@@ -672,6 +678,41 @@ function testARefusedSeriesIsNotADeadEnd() {
   });
 }
 
+// A refused series is worth nothing, but a series the authority accepted and
+// could not write down is worth exactly what it earned. That reward has to stay
+// owed: the screen keeps it, refuses to be walked out of, and pays when the
+// retry lands — the one path where holding the player there is the right answer.
+function testARewardThatCouldNotBeWrittenIsStillOwed() {
+  const disk = {};
+  return withHost({ disk }, async (context, app) => {
+    const route = Routes.create({ getHost: () => context.host,
+      getPlayers: () => roster(2), getStage: () => context.stage });
+    route.open();
+    assert.equal(await route.start(), true, 'The heat opened');
+    disk.full = true;
+    await playSeries(context);
+    const failed = await awaitReward(context);
+    assert.equal(failed.status, 'retryable', 'A write that failed is a retry, not a refusal');
+    assert.ok(disk.refused > 0, 'The profile store really did refuse the write');
+    assert.equal(app.snapshot().profile.fxp, 0, 'Nothing was paid out of a failed write');
+    assert.equal(app.battle.snapshot().status, 'finalization-failed',
+      'The authority is still holding the reward');
+    route.refresh();
+    assert.equal(route.snapshot().hud.status, 'retryable');
+    assert.equal(await route.close(), false, 'A reward that is owed keeps the screen');
+    assert.deepEqual(context.table.log, ['open', 'close'],
+      'A series that stopped taking launches gives the table back either way');
+
+    disk.full = false;
+    assert.equal(await route.retry(), true, 'The retry was accepted');
+    assert.equal(context.host.snapshot().status, 'settled');
+    assert.ok(app.snapshot().profile.fxp > 0, 'The retry paid the reward it was holding');
+    assert.equal(app.battle.snapshot().status, 'completed');
+    assert.equal(await route.close(), true, 'A paid series can be left');
+    assert.equal(route.snapshot().route, 'closed');
+  });
+}
+
 function testAnUnstartedReservationCancels() {
   return withHost({}, async (context, app) => {
     context.host.capabilities();
@@ -695,6 +736,7 @@ async function run() {
   await testLeavingARunningBattleNeverShowsAResult();
   await testARefusedAbandonKeepsTheTable();
   await testARefusedSeriesIsNotADeadEnd();
+  await testARewardThatCouldNotBeWrittenIsStillOwed();
   await testASecondBattleOpensAsCleanlyAsTheFirst();
   await testAWholeRelaySeriesReachesTheReward();
   await testTwoVerifiedContactsPlayTwoLanesAtOnce();
@@ -702,7 +744,7 @@ async function run() {
   await testTimedRushRunsOnTheHostsClock();
   await testAMissingCpuIntentIsNotSilent();
   await testACpuCompetitorTakesItsOwnTurns();
-  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, lanes re-aimed when the glass changes size, a refused abandon that keeps the table, a whole relay series and a two-lane 2v2 series from reservation to reward, a Timed Rush heat measured on the host s own frame clock, a CPU competitor taking its own turns, and reservations released on cancel and on leaving.');
+  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, lanes re-aimed when the glass changes size, a refused abandon that keeps the table, a whole relay series and a two-lane 2v2 series from reservation to reward, a Timed Rush heat measured on the host s own frame clock, a CPU competitor taking its own turns, a refused series that stays readable and leavable, a reward that could not be written staying owed until the retry pays it, and reservations released on cancel and on leaving with no result shown on the way out.');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });
