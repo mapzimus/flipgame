@@ -231,7 +231,7 @@
         for(const s of h.scores){const card=element('article',null,'battle-score');
           card.append(element('h3',s.label),element('strong',String(live?s.score:s.heatWins)),
             element('p',live?`${s.heatWins} heats · ${s.charges}/3 charges`
-              :`${s.heatWins===1?'1 heat':`${s.heatWins} heats`} won · ${s.score} in the last heat`));
+              :`heats won · ${s.score} ${s.score===1?'point':'points'} in the last heat`));
           scores.append(card);
           // Cards only apply to a launch that has not been armed. Once the series
           // stops taking launches there is nothing left for one to affect, so an

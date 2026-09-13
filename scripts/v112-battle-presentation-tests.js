@@ -193,7 +193,8 @@ async function testAFinishedSeriesShowsAResultAndNothingLive() {
   const decided = view.state.heatWins;
   assert.deepEqual(cards.map((card) => card.querySelectorAll('strong')[0].textContent),
     Object.values(decided).map(String), 'A result leads with the heats that decided it');
-  assert.match(view.body(), /in the last heat/, 'The final points are still reported');
+  assert.match(view.body(), /heats won · \d+ points? in the last heat/,
+    'The result says what its number is and keeps the final points');
   assert.equal(view.laneBoxes(), 0, 'A result has no lane-sized hole in it');
   assert.equal(view.stageHidden(), true, 'A settled series gives the glass back');
   assert.equal(view.backDisabled(), false, 'A settled series can be left');
