@@ -138,8 +138,8 @@ test('ON FIRE rewards and protected misses hold for every starting-life preset',
   }
 });
 
-test('explicit rematch start seats remain deterministic for 2–8 Classic players', () => {
-  for (let count = 2; count <= 8; count++) {
+test('explicit rematch start seats remain deterministic for 2–16 Classic players', () => {
+  for (let count = 2; count <= 16; count++) {
     for (let startIndex = 0; startIndex < count; startIndex++) {
       const current = init(count, 10, { startIndex });
       assert.equal(current.currentPlayerIndex, startIndex);
@@ -167,16 +167,45 @@ test('sudden death has exact 20-flip escalation bands', () => {
   assert.equal(current.sdLevelForNextFlip(), 2);
 });
 
+test('Classic sudden death starts and escalates on whole starting-roster rotations', () => {
+  const { alignToStartingRoster, SD_STEP } = require('../js/game.js');
+  for (const count of [3, 8, 9, 12, 15, 16]) {
+    const current = init(count, 100);
+    const threshold = alignToStartingRoster(SD_THRESHOLD, count);
+    const step = alignToStartingRoster(SD_STEP, count);
+    assert.equal(threshold % count, 0);
+    assert.equal(step % count, 0);
+    assert.equal(current.suddenDeathFlipThreshold, threshold);
+    assert.equal(current.suddenDeathStep, step);
+    current.turnCounter = threshold;
+    assert.equal(current.sdLevelForNextFlip(), 1);
+    current.turnCounter = threshold + step;
+    assert.equal(current.sdLevel(), 1);
+    current.turnCounter++;
+    assert.equal(current.sdLevel(), 2);
+  }
+});
+
+test('Cup and Team reject counts outside the certified limits', () => {
+  assert.doesNotThrow(() => new modes.CupSeries({ playerCount: 12, cupLength: 'short' }));
+  assert.throws(() => new modes.CupSeries({ playerCount: 13, cupLength: 'short' }), /2 through 12/);
+  assert.throws(() => new modes.CupSeries({ playerCount: 9, cupLength: 'full' }), /2 through 8/);
+  assert.doesNotThrow(() => new modes.TeamClash({ playerCount: 16 }));
+  assert.throws(() => new modes.TeamClash({ playerCount: 18 }), /even 2–16/);
+});
+
 test('Cup-specific sudden death begins after the exact configured rotations', () => {
-  for (let count = 2; count <= 8; count++) {
+  for (let count = 2; count <= 12; count++) {
     for (const cupLength of ['short', 'full']) {
+      if (cupLength === 'full' && count > 8) continue;
       const definition = modes.CUP_FORMATS[cupLength];
       const threshold = definition.suddenDeathRotations * count;
       const current = init(count, definition.startingLives, { suddenDeathFlipThreshold: threshold });
+      const step = current.suddenDeathStep;
       current.turnCounter = threshold;
       assert.equal(current.inSuddenDeath(), false);
       assert.equal(current.sdLevelForNextFlip(), 1);
-      current.turnCounter = threshold + 20;
+      current.turnCounter = threshold + step;
       assert.equal(current.sdLevel(), 1);
       current.turnCounter++;
       assert.equal(current.sdLevel(), 2);
@@ -459,9 +488,10 @@ test('Arena Draft never consumes Math.random or a gameplay RNG stream', () => {
   }
 });
 
-test('Cup Short/Full are first-to-two, reset configuration, and rotate openers for 2–8 players', () => {
-  for (let count = 2; count <= 8; count++) {
+test('Cup Short/Full are first-to-two, reset configuration, and rotate openers for supported counts', () => {
+  for (let count = 2; count <= 12; count++) {
     for (const cupLength of ['short', 'full']) {
+      if (cupLength === 'full' && count > 8) continue;
       const cup = new modes.CupSeries({ playerCount: count, cupLength, direction: -1, openingIndex: 0 });
       let state = cup.snapshot();
       const definition = modes.CUP_FORMATS[cupLength];
@@ -529,8 +559,8 @@ test('Cup three-way tie enters events-disabled shootout and rotates opener on ev
   assert.equal(state.highlight.kind, 'cup-shootout-win');
 });
 
-test('Team Clash validates only 2/4/6/8 and queues three alternating flips per team', () => {
-  for (const count of [2, 4, 6, 8]) {
+test('Team Clash validates even 2–16 and queues three alternating flips per team', () => {
+  for (const count of modes.TEAM_COUNTS) {
     const match = new modes.TeamClash({ playerCount: count });
     const state = match.snapshot();
     assert.equal(state.queue.length, 6);
@@ -542,8 +572,8 @@ test('Team Clash validates only 2/4/6/8 and queues three alternating flips per t
     assert.equal(Object.isFrozen(state), true);
     assert.equal(Object.isFrozen(state.queue), true);
   }
-  for (const count of [3, 5, 7]) {
-    assert.throws(() => new modes.TeamClash({ playerCount: count }), /needs 2, 4, 6, or 8/);
+  for (const count of [3, 5, 7, 9, 11]) {
+    assert.throws(() => new modes.TeamClash({ playerCount: count }), /even 2–16/);
   }
 });
 

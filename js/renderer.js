@@ -528,9 +528,21 @@ const Renderer = (() => {
       const x=W/2;ctx.strokeStyle='rgba(210,245,255,.8)';ctx.lineWidth=5;ctx.setLineDash([12,8]);ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,groundY);ctx.stroke();ctx.setLineDash([]);
     } else if (id === 'cap-toss') {
       ctx.strokeStyle='#ff9d42';ctx.lineWidth=8;ctx.beginPath();ctx.arc(p.x,groundY-7,42,0,Math.PI*2);ctx.stroke();
+    } else if (id === 'mitosis') {
+      ctx.strokeStyle='rgba(80,255,190,.35)';ctx.lineWidth=3;ctx.setLineDash([8,10]);
+      ctx.beginPath();ctx.moveTo(p.x,Math.max(24,p.y-120));ctx.lineTo(p.x,Math.min(groundY-8,p.y+120));ctx.stroke();
+      ctx.setLineDash([]);
     }
-    if ((id === 'mitosis' || id === 'mirror-match' || id === 'meteor-shower') && Array.isArray(bodies)) {
-      bodies.forEach((body)=>{const r=Math.max(12,Math.min(42,(body.bounds.max.x-body.bounds.min.x)/2));ctx.fillStyle=id==='meteor-shower'?'#ff713b':'rgba(120,240,255,.55)';ctx.beginPath();ctx.arc(body.x,body.y,r,0,Math.PI*2);ctx.fill();});
+    if (id === 'meteor-shower' && Array.isArray(bodies)) {
+      bodies.forEach((body)=>{
+        if (!body || body.label === 'mitosis-bottle' || body.label === 'mirror-bottle') return;
+        const width = body.bounds ? (body.bounds.max.x - body.bounds.min.x) : 24;
+        const r = Math.max(12, Math.min(42, width / 2));
+        ctx.fillStyle = '#ff713b';
+        ctx.beginPath();
+        ctx.arc(body.x, body.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      });
     }
     if (visual.theme === 'gold') { ctx.strokeStyle='#ffe27a';ctx.lineWidth=4;ctx.strokeRect(12,12,W-24,H-24); }
     ctx.restore();
@@ -844,6 +856,26 @@ const Renderer = (() => {
     // Blue splash on hard slosh
     if (!reduceMotion && Math.abs(liquid.vel) > 1.6) {
       spawnSplash(x, y - 30 * BOTTLE_DRAW_SCALE, 2, 'rgba(0, 170, 255, 0.85)');
+    }
+  }
+
+  function isSelectedObjectClone(body) {
+    return !!body && (body.label === 'mitosis-bottle' || body.label === 'mirror-bottle');
+  }
+
+  // Mitosis and Mirror copies are whole selected objects, never a cap or blob.
+  function drawSelectedObjectClones(bodies, liquid, liquidColor, groundY, skin, variantId, renderState) {
+    if (!Array.isArray(bodies)) return;
+    const pose = liquid || { slosh: 0, vel: 0 };
+    for (const body of bodies) {
+      if (!isSelectedObjectClone(body)) continue;
+      ctx.save();
+      if (body.label === 'mirror-bottle') ctx.globalAlpha = 0.88;
+      drawBottle({
+        position: { x: body.x, y: body.y },
+        angle: body.angle || 0,
+      }, pose, false, liquidColor, groundY, skin, variantId, renderState);
+      ctx.restore();
     }
   }
 
@@ -1536,6 +1568,7 @@ const Renderer = (() => {
     drawSuccessfulShotGhost(state.successfulShotGhost);
     drawRainbowTail();
     drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin, state.variantId, renderState);
+    drawSelectedObjectClones(state.eventBodies, liquid, liquidColor, groundY, skin, state.variantId, renderState);
     drawPersonalFinish(bottle, groundY);
     drawRainbowAura(bottle, groundY);
     drawParticles();

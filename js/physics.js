@@ -2221,6 +2221,8 @@ const Physics = (() => {
           state.releaseMs = state.elapsedMs;
         }
       } else if (kind === 'mitosis' && airborne && !state.flags.split && state.elapsedMs >= 240) {
+        // Whole selected Flipper, never a cap or blob. The renderer paints this
+        // clone with the same object/variant as the source body.
         const initialVelocity = { ...bottle.velocity };
         const initialAngularVelocity = bottle.angularVelocity;
         const originalMass = bottle.mass;
