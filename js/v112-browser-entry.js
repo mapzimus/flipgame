@@ -393,7 +393,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       battle.owner.abandon(battle.request.matchId, reason ? String(reason) : 'left-game');
       diagnostics.recordMatch({ request: battle.request, startedAt: battle.startedAt,
         completed: false, players: battle.config.players,
-        totalFlips: battle.totalFlips, testData: battle.testData });
+        totalFlips: battleFlips(battle.state).length, testData: battle.testData });
     }
     battle = null; emit('battle-left');
     return null;
@@ -415,28 +415,6 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     }
     current.state = freeze(submitted);
     return finishBattle();
-  }
-  function cancelBattle(handle) {
-    var current = battleReservation(handle);
-    if (current.status !== 'reserved') throw new Error('Leave the running Battle instead');
-    current.owner.abandon(current.request.matchId, 'cancelled');
-    battle = null; emit('battle-cancelled');
-    return null;
-  }
-  function abandonBattle(reason) {
-    assertOpen();
-    if (!battle) return null;
-    if (battle.status === 'finalizing' || battle.status === 'finalization-failed') {
-      throw new Error('Retry the completed Battle\u2019s rewards first');
-    }
-    if (battle.status !== 'completed') {
-      battle.owner.abandon(battle.request.matchId, reason ? String(reason) : 'left-game');
-      diagnostics.recordMatch({ request: battle.request, startedAt: battle.startedAt,
-        completed: false, players: battle.config.players,
-        totalFlips: battleFlips(battle.state).length, testData: battle.testData });
-    }
-    battle = null; emit('battle-left');
-    return null;
   }
   // Every qualified manual human attempt in the series, taken from the ledger the
   // validator already checked rather than from a host tally.
