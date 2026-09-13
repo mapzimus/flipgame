@@ -11,6 +11,8 @@ new vm.Script(main, { filename: 'js/main.js' });
 assert.doesNotMatch(main, /\b(?:Net|ONLINE_ENABLED|onlineMode|netAuthority|pendingNetResult|asAuthority|FlipgameNetworkProtocolV2)\b/);
 assert.doesNotMatch(main, /(?:capture|restore|begin)OnlineMatch|showOnlineLobby|renderOnlineRoster|validateOnlineName/);
 assert.doesNotMatch(html, /online-(?:btn|screen|form|lobby|roster)|data-route="online"|Create room|Join room/i);
+const css = fs.readFileSync(path.join(root, 'css/style.css'), 'utf8');
+assert.doesNotMatch(css, /\.online-(?:card|roster|peer)|Create room|Join room/);
 assert.doesNotMatch(main, /onlineBeta|query\.get\(['"]online|\.sendFlick\(|\.sendResult\(|\.acceptResult\(|\.bindMatchState\(/);
 for (const file of ['js/net.js', 'js/v111-network-protocol.js']) assert.equal(fs.existsSync(path.join(root, file)), false, file + ' removed');
 for (const match of main.matchAll(/\bonline:\s*([^,}\n]+)/g)) assert.equal(match[1].trim(), 'false', 'legacy observer field is always local');
@@ -45,9 +47,9 @@ const game = {
   resolvePlinko: (...args) => resolutions.push(['plinko', ...args]),
 };
 const runResolve = Function('game', 'landingMeta', 'v111Bridge', 'canonicalEventId',
-  'testDataFlipActive', 'matchTestDataActive',
+  'testDataFlipActive', 'matchTestDataActive', 'currentMatchOptions', 'journeyHost',
   'let bridgeLandingInfo; ' + helper('resolveGameFlip') + '; return resolveGameFlip;');
-const resolve = runResolve(game, info => info, (event, payload) => { observations.push([event, payload]); return false; }, () => null, false, false);
+const resolve = runResolve(game, info => info, (event, payload) => { observations.push([event, payload]); return false; }, () => null, false, false, {}, null);
 const cap = { onCap: true, perfect: false };
 resolve('MAKE', cap, { plinko: 'automatic-win' });
 assert.deepEqual(resolutions[0], ['flip', 'MAKE', cap], 'discard obsolete remote metadata argument');

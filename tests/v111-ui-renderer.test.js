@@ -12,6 +12,7 @@ const boot = read('js/v111-boot.js');
 const css = read('css/style.css');
 const main = read('js/main.js');
 const renderer = read('js/renderer.js');
+const physics = read('js/physics.js');
 const skins = read('js/skins.js');
 const NamePolicy = require(path.join(ROOT, 'js/v111-name-policy.js'));
 
@@ -141,6 +142,16 @@ test('event renderer consumes all canonical render state with Plinko and a true 
   assert.match(renderer, /rainbowTrailPoints\.push/);
   assert.match(renderer, /drawRainbowTail/);
   assert.match(renderer, /reduceMotion/);
+});
+
+test('Mitosis and Mirror copies paint the selected object instead of a generic blob', () => {
+  assert.match(renderer, /function drawSelectedObjectClones/);
+  assert.match(renderer, /drawSelectedObjectClones\(state\.eventBodies/);
+  assert.match(renderer, /body\.label === 'mitosis-bottle' \|\| body\.label === 'mirror-bottle'/);
+  assert.doesNotMatch(renderer,
+    /id === 'mitosis' \|\| id === 'mirror-match' \|\| id === 'meteor-shower'/);
+  assert.match(physics, /mitosisBottle = cloneEventBottle\(1, 'mitosis-bottle'\)/);
+  assert.match(physics, /function cloneEventBottle/);
 });
 
 test('physics and rules bridge receives deterministic event and qualification context', () => {
