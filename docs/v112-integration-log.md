@@ -1197,3 +1197,17 @@ log, and defect ledger remain release history and are not rewritten.
 - This qualifies the isolated adapter design only. Defect V112-111 remains
   open until the old live eight-row/circle path is replaced and browser/camera
   qualification passes.
+
+## Revision 60 — Championship refrain is a heckle, not a civic slogan
+
+- Trigger: the product owner rejected **Ten lives. Every one public.** as
+  sounding generated and too solemn for Flipgame.
+- New behavior: the official WFC Standard refrain is **Ten lives. Everybody
+  saw that.** Flavor only. Lives, stake, scoring, and format rules are
+  unchanged. The line is the thing a table yells after a miss, reused as the
+  championship slogan.
+- Surfaces: `Urth.canon.refrain`, Story broadcast cards, First Flip Tour,
+  Home figcaption, and authored arena posters.
+- Migration: none. No save, reward, physics, or identity change.
+- Required tests: Story broadcast-card copy stays deterministic and reads the
+  new refrain; browser bundle is regenerated from source.
