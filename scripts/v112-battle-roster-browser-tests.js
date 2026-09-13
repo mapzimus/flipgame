@@ -36,6 +36,14 @@ async function scenario(){
     check(lineup,'Battle states the lineup it needs');
     check([...d.querySelectorAll('#battle-body button')].find(b=>b.textContent==='Begin Battle').disabled===(lineup[1]!==lineup[2]),
       `Begin Battle must follow the lineup count ${width}: ${lineup[0]}`);
+    // A Rush heat is sixty seconds of gameplay clock, and on a relay that clock
+    // stops while a flip is in the air. Measured on the live table, a heat sits on
+    // "58 seconds" for minutes, so the pace this screen offers has to say that the
+    // minute is not a minute at the table.
+    [...d.querySelectorAll('#battle-body button')].find(b=>b.textContent==='Timed Rush').click();
+    check(/On a relay the clock only runs while a lane is yours to launch from/.test(battleText()),
+      `Timed Rush presents its gameplay clock as wall time ${width}: ${battleText()}`);
+    [...d.querySelectorAll('#battle-body button')].find(b=>b.textContent==='Equal Volley').click();
     click('battle-back');await new Promise(r=>setTimeout(r,0));
     click('broadcast-setup');
     const initial=d.querySelectorAll('.player-input-row').length;

@@ -197,7 +197,12 @@
         }
         const format=formats.find(f=>f.id===s.formatId);
         body.append(element('p',`${s.rosterCount} entries in your lineup · ${format.count} required. Teams alternate seats: odd entries Team A, even entries Team B.`));
-        body.append(element('p',s.paceId==='volley'?'Best of three heats · five synchronized volleys per heat.':'Best of three 60-second heats · launches before the horn finish resolving.'));
+        // Rush heats are 60 seconds of gameplay clock, and on a relay that clock
+        // runs only while the lane is yours to launch from: a flip in the air
+        // pauses it and pushes the horn out by exactly that much. Calling it a
+        // minute is how a heat ends up sitting on "58 seconds" for several.
+        body.append(element('p',s.paceId==='volley'?'Best of three heats · five synchronized volleys per heat.'
+          :`Best of three 60-second heats · launches released before the horn finish resolving.${s.hardware&&!s.hardware.simultaneous?' On a relay the clock only runs while a lane is yours to launch from, so a heat takes longer than a minute at the table.':''}`));
         body.append(element('p','Upright 1 · Cap 2 · Miss 0. Three qualified manual launches offer two power cards; store one. Powers affect only launches that have not been armed.'));
         body.append(element('p',s.hardware ? (s.hardware.simultaneous?`Verified simultaneous play · up to ${s.hardware.activeLaneLimit} active lanes.`:'Alternating relay · one active lane. Each competitor receives a fair turn.') : 'Display capability has not been qualified.', 'battle-capability'));
         body.append(button('Edit lineup',async()=>{if(await controller.close())opts.onEditRoster();},s.busy));
@@ -207,8 +212,11 @@
         // A finished series stops counting volleys and stops telling people to
         // wait for a lane. It says who won.
         const live=h.status==='playing';
+        // The live heading is the only text a lane-mode Battle shows, so it is
+        // where a Rush clock has to admit it is a gameplay clock. Counting plain
+        // seconds reads as wall time, which a relay heat is not.
         body.append(element('h2',live
-          ? `Heat ${h.heat} · ${h.suddenDeath?'Paired sudden death':h.paceId==='rush'?`${Math.ceil(h.remainingMs/1000)} seconds`:`Volley ${h.volley}`}`
+          ? `Heat ${h.heat} · ${h.suddenDeath?'Paired sudden death':h.paceId==='rush'?`${Math.ceil(h.remainingMs/1000)}s gameplay clock`:`Volley ${h.volley}`}`
           : h.winnerLabel ? `${h.winnerLabel} takes it` : `Heat ${h.heat} · final`));
         if(live)body.append(element('p',h.hardware.simultaneous?'Simultaneous lanes':'Alternating relay · wait for your active lane','battle-capability'));
         const scores=element('div',null,'battle-scoreboard');
