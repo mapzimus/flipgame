@@ -651,16 +651,30 @@ const Renderer = (() => {
     const fillCol = hexToRgba(liquidColor || '#0b86ff', 0.92);
     const meniscusCol = lighten(liquidColor || '#0b86ff', 110, 0.9);
 
-    // ON FIRE glow
+    // ON FIRE glow — a major momentum state, not a faint halo.
     if (isOnFire) {
-      const glow = ctx.createRadialGradient(x, y, 10, x, y, 95 * BOTTLE_DRAW_SCALE);
-      glow.addColorStop(0, 'rgba(255,100,0,0.30)');
-      glow.addColorStop(1, 'rgba(255,60,0,0)');
+      const pulse = reduceMotion ? 1 : 0.82 + 0.18 * Math.sin(clock * 8);
+      const radius = 130 * BOTTLE_DRAW_SCALE * pulse;
+      const glow = ctx.createRadialGradient(x, y, 8, x, y, radius);
+      glow.addColorStop(0, 'rgba(255,210,70,0.55)');
+      glow.addColorStop(0.35, 'rgba(255,110,0,0.38)');
+      glow.addColorStop(1, 'rgba(255,40,0,0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x, y, 95 * BOTTLE_DRAW_SCALE, 0, Math.PI * 2);
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
-      if (!reduceMotion) spawnFire(x, y - 100 * BOTTLE_DRAW_SCALE);
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,220,80,${0.55 + 0.25 * pulse})`;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(x, y, 78 * BOTTLE_DRAW_SCALE * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      if (!reduceMotion) {
+        spawnFire(x, y - 100 * BOTTLE_DRAW_SCALE);
+        spawnFire(x + 18, y - 70 * BOTTLE_DRAW_SCALE);
+        spawnFire(x - 16, y - 80 * BOTTLE_DRAW_SCALE);
+      }
     }
 
     // Golden flip: warm aura + drifting sparkles (art already bakes in gold via
@@ -1242,6 +1256,7 @@ const Renderer = (() => {
 
   // ── Plinko board ───────────────────────────────────────────────────────────
   function drawPlinko(p) {
+    if (!p || !Array.isArray(p.slots) || p.slots.length !== 9) return;
     const bw = p.right - p.left;
     ctx.save();
     // Backboard
@@ -1443,7 +1458,9 @@ const Renderer = (() => {
       angularVelocity: bottle && bottle.angularVelocity,
       velocity: velocity,
     }) : null;
-    const face = reactions ? reactions.faceFor(window, skin || 'bottle', state.variantId) : null;
+    const faceSkin = skin || 'bottle';
+    const face = reactions && faceSkin !== 'bottle' && faceSkin !== 'trex'
+      ? reactions.faceFor(window, faceSkin, state.variantId) : null;
     let activeView = view;
     if (reactionFocus && face && bottle && !plinkoPresentation) {
       const center = projectBottleCenter(bottle, groundY);

@@ -1265,3 +1265,94 @@ log, and defect ledger remain release history and are not rewritten.
   which flicks the real stage in Chromium and requires the shipping bottle to
   move, the relay to advance, the table to be set for whoever is next, and
   leaving to award nothing.
+
+## Revision 64 — Battle review pass
+
+- Trigger: a bug hunt over Revision 63 rather than new behaviour. Five defects
+  came out of it (V112-117 … V112-121); all five are fixed here.
+- Composition: the private entry carried two copies of `cancelBattle` and
+  `abandonBattle`. Hoisting meant the live behaviour was already the correct
+  one, but the dead copy read a field the Battle rework had removed and nothing
+  said which body the bundle held. `scripts/build-v112-browser.mjs` now refuses
+  to compose an entry that declares the same function twice, so the reward
+  authority cannot ship with a shadowed function again.
+- Live geometry: a mid-Battle resize left the world at its entry size, because
+  `scheduleReflow` returns early unless a classic match is running. The lane now
+  re-fits the world and the host re-aims the runtime's lane rectangles, which
+  are client pixels. A flip in the air is not disturbed: Physics holds its own
+  reflow back until that flip resolves.
+- Ordering: the host asked the lane surface for the table back before the
+  authority agreed to release the reservation, and retired a finished series
+  only after asking for the next one. Both are now the other way round, which
+  removes the "waiting for a valid host update" a second Battle used to open on.
+- Clock: the host's frame clock is the paint clock on `performance.now`, not
+  `setTimeout` on wall time, so a Timed Rush horn cannot be decided by the
+  system clock being corrected.
+- Result presentation: a finished series now names its winner. The route
+  projects the winner the rules named, the heading announces it, and live-play
+  chrome and the stage stand down once the series stops taking launches.
+- Migration: none. Release identity stays v1.11/111.
+- Required tests: the Battle host suite gained coverage for lanes re-aimed on
+  resize, a refused abandon that keeps the table, two consecutive series through
+  the real route controller, and the projected winner — each fails against the
+  behaviour it replaced. The live-lane browser suite now resizes mid-heat and
+  watches the bottle while it is in the air, because reading only the end state
+  proved nothing once the relay began setting the table for whoever was next.
+- Manually verified in Chromium: a duel played to a real winner, "Ivo takes it"
+  at 14-13 over three heats and paired sudden death, with the reward written and
+  the table given back; and three consecutive Battles opening cleanly.
+## Revision 65 — Battle second review pass
+
+- Trigger: a second bug hunt over Revisions 63–64, including a re-read of the
+  fixes that pass came out with. Five defects came out of it (V112-122 …
+  V112-126); all five are fixed here. Two of them are the earlier pass's own
+  fixes having been half-fixes.
+- Unlock authority: V112-115's fix asked both ladders and took the intersection.
+  That never offers a Flipper a Battle would refuse — the point — but it also
+  withholds Flippers the v1.12 authority has already granted, so a reward stops
+  short of the picker. The v1.12 profile migrates v1.11's owned objects on first
+  boot, so when the private composition is present its answer is now the whole
+  answer. Both suites check the gate in both directions: every object in the
+  shipped catalogue is asked of `isObjectAvailable` and of `battle.prepare`, and
+  the live picker's families are compared against the families authority grants.
+- CPU competitors: any lineup row can be toggled to AI, the private authority
+  accepts a `cpu` seat, and the lane runtime has always exposed
+  `prepareCpuLaunch` — but nothing called it, so a Battle with an AI entry
+  rotated the lane to that seat and hung there for ever. The host now schedules
+  CPU turns on the frame clock it already owns and asks the page for the gesture,
+  because only the page owns physics. The page answers from the same calibrated
+  CPU module a classic turn uses, off the same seeded table, at the same
+  difficulty, and pins the canonical input transfer so a human's Physics Feel
+  preference cannot quietly change how strong an opponent is. A CPU attempt lands
+  through the same collider and, never being a qualified manual launch, still
+  earns no power cards. A CPU lane also stops asking a person to flick it.
+- Live lane presentation: V112-116 set the table when the lane changed hands, but
+  a lane handed straight back to the same seat for the next volley announces no
+  assignment, so that competitor aimed at the last bottle lying on its side in
+  their own colour. The lane's reset hook fires on every resolved attempt too,
+  which is where the table is set now.
+- Route recovery: a `host.start()` that failed pinned the screen on the game
+  route with no scoreboard, because the recovery depended on a cancel the real
+  host refuses once it has dropped the reservation itself. The cancel is best
+  effort now and the return to the lineup always happens.
+- Clock: the host hands the runtime the clock it ticks with, so a Timed Rush horn
+  cannot be measured against a clock the host never advances.
+- Migration: none. Release identity stays v1.11/111.
+- Required tests: the Battle authority suite gained a both-directions check of
+  the picker gate against the reservation gate over the whole catalogue; the host
+  suite gained a CPU competitor playing a series to reward, a CPU with no
+  injected intent that stays visible rather than silent, and a Timed Rush heat
+  measured on the host's own frame clock; the route suite gained a heat that
+  cannot open and still gets the player back to the lineup; and the live-lane
+  browser suite now checks the table at every invitation to flick and plays a
+  second Battle against a CPU, which launches the shipping bottle with nobody
+  touching the glass.
+- Manually verified in Chromium: a duel played to completion presents "Guest 1
+  takes it" with the scoreboard, no dead power-card chrome, no empty lane box,
+  the stage stood down and 73 FXP written; and reverting the live-lane fix fails
+  the new table check on the second flick at (727, 528) angle 7.85.
+- Pre-existing suite failures unchanged by this pass and also failing on
+  `master`: `v112-local-event-regression`, `v112-platform-regression`,
+  `v112-release-gap-qualification` (the deliberately deferred identity bump),
+  `v112-runtime-cpu-wiring`, `v112-status-dashboard` (asserts a branch name), and
+  one `tests/v111-ui-renderer` source-shape assertion.

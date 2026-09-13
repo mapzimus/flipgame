@@ -15,8 +15,13 @@
 //   measureDisplay,       // () -> {width, observedContacts}
 //   laneRects,            // (stage, count) -> lane rectangles in client pixels
 //   openLane/closeLane,   // bring the physics surface up and give it back
+//   cpuLaunch,            // ({laneId, playerId, matchId}) -> {vx, vy} | null
+//   cpuThinkMs,           // pause before a CPU flicks
 //   requestFrame/cancelFrame/now,
 // })
+//
+// The page must call resize() when the glass changes size: lane rectangles are
+// client pixels, and the runtime qualifies gestures against them.
 (function (root, factory) {
   'use strict';
   var Runtime = root && root.FlipgameV112BattleRuntime;
@@ -34,6 +39,10 @@
     airborne: 'In flight', contact: 'Landing', settling: 'Settling',
     resolved: 'Scored', disabled: 'Waiting',
   };
+  // A CPU lane never takes a pointer, so if nothing can supply its gesture the
+  // heat cannot go on. The screen has to be told, or it invites a person to wait
+  // for a turn that will never come.
+  var CPU_UNAVAILABLE = 'Nothing here can flick for a CPU competitor. Leave and give every seat to a person.';
   function copy(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
 
   function defaultLaneRects(stage, count) {
@@ -59,19 +68,28 @@
     // A contact is only worth a lane if the injected adapter can actually run
     // that lane. One physics surface means one lane, whatever the glass reports.
     var laneCapacity = Math.max(1, Math.floor(opts.laneCapacity || 1));
+    var cpuLaunch = typeof opts.cpuLaunch === 'function' ? opts.cpuLaunch : null;
+    // A CPU that flicked the instant its lane opened would make the relay snap
+    // between turns with nothing to watch. This is presentation pacing only.
+    var cpuThinkMs = Number(opts.cpuThinkMs);
+    if (!Number.isFinite(cpuThinkMs) || cpuThinkMs < 0) cpuThinkMs = 900;
     var now = opts.now || function () { return Date.now(); };
     var requestFrame = opts.requestFrame || function (fn) { return setTimeout(fn, 16); };
     var cancelFrame = opts.cancelFrame || function (id) { clearTimeout(id); };
     var listeners = new Set();
     var reservation = null;   // { handle, config }
     var runtime = null;
+    var stageElement = null;
     var detachPointers = null;
     var frameId = null;
     var laneOpen = false;
     var lastFrameAt = 0;
     var series = null;        // last BattleStateV1 this host saw
     var message = '';
+    var releasing = false;    // true while the authority is being asked to let go
+    var cpuBlocked = '';      // set while a CPU lane has no gesture to be given
     var submission = null;
+    var cpuTurns = new Map(); // laneId -> { playerId, dueAt }
     var unsubscribeApplication = application.subscribe
       ? application.subscribe(function () { wake(); }) : null;
 
@@ -99,18 +117,30 @@
 
     function prepare(input) {
       var source = input || {};
+      // The last series goes before the new reservation is asked for, not after.
+      // Reserving makes the application emit, and a screen woken in between would
+      // be handed the finished heat under the new match's status.
+      series = null; message = ''; cpuBlocked = ''; submission = null;
       var ticket = application.battle.prepare({ battleFormatId: source.formatId,
         paceId: source.paceId, powerProfileId: source.powerProfileId,
         players: source.players });
       reservation = { handle: ticket.handle, config: copy(ticket.config) };
-      series = null; message = ''; submission = null;
       return { handle: ticket.handle };
     }
 
+    // The authority decides whether a reservation may be dropped. Nothing is
+    // torn down until it has agreed, so a refusal leaves the lane exactly as it
+    // was instead of taking the table away from a Battle that is still running.
     function cancel(handle) {
+      releasing = true;
+      try {
+        application.battle.cancel(handle);
+      } catch (error) {
+        releasing = false;
+        throw error;
+      }
       stopRuntime();
-      application.battle.cancel(handle);
-      reservation = null; series = null; wake();
+      reservation = null; series = null; releasing = false; wake();
       return null;
     }
 
@@ -126,9 +156,14 @@
         // The surface has to exist before lane geometry is measured against it
         // or an attempt is launched into it.
         if (openLane) { laneOpen = true; openLane({ stage: stage, config: config }); }
+        stageElement = stage;
         var rects = laneRectsFor(stage, config.hardware.activeLaneLimit);
         runtime = buildRuntime({ matchId: config.matchId, config: config, laneRects: rects,
           laneAdapterFactory: opts.laneAdapterFactory, captureTarget: stage,
+          // One clock. The frame clock drives tick(), and a Timed Rush horn is
+          // decided against pointer timestamps, so leaving the runtime on its own
+          // default would measure the heat on a clock this host never advances.
+          now: now, inputNow: now,
           onError: function (error) { message = error && error.message ? error.message : String(error); },
         });
         application.battle.start(handle);
@@ -166,6 +201,7 @@
       var state = runtime.snapshot().battle;
       if (state.phase === 'between-heats') { runtime.startHeat(); state = runtime.snapshot().battle; }
       deployStoredPowers(state);
+      driveCpuLanes(state);
       series = copy(runtime.snapshot().battle);
       if (series.phase === 'complete' && !submission) submit();
       wake();
@@ -184,6 +220,44 @@
       });
     }
 
+    // Nothing routes a pointer to a CPU lane, so a Battle with an AI entry would
+    // sit on a ready lane for ever unless something flicks for it. The intent is
+    // the page's, because only the page owns physics; the schedule is this
+    // host's, because only this host owns the frame clock. Neither decides a
+    // pose: the CPU attempt lands the same way a person's does.
+    function driveCpuLanes(state) {
+      if (!runtime || state.phase !== 'active') return;
+      var active = state.activePlayerIds || [];
+      runtime.snapshot().lanes.forEach(function (lane) {
+        if (!(lane.cpu && lane.playerId && lane.state === 'ready' &&
+            active.indexOf(lane.playerId) >= 0)) {
+          cpuTurns.delete(lane.laneId);
+          return;
+        }
+        // A CPU lane takes no pointer, so a gesture nobody can supply is not a
+        // slow turn, it is a lane that waits for ever. Saying so is the only way
+        // out of it: the screen keeps its way back, and a page that supplies the
+        // gesture later still plays on.
+        if (!cpuLaunch) { cpuBlocked = CPU_UNAVAILABLE; return; }
+        var turn = cpuTurns.get(lane.laneId);
+        if (!turn || turn.playerId !== lane.playerId) {
+          cpuTurns.set(lane.laneId, { playerId: lane.playerId, dueAt: now() + cpuThinkMs });
+          return;
+        }
+        if (now() < turn.dueAt) return;
+        cpuTurns.delete(lane.laneId);
+        try {
+          var signal = cpuLaunch({ laneId: lane.laneId, playerId: lane.playerId,
+            matchId: state.matchId });
+          if (!signal) { cpuBlocked = CPU_UNAVAILABLE; return; }
+          cpuBlocked = '';
+          runtime.prepareCpuLaunch(lane.playerId, { launchSignal: signal, startedAt: now() });
+        } catch (error) {
+          message = error && error.message ? error.message : String(error);
+        }
+      });
+    }
+
     function competitorKey(player) {
       var formatId = reservation ? reservation.config.formatId : null;
       return formatId === 'doubles' || formatId === 'team' ? player.teamId : player.id;
@@ -191,11 +265,24 @@
 
     function submit() {
       var handle = reservation.handle;
+      var completed = series;
       submission = Promise.resolve()
-        .then(function () { return application.battle.submitResult(handle, series); })
+        .then(function () { return application.battle.submitResult(handle, completed); })
         .then(function () { stopRuntime(); wake(); })
         .catch(function (error) {
           message = error && error.message ? error.message : String(error);
+          // A refused series is not a reward waiting to be written: the authority
+          // never took it, so no retry can change its mind. Leaving the
+          // reservation open would keep the screen on a save nothing can finish,
+          // with no retry to offer and no Battle able to open behind it, so the
+          // reservation goes back and the series becomes something to read.
+          // A finalization that failed on its way to storage is the other case:
+          // that reward is owed and the authority keeps it for the retry.
+          var view = application.battle.snapshot();
+          if (view && view.status !== 'finalizing' && view.status !== 'finalization-failed') {
+            try { application.battle.abandon('result-refused'); } catch (_) {}
+            reservation = null;
+          }
           stopRuntime(); wake();
         });
       return submission;
@@ -203,7 +290,25 @@
 
     // Every path out of a running series comes through here, so the lane is
     // given back exactly once however the series ended.
+    // A lane rectangle is client pixels on real glass. When the glass changes
+    // size the rules keep running, so the pointer router has to be re-aimed or
+    // every flick after a rotation is qualified against a lane that has moved.
+    function resize() {
+      if (!runtime || !stageElement || !reservation) return snapshot();
+      try {
+        runtime.updateLaneRects(laneRectsFor(stageElement,
+          reservation.config.hardware.activeLaneLimit));
+      } catch (error) {
+        message = error && error.message ? error.message : String(error);
+      }
+      wake();
+      return snapshot();
+    }
+
     function stopRuntime() {
+      stageElement = null;
+      cpuTurns.clear();
+      cpuBlocked = '';
       if (frameId != null) { cancelFrame(frameId); frameId = null; }
       if (detachPointers) { try { detachPointers(); } catch (_) {} detachPointers = null; }
       if (runtime) { try { runtime.destroy(); } catch (_) {} runtime = null; }
@@ -238,8 +343,12 @@
       return runtime.snapshot().lanes.filter(function (lane) {
         return lane.playerId && active.indexOf(lane.playerId) >= 0;
       }).slice(0, series.config.hardware.activeLaneLimit).map(function (lane) {
+        // A CPU lane takes no pointer, so it must never invite a flick — and it
+        // must not claim to be lining one up when nothing can flick for it.
         return { laneId: lane.laneId, playerId: lane.playerId,
-          status: LANE_STATUS[lane.state] || 'Waiting' };
+          status: lane.cpu && lane.state === 'ready'
+            ? (cpuBlocked ? 'Waiting' : 'CPU is lining up')
+            : (LANE_STATUS[lane.state] || 'Waiting') };
       });
     }
 
@@ -256,14 +365,28 @@
     }
 
     function snapshot() {
-      if (!series) return null;
-      return { status: status(), state: series, lanes: lanes(), message: message };
+      // Releasing a reservation makes the authority emit, and its Battle view is
+      // already empty by then: projecting the series still in hand at that moment
+      // reads as a settled one. There is no series to show on the way out.
+      if (!series || releasing) return null;
+      // A real fault says more than a stalled CPU lane does, so it keeps the line.
+      return { status: status(), state: series, lanes: lanes(),
+        message: message || cpuBlocked };
     }
 
+    // Leaving a Battle is not finishing one, so nothing on the way out may look
+    // like a result. A refused release still leaves the lane exactly as it was.
     function abandon() {
+      var left;
+      releasing = true;
+      try {
+        left = Promise.resolve(application.battle.abandon('left-battle'));
+      } catch (error) {
+        releasing = false;
+        throw error;
+      }
       stopRuntime();
-      var left = Promise.resolve(application.battle.abandon('left-battle'));
-      reservation = null;
+      reservation = null; series = null; releasing = false;
       wake();
       return left;
     }
@@ -274,6 +397,7 @@
       prepare: prepare,
       start: start,
       cancel: cancel,
+      resize: resize,
       snapshot: snapshot,
       subscribe: function (listener) {
         listeners.add(listener);

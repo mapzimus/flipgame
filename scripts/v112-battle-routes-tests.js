@@ -52,6 +52,20 @@ function fixture(count=2, hardware={width:1280,verifiedContacts:4}) {
   f.status('retryable');assert.equal(await f.route.retry(),true);assert.equal(f.route.snapshot().hud.status,'settled');
   assert.equal(await f.route.close(),true);
   for(const name of ['resolve','finalize','grant','recordAttempt','advanceClock','consumePower']) assert.equal(f.route[name],undefined);
+  // A heat that will not open sends the player back to the lineup. The real host
+  // drops its own reservation when start() fails, so the cancel this screen tries
+  // next is refused -- and that refusal must not become the player's problem.
+  const broken=fixture();
+  broken.host.start=async()=>{throw new Error('the table would not open');};
+  broken.host.cancel=async()=>{throw new Error('That Battle reservation is not current');};
+  broken.host.snapshot=()=>null;
+  broken.route.open();
+  assert.equal(await broken.route.start(),false,'A heat that cannot open does not start');
+  assert.equal(broken.route.snapshot().route,'setup','A failed heat returns to the lineup');
+  assert.equal(broken.route.snapshot().hud,null,'A failed heat leaves no scoreboard');
+  assert.equal(await broken.route.close(),true,'Leaving is never a dead end');
+  assert.equal(broken.route.snapshot().route,'closed');
+
   const invalid=fixture();invalid.host.capabilities=()=>({width:360,verifiedContacts:4,activeLaneLimit:4,simultaneous:true});invalid.route.open();
   assert.equal(await invalid.route.start(),false,'Phone cannot claim four qualified lanes');
   assert.throws(()=>Routes.project({...f.host.snapshot(),lanes:Array.from({length:5},(_,i)=>({laneId:String(i),playerId:'p1'}))}),/invalid/);

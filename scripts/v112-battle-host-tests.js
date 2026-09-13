@@ -15,13 +15,19 @@ const Root = path.resolve(__dirname, '..');
 // The runtime resolves a lane's promise in a microtask; let those drain.
 const settle = async () => { for (let turn = 0; turn < 4; turn += 1) await Promise.resolve(); };
 
-async function application() {
+// A real device runs out of room. `disk` lets a test close the profile store for
+// a while, which is the only honest way to reach a reward that was earned and
+// could not be written down.
+async function application(disk) {
   const store = new Map();
   const context = vm.createContext({
     console, crypto: webcrypto, AbortController, setTimeout,
     localStorage: {
       getItem: (key) => store.get(key) || null,
-      setItem: (key, value) => store.set(key, String(value)),
+      setItem: (key, value) => {
+        if (disk && disk.full) { disk.refused = (disk.refused || 0) + 1; throw new Error('The profile store is full'); }
+        store.set(key, String(value));
+      },
       removeItem: (key) => store.delete(key),
     },
     navigator: { locks: { request(_name, _options, callback) {
@@ -39,10 +45,13 @@ async function application() {
 function stage(width = 1200, height = 600) {
   const handlers = new Map();
   const captured = new Set();
+  const box = { width, height };
   return {
-    width,
+    get width() { return box.width; },
+    resizeTo(next, tall) { box.width = next; box.height = tall == null ? box.height : tall; },
     attached: () => handlers.size,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width, height, right: width, bottom: height }),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: box.width, height: box.height,
+      right: box.width, bottom: box.height }),
     addEventListener(type, handler) { handlers.set(type, handler); },
     removeEventListener(type) { handlers.delete(type); },
     setPointerCapture(id) { captured.add(id); },
@@ -125,15 +134,28 @@ function build(app, options = {}) {
   const track = options.lane || lane();
   const tick = options.clock || clock();
   const lent = options.table || table();
+  const brain = options.cpu || null;
   const host = Host.createBattleHost({
-    application: app,
+    application: options.application ? options.application(app) : app,
     laneAdapterFactory: track.factory,
     laneCapacity: options.laneCapacity || 1,
     measureDisplay: () => options.display || { width: 360, observedContacts: 1 },
     openLane: lent.open, closeLane: lent.close,
+    cpuLaunch: brain ? brain.launch : undefined,
+    cpuThinkMs: options.cpuThinkMs,
     now: tick.now, requestFrame: tick.requestFrame, cancelFrame: tick.cancelFrame,
   });
-  return { host, stage: surface, lane: track, clock: tick, table: lent };
+  return { host, stage: surface, lane: track, clock: tick, table: lent, cpu: brain };
+}
+
+// The page's CPU intent. It hands back a gesture and nothing else: what that
+// gesture lands as is still the collider's to report.
+function brain() {
+  const asked = [];
+  return {
+    asked,
+    launch(request) { asked.push(request); return { vx: 6, vy: -18 }; },
+  };
 }
 
 const roster = (count) => Array.from({ length: count }, (_, index) => ({
@@ -144,7 +166,7 @@ const roster = (count) => Array.from({ length: count }, (_, index) => ({
 // a plain finally would replace the assertion that left it there. The first
 // failure always wins, and a teardown fault still fails a passing body.
 async function withHost(options, body) {
-  const app = await application();
+  const app = await application(options.disk);
   const context = build(app, options);
   let failure = null;
   try { await body(context, app); } catch (error) { failure = error; }
@@ -163,6 +185,16 @@ function flick(context, laneId, laneCount, counter) {
   context.stage.fire('pointerdown', pointerEvent(counter.pointerId, x, 420, counter.at));
   context.stage.fire('pointermove', pointerEvent(counter.pointerId, x + 4, 340, counter.at + 40));
   context.stage.fire('pointerup', pointerEvent(counter.pointerId, x + 8, 250, counter.at + 80));
+}
+
+// The reward write is a real promise. A series is only over once the authority
+// has finished with it, so a test that stops at 'finalizing' is still holding a
+// Battle that is owed rewards and cannot be left.
+async function awaitReward(context) {
+  for (let turn = 0; turn < 50 && context.host.snapshot().status === 'finalizing'; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return context.host.snapshot();
 }
 
 // Plays whichever lanes the screen is currently showing until the series settles.
@@ -195,6 +227,137 @@ async function playSeries(context) {
     context.clock.advance();
   }
   return { seen, attempts: counter.attempts };
+}
+
+// Nothing hands a pointer to a CPU lane, so a Battle against an AI entry is only
+// playable if something flicks for it. The human's turns come from the stage and
+// the CPU's from the frame clock; both land through the same lane.
+async function playAgainstCpu(context) {
+  const counter = { pointerId: 0, at: 0, attempts: 0 };
+  const seen = new Set();
+  const poses = ['upright', 'cap', 'miss'];
+  let guard = 0;
+  while (context.host.snapshot().status === 'playing') {
+    assert.ok((guard += 1) < 600, 'A Battle against a CPU must terminate');
+    const view = context.host.snapshot();
+    const cpuIds = new Set(view.state.config.players
+      .filter((entry) => entry.cpu).map((entry) => entry.id));
+    const laneCount = view.state.config.hardware.activeLaneLimit;
+    for (const shown of Routes.project(view).lanes) {
+      seen.add(shown.playerId);
+      if (!cpuIds.has(shown.playerId)) flick(context, shown.laneId, laneCount, counter);
+    }
+    context.clock.advance(1000);
+    while (context.lane.airborne.length) {
+      await context.lane.land(poses[counter.attempts % poses.length]);
+      counter.attempts += 1;
+    }
+  }
+  return { seen, attempts: counter.attempts };
+}
+
+function testACpuCompetitorTakesItsOwnTurns() {
+  return withHost({ cpu: brain() }, async (context, app) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'volley',
+      powerProfileId: 'sport',
+      players: [{ id: 'entry-1', displayName: 'Entry 1', type: 'human' },
+        { id: 'entry-2', displayName: 'Entry 2', type: 'cpu' }] });
+    context.host.start(ticket.handle, { stage: context.stage });
+    assert.equal(context.host.snapshot().state.config.players[1].cpu, true,
+      'The reservation kept the AI entry');
+
+    const { seen, attempts } = await playAgainstCpu(context);
+    assert.equal(seen.size, 2, 'Both the person and the CPU were given the lane');
+    assert.ok(attempts >= 10, 'A best-of-three series against a CPU takes real flips');
+    assert.ok(context.cpu.asked.length >= 5, 'The page was asked for every CPU gesture');
+    assert.ok(context.cpu.asked.every((request) => request.playerId === 'seat-2'),
+      'Only the CPU seat is flicked for');
+    assert.equal(context.host.snapshot().message, '',
+      'A CPU turn is not an error: ' + context.host.snapshot().message);
+
+    const view = await awaitReward(context);
+    assert.equal(view.status, 'settled');
+    assert.ok(view.state.winnerId, 'A Battle against a CPU still names a winner');
+    // A CPU launch is never a qualified manual one, so it can never earn its
+    // owner a power card.
+    assert.deepEqual(view.state.powerOffers['seat-2'], null);
+    assert.equal(view.state.charges['seat-2'], 0, 'A CPU never charges a power card');
+    assert.ok(view.state.charges['seat-1'] >= 0);
+    assert.ok(app.snapshot().profile.fxp > 0, 'The series was rewarded');
+  });
+}
+
+// A CPU lane takes no pointer, so a Battle whose CPU gesture nobody can supply is
+// not a slow turn: it is a lane that waits for ever. That has to be said on the
+// screen, and the lane must stop claiming a launch is coming.
+function testAMissingCpuIntentIsNotSilent() {
+  const composed = { cpu: brain() };
+  const gate = { supply: false };
+  composed.cpu.launch = (request) => {
+    composed.cpu.asked.push(request);
+    return gate.supply ? { vx: 6, vy: -18 } : null;
+  };
+  return withHost(composed, async (context) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'volley',
+      powerProfileId: 'sport',
+      players: [{ id: 'entry-1', displayName: 'Entry 1', type: 'human' },
+        { id: 'entry-2', displayName: 'Entry 2', type: 'cpu' }] });
+    context.host.start(ticket.handle, { stage: context.stage });
+    const counter = { pointerId: 0, at: 0 };
+    flick(context, 'lane-1', 1, counter);
+    await context.lane.land('upright');
+    for (let turn = 0; turn < 5; turn += 1) context.clock.advance(1000);
+
+    const stalled = context.host.snapshot();
+    assert.equal(stalled.lanes[0].playerId, 'seat-2', 'The lane did rotate to the CPU');
+    assert.equal(stalled.state.scores['seat-2'], 0, 'A CPU with no intent scores nothing');
+    assert.match(stalled.message, /flick for a CPU/i,
+      'A stalled CPU lane has to say so: ' + JSON.stringify(stalled.message));
+    assert.notEqual(stalled.lanes[0].status, 'CPU is lining up',
+      'Nothing is lining up a launch nobody can supply');
+    // Saying so is not giving up: the screen keeps its way out, and the route can
+    // still project and leave it.
+    assert.equal(stalled.status, 'playing');
+    assert.equal(Routes.project(stalled).message, stalled.message);
+
+    // A page that can supply the gesture after all plays on, and stops saying it.
+    gate.supply = true;
+    for (let turn = 0; turn < 5; turn += 1) context.clock.advance(1000);
+    assert.equal(context.host.snapshot().message, '',
+      'A CPU turn that arrives clears the stall');
+    assert.equal(context.lane.airborne.length, 1,
+      'The CPU gesture reached the same lane a person flicks into');
+    await context.lane.land('upright');
+    context.clock.advance(1000);
+    assert.ok(context.host.snapshot().state.resolvedAttempts
+      .some((attempt) => attempt.playerId === 'seat-2' && attempt.pose === 'upright'),
+      'The CPU attempt landed through the same collider a person flicks into');
+  });
+}
+
+// A Timed Rush horn is the frame clock's business, and the rules clock is the
+// runtime's. If those are two different clocks the heat is timed by something
+// this host never advances, so a page whose paint clock is throttled or paused
+// keeps its horn running anyway.
+function testTimedRushRunsOnTheHostsClock() {
+  return withHost({}, async (context) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'rush',
+      powerProfileId: 'sport', players: roster(2) });
+    context.host.start(ticket.handle, { stage: context.stage });
+    const elapsed = () => context.host.snapshot().state.elapsedMs;
+    assert.equal(elapsed(), 0, 'A heat starts on nothing');
+    for (let frame = 0; frame < 10; frame += 1) context.clock.advance(100);
+    assert.equal(Math.round(elapsed()), 1000, 'The rules clock followed the frames');
+    const held = elapsed();
+    for (let frame = 0; frame < 5; frame += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(elapsed(), held, 'Wall time with no frames moves no rules clock');
+    assert.equal(Routes.project(context.host.snapshot()).remainingMs,
+      context.host.snapshot().state.config.rushDurationMs - held,
+      'The screen counts down the same clock');
+  });
 }
 
 function testTheRouteAcceptsThisHost() {
@@ -250,14 +413,16 @@ function testAWholeRelaySeriesReachesTheReward() {
     assert.equal(seen.size, 2, 'An alternating relay gives both competitors a turn');
     assert.ok(attempts >= 10, 'A best-of-three series takes more than a few flips');
 
-    for (let turn = 0; turn < 50 && context.host.snapshot().status === 'finalizing'; turn += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    view = context.host.snapshot();
+    view = await awaitReward(context);
     assert.equal(view.status, 'settled');
     assert.equal(view.state.phase, 'complete');
     assert.ok(view.state.winnerId);
     assert.equal(view.state.heatResults.length >= 2, true);
+    // A finished match has to be able to say who won it.
+    const settled = Routes.project(view);
+    assert.equal(settled.winnerId, view.state.winnerId, 'The screen is told who won');
+    assert.equal(settled.winnerLabel,
+      settled.scores.find((entry) => entry.id === settled.winnerId).label);
     assert.deepEqual(view.lanes, [], 'A settled series shows no live lane');
     assert.ok(app.snapshot().profile.fxp > 0, 'The completed series was rewarded');
     assert.ok(woken.length > 3, 'The screen was woken as the series moved');
@@ -282,12 +447,11 @@ function testTwoVerifiedContactsPlayTwoLanesAtOnce() {
 
     const { seen } = await playSeries(context);
     assert.equal(seen.size, 4, 'A 2v2 rotation seats every player');
-    for (let turn = 0; turn < 50 && context.host.snapshot().status === 'finalizing'; turn += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    const view = context.host.snapshot();
+    const view = await awaitReward(context);
     assert.equal(view.status, 'settled');
     assert.ok(['team-a', 'team-b'].includes(view.state.winnerId), 'A 2v2 series is won by a team');
+    assert.equal(Routes.project(view).winnerLabel,
+      view.state.winnerId === 'team-a' ? 'Team A' : 'Team B', 'A team is named as the winner');
     assert.ok(app.snapshot().profile.fxp > 0);
   });
 }
@@ -299,12 +463,38 @@ function testLeavingMidSeriesEarnsNothing() {
       powerProfileId: 'sport', players: roster(2) });
     context.host.start(ticket.handle, { stage: context.stage });
     await context.host.abandon();
-    assert.equal(context.host.snapshot().status, 'settled');
+    assert.equal(context.host.snapshot(), null, 'An abandoned Battle is not a series');
     assert.equal(app.snapshot().profile.fxp, 0, 'An abandoned Battle awards nothing');
     assert.equal(app.battle.snapshot(), null, 'Leaving consumes the reservation');
     assert.ok(!context.clock.pending(), 'Leaving stops the frame clock');
     assert.equal(context.stage.attached(), 0, 'Leaving releases the stage listeners');
     assert.deepEqual(context.table.log, ['open', 'close'], 'Leaving gives the lane surface back');
+  });
+}
+
+// Leaving a running Battle is not finishing one. The host kept the abandoned
+// series in hand, so releasing the reservation woke the screen with a projection
+// of it — and the private view is empty by then, which reads as 'settled'. The
+// route showed a result for a Battle nobody played out, on its way out.
+function testLeavingARunningBattleNeverShowsAResult() {
+  return withHost({}, async (context) => {
+    const seen = [];
+    const route = Routes.create({ getHost: () => context.host,
+      getPlayers: () => roster(2), getStage: () => context.stage });
+    route.subscribe((view) => { if (view.hud) seen.push(view.hud.status); });
+    route.open();
+    assert.equal(await route.start(), true, 'The heat opened');
+    const counter = { pointerId: 0, at: 0 };
+    flick(context, 'lane-1', 1, counter);
+    await context.lane.land('upright');
+    context.clock.advance();
+    assert.ok(seen.includes('playing'), 'The heat was projected while it ran');
+
+    assert.equal(await route.close(), true, 'A running Battle can be left');
+    assert.ok(!seen.includes('settled') && !seen.includes('finalizing'),
+      'Leaving a running Battle showed a finished one: ' + seen.join(', '));
+    assert.equal(context.host.snapshot(), null,
+      'A host that gave the reservation back has no series to project');
   });
 }
 
@@ -330,6 +520,199 @@ function testALaneSurfaceThatWillNotOpenLeavesNothingBehind() {
   });
 }
 
+// A lane rectangle is client pixels on real glass, and a phone can be rotated
+// mid-heat. After the page reports the new size, a flick has to be qualified
+// against the lane that is under the finger now, not the one that used to be.
+function testTheGlassCanChangeSizeMidSeries() {
+  return withHost({ display: { width: 1280, observedContacts: 2 }, laneCapacity: 2 },
+    async (context, app) => {
+      context.host.capabilities();
+      const ticket = context.host.prepare({ formatId: 'doubles', paceId: 'volley',
+        powerProfileId: 'sport', players: roster(4) });
+      context.host.start(ticket.handle, { stage: context.stage });
+      const aiming = () => Routes.project(context.host.snapshot()).lanes
+        .filter((entry) => entry.status === 'Aiming').map((entry) => entry.laneId);
+      // x=450 sits in the left half of a 1200px stage, so it is lane 1's.
+      const touch = (pointerId) => {
+        context.stage.fire('pointerdown', pointerEvent(pointerId, 450, 420, pointerId * 100));
+        const held = aiming();
+        context.stage.fire('pointercancel', pointerEvent(pointerId, 450, 420, pointerId * 100 + 10));
+        return held;
+      };
+      assert.deepEqual(touch(1), ['lane-1'], 'The left half of the stage is the first lane');
+
+      context.stage.resizeTo(600, 600);
+      assert.deepEqual(touch(2), ['lane-1'],
+        'Until the page reports the resize the router is still aiming at the old lane');
+      context.host.resize();
+      // The same pixel is now in the right half of a 600px stage.
+      assert.deepEqual(touch(3), ['lane-2'], 'A reported resize re-aims the lanes');
+      assert.equal(context.host.snapshot().message, '', 'A resize is not an error');
+      assert.deepEqual(context.table.log, ['open'], 'A resize does not give the lane surface back');
+
+      const { seen } = await playSeries(context);
+      assert.equal(seen.size, 4, 'The series still seats every player after the resize');
+      assert.equal((await awaitReward(context)).status, 'settled');
+      assert.deepEqual(context.table.log, ['open', 'close']);
+    });
+}
+
+// The reward authority decides whether a series may be left at all. When it
+// refuses, the page must keep the table it was given: taking the lane away from
+// a Battle that is still owed rewards leaves nobody able to finish or leave it.
+function testARefusedAbandonKeepsTheTable() {
+  const gate = { refuse: false };
+  const guarded = (app) => ({
+    subscribe: (listener) => app.subscribe(listener),
+    battle: {
+      observeDisplay: (input) => app.battle.observeDisplay(input),
+      prepare: (input) => app.battle.prepare(input),
+      start: (handle) => app.battle.start(handle),
+      cancel: (handle) => app.battle.cancel(handle),
+      submitResult: (handle, state) => app.battle.submitResult(handle, state),
+      retryFinalization: () => app.battle.retryFinalization(),
+      snapshot: () => app.battle.snapshot(),
+      abandon: (reason) => {
+        if (gate.refuse) throw new Error('Retry the completed Battle’s rewards first');
+        return app.battle.abandon(reason);
+      },
+    },
+  });
+  return withHost({ application: guarded }, async (context, app) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'volley',
+      powerProfileId: 'sport', players: roster(2) });
+    context.host.start(ticket.handle, { stage: context.stage });
+    gate.refuse = true;
+    assert.throws(() => context.host.abandon(), /rewards first/);
+    assert.deepEqual(context.table.log, ['open'], 'A refused abandon keeps the table');
+    assert.equal(context.stage.attached() > 0, true, 'A refused abandon keeps the lane listening');
+    assert.equal(context.host.snapshot().status, 'playing', 'The series is still running');
+
+    gate.refuse = false;
+    await context.host.abandon();
+    assert.deepEqual(context.table.log, ['open', 'close']);
+    assert.equal(app.battle.snapshot(), null);
+    assert.equal(app.snapshot().profile.fxp, 0);
+  });
+}
+
+// People play more than one Battle. The second has to open as cleanly as the
+// first, which means nothing left over from the finished series may reach the
+// screen while the next reservation is being made.
+function testASecondBattleOpensAsCleanlyAsTheFirst() {
+  return withHost({}, async (context, app) => {
+    const route = Routes.create({
+      getHost: () => context.host,
+      getPlayers: () => roster(2),
+      getStage: () => context.stage,
+    });
+    const seat = async (attempt) => {
+      route.open();
+      assert.equal(route.snapshot().available, true, 'Battle is connected on attempt ' + attempt);
+      route.configure({ formatId: 'duel' });
+      assert.equal(await route.start(), true, 'The heat opened on attempt ' + attempt);
+      const view = route.snapshot();
+      assert.equal(view.route, 'game', 'Attempt ' + attempt + ' is playing');
+      assert.equal(view.message, '', 'Attempt ' + attempt + ' reported: ' + view.message);
+      assert.equal(view.hud.status, 'playing');
+      assert.equal(view.hud.heat, 1, 'Attempt ' + attempt + ' starts its own first heat');
+      assert.equal(view.hud.volley, 1);
+      assert.deepEqual(view.hud.scores.map((entry) => entry.score), [0, 0],
+        'Attempt ' + attempt + ' starts from nothing');
+      assert.equal(await route.close(), true, 'Attempt ' + attempt + ' was left');
+      assert.equal(route.snapshot().route, 'closed');
+    };
+    await seat('one');
+    await seat('two');
+    assert.deepEqual(context.table.log, ['open', 'close', 'open', 'close'],
+      'Each series takes the table and gives it back');
+    assert.equal(app.battle.snapshot(), null, 'Neither series is still reserved');
+    assert.equal(app.snapshot().profile.fxp, 0, 'Two abandoned Battles award nothing');
+  });
+}
+
+// A series the authority refuses is not a reward waiting to be written: no retry
+// can change its mind, so nothing is protected by keeping the screen on it. If
+// the host stays on 'finalizing' the route disables Back and offers no retry, and
+// holding the reservation open stops the next Battle from being reserved at all.
+function testARefusedSeriesIsNotADeadEnd() {
+  const refused = (app) => ({
+    subscribe: (listener) => app.subscribe(listener),
+    battle: {
+      observeDisplay: (input) => app.battle.observeDisplay(input),
+      prepare: (input) => app.battle.prepare(input),
+      start: (handle) => app.battle.start(handle),
+      cancel: (handle) => app.battle.cancel(handle),
+      retryFinalization: () => app.battle.retryFinalization(),
+      snapshot: () => app.battle.snapshot(),
+      abandon: (reason) => app.battle.abandon(reason),
+      submitResult: () => { throw new Error('That series contradicts the reserved Battle setup'); },
+    },
+  });
+  return withHost({ application: refused }, async (context, app) => {
+    const route = Routes.create({ getHost: () => context.host,
+      getPlayers: () => roster(2), getStage: () => context.stage });
+    route.open();
+    assert.equal(await route.start(), true, 'The heat opened');
+    await playSeries(context);
+
+    const view = await awaitReward(context);
+    assert.match(view.message, /contradicts the reserved Battle setup/,
+      'The refusal has to reach the screen');
+    assert.equal(view.status, 'settled',
+      'A refused series cannot sit on "saving" with nothing able to save it');
+    route.refresh();
+    assert.equal(route.snapshot().hud.status, 'settled');
+    assert.equal(await route.close(), true, 'A refused series can still be left');
+    assert.equal(route.snapshot().route, 'closed');
+    assert.deepEqual(context.table.log, ['open', 'close'], 'The table went back');
+    assert.equal(app.snapshot().profile.fxp, 0, 'A refused series is worth nothing');
+
+    // And the reservation went back with it, or no further Battle can be made.
+    assert.equal(app.battle.snapshot(), null, 'A refused series holds no reservation');
+    route.open();
+    assert.equal(await route.start(), true, 'Another Battle can still be started');
+    assert.equal(route.snapshot().message, '');
+    await route.close();
+  });
+}
+
+// A refused series is worth nothing, but a series the authority accepted and
+// could not write down is worth exactly what it earned. That reward has to stay
+// owed: the screen keeps it, refuses to be walked out of, and pays when the
+// retry lands — the one path where holding the player there is the right answer.
+function testARewardThatCouldNotBeWrittenIsStillOwed() {
+  const disk = {};
+  return withHost({ disk }, async (context, app) => {
+    const route = Routes.create({ getHost: () => context.host,
+      getPlayers: () => roster(2), getStage: () => context.stage });
+    route.open();
+    assert.equal(await route.start(), true, 'The heat opened');
+    disk.full = true;
+    await playSeries(context);
+    const failed = await awaitReward(context);
+    assert.equal(failed.status, 'retryable', 'A write that failed is a retry, not a refusal');
+    assert.ok(disk.refused > 0, 'The profile store really did refuse the write');
+    assert.equal(app.snapshot().profile.fxp, 0, 'Nothing was paid out of a failed write');
+    assert.equal(app.battle.snapshot().status, 'finalization-failed',
+      'The authority is still holding the reward');
+    route.refresh();
+    assert.equal(route.snapshot().hud.status, 'retryable');
+    assert.equal(await route.close(), false, 'A reward that is owed keeps the screen');
+    assert.deepEqual(context.table.log, ['open', 'close'],
+      'A series that stopped taking launches gives the table back either way');
+
+    disk.full = false;
+    assert.equal(await route.retry(), true, 'The retry was accepted');
+    assert.equal(context.host.snapshot().status, 'settled');
+    assert.ok(app.snapshot().profile.fxp > 0, 'The retry paid the reward it was holding');
+    assert.equal(app.battle.snapshot().status, 'completed');
+    assert.equal(await route.close(), true, 'A paid series can be left');
+    assert.equal(route.snapshot().route, 'closed');
+  });
+}
+
 function testAnUnstartedReservationCancels() {
   return withHost({}, async (context, app) => {
     context.host.capabilities();
@@ -350,9 +733,18 @@ async function run() {
   await testAnUnstartedReservationCancels();
   await testALaneSurfaceThatWillNotOpenLeavesNothingBehind();
   await testLeavingMidSeriesEarnsNothing();
+  await testLeavingARunningBattleNeverShowsAResult();
+  await testARefusedAbandonKeepsTheTable();
+  await testARefusedSeriesIsNotADeadEnd();
+  await testARewardThatCouldNotBeWrittenIsStillOwed();
+  await testASecondBattleOpensAsCleanlyAsTheFirst();
   await testAWholeRelaySeriesReachesTheReward();
   await testTwoVerifiedContactsPlayTwoLanesAtOnce();
-  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, a whole relay series and a two-lane 2v2 series from reservation to reward, and reservations released on cancel and on leaving.');
+  await testTheGlassCanChangeSizeMidSeries();
+  await testTimedRushRunsOnTheHostsClock();
+  await testAMissingCpuIntentIsNotSilent();
+  await testACpuCompetitorTakesItsOwnTurns();
+  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, lanes re-aimed when the glass changes size, a refused abandon that keeps the table, a whole relay series and a two-lane 2v2 series from reservation to reward, a Timed Rush heat measured on the host s own frame clock, a CPU competitor taking its own turns, a refused series that stays readable and leavable, a reward that could not be written staying owed until the retry pays it, and reservations released on cancel and on leaving with no result shown on the way out.');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

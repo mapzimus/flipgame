@@ -36,6 +36,8 @@ async function run() {
     assert.ok(app.supported.activities.includes('story'));
     assert.ok(app.supported.activities.includes('tutorial'));
     assert.deepEqual(Array.from(app.supported.physics), ['normal', 'insane', 'alien']);
+    assert.equal(app.arenas().length, 23);
+    assert.equal(app.achievements().length, 120);
 
     for (const formatId of ['classic', 'cup', 'team-clash']) {
       app.beginSession({ formatId, roster: [{ name: 'One' }, { name: 'Two' }] });
@@ -61,6 +63,30 @@ async function run() {
     });
     assert.equal(request.activityId, 'story');
     assert.equal(request.formatId, 'classic');
+
+    const prepared = app.prepareStory({
+      chapterId: 'first-broadcast',
+      humans: [{ id: 'human-1', displayName: 'One', flipperId: 'bottle' }],
+    });
+    assert.equal(prepared.request.activityContext.prescribedArena, true);
+    assert.equal(prepared.card.schema, 'StoryBroadcastCardV1');
+    assert.equal(app.snapshot().session, null);
+    app.startPreparedStory(prepared.handle);
+    assert.equal(app.snapshot().session.request.matchId, prepared.request.matchId);
+    assert.equal(app.snapshot().session.status, 'active');
+    app.abandonSession();
+
+    const cancelled = app.prepareStory({
+      chapterId: 'first-broadcast',
+      humans: [{ id: 'human-1', displayName: 'One', flipperId: 'bottle' }],
+    });
+    app.cancelPreparedStory(cancelled.handle);
+    assert.equal(app.snapshot().story, null);
+
+    const tour = app.startTour({ human: { id: 'human-1', displayName: 'One', flipperId: 'bottle' } });
+    assert.equal(tour.isolation.testData, true);
+    assert.equal(tour.isolation.fcEligible, false);
+    app.skipTour();
   } finally {
     close();
   }

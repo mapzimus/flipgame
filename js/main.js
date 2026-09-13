@@ -75,6 +75,7 @@
   // Assigned once the Battle lane host is composed below. Until then the Battle
   // route has no host and refuses to start a heat.
   let battleHost = null;
+  let journeyHost = null;
   let v112OwnsMatch = false;
   function privateRewardAuthorityActive() { return v112OwnsMatch === true; }
   function abandonPrivateSession() {
@@ -91,6 +92,12 @@
     if (!v112App || typeof v112App.beginSession !== 'function') return false;
     const options = opts || {};
     if (options.lab || options.forced || options.testData) return false;
+    // Story already reserved the match. A second beginSession would double-book
+    // the coordinator. Tour is Test Data and never opens a reward session.
+    if (options.reservedSession) {
+      v112OwnsMatch = options.tour !== true;
+      return v112OwnsMatch;
+    }
     const activityId = options.practice ? 'practice' : 'free-play';
     const formatId = options.format === 'team' || options.format === 'team-clash' ? 'team-clash'
       : options.format === 'cup' ? 'cup' : 'classic';
@@ -164,6 +171,14 @@
   function scheduleReflow() {
     clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => {
+      // A live Battle holds the table instead of a classic match, and its lane
+      // rectangles are client pixels, so the runtime has to be told the glass
+      // moved as well or it keeps aiming flicks at the old lane.
+      if (battleLane.live()) {
+        battleLane.reflow();
+        if (battleHost) battleHost.resize();
+        return;
+      }
       if (!gameStarted) return;
       Physics.reflow(window.innerWidth, window.innerHeight, stageBottomInset());
       // B2: only re-place the bottle when one is genuinely at rest — never mid-flick
@@ -225,12 +240,15 @@
   function isCharUnlocked(id) {
     const c = characterById(id);
     if (!c) return false;
-    // Whoever pays the rewards decides what is unlocked. A Flipper the private
-    // v1.12 authority has not granted must never be offered: it would refuse
-    // the reservation outright, and a classic match built on one would play to
-    // the end and earn nothing.
-    if (v112App && typeof v112App.isObjectAvailable === 'function' &&
-        !v112App.isObjectAvailable(id)) return false;
+    // Whoever pays the rewards decides what is unlocked, and when the private
+    // v1.12 composition is here that is the whole answer. Consulting an older
+    // ladder as well takes the intersection of the two: it would offer nothing
+    // that authority refuses -- which is the point -- but it would also withhold
+    // Flippers that authority has already granted, so earned rewards never
+    // reach the picker.
+    if (v112App && typeof v112App.isObjectAvailable === 'function') {
+      return v112App.isObjectAvailable(id) === true;
+    }
     if (window.FlipgameV111Content && window.FlipgameV111Progression) {
       const view = FlipgameV111Content.viewObject(FlipgameV111Progression.snapshot(), id);
       if (view) return !view.locked;
@@ -323,9 +341,15 @@
   // Default player name for a skin + color — always a unique pun per flavor.
   function defaultNameFor(charId, color) {
     const col = color != null ? normalizeColor(color) : defaultColorFor(charId);
+    const id = resolveCharForColor(charId, col);
+    const names = window.FLIP_V112_VARIANT_NAMES;
+    if (names && typeof names.nameFor === 'function') {
+      const authored = names.nameFor(id, col) || names.nameFor(familyKey(id), col);
+      if (authored) return authored;
+    }
     if (window.Skins && Skins.nameFor) return Skins.nameFor(charId, col);
     const f = FLAVORS.find((x) => x.color === col);
-    const c = characterById(resolveCharForColor(charId, col));
+    const c = characterById(id);
     return (c && c.name) || (f && f.name) || 'Player';
   }
   function familyLabel(charId) {
@@ -497,6 +521,7 @@
   function paintRowPreview(row) {
     const cv = row && row.querySelector('.skin-preview');
     if (!cv || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
+    clearPreviewCanvas(cv);
     const color = normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char));
     const charId = resolveCharForColor(row.dataset.char || defaultCharId(), color);
     const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(charId) : charId;
@@ -697,16 +722,32 @@
 
   function currentDraft() { return pickerDraftRows[pickerIndex] || null; }
   function cosmeticTilesHtml(type) {
+    const selected = type === 'arena' ? arenaDraft : currentDraft()?.cosmeticId;
+    const noneSelected = !selected;
+    const none = `<button type="button" role="gridcell" class="picker-tile" data-${type}="" ` +
+      `aria-pressed="${noneSelected}" tabindex="${noneSelected ? '0' : '-1'}"><span aria-hidden="true">∅</span><span>None</span></button>`;
+    if (type === 'arena' && v112App && typeof v112App.arenas === 'function') {
+      const arenas = v112App.arenas();
+      const visible = arenas.filter((row) => !row.locked);
+      const tiles = visible.map((row) =>
+        `<button type="button" role="gridcell" class="picker-tile" data-arena="${escapeHtml(row.id)}" aria-pressed="${selected === row.id}" tabindex="${selected === row.id ? '0' : '-1'}"><span aria-hidden="true">🏟️</span><span>${escapeHtml(row.displayName)}</span></button>`);
+      if (arenas.some((row) => row.locked)) tiles.push(undiscoveredTileHtml());
+      return none + tiles.join('');
+    }
+    if (type !== 'arena' && v112App && typeof v112App.store === 'function') {
+      const items = v112App.store().filter((item) => !item.locked && (type === 'cosmetic' || !item.slot || item.slot === type || item.kind === type));
+      const visible = items.filter((item) => item.owned);
+      const tiles = visible.map((item) =>
+        `<button type="button" role="gridcell" class="picker-tile" data-cosmetic="${escapeHtml(item.id)}" aria-pressed="${selected === item.id}" tabindex="${selected === item.id ? '0' : '-1'}"><span aria-hidden="true">✦</span><span>${escapeHtml(item.displayName)}</span></button>`);
+      if (items.some((item) => !item.owned)) tiles.push(undiscoveredTileHtml());
+      return none + tiles.join('');
+    }
     const state = window.FlipgameV111Progression ? FlipgameV111Progression.snapshot() : {};
     const views = window.FlipgameV111Cosmetics ? FlipgameV111Cosmetics.listForPlayer(state) : [];
     const internal = window.FlipgameV111Cosmetics?.internalCatalog?.() || [];
     const wantedScope = type === 'arena' ? 'global' : 'personal';
     const scoped = views.map((view, index) => ({ view, scope: internal[index]?.scope }))
       .filter((entry) => entry.scope === wantedScope);
-    const selected = type === 'arena' ? arenaDraft : currentDraft()?.cosmeticId;
-    const noneSelected = !selected;
-    const none = `<button type="button" role="gridcell" class="picker-tile" data-${type}="" ` +
-      `aria-pressed="${noneSelected}" tabindex="${noneSelected ? '0' : '-1'}"><span aria-hidden="true">∅</span><span>None</span></button>`;
     const visible = scoped.map((entry) => entry.view).filter((view) => !view.locked);
     const tiles = visible.map((view) =>
       `<button type="button" role="gridcell" class="picker-tile" data-${type}="${escapeHtml(view.id)}" aria-pressed="${selected === view.id}" tabindex="${selected === view.id ? '0' : '-1'}"><span aria-hidden="true">✦</span><span>${escapeHtml(view.displayName)}</span></button>`);
@@ -777,20 +818,34 @@
     pickerOpener = null;
   }
 
+  function clearPreviewCanvas(canvas) {
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.restore();
+  }
   function paintPickerPreviews() {
     if (!pickerRow || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
     const draft = currentDraft();
     const col = normalizeColor(draft?.color || defaultColorFor(draft?.charId));
     charPickGrid.querySelectorAll('canvas[data-preview-char]').forEach((cv) => {
+      if (cv.closest('[data-locked="1"]')) {
+        clearPreviewCanvas(cv);
+        return;
+      }
       const id = cv.dataset.previewChar;
       const previewColor = cv.dataset.previewColor || col;
       const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
+      clearPreviewCanvas(cv);
       Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, previewColor));
     });
     const hero = document.getElementById('customize-preview');
     if (hero && draft) {
       const id = resolveCharForColor(draft.charId, col);
       const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
+      clearPreviewCanvas(hero);
       Renderer.drawPreview(hero, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, col));
     }
   }
@@ -841,8 +896,20 @@
 
   function queueMysteryReveals(ids) {
     if (!ids || !ids.length || !mysteryScreen) return;
-    mysteryQueue.push(...ids);
+    mysteryQueue.push(...ids.map((value) => (value && typeof value === 'object'
+      ? value : { id: value, contentId: value, type: 'object' })));
     if (!mysteryCurrent) nextMysteryReveal();
+  }
+  function queueAuthorityReveals(reveals) {
+    const items = (reveals || []).filter((entry) => entry &&
+      (entry.type === 'object' || entry.type === 'store' || entry.type === 'cosmetic'
+        || entry.type === 'arena' || entry.type === 'feature'));
+    if (items.length) queueMysteryReveals(items);
+  }
+  function mysteryContentId(entry) {
+    if (!entry) return null;
+    if (typeof entry === 'string') return entry;
+    return entry.contentId || entry.id;
   }
 
   function nextMysteryReveal() {
@@ -854,6 +921,7 @@
     }
     mysteryCurrent = mysteryQueue.shift();
     mysteryOpened = false;
+    const revealId = mysteryContentId(mysteryCurrent);
     // A queued reveal must start with an empty canvas, including after a
     // late sprite decode from the previous prize.
     if (mysteryArtEl) {
@@ -864,9 +932,9 @@
       context.restore();
     }
     // Warm the sprite for this character's own tint before it's on screen.
-    const c = characterById(mysteryCurrent);
-    const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
-    if (window.Skins && Skins.preload) Skins.preload([{ id: mysteryCurrent, color: tint }]);
+    const c = characterById(revealId);
+    const tint = (c && (c.tint || c.color)) || defaultColorFor(revealId);
+    if (window.Skins && Skins.preload && c) Skins.preload([{ id: revealId, color: tint }]);
 
     mysteryScreen.classList.remove('opening');
     mysteryHeadlineEl.textContent = 'New unlock!';
@@ -882,11 +950,13 @@
 
   function paintMysteryArt() {
     if (!mysteryCurrent || !mysteryOpened || !mysteryArtEl || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
-    const c = characterById(mysteryCurrent);
-    const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
-    const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(mysteryCurrent) : mysteryCurrent;
-    Renderer.drawPreview(mysteryArtEl, drawAs === 'bottle' ? 'bottle' : mysteryCurrent,
-                         drawTintFor(mysteryCurrent, tint));
+    const revealId = mysteryContentId(mysteryCurrent);
+    const c = characterById(revealId);
+    if (!c) return;
+    const tint = (c && (c.tint || c.color)) || defaultColorFor(revealId);
+    const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(revealId) : revealId;
+    Renderer.drawPreview(mysteryArtEl, drawAs === 'bottle' ? 'bottle' : revealId,
+                         drawTintFor(revealId, tint));
   }
 
   function openMysteryBox() {
@@ -894,9 +964,17 @@
     mysteryOpened = true;
     paintMysteryArt();
     mysteryScreen.classList.add('opening');
-    mysteryHeadlineEl.textContent = 'A new Flipper joins the roster';
-    mysteryNameEl.textContent = defaultNameFor(mysteryCurrent, null);
-    mysteryFamilyEl.textContent = 'Added to Customize';
+    const revealId = mysteryContentId(mysteryCurrent);
+    const character = characterById(revealId);
+    const label = (mysteryCurrent && mysteryCurrent.displayName) || (character
+      ? defaultNameFor(revealId, null) : String(revealId));
+    mysteryHeadlineEl.textContent = character ? 'A new Flipper joins the roster'
+      : 'Something new is yours';
+    mysteryNameEl.textContent = label;
+    mysteryFamilyEl.textContent = character ? 'Added to Customize' : 'Added to your collection';
+    if (v112App && typeof v112App.dismissReveal === 'function' && mysteryCurrent && mysteryCurrent.id) {
+      try { v112App.dismissReveal(mysteryCurrent.id); } catch (_) {}
+    }
     mysteryGoBtn.textContent = mysteryQueue.length ? 'Next ▶' : 'Nice!';
     Sound.play('win');
   }
@@ -912,7 +990,35 @@
     if (!mysteryOpened) openMysteryBox();
     else nextMysteryReveal();
   });
+  let seenRevealIds = new Set();
+  if (v112App && typeof v112App.subscribe === 'function') {
+    v112App.subscribe((state) => {
+      const pending = (state && state.pendingReveals) || [];
+      const fresh = pending.filter((entry) => entry && !seenRevealIds.has(entry.id));
+      fresh.forEach((entry) => seenRevealIds.add(entry.id));
+      if (!fresh.length) return;
+      queueAuthorityReveals(fresh);
+      try { renderFrom(readRows()); } catch (_) {}
+      if (pickerRow) renderCustomizeGrid();
+    });
+  }
 
+  function rosterToLiveDefs(roster) {
+    return (roster || []).map((entry, index) => {
+      const skin = entry.flipperId || entry.objectId || entry.skin || BASE_SKIN;
+      const flavor = FLAVORS[index % FLAVORS.length];
+      return {
+        id: entry.id || ('seat-' + (index + 1)),
+        name: entry.displayName || entry.name || ('Player ' + (index + 1)),
+        color: flavor.color,
+        isAI: entry.human === false || entry.kind === 'cpu' || entry.isAI === true,
+        skin,
+        variantId: entry.variantId || flavorIdForColor(flavor.color),
+        cosmeticId: entry.cosmeticId || null,
+        teamId: entry.teamId || entry.allianceId || null,
+      };
+    });
+  }
   function rowsToDefs(rows) {
     return rows.map((r) => {
       const color = normalizeColor(r.color || defaultColorFor(r.charId || defaultCharId()));
@@ -945,16 +1051,21 @@
     if (valid && result.value != null) input.value = String(result.value);
     return valid;
   }
+  function setupNameInputs() { return [...playerInputs.querySelectorAll('input[type="text"]')]; }
+  // Marks every field but announces nothing and takes no focus, so a screen that
+  // is not on the glass can ask whether the roster is usable without speaking
+  // over the screen the player is actually looking at.
+  function firstInvalidSetupName(inputs) {
+    return inputs.filter((input) => !validateNameInput(input))[0] || null;
+  }
   function validateSetupNames() {
-    const inputs = [...playerInputs.querySelectorAll('input[type="text"]')];
-    const invalid = inputs.filter((input) => !validateNameInput(input));
-    if (invalid.length) {
-      announce('Please choose another name', true);
-      showRosterPage('setup', Math.floor(inputs.indexOf(invalid[0]) / 8));
-      invalid[0].focus();
-      return false;
-    }
-    return true;
+    const inputs = setupNameInputs();
+    const invalid = firstInvalidSetupName(inputs);
+    if (!invalid) return true;
+    announce('Please choose another name', true);
+    showRosterPage('setup', Math.floor(inputs.indexOf(invalid) / 8));
+    invalid.focus();
+    return false;
   }
   playerInputs.addEventListener('focusout', (event) => {
     if (event.target && event.target.matches('input[type="text"]')) validateNameInput(event.target);
@@ -1272,6 +1383,7 @@
     let struck = true;
     let seats = new Map();
     let laneSeat = null;
+    let openLanes = 0;
     // The reward authority renames every competitor to its seat position, so the
     // look of a seat is found by where it sat in the lineup, never by the id the
     // setup screen happened to generate for that row.
@@ -1324,6 +1436,7 @@
     // colour, an upright bottle and a fresh arena seed. A flip in the air is
     // never disturbed, and a table already set for the same competitor is left
     // alone so a waiting bottle does not twitch every frame.
+    function arenaSeed() { return (arenaTurn * 0x9E3779B1) >>> 0; }
     function setTableFor(playerId) {
       const seat = seatFor(playerId);
       if (airborne) return;
@@ -1338,21 +1451,72 @@
       // during a Battle, so borrowing it would deal every competitor the same
       // table for the whole series.
       arenaTurn += 1;
-      if (Physics.seedTurn) Physics.seedTurn((arenaTurn * 0x9E3779B1) >>> 0);
+      if (Physics.seedTurn) Physics.seedTurn(arenaSeed());
       armedFor = playerId;
       struck = false;
     }
     return {
-      capacity: 1,
       // One physics surface plays one lane, so the lane covers the whole table
-      // and every competitor takes it in turn.
-      laneRects: () => [{ laneId: 'lane-1', left: 0, top: 0,
-        width: window.innerWidth, height: window.innerHeight }],
+      // and every competitor takes it in turn. The host measures that lane off
+      // the stage itself, which is the same glass this table is painted on.
+      capacity: 1,
       measure: () => ({ width: window.innerWidth, observedContacts: 1 }),
+      live: () => live,
+      // The glass changed size, so the table is re-fitted under a bottle that is
+      // only waiting. A flip already in the air keeps the world it was launched
+      // into: Physics holds the reflow back until that flip resolves.
+      reflow() {
+        if (!live) return;
+        Physics.reflow(window.innerWidth, window.innerHeight, stageBottomInset());
+        if (airborne) return;
+        Physics.resetBottle();
+        // Anything the arena seed places belongs to the glass it was placed on.
+        // Re-fitting the world alone moves the floor and leaves a target pad or a
+        // tractor ring at the height it was dealt for the old viewport, so the
+        // same seed is dealt again for the new one. A classic turn does this
+        // through prepareTurnArena; the lane has to do it too.
+        if (Physics.seedTurn) Physics.seedTurn(arenaSeed());
+      },
       remember(defs) { seats = new Map(defs.map((def, index) => ['seat-' + (index + 1), def])); },
+      // A CPU competitor still has to flick something. The intent comes from the
+      // same calibrated module a classic CPU turn uses, off the same seeded
+      // table, so a Battle opponent is exactly as good as one in a normal match
+      // and no better. It reports no pose: the collider decides that.
+      cpuLaunch(request) {
+        const cpu = window.FlipgameV112Cpu;
+        if (!live || !cpu || typeof cpu.createLaunch !== 'function') return null;
+        const playerId = request && request.playerId;
+        setTableFor(playerId);
+        const seat = seatFor(playerId) || {};
+        const profile = (window.Skins && Skins.physicsFor
+          && Skins.physicsFor(seat.skin || BASE_SKIN)) || {};
+        const seed = arenaSeed();
+        // Battle runs no ordinary events, so the only bank-shot table a CPU can
+        // be dealt is one its own Flipper brings.
+        const alien = !!profile.floorResolve;
+        const target = alien && Physics.alienTargetForSeed
+          ? Physics.alienTargetForSeed(seed) : null;
+        const view = Physics.getViewHint ? Physics.getViewHint() : null;
+        const intent = cpu.createLaunch({
+          seed, difficulty: chosenDifficulty(),
+          physicsModeId: alien ? 'alien' : 'normal', target,
+          arena: {
+            worldW: target?.worldW || view?.worldW || window.innerWidth,
+            viewW: target?.viewW || window.innerWidth,
+            viewH: target?.viewH || window.innerHeight,
+          },
+        });
+        return { vx: intent.vx, vy: intent.vy };
+      },
       adapter(context) {
+        // One physics surface, one bottle, one attempt in the air. A second lane
+        // built here would share all three and report one competitor's pose as
+        // another's, so raising the capacity has to fail loudly instead.
+        if (openLanes) throw new Error('The live table runs one Battle lane at a time');
+        openLanes += 1;
         return {
           resources: context.resources,
+          destroy() { openLanes = 0; },
           // The aim trail is paint only: the runtime's qualifier reads the
           // pointer samples itself, and nothing here feeds back into a launch.
           beginAim() { aim = null; },
@@ -1373,21 +1537,31 @@
             if (power && Physics.forceSpecialEvent) Physics.forceSpecialEvent(power.eventAdapterId);
             Sound.unlock();
             Sound.play('flick');
+            // Physics Feel is a human input preference. A CPU tier is calibrated
+            // against the canonical transfer, so letting that preference reach a
+            // CPU launch would quietly change how strong the opponent is.
+            const cpu = launch.gesture && launch.gesture.pointerType === 'cpu';
             Physics.applyFlick(Number(signal.vx) || 0, Number(signal.vy) || 0,
-              undefined, 1, power ? 'normal' : 'disabled');
+              cpu ? arenaSeed() : undefined, 1, power ? 'normal' : 'disabled', false,
+              cpu ? { inputFeelMode: 'standard' } : {});
             return new Promise(resolve => { airborne = { resolve }; });
           },
           // The lane is someone else's now, so the table is set for them before
           // they touch it. Waiting for their flick would show them the last
           // bottle lying where it fell, wearing their colour.
           onAssignment(assignment) { setTableFor(assignment.playerId); },
-          reset() {},
+          // A resolved attempt leaves the bottle wherever it fell, and the lane
+          // is handed straight back — to the next competitor, or to the same one
+          // for the next volley. Only an assignment change announces itself, so
+          // relying on that alone left whoever leads the next volley staring at
+          // the last bottle lying on its side in their own colour.
+          reset(info) { if (info && info.playerId) setTableFor(info.playerId); },
         };
       },
       enter(context) {
         if (live) return;
         live = true;
-        airborne = null; aim = null; armedFor = null; struck = true;
+        airborne = null; aim = null; armedFor = null; struck = true; openLanes = 0;
         gameScreen.classList.remove('hidden');
         gameScreen.classList.add('battle-lane');
         document.body.classList.add('battle-lane-live');
@@ -1416,6 +1590,7 @@
         // A lane that leaves mid-flight resolves nothing: an attempt with no
         // reported pose never enters the ledger, so it can never be scored.
         airborne = null; aim = null; laneSeat = null; armedFor = null; struck = true;
+        openLanes = 0;
         gameScreen.classList.add('hidden');
         gameScreen.classList.remove('battle-lane');
         document.body.classList.remove('battle-lane-live');
@@ -1430,15 +1605,21 @@
         laneAdapterFactory: context => battleLane.adapter(context),
         laneCapacity: battleLane.capacity,
         measureDisplay: battleLane.measure,
-        laneRects: () => battleLane.laneRects(),
         openLane: battleLane.enter,
         closeLane: battleLane.exit,
+        cpuLaunch: battleLane.cpuLaunch,
+        // A Battle is a game loop, so it runs on the paint clock and on a clock
+        // that only moves forward. Wall time can step sideways, and a Timed Rush
+        // horn must not be decided by the system clock being corrected.
+        requestFrame: callback => requestAnimationFrame(callback),
+        cancelFrame: id => cancelAnimationFrame(id),
+        now: () => performance.now(),
       });
     }
     FlipgameV112BattleRoutes.mount({ document,
       getHost: () => battleHost,
       getPlayers: () => {
-        if (!validateSetupNames()) return [];
+        if (firstInvalidSetupName(setupNameInputs())) return [];
         const defs = rowsToDefs(readRows());
         // The lane needs the look of each competitor; the Battle rules need only
         // their identity. Both read the same roster so a seat cannot drift.
@@ -1459,19 +1640,75 @@
   }
   // Presentation host is injected by the private activity composition. Missing
   // capability means no Story reservation, simulated victory or reward write.
+  if (v112App && v112App.ready) {
+    v112App.ready.then(() => {
+      const owner = new URLSearchParams(location.search).get('owner');
+      if (owner === 'Howe Test Mode') {
+        try { v112App.enableOwnerTesting(owner); } catch (_) {}
+      }
+    }).catch(() => {});
+  }
   if (window.FlipgameV112JourneyRoutes) {
+    if (v112App && window.FlipgameV112JourneyHost) {
+      journeyHost = FlipgameV112JourneyHost.createJourneyHost({
+        application: v112App,
+        startLiveMatch(spec) {
+          broadcastHome.classList.add('hidden');
+          document.getElementById('journey-screen')?.classList.add('hidden');
+          if (spec.kind === 'tour') {
+            const attempt = spec.tour && spec.tour.activeAttempt;
+            const human = spec.tour && spec.tour.request && spec.tour.request.roster
+              ? spec.tour.request.roster[0] : { displayName: 'Player', flipperId: 'bottle' };
+            const skin = (attempt && attempt.flipperId) || human.flipperId || BASE_SKIN;
+            const eventId = attempt && attempt.eventSelection && attempt.eventSelection.eventId;
+            startGame(rosterToLiveDefs([{
+              id: human.id || 'tour-human', displayName: human.displayName || 'Player',
+              flipperId: skin, variantId: human.variantId, cosmeticId: human.cosmeticId, human: true,
+            }]), 1, {
+              practice: true, testData: true, reservedSession: true, tour: true,
+              forced: !!eventId, labEventId: eventId || null, startingLives: 10,
+            });
+            return;
+          }
+          const request = spec.request;
+          if (!request || !Array.isArray(request.roster)) {
+            throw new Error('A prescribed Story request is required');
+          }
+          startGame(rosterToLiveDefs(request.roster), 1, {
+            format: 'classic',
+            startingLives: request.rulesOptions && request.rulesOptions.startingLives,
+            physicsModeId: request.physicsModeId,
+            insanity: request.physicsModeId === 'insane',
+            visualArenaId: (request.rulesOptions && request.rulesOptions.arenaId)
+              || (request.activityContext && request.activityContext.arenaId),
+            reservedSession: true, journey: 'story',
+            eventsDisabled: !!(request.rulesOptions && request.rulesOptions.events
+              && request.rulesOptions.events.enabled === false),
+          });
+        },
+        closeLiveMatch() {
+          gameStarted = false;
+          if (loopId) { cancelAnimationFrame(loopId); loopId = null; }
+          gameScreen.classList.add('hidden');
+          document.getElementById('journey-screen')?.classList.remove('hidden');
+        },
+      });
+    }
     FlipgameV112JourneyRoutes.mount({ document,
-      getHost: () => window.FlipgameV112JourneyHost || null,
+      getHost: () => journeyHost,
       getHumans: count => {
         if (!validateSetupNames()) return [];
-        return rowsToDefs(readRows()).filter(entry => !entry.isAI).slice(0, count).map(entry => ({
-          id: entry.id, displayName: entry.name, flipperId: entry.skin,
+        return rowsToDefs(readRows()).filter(entry => !entry.isAI).slice(0, count).map((entry, index) => ({
+          id: entry.id || ('human-' + (index + 1)), displayName: entry.name, flipperId: entry.skin,
           variantId: entry.variantId, cosmeticId: entry.cosmeticId,
         }));
       },
       onOpen: () => broadcastHome.classList.add('hidden'),
       onHome: showBroadcastHome,
-      onPlay: () => broadcastHome.classList.add('hidden'),
+      onPlay: () => {
+        broadcastHome.classList.add('hidden');
+        if (journeyHost && typeof journeyHost.enterLive === 'function') journeyHost.enterLive();
+      },
     });
   } else {
     for (const id of ['journey-story', 'journey-rivals', 'journey-tour']) {
@@ -2071,6 +2308,13 @@
   function resolveGameFlip(result, landingInfo) {
     const meta = landingMeta(landingInfo);
     bridgeLandingInfo = landingInfo || null;
+    if (currentMatchOptions.tour && journeyHost) {
+      const pose = result === 'MAKE' ? (meta.onCap ? 'cap' : 'upright') : 'miss';
+      try {
+        journeyHost.resolveTourLanding({ phase: 'resolved', result, pose });
+      } catch (error) { console.warn('Tour landing was not accepted', error); }
+      return;
+    }
     const handled = v111Bridge('resolveFlip', {
       game,
       result,
@@ -2093,7 +2337,7 @@
 
   function predictedCpuEvent(seed) {
     if (currentMatchOptions.eventsDisabled) return null;
-    if (currentMatchOptions.lab && currentMatchOptions.labEventId) {
+    if ((currentMatchOptions.lab || currentMatchOptions.tour) && currentMatchOptions.labEventId) {
       return String(currentMatchOptions.labEventId);
     }
     if (currentMatchOptions.arenaProfile?.physicsProfileId) {
@@ -3421,10 +3665,14 @@
         winRec = privateRewardAuthorityActive() ? null : Records.recordWin(qualification);
         renderRecordsPanel();
         if (winner && window.Skins) {
-          const unlockedObjects = (winRec?.unlocked || []).filter((entry) => entry.type === 'object').map((entry) => entry.contentId);
-          if (unlockedObjects.length) {
-            queueMysteryReveals(unlockedObjects);
+          const unlockedRewards = (winRec?.unlocked || []).filter((entry) =>
+            entry && (entry.type === 'object' || entry.type === 'store' || entry.type === 'arena'
+              || entry.type === 'feature' || entry.type === 'cosmetic'));
+          const revealIds = unlockedRewards.map((entry) => entry.contentId || entry.id).filter(Boolean);
+          if (revealIds.length) {
+            queueMysteryReveals(revealIds);
             try { renderFrom(readRows()); } catch (_) {}
+            if (pickerRow) renderCustomizeGrid();
           }
         }
       } else {
@@ -3614,11 +3862,21 @@
     // Typed test commands mark the session as Test Data.
     testDataFlipActive = false;
     beginFlipTelemetry();
-    if (currentMatchOptions.lab && Physics.forceSpecialEvent) {
+    if ((currentMatchOptions.lab || currentMatchOptions.tour) && Physics.forceSpecialEvent) {
       if (currentMatchOptions.labEventId) Physics.forceSpecialEvent(currentMatchOptions.labEventId);
       testDataFlipActive = true;
       matchTestDataActive = true;
       currentMatchOptions.testData = true;
+      if (currentMatchOptions.tour && journeyHost) {
+        try {
+          journeyHost.qualifyTourLaunch({
+            qualifiedManual: !game.currentPlayer()?.isAI,
+            normalizedPower: lastFlickPower || 0.6,
+            normalizedDirection: 0,
+            pointerType: 'touch',
+          }, 10000);
+        } catch (error) { console.warn('Tour launch was not accepted', error); }
+      }
     } else if (!mirrorClaim && !currentMatchOptions.eventsDisabled && currentMatchOptions.arenaProfile?.physicsProfileId && Physics.forceSpecialEvent) {
       activeArenaPhysicsId = currentMatchOptions.arenaProfile.physicsProfileId;
       Physics.forceSpecialEvent(activeArenaPhysicsId);
@@ -3832,6 +4090,7 @@
   }
 
   function updateHUD() {
+    document.body.classList.toggle('on-fire-live', !!(game && game.onFirePlayer));
     if (game.practice) {
       const pct = game.practiceAttempts ? Math.round(game.practiceMakes / game.practiceAttempts * 100) : 0;
       playerListEl.innerHTML = `<div class="practice-stats">
@@ -4259,7 +4518,7 @@
       `<button type="button" role="gridcell" class="picker-tile achievement-tile" aria-label="${escapeHtml(view.name)}" tabindex="${index ? -1 : 0}"><span aria-hidden="true">${escapeHtml(view.emoji)}</span><strong>${escapeHtml(view.name)}</strong><span>${escapeHtml(view.desc || '')}</span>${view.earnedAt ? `<time datetime="${escapeHtml(view.earnedAt)}">Earned ${new Date(view.earnedAt).toLocaleDateString()}</time>` : ''}</button>`);
     if (achievementFilter !== 'earned' && views.some((view) => view.locked)) tiles.push(undiscoveredTileHtml());
     grid.innerHTML = tiles.join('');
-    document.getElementById('achievement-summary').textContent = `${discovered.length} discovered`;
+    document.getElementById('achievement-summary').textContent = `${discovered.length} of ${all.length || 120} discovered`;
     document.getElementById('achievement-empty').classList.toggle('hidden', views.length > 0);
   }
   achievementsBtn?.addEventListener('click', () => { enterRoute(achievementsScreen, achievementsBtn); renderAchievements(); });

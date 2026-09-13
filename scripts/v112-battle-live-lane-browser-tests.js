@@ -40,6 +40,25 @@ async function scenario(){
   check(offered.every(id=>w.FlipgameV112.isObjectAvailable(id)),
     `The lineup offers a Flipper the reward authority refuses: ${offered.join(', ')}`);
   report.offeredFlippers=offered;
+  // The picker and the reward authority have to be one gate, in both directions.
+  // Offering a Flipper authority refuses stops a Battle opening at all; hiding
+  // one it has granted keeps a reward the player already earned off the screen.
+  // The grid lists one tile per family, so families are what get compared.
+  d.querySelector('.player-input-row .char-change-btn').click();
+  await sleep(200);
+  const tiles=[...d.querySelectorAll('#char-picker-screen .picker-grid .picker-tile')];
+  check(tiles.length,'The Flipper picker never opened');
+  const family=id=>w.Skins.familyKey(id);
+  const shown=[...new Set(tiles.filter(tile=>tile.dataset.char).map(tile=>family(tile.dataset.char)))].sort();
+  const granted=[...new Set(w.Skins.list().filter(entry=>w.FlipgameV112.isObjectAvailable(entry.id))
+    .map(entry=>family(entry.id)))].sort();
+  report.pickerGate={shown,granted};
+  check(shown.length===granted.length&&shown.every((key,index)=>key===granted[index]),
+    `The picker and the reward authority disagree: picker ${shown.join(', ')} vs authority ${granted.join(', ')}`);
+  check(tiles.some(tile=>tile.classList.contains('locked-tile')),
+    'The picker never shows there is more to earn');
+  d.getElementById('charpick-close').click();
+  await sleep(150);
   click('broadcast-home-back');
   click('battle-open');
   const battleText=()=>d.getElementById('battle-body').textContent;
@@ -85,17 +104,22 @@ async function scenario(){
     // peak velocity instead of falling back to raw drag distance.
     for(let step=1;step<=6;step++){await sleep(9);send('pointermove',x+step*2,y-step*46);}
     send('pointerup',x+14,y-282);
-    // The flip is now the world's business: wait for the collider to settle it.
+    // The flip is now the world's business, so watch it while it is still in the
+    // air. Reading only the end state proves nothing: once the attempt resolves
+    // the relay sets the table for whoever is next, which puts the bottle back
+    // where this one started.
+    let peak=before;
     for(let i=0;i<400;i++){
       await sleep(25);
+      const at=bottle();
+      if(Math.abs(at.y-before.y)>Math.abs(peak.y-before.y))peak=at;
       if(!/In flight|Landing|Settling|Launching|Aiming/.test(laneText()))break;
     }
-    return {before,after:bottle()};
+    return {before,peak,after:bottle(),flew:Math.abs(peak.y-before.y)>60};
   }
 
   const first=await flick();
-  check(first.after.x!==first.before.x||first.after.y!==first.before.y||first.after.angle!==first.before.angle,
-    `The real bottle never moved: ${JSON.stringify(first)}`);
+  check(first.flew,`The real bottle never left the table: ${JSON.stringify(first)}`);
   report.firstFlick=first;
   check(/Scored|Flick to launch/.test(laneText()),`The first attempt never settled: ${laneText()}`);
   // A relay has to set the table for whoever is next. Inviting a flick while the
@@ -113,16 +137,59 @@ async function scenario(){
   const heading=()=>d.querySelector('#battle-body h2').textContent;
   const opening=heading();
   const flicks=[first];
+  // Every invitation to flick, not just the first. A lane handed back to the same
+  // competitor for the next volley never announces a new assignment, so that turn
+  // is exactly where a fallen bottle survives into somebody's aim.
+  const tableFor=[];
   for(let turn=0;turn<5;turn++){
     if(!/Flick to launch/.test(laneText()))break;
+    const set=bottle();
+    tableFor.push({lane:laneText(),bottle:set});
+    check(Math.abs(set.angle)<0.05&&set.x===report.restingBottle.x&&
+      Math.abs(set.y-report.restingBottle.y)<=8,
+      `A flick was invited over a bottle nobody set up: ${JSON.stringify(tableFor[tableFor.length-1])}`);
     flicks.push(await flick());
   }
+  report.tableEveryTurn=tableFor;
   report.flicks=flicks.length;
   report.heading=heading();
   report.scores=scores();
   check(flicks.length>=4,`The relay stopped inviting flicks after ${flicks.length}`);
   check(heading()!==opening,`The series never advanced past "${opening}"`);
-  check(report.scores.reduce((sum,entry)=>sum+entry.score,0)>=0,'Scores are readable');
+  check(report.scores.length===2&&report.scores.every(entry=>Number.isInteger(entry.score)&&entry.score>=0),
+    `Scores are not whole non-negative points: ${JSON.stringify(report.scores)}`);
+  // A cap land is worth two, so no series can outscore two points per attempt.
+  check(report.scores.reduce((sum,entry)=>sum+entry.score,0)<=flicks.length*2,
+    `${flicks.length} flicks cannot be worth ${JSON.stringify(report.scores)}`);
+
+  // A phone gets rotated mid-heat. The table has to be re-fitted to the new glass
+  // and the lane re-aimed with it, or the bottle flips against a floor that is no
+  // longer there and every later flick is measured against a lane that has moved.
+  const geometry=()=>({innerWidth:w.innerWidth,innerHeight:w.innerHeight,
+    groundY:w.eval('Math.round(Physics.getGroundY())'),bottleX:bottle().x,
+    stageWidth:Math.round(stage.getBoundingClientRect().width)});
+  const beforeResize=geometry();
+  frame.style.width='760px';frame.style.height='990px';
+  await sleep(500);
+  const afterResize=geometry();
+  report.resize={before:beforeResize,after:afterResize};
+  check(afterResize.innerWidth===760&&afterResize.innerWidth!==beforeResize.innerWidth,
+    `The glass never changed size: ${JSON.stringify(report.resize)}`);
+  check(afterResize.stageWidth>=afterResize.innerWidth-1,
+    `The Battle stage did not follow the resize: ${JSON.stringify(report.resize)}`);
+  check(Math.abs(afterResize.bottleX-afterResize.innerWidth/2)<=2,
+    `The table was not re-centred on the new glass: ${JSON.stringify(report.resize)}`);
+  check(afterResize.groundY!==beforeResize.groundY&&afterResize.groundY<afterResize.innerHeight,
+    `The floor did not follow the new glass: ${JSON.stringify(report.resize)}`);
+  check(!d.getElementById('battle-message').textContent,
+    `The resize broke the series: ${d.getElementById('battle-message').textContent}`);
+  if(/Flick to launch/.test(laneText())){
+    const rotated=await flick();
+    report.flickAfterResize=rotated;
+    check(rotated.flew,`A flick on the resized table never launched: ${JSON.stringify(rotated)}`);
+    check(/Scored|Flick to launch/.test(laneText()),
+      `The attempt after the resize never settled: ${laneText()}`);
+  }
 
   // Leaving must return the screen to the app and take the table back with it.
   click('battle-back');
@@ -136,6 +203,45 @@ async function scenario(){
   check(report.leftTo.tableHidden,'Leaving a Battle left the table on screen');
   check(!report.leftTo.laneMode,'Leaving a Battle left the page in lane mode');
   check(report.leftTo.fxp===0,'An abandoned Battle must award nothing');
+
+  // Nobody hands a pointer to a CPU lane, so an AI entry can only play if the
+  // page flicks for it. A second Battle with the second seat set to CPU has to
+  // complete a whole volley with one human flick and nothing else touching the
+  // glass: the CPU's own launch is what carries the series past Volley 1.
+  click('broadcast-setup');
+  await sleep(150);
+  rows()[1].dataset.ai='1';
+  click('broadcast-home-back');
+  click('battle-open');
+  press('1v1');
+  press('Begin Battle');
+  await sleep(200);
+  check(!d.getElementById('game-screen').classList.contains('hidden'),
+    `The CPU Battle never took the table: ${why()}`);
+  const openingVolley=heading();
+  const humanTurn=await flick();
+  check(humanTurn.flew,`The person's flick never launched: ${JSON.stringify(humanTurn)}`);
+  const cpuTurn={waited:0,invited:false,moved:false,heading:openingVolley};
+  const settled=bottle();
+  let cpuPeak=settled;
+  for(let i=0;i<200;i++){
+    await sleep(50);
+    cpuTurn.waited+=50;
+    if(/CPU is lining up/.test(laneText()))cpuTurn.invited=true;
+    const at=bottle();
+    if(Math.abs(at.y-settled.y)>Math.abs(cpuPeak.y-settled.y))cpuPeak=at;
+    if(heading()!==openingVolley){cpuTurn.heading=heading();break;}
+  }
+  cpuTurn.moved=Math.abs(cpuPeak.y-settled.y)>60;
+  report.cpuTurn=cpuTurn;
+  check(cpuTurn.invited,'A CPU lane must never ask a person to flick it');
+  check(cpuTurn.heading!==openingVolley,
+    `The CPU never took its turn: still on "${openingVolley}" after ${cpuTurn.waited}ms`);
+  check(cpuTurn.moved,`The CPU's launch never moved the real bottle: ${JSON.stringify(cpuTurn)}`);
+  click('battle-back');
+  await sleep(300);
+  check(d.getElementById('game-screen').classList.contains('hidden'),
+    'Leaving the CPU Battle left the table on screen');
   await window.report(report);
 }
 
@@ -166,6 +272,6 @@ const REPORTER=`window.report=async payload=>{for(let attempt=0;attempt<6;attemp
     const output=await Promise.race([result,new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('Browser timeout')),180000))]);
     if(output.error)throw new Error(output.error);
     console.log(JSON.stringify(output,null,2));
-    console.log('v1.12 Battle live lane browser test passed: a flick on the Battle stage moved the shipping bottle, the collider pose scored the series, the relay advanced, and leaving took the table back and awarded nothing.');
+    console.log('v1.12 Battle live lane browser test passed: a flick on the Battle stage moved the shipping bottle, the collider pose scored the series, the relay advanced, a mid-heat resize re-fitted the table and re-aimed the lane, a CPU competitor launched the real bottle with nobody touching the glass, and leaving took the table back and awarded nothing.');
   }finally{clearTimeout(timer);child.kill();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}
 })().catch(error=>{console.error(error);process.exitCode=1;});
