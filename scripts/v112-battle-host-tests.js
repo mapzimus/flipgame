@@ -128,15 +128,28 @@ function build(app, options = {}) {
   const track = options.lane || lane();
   const tick = options.clock || clock();
   const lent = options.table || table();
+  const brain = options.cpu || null;
   const host = Host.createBattleHost({
     application: options.application ? options.application(app) : app,
     laneAdapterFactory: track.factory,
     laneCapacity: options.laneCapacity || 1,
     measureDisplay: () => options.display || { width: 360, observedContacts: 1 },
     openLane: lent.open, closeLane: lent.close,
+    cpuLaunch: brain ? brain.launch : undefined,
+    cpuThinkMs: options.cpuThinkMs,
     now: tick.now, requestFrame: tick.requestFrame, cancelFrame: tick.cancelFrame,
   });
-  return { host, stage: surface, lane: track, clock: tick, table: lent };
+  return { host, stage: surface, lane: track, clock: tick, table: lent, cpu: brain };
+}
+
+// The page's CPU intent. It hands back a gesture and nothing else: what that
+// gesture lands as is still the collider's to report.
+function brain() {
+  const asked = [];
+  return {
+    asked,
+    launch(request) { asked.push(request); return { vx: 6, vy: -18 }; },
+  };
 }
 
 const roster = (count) => Array.from({ length: count }, (_, index) => ({
@@ -208,6 +221,87 @@ async function playSeries(context) {
     context.clock.advance();
   }
   return { seen, attempts: counter.attempts };
+}
+
+// Nothing hands a pointer to a CPU lane, so a Battle against an AI entry is only
+// playable if something flicks for it. The human's turns come from the stage and
+// the CPU's from the frame clock; both land through the same lane.
+async function playAgainstCpu(context) {
+  const counter = { pointerId: 0, at: 0, attempts: 0 };
+  const seen = new Set();
+  const poses = ['upright', 'cap', 'miss'];
+  let guard = 0;
+  while (context.host.snapshot().status === 'playing') {
+    assert.ok((guard += 1) < 600, 'A Battle against a CPU must terminate');
+    const view = context.host.snapshot();
+    const cpuIds = new Set(view.state.config.players
+      .filter((entry) => entry.cpu).map((entry) => entry.id));
+    const laneCount = view.state.config.hardware.activeLaneLimit;
+    for (const shown of Routes.project(view).lanes) {
+      seen.add(shown.playerId);
+      if (!cpuIds.has(shown.playerId)) flick(context, shown.laneId, laneCount, counter);
+    }
+    context.clock.advance(1000);
+    while (context.lane.airborne.length) {
+      await context.lane.land(poses[counter.attempts % poses.length]);
+      counter.attempts += 1;
+    }
+  }
+  return { seen, attempts: counter.attempts };
+}
+
+function testACpuCompetitorTakesItsOwnTurns() {
+  return withHost({ cpu: brain() }, async (context, app) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'volley',
+      powerProfileId: 'sport',
+      players: [{ id: 'entry-1', displayName: 'Entry 1', type: 'human' },
+        { id: 'entry-2', displayName: 'Entry 2', type: 'cpu' }] });
+    context.host.start(ticket.handle, { stage: context.stage });
+    assert.equal(context.host.snapshot().state.config.players[1].cpu, true,
+      'The reservation kept the AI entry');
+
+    const { seen, attempts } = await playAgainstCpu(context);
+    assert.equal(seen.size, 2, 'Both the person and the CPU were given the lane');
+    assert.ok(attempts >= 10, 'A best-of-three series against a CPU takes real flips');
+    assert.ok(context.cpu.asked.length >= 5, 'The page was asked for every CPU gesture');
+    assert.ok(context.cpu.asked.every((request) => request.playerId === 'seat-2'),
+      'Only the CPU seat is flicked for');
+    assert.equal(context.host.snapshot().message, '',
+      'A CPU turn is not an error: ' + context.host.snapshot().message);
+
+    const view = await awaitReward(context);
+    assert.equal(view.status, 'settled');
+    assert.ok(view.state.winnerId, 'A Battle against a CPU still names a winner');
+    // A CPU launch is never a qualified manual one, so it can never earn its
+    // owner a power card.
+    assert.deepEqual(view.state.powerOffers['seat-2'], null);
+    assert.equal(view.state.charges['seat-2'], 0, 'A CPU never charges a power card');
+    assert.ok(view.state.charges['seat-1'] >= 0);
+    assert.ok(app.snapshot().profile.fxp > 0, 'The series was rewarded');
+  });
+}
+
+// A CPU that never gets asked must not silently stall the match either: without
+// an injected intent the host has nothing to flick with, and that has to be
+// visible rather than a lane that waits for ever.
+function testAMissingCpuIntentIsNotSilent() {
+  return withHost({}, async (context) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'volley',
+      powerProfileId: 'sport',
+      players: [{ id: 'entry-1', displayName: 'Entry 1', type: 'human' },
+        { id: 'entry-2', displayName: 'Entry 2', type: 'cpu' }] });
+    context.host.start(ticket.handle, { stage: context.stage });
+    const counter = { pointerId: 0, at: 0 };
+    flick(context, 'lane-1', 1, counter);
+    await context.lane.land('upright');
+    for (let turn = 0; turn < 5; turn += 1) context.clock.advance(1000);
+    const view = context.host.snapshot();
+    assert.equal(view.lanes[0].playerId, 'seat-2', 'The lane did rotate to the CPU');
+    assert.equal(view.state.scores['seat-2'], 0, 'A CPU with no intent scores nothing');
+    assert.equal(view.status, 'playing');
+  });
 }
 
 function testTheRouteAcceptsThisHost() {
@@ -481,7 +575,9 @@ async function run() {
   await testAWholeRelaySeriesReachesTheReward();
   await testTwoVerifiedContactsPlayTwoLanesAtOnce();
   await testTheGlassCanChangeSizeMidSeries();
-  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, lanes re-aimed when the glass changes size, a refused abandon that keeps the table, a whole relay series and a two-lane 2v2 series from reservation to reward, and reservations released on cancel and on leaving.');
+  await testAMissingCpuIntentIsNotSilent();
+  await testACpuCompetitorTakesItsOwnTurns();
+  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, lanes re-aimed when the glass changes size, a refused abandon that keeps the table, a whole relay series and a two-lane 2v2 series from reservation to reward, a CPU competitor taking its own turns, and reservations released on cancel and on leaving.');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

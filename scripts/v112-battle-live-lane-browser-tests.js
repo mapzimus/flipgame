@@ -193,6 +193,45 @@ async function scenario(){
   check(report.leftTo.tableHidden,'Leaving a Battle left the table on screen');
   check(!report.leftTo.laneMode,'Leaving a Battle left the page in lane mode');
   check(report.leftTo.fxp===0,'An abandoned Battle must award nothing');
+
+  // Nobody hands a pointer to a CPU lane, so an AI entry can only play if the
+  // page flicks for it. A second Battle with the second seat set to CPU has to
+  // complete a whole volley with one human flick and nothing else touching the
+  // glass: the CPU's own launch is what carries the series past Volley 1.
+  click('broadcast-setup');
+  await sleep(150);
+  rows()[1].dataset.ai='1';
+  click('broadcast-home-back');
+  click('battle-open');
+  press('1v1');
+  press('Begin Battle');
+  await sleep(200);
+  check(!d.getElementById('game-screen').classList.contains('hidden'),
+    `The CPU Battle never took the table: ${why()}`);
+  const openingVolley=heading();
+  const humanTurn=await flick();
+  check(humanTurn.flew,`The person's flick never launched: ${JSON.stringify(humanTurn)}`);
+  const cpuTurn={waited:0,invited:false,moved:false,heading:openingVolley};
+  const settled=bottle();
+  let cpuPeak=settled;
+  for(let i=0;i<200;i++){
+    await sleep(50);
+    cpuTurn.waited+=50;
+    if(/CPU is lining up/.test(laneText()))cpuTurn.invited=true;
+    const at=bottle();
+    if(Math.abs(at.y-settled.y)>Math.abs(cpuPeak.y-settled.y))cpuPeak=at;
+    if(heading()!==openingVolley){cpuTurn.heading=heading();break;}
+  }
+  cpuTurn.moved=Math.abs(cpuPeak.y-settled.y)>60;
+  report.cpuTurn=cpuTurn;
+  check(cpuTurn.invited,'A CPU lane must never ask a person to flick it');
+  check(cpuTurn.heading!==openingVolley,
+    `The CPU never took its turn: still on "${openingVolley}" after ${cpuTurn.waited}ms`);
+  check(cpuTurn.moved,`The CPU's launch never moved the real bottle: ${JSON.stringify(cpuTurn)}`);
+  click('battle-back');
+  await sleep(300);
+  check(d.getElementById('game-screen').classList.contains('hidden'),
+    'Leaving the CPU Battle left the table on screen');
   await window.report(report);
 }
 
@@ -223,6 +262,6 @@ const REPORTER=`window.report=async payload=>{for(let attempt=0;attempt<6;attemp
     const output=await Promise.race([result,new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('Browser timeout')),180000))]);
     if(output.error)throw new Error(output.error);
     console.log(JSON.stringify(output,null,2));
-    console.log('v1.12 Battle live lane browser test passed: a flick on the Battle stage moved the shipping bottle, the collider pose scored the series, the relay advanced, a mid-heat resize re-fitted the table and re-aimed the lane, and leaving took the table back and awarded nothing.');
+    console.log('v1.12 Battle live lane browser test passed: a flick on the Battle stage moved the shipping bottle, the collider pose scored the series, the relay advanced, a mid-heat resize re-fitted the table and re-aimed the lane, a CPU competitor launched the real bottle with nobody touching the glass, and leaving took the table back and awarded nothing.');
   }finally{clearTimeout(timer);child.kill();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}
 })().catch(error=>{console.error(error);process.exitCode=1;});

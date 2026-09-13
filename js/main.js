@@ -1341,6 +1341,7 @@
     // colour, an upright bottle and a fresh arena seed. A flip in the air is
     // never disturbed, and a table already set for the same competitor is left
     // alone so a waiting bottle does not twitch every frame.
+    function arenaSeed() { return (arenaTurn * 0x9E3779B1) >>> 0; }
     function setTableFor(playerId) {
       const seat = seatFor(playerId);
       if (airborne) return;
@@ -1355,7 +1356,7 @@
       // during a Battle, so borrowing it would deal every competitor the same
       // table for the whole series.
       arenaTurn += 1;
-      if (Physics.seedTurn) Physics.seedTurn((arenaTurn * 0x9E3779B1) >>> 0);
+      if (Physics.seedTurn) Physics.seedTurn(arenaSeed());
       armedFor = playerId;
       struck = false;
     }
@@ -1375,6 +1376,36 @@
         if (!airborne) Physics.resetBottle();
       },
       remember(defs) { seats = new Map(defs.map((def, index) => ['seat-' + (index + 1), def])); },
+      // A CPU competitor still has to flick something. The intent comes from the
+      // same calibrated module a classic CPU turn uses, off the same seeded
+      // table, so a Battle opponent is exactly as good as one in a normal match
+      // and no better. It reports no pose: the collider decides that.
+      cpuLaunch(request) {
+        const cpu = window.FlipgameV112Cpu;
+        if (!live || !cpu || typeof cpu.createLaunch !== 'function') return null;
+        const playerId = request && request.playerId;
+        setTableFor(playerId);
+        const seat = seatFor(playerId) || {};
+        const profile = (window.Skins && Skins.physicsFor
+          && Skins.physicsFor(seat.skin || BASE_SKIN)) || {};
+        const seed = arenaSeed();
+        // Battle runs no ordinary events, so the only bank-shot table a CPU can
+        // be dealt is one its own Flipper brings.
+        const alien = !!profile.floorResolve;
+        const target = alien && Physics.alienTargetForSeed
+          ? Physics.alienTargetForSeed(seed) : null;
+        const view = Physics.getViewHint ? Physics.getViewHint() : null;
+        const intent = cpu.createLaunch({
+          seed, difficulty: chosenDifficulty(),
+          physicsModeId: alien ? 'alien' : 'normal', target,
+          arena: {
+            worldW: target?.worldW || view?.worldW || window.innerWidth,
+            viewW: target?.viewW || window.innerWidth,
+            viewH: target?.viewH || window.innerHeight,
+          },
+        });
+        return { vx: intent.vx, vy: intent.vy };
+      },
       adapter(context) {
         // One physics surface, one bottle, one attempt in the air. A second lane
         // built here would share all three and report one competitor's pose as
@@ -1404,8 +1435,13 @@
             if (power && Physics.forceSpecialEvent) Physics.forceSpecialEvent(power.eventAdapterId);
             Sound.unlock();
             Sound.play('flick');
+            // Physics Feel is a human input preference. A CPU tier is calibrated
+            // against the canonical transfer, so letting that preference reach a
+            // CPU launch would quietly change how strong the opponent is.
+            const cpu = launch.gesture && launch.gesture.pointerType === 'cpu';
             Physics.applyFlick(Number(signal.vx) || 0, Number(signal.vy) || 0,
-              undefined, 1, power ? 'normal' : 'disabled');
+              cpu ? arenaSeed() : undefined, 1, power ? 'normal' : 'disabled', false,
+              cpu ? { inputFeelMode: 'standard' } : {});
             return new Promise(resolve => { airborne = { resolve }; });
           },
           // The lane is someone else's now, so the table is set for them before
@@ -1464,6 +1500,7 @@
         measureDisplay: battleLane.measure,
         openLane: battleLane.enter,
         closeLane: battleLane.exit,
+        cpuLaunch: battleLane.cpuLaunch,
         // A Battle is a game loop, so it runs on the paint clock and on a clock
         // that only moves forward. Wall time can step sideways, and a Timed Rush
         // horn must not be decided by the system clock being corrected.

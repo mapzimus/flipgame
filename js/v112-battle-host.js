@@ -15,6 +15,8 @@
 //   measureDisplay,       // () -> {width, observedContacts}
 //   laneRects,            // (stage, count) -> lane rectangles in client pixels
 //   openLane/closeLane,   // bring the physics surface up and give it back
+//   cpuLaunch,            // ({laneId, playerId, matchId}) -> {vx, vy} | null
+//   cpuThinkMs,           // pause before a CPU flicks
 //   requestFrame/cancelFrame/now,
 // })
 //
@@ -62,6 +64,11 @@
     // A contact is only worth a lane if the injected adapter can actually run
     // that lane. One physics surface means one lane, whatever the glass reports.
     var laneCapacity = Math.max(1, Math.floor(opts.laneCapacity || 1));
+    var cpuLaunch = typeof opts.cpuLaunch === 'function' ? opts.cpuLaunch : null;
+    // A CPU that flicked the instant its lane opened would make the relay snap
+    // between turns with nothing to watch. This is presentation pacing only.
+    var cpuThinkMs = Number(opts.cpuThinkMs);
+    if (!Number.isFinite(cpuThinkMs) || cpuThinkMs < 0) cpuThinkMs = 900;
     var now = opts.now || function () { return Date.now(); };
     var requestFrame = opts.requestFrame || function (fn) { return setTimeout(fn, 16); };
     var cancelFrame = opts.cancelFrame || function (id) { clearTimeout(id); };
@@ -76,6 +83,7 @@
     var series = null;        // last BattleStateV1 this host saw
     var message = '';
     var submission = null;
+    var cpuTurns = new Map(); // laneId -> { playerId, dueAt }
     var unsubscribeApplication = application.subscribe
       ? application.subscribe(function () { wake(); }) : null;
 
@@ -177,6 +185,7 @@
       var state = runtime.snapshot().battle;
       if (state.phase === 'between-heats') { runtime.startHeat(); state = runtime.snapshot().battle; }
       deployStoredPowers(state);
+      driveCpuLanes(state);
       series = copy(runtime.snapshot().battle);
       if (series.phase === 'complete' && !submission) submit();
       wake();
@@ -192,6 +201,38 @@
         // A deployment that is merely early keeps its card: the runtime refuses
         // it until the recipient is between launches, and this retries then.
         try { runtime.deployPower(owner.id); } catch (_) {}
+      });
+    }
+
+    // Nothing routes a pointer to a CPU lane, so a Battle with an AI entry would
+    // sit on a ready lane for ever unless something flicks for it. The intent is
+    // the page's, because only the page owns physics; the schedule is this
+    // host's, because only this host owns the frame clock. Neither decides a
+    // pose: the CPU attempt lands the same way a person's does.
+    function driveCpuLanes(state) {
+      if (!cpuLaunch || !runtime || state.phase !== 'active') return;
+      var active = state.activePlayerIds || [];
+      runtime.snapshot().lanes.forEach(function (lane) {
+        if (!(lane.cpu && lane.playerId && lane.state === 'ready' &&
+            active.indexOf(lane.playerId) >= 0)) {
+          cpuTurns.delete(lane.laneId);
+          return;
+        }
+        var turn = cpuTurns.get(lane.laneId);
+        if (!turn || turn.playerId !== lane.playerId) {
+          cpuTurns.set(lane.laneId, { playerId: lane.playerId, dueAt: now() + cpuThinkMs });
+          return;
+        }
+        if (now() < turn.dueAt) return;
+        cpuTurns.delete(lane.laneId);
+        try {
+          var signal = cpuLaunch({ laneId: lane.laneId, playerId: lane.playerId,
+            matchId: state.matchId });
+          if (!signal) return;
+          runtime.prepareCpuLaunch(lane.playerId, { launchSignal: signal, startedAt: now() });
+        } catch (error) {
+          message = error && error.message ? error.message : String(error);
+        }
       });
     }
 
@@ -232,6 +273,7 @@
 
     function stopRuntime() {
       stageElement = null;
+      cpuTurns.clear();
       if (frameId != null) { cancelFrame(frameId); frameId = null; }
       if (detachPointers) { try { detachPointers(); } catch (_) {} detachPointers = null; }
       if (runtime) { try { runtime.destroy(); } catch (_) {} runtime = null; }
@@ -266,8 +308,10 @@
       return runtime.snapshot().lanes.filter(function (lane) {
         return lane.playerId && active.indexOf(lane.playerId) >= 0;
       }).slice(0, series.config.hardware.activeLaneLimit).map(function (lane) {
+        // A CPU lane takes no pointer, so it must never invite a flick.
         return { laneId: lane.laneId, playerId: lane.playerId,
-          status: LANE_STATUS[lane.state] || 'Waiting' };
+          status: lane.cpu && lane.state === 'ready' ? 'CPU is lining up'
+            : (LANE_STATUS[lane.state] || 'Waiting') };
       });
     }
 
