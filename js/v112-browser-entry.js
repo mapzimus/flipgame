@@ -30,10 +30,12 @@
 //    display with observeDisplay({width,observedContacts}) before prepare: the
 //    verified-contact count only ever rises from simultaneous contacts a host
 //    actually saw, and it decides how many lanes may be active. prepare opens
-//    the reservation, start opens Heat 1, and from then on the same physics
-//    driver frames record attempts against Battle Rules. choosePower stores an
-//    offered card and advanceClock drives a Timed Rush gameplay clock. The host
-//    never supplies a pose, a score or a series verdict.
+//    the reservation and returns the BattleConfigV1 the host must build its lane
+//    runtime from; start marks the series live. Play the series with
+//    FlipgameV112BattleRuntime, then hand the completed BattleStateV1 to
+//    submitResult(handle,state). A submitted series is rejected unless Battle's
+//    own validator re-derives its scores, heat wins, winner and launch leases
+//    from its attempt ledger under exactly the reserved setup.
 // Story views and prescribed requests are composed; start them through
 // createStoryRequest rather than beginSession.
 function createBrowserApplication(require, platform, sourceIdentity) {
@@ -71,6 +73,15 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     return Object.freeze(value);
   }
   function copy(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
+  // Two objects that mean the same setup must compare equal whatever order their
+  // keys were built in, so key order can never smuggle a difference past a check.
+  function stableJson(value) {
+    if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
+    if (!value || typeof value !== 'object') return JSON.stringify(value) || 'null';
+    return '{' + Object.keys(value).sort().map(function (key) {
+      return JSON.stringify(key) + ':' + stableJson(value[key]);
+    }).join(',') + '}';
+  }
   function finite(value, label) {
     if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError(label + ' must be finite');
     return value;
@@ -285,9 +296,11 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     session.status = 'abandoned'; emit('session-left'); return snapshot();
   }
 
-  // Battle. Its Rules own the relay order, the launch lease, volley batching,
-  // power offers and the series verdict. The host contributes only a measured
-  // display, engine landings and the player's card choice.
+  // Battle. The lane runtime plays the series in the page, because only the page
+  // owns pointers, physics and lanes. This composition still decides what a
+  // Battle is worth: it reserves the match, and it rejects any submitted series
+  // whose scores, heat wins, winner or launch leases do not follow from its own
+  // attempt ledger under the reserved setup.
   function observeBattleDisplay(input) {
     var source = input || {};
     var width = Number(source.width);
@@ -299,32 +312,11 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     return battleCapabilities();
   }
   function battleCapabilities() { return Battle.hardwareProfile(battleDisplay); }
-  function battleOwnerKey(playerId) {
-    var player = battle.config.players.find(function (entry) { return entry.id === playerId; });
-    if (!player) throw new Error('That player is not in this Battle');
-    return battle.config.formatId === 'doubles' || battle.config.formatId === 'team'
-      ? player.teamId : player.id;
-  }
-  // Whose launch the engine is allowed to attribute next: an active participant
-  // that has neither resolved this volley nor left an attempt in flight.
-  function battleLauncher() {
-    if (!battle || !battle.state || battle.state.phase !== 'active') return null;
-    var state = battle.state;
-    var owners = state.pendingLaunchOwners || {};
-    var inFlight = Object.keys(owners).map(function (key) { return owners[key]; });
-    var resolved = state.volleyPlayerIds || [];
-    var active = state.activePlayerIds || [];
-    for (var index = 0; index < active.length; index += 1) {
-      if (resolved.indexOf(active[index]) < 0 && inFlight.indexOf(active[index]) < 0) return active[index];
-    }
-    return null;
-  }
   function battleSnapshot() {
     if (!battle) return null;
     return freeze({ schema: 'BattlePrivateViewV1', matchId: battle.request.matchId,
       status: battle.status, config: copy(battle.config), state: copy(battle.state),
-      launcherId: battleLauncher(), message: battle.message || '',
-      resolution: copy(battle.resolution) });
+      message: battle.message || '', resolution: copy(battle.resolution) });
   }
   function battleRoster(source, formatId) {
     var roster = names(source);
@@ -367,9 +359,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     coordinator.start(request);
     battle = { request: request, config: config, state: null, status: 'reserved',
       owner: coordinator, handle: 'battle-' + request.matchId, message: '',
-      manualHumanFlips: 0, ordinaryShots: [], attempts: 0, totalFlips: 0,
-      flip: null, seen: new Set(), resolution: null, finalPromise: null,
-      startedAt: Date.now(), testData: progression.snapshot().ownerTestMode === true };
+      resolution: null, finalPromise: null, startedAt: Date.now(),
+      testData: progression.snapshot().ownerTestMode === true };
     emit('battle-reserved');
     return freeze({ handle: battle.handle, request: request, config: copy(config) });
   }
@@ -381,7 +372,6 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   function startBattle(handle) {
     var current = battleReservation(handle);
     if (current.status !== 'reserved') throw new Error('This Battle already started');
-    current.state = Battle.startHeat(Battle.createState(current.config));
     current.status = 'playing';
     emit('battle-started');
     return battleSnapshot();
@@ -408,36 +398,51 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     battle = null; emit('battle-left');
     return null;
   }
-  function chooseBattlePower(input) {
+  // Only a completed series is worth anything, and only this composition decides
+  // whether the series it reserved is the series being submitted. Battle's own
+  // validator re-derives every score, heat win, winner and launch lease from the
+  // attempt ledger, so a submitted verdict cannot outrun the attempts behind it.
+  function submitBattleResult(handle, value) {
+    var current = battleReservation(handle);
+    if (current.status !== 'playing') throw new Error('This Battle is not running');
+    var submitted = copy(value);
+    if (!submitted || submitted.schema !== 'BattleStateV1') throw new TypeError('A BattleStateV1 series is required');
+    Battle.validateBattleState(submitted);
+    if (submitted.phase !== 'complete') throw new Error('Only a completed Battle series can be submitted');
+    if (submitted.matchId !== current.request.matchId) throw new Error('That series belongs to another match');
+    if (stableJson(submitted.config) !== stableJson(current.config)) {
+      throw new Error('That series contradicts the reserved Battle setup');
+    }
+    current.state = freeze(submitted);
+    return finishBattle();
+  }
+  function cancelBattle(handle) {
+    var current = battleReservation(handle);
+    if (current.status !== 'reserved') throw new Error('Leave the running Battle instead');
+    current.owner.abandon(current.request.matchId, 'cancelled');
+    battle = null; emit('battle-cancelled');
+    return null;
+  }
+  function abandonBattle(reason) {
     assertOpen();
-    if (!battle || battle.status !== 'playing') throw new Error('No Battle is running');
-    var source = input || {};
-    var playerId = String(source.playerId);
-    var key = battleOwnerKey(playerId);
-    var offer = (battle.state.powerOffers || {})[key] || [];
-    var index = offer.findIndex(function (card) { return card.id === source.cardId; });
-    if (index < 0) throw new Error('That card is not on offer');
-    battle.state = Battle.choosePower(battle.state, { playerId: playerId, index: index,
-      targetId: source.targetId });
-    emit('battle-power-stored');
-    return battleSnapshot();
+    if (!battle) return null;
+    if (battle.status === 'finalizing' || battle.status === 'finalization-failed') {
+      throw new Error('Retry the completed Battle\u2019s rewards first');
+    }
+    if (battle.status !== 'completed') {
+      battle.owner.abandon(battle.request.matchId, reason ? String(reason) : 'left-game');
+      diagnostics.recordMatch({ request: battle.request, startedAt: battle.startedAt,
+        completed: false, players: battle.config.players,
+        totalFlips: battleFlips(battle.state).length, testData: battle.testData });
+    }
+    battle = null; emit('battle-left');
+    return null;
   }
-  function advanceBattleClock(deltaMs) {
-    assertOpen();
-    if (!battle || battle.status !== 'playing') throw new Error('No Battle is running');
-    if (battle.config.paceId !== 'rush') return battleSnapshot();
-    battle.state = Battle.advanceClock(battle.state, deltaMs);
-    settleBattlePhase();
-    return battleSnapshot();
-  }
-  function settleBattlePhase() {
-    if (battle.state.phase === 'between-heats') battle.state = Battle.startHeat(battle.state);
-    emit('battle-advanced');
-    if (battle.state.phase === 'complete') finishBattle().catch(function () {});
-  }
-  function battleOutcome() {
-    var verdict = Battle.toMatchOutcomeV2(battle.state);
-    return Battle.toMatchOutcomeV2(battle.state, { telemetry: rewardInput(battle, verdict) });
+  // Every qualified manual human attempt in the series, taken from the ledger the
+  // validator already checked rather than from a host tally.
+  function battleFlips(state) {
+    if (!state || !Array.isArray(state.resolvedAttempts)) return [];
+    return state.resolvedAttempts.filter(function (attempt) { return attempt.qualifiedManual === true; });
   }
   function finishBattle() {
     if (!battle) return Promise.reject(new Error('No Battle to finish'));
@@ -446,12 +451,16 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (current.finalPromise) return current.finalPromise;
     if (!current.state || current.state.phase !== 'complete') return Promise.reject(new Error('The Battle is still running'));
     current.status = 'finalizing';
-    var outcome = battleOutcome();
+    var manual = battleFlips(current.state);
+    current.manualHumanFlips = manual.length;
+    current.ordinaryShots = manual.map(function (attempt) { return { made: attempt.pose !== 'miss' }; });
+    var outcome = Battle.toMatchOutcomeV2(current.state, {
+      telemetry: rewardInput(current, Battle.toMatchOutcomeV2(current.state)) });
     current.finalPromise = current.owner.finalize(outcome).then(function (result) {
       current.resolution = result; current.status = 'completed'; current.finalPromise = null;
       diagnostics.recordMatch({ request: current.request, outcome: outcome,
         startedAt: current.startedAt, players: current.config.players,
-        totalFlips: current.totalFlips, testData: current.testData });
+        totalFlips: current.state.resolvedAttempts.length, testData: current.testData });
       emit('battle-completed'); return result;
     }).catch(function (error) {
       current.finalPromise = null; current.status = 'finalization-failed';
@@ -461,53 +470,11 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     });
     return current.finalPromise;
   }
-  // A Battle heat disables ordinary rare events, so an event frame here can only
-  // be a host defect rather than something to score.
-  function observeBattleFrame(frame) {
-    if (!frame || frame.qualified !== true || frame.launchId == null) return;
-    var launchId = String(frame.launchId);
-    if (Math.floor(finite(frame.atMs, 'physics time')) < 0) throw new RangeError('Physics time must be non-negative');
-    if (frame.eventId != null) throw new Error('Battle heats disable ordinary events');
-    var flip = battle.flip;
-    if (!flip || flip.launchId !== launchId) {
-      if (battle.seen.has(launchId)) return;
-      if (flip && flip.phase !== 'resolved') throw new Error('A Battle flip is still in flight');
-      var playerId = battleLauncher();
-      if (!playerId) throw new Error('Battle is not waiting for a launch');
-      var player = battle.config.players.find(function (entry) { return entry.id === playerId; });
-      var attemptId = 'attempt-' + (battle.attempts + 1);
-      if (battle.config.paceId === 'rush') {
-        battle.state = Battle.markLaunch(battle.state, { attemptId: attemptId, playerId: playerId });
-      }
-      battle.attempts += 1;
-      battle.flip = { launchId: launchId, attemptId: attemptId, playerId: playerId,
-        phase: 'airborne', manual: frame.manual === true && player.human === true };
-      battle.seen.add(launchId);
-      if (battle.flip.manual) battle.manualHumanFlips += 1;
-      emit('battle-flip-launched');
-      return;
-    }
-    if (flip.phase === 'resolved' || !frame.landing) return;
-    var result = frame.landing.result;
-    if (result !== 'MAKE' && result !== 'MISS') throw new TypeError('Invalid engine landing result');
-    var pose = result === 'MAKE' ? frame.landing.pose : 'miss';
-    if (result === 'MAKE' && pose !== 'upright' && pose !== 'cap') throw new TypeError('Invalid engine landing pose');
-    battle.state = Battle.recordAttempt(battle.state, { attemptId: flip.attemptId,
-      playerId: flip.playerId, pose: pose, qualifiedManual: flip.manual });
-    flip.phase = 'resolved';
-    battle.totalFlips += 1;
-    if (flip.manual) {
-      battle.ordinaryShots.push({ made: result === 'MAKE' });
-      if (battle.ordinaryShots.length > 24) battle.ordinaryShots.shift();
-    }
-    settleBattlePhase();
-  }
 
   // The host engine owns the driver. Its subscriber only wakes this private
   // observer; it cannot submit a make/miss or a reward-bearing outcome.
   function observePhysics() {
     if (!physicsDriver) return;
-    if (battle && battle.status === 'playing') { observeBattleFrame(physicsDriver.snapshot()); return; }
     if (!session || session.status !== 'active') return;
     var frame = physicsDriver.snapshot();
     if (!frame || frame.qualified !== true || frame.launchId == null) return;
@@ -634,16 +601,16 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     },
     beginSession: beginSession, abandonSession: abandon, retryFinalization: finish,
     attachPhysics: attachPhysics,
-    // Battle authority. The presentation host measures the display and reports
-    // observed simultaneous contacts; it never submits a pose or a verdict.
+    // Battle authority. The host measures the display, reports the simultaneous
+    // contacts it actually observed, and plays the series in its lane runtime.
+    // Only a completed series that follows from its own attempts is worth FXP.
     battle: freeze({
       formats: ['duel', 'doubles', 'four-way', 'team'],
       paces: ['volley', 'rush'],
       powerProfiles: ['sport', 'mayhem'],
       observeDisplay: observeBattleDisplay, capabilities: battleCapabilities,
       prepare: prepareBattle, start: startBattle, cancel: cancelBattle,
-      choosePower: chooseBattlePower, advanceClock: advanceBattleClock,
-      snapshot: battleSnapshot, launcherId: battleLauncher,
+      submitResult: submitBattleResult, snapshot: battleSnapshot,
       abandon: abandonBattle, retryFinalization: finishBattle,
     }),
     objects: progression.listObjects, arenas: progression.listArenas, store: progression.viewStore,
