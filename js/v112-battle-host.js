@@ -86,6 +86,7 @@
     var lastFrameAt = 0;
     var series = null;        // last BattleStateV1 this host saw
     var message = '';
+    var releasing = false;    // true while the authority is being asked to let go
     var cpuBlocked = '';      // set while a CPU lane has no gesture to be given
     var submission = null;
     var cpuTurns = new Map(); // laneId -> { playerId, dueAt }
@@ -131,9 +132,15 @@
     // torn down until it has agreed, so a refusal leaves the lane exactly as it
     // was instead of taking the table away from a Battle that is still running.
     function cancel(handle) {
-      application.battle.cancel(handle);
+      releasing = true;
+      try {
+        application.battle.cancel(handle);
+      } catch (error) {
+        releasing = false;
+        throw error;
+      }
       stopRuntime();
-      reservation = null; series = null; wake();
+      reservation = null; series = null; releasing = false; wake();
       return null;
     }
 
@@ -358,16 +365,28 @@
     }
 
     function snapshot() {
-      if (!series) return null;
+      // Releasing a reservation makes the authority emit, and its Battle view is
+      // already empty by then: projecting the series still in hand at that moment
+      // reads as a settled one. There is no series to show on the way out.
+      if (!series || releasing) return null;
       // A real fault says more than a stalled CPU lane does, so it keeps the line.
       return { status: status(), state: series, lanes: lanes(),
         message: message || cpuBlocked };
     }
 
+    // Leaving a Battle is not finishing one, so nothing on the way out may look
+    // like a result. A refused release still leaves the lane exactly as it was.
     function abandon() {
-      var left = Promise.resolve(application.battle.abandon('left-battle'));
+      var left;
+      releasing = true;
+      try {
+        left = Promise.resolve(application.battle.abandon('left-battle'));
+      } catch (error) {
+        releasing = false;
+        throw error;
+      }
       stopRuntime();
-      reservation = null;
+      reservation = null; series = null; releasing = false;
       wake();
       return left;
     }

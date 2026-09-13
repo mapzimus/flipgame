@@ -457,12 +457,38 @@ function testLeavingMidSeriesEarnsNothing() {
       powerProfileId: 'sport', players: roster(2) });
     context.host.start(ticket.handle, { stage: context.stage });
     await context.host.abandon();
-    assert.equal(context.host.snapshot().status, 'settled');
+    assert.equal(context.host.snapshot(), null, 'An abandoned Battle is not a series');
     assert.equal(app.snapshot().profile.fxp, 0, 'An abandoned Battle awards nothing');
     assert.equal(app.battle.snapshot(), null, 'Leaving consumes the reservation');
     assert.ok(!context.clock.pending(), 'Leaving stops the frame clock');
     assert.equal(context.stage.attached(), 0, 'Leaving releases the stage listeners');
     assert.deepEqual(context.table.log, ['open', 'close'], 'Leaving gives the lane surface back');
+  });
+}
+
+// Leaving a running Battle is not finishing one. The host kept the abandoned
+// series in hand, so releasing the reservation woke the screen with a projection
+// of it — and the private view is empty by then, which reads as 'settled'. The
+// route showed a result for a Battle nobody played out, on its way out.
+function testLeavingARunningBattleNeverShowsAResult() {
+  return withHost({}, async (context) => {
+    const seen = [];
+    const route = Routes.create({ getHost: () => context.host,
+      getPlayers: () => roster(2), getStage: () => context.stage });
+    route.subscribe((view) => { if (view.hud) seen.push(view.hud.status); });
+    route.open();
+    assert.equal(await route.start(), true, 'The heat opened');
+    const counter = { pointerId: 0, at: 0 };
+    flick(context, 'lane-1', 1, counter);
+    await context.lane.land('upright');
+    context.clock.advance();
+    assert.ok(seen.includes('playing'), 'The heat was projected while it ran');
+
+    assert.equal(await route.close(), true, 'A running Battle can be left');
+    assert.ok(!seen.includes('settled') && !seen.includes('finalizing'),
+      'Leaving a running Battle showed a finished one: ' + seen.join(', '));
+    assert.equal(context.host.snapshot(), null,
+      'A host that gave the reservation back has no series to project');
   });
 }
 
@@ -666,6 +692,7 @@ async function run() {
   await testAnUnstartedReservationCancels();
   await testALaneSurfaceThatWillNotOpenLeavesNothingBehind();
   await testLeavingMidSeriesEarnsNothing();
+  await testLeavingARunningBattleNeverShowsAResult();
   await testARefusedAbandonKeepsTheTable();
   await testARefusedSeriesIsNotADeadEnd();
   await testASecondBattleOpensAsCleanlyAsTheFirst();
