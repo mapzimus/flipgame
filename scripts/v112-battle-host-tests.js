@@ -304,6 +304,29 @@ function testAMissingCpuIntentIsNotSilent() {
   });
 }
 
+// A Timed Rush horn is the frame clock's business, and the rules clock is the
+// runtime's. If those are two different clocks the heat is timed by something
+// this host never advances, so a page whose paint clock is throttled or paused
+// keeps its horn running anyway.
+function testTimedRushRunsOnTheHostsClock() {
+  return withHost({}, async (context) => {
+    context.host.capabilities();
+    const ticket = context.host.prepare({ formatId: 'duel', paceId: 'rush',
+      powerProfileId: 'sport', players: roster(2) });
+    context.host.start(ticket.handle, { stage: context.stage });
+    const elapsed = () => context.host.snapshot().state.elapsedMs;
+    assert.equal(elapsed(), 0, 'A heat starts on nothing');
+    for (let frame = 0; frame < 10; frame += 1) context.clock.advance(100);
+    assert.equal(Math.round(elapsed()), 1000, 'The rules clock followed the frames');
+    const held = elapsed();
+    for (let frame = 0; frame < 5; frame += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(elapsed(), held, 'Wall time with no frames moves no rules clock');
+    assert.equal(Routes.project(context.host.snapshot()).remainingMs,
+      context.host.snapshot().state.config.rushDurationMs - held,
+      'The screen counts down the same clock');
+  });
+}
+
 function testTheRouteAcceptsThisHost() {
   return withHost({}, async (context, app) => {
     assert.equal(context.host.schema, 'FlipgameV112BattleHostV1');
@@ -575,9 +598,10 @@ async function run() {
   await testAWholeRelaySeriesReachesTheReward();
   await testTwoVerifiedContactsPlayTwoLanesAtOnce();
   await testTheGlassCanChangeSizeMidSeries();
+  await testTimedRushRunsOnTheHostsClock();
   await testAMissingCpuIntentIsNotSilent();
   await testACpuCompetitorTakesItsOwnTurns();
-  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, lanes re-aimed when the glass changes size, a refused abandon that keeps the table, a whole relay series and a two-lane 2v2 series from reservation to reward, a CPU competitor taking its own turns, and reservations released on cancel and on leaving.');
+  console.log('v1.12 Battle host tests passed: the route contract, a lane capacity that never claims simultaneous play, a borrowed lane surface opened once and always given back, lanes re-aimed when the glass changes size, a refused abandon that keeps the table, a whole relay series and a two-lane 2v2 series from reservation to reward, a Timed Rush heat measured on the host s own frame clock, a CPU competitor taking its own turns, and reservations released on cancel and on leaving.');
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

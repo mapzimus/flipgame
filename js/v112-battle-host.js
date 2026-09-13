@@ -148,6 +148,10 @@
         var rects = laneRectsFor(stage, config.hardware.activeLaneLimit);
         runtime = buildRuntime({ matchId: config.matchId, config: config, laneRects: rects,
           laneAdapterFactory: opts.laneAdapterFactory, captureTarget: stage,
+          // One clock. The frame clock drives tick(), and a Timed Rush horn is
+          // decided against pointer timestamps, so leaving the runtime on its own
+          // default would measure the heat on a clock this host never advances.
+          now: now, inputNow: now,
           onError: function (error) { message = error && error.message ? error.message : String(error); },
         });
         application.battle.start(handle);
