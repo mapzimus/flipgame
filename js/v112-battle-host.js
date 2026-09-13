@@ -103,11 +103,14 @@
 
     function prepare(input) {
       var source = input || {};
+      // The last series goes before the new reservation is asked for, not after.
+      // Reserving makes the application emit, and a screen woken in between would
+      // be handed the finished heat under the new match's status.
+      series = null; message = ''; submission = null;
       var ticket = application.battle.prepare({ battleFormatId: source.formatId,
         paceId: source.paceId, powerProfileId: source.powerProfileId,
         players: source.players });
       reservation = { handle: ticket.handle, config: copy(ticket.config) };
-      series = null; message = ''; submission = null;
       return { handle: ticket.handle };
     }
 

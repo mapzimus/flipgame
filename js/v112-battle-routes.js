@@ -76,8 +76,13 @@
     const emit = () => { const view=snapshot(); listeners.forEach(fn=>fn(view)); return view; };
     function refresh() {
       try {
-        if (host && state.route==='game') state.hud=project(host.snapshot());
-        else if (host) state.hardware=capabilities(host.capabilities());
+        if (host && state.route==='game') {
+          // Between the reservation and the first heat there is no series to show
+          // yet. That is this screen opening, not a host that has lost its way,
+          // and start() fills the scoreboard in as soon as the heat is live.
+          const view=host.snapshot();
+          if (view) state.hud=project(view);
+        } else if (host) state.hardware=capabilities(host.capabilities());
       } catch (_) { state.message='Battle is waiting for a valid host update.'; state.available=false; }
       return emit();
     }

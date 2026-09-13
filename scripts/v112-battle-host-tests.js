@@ -414,6 +414,41 @@ function testARefusedAbandonKeepsTheTable() {
   });
 }
 
+// People play more than one Battle. The second has to open as cleanly as the
+// first, which means nothing left over from the finished series may reach the
+// screen while the next reservation is being made.
+function testASecondBattleOpensAsCleanlyAsTheFirst() {
+  return withHost({}, async (context, app) => {
+    const route = Routes.create({
+      getHost: () => context.host,
+      getPlayers: () => roster(2),
+      getStage: () => context.stage,
+    });
+    const seat = async (attempt) => {
+      route.open();
+      assert.equal(route.snapshot().available, true, 'Battle is connected on attempt ' + attempt);
+      route.configure({ formatId: 'duel' });
+      assert.equal(await route.start(), true, 'The heat opened on attempt ' + attempt);
+      const view = route.snapshot();
+      assert.equal(view.route, 'game', 'Attempt ' + attempt + ' is playing');
+      assert.equal(view.message, '', 'Attempt ' + attempt + ' reported: ' + view.message);
+      assert.equal(view.hud.status, 'playing');
+      assert.equal(view.hud.heat, 1, 'Attempt ' + attempt + ' starts its own first heat');
+      assert.equal(view.hud.volley, 1);
+      assert.deepEqual(view.hud.scores.map((entry) => entry.score), [0, 0],
+        'Attempt ' + attempt + ' starts from nothing');
+      assert.equal(await route.close(), true, 'Attempt ' + attempt + ' was left');
+      assert.equal(route.snapshot().route, 'closed');
+    };
+    await seat('one');
+    await seat('two');
+    assert.deepEqual(context.table.log, ['open', 'close', 'open', 'close'],
+      'Each series takes the table and gives it back');
+    assert.equal(app.battle.snapshot(), null, 'Neither series is still reserved');
+    assert.equal(app.snapshot().profile.fxp, 0, 'Two abandoned Battles award nothing');
+  });
+}
+
 function testAnUnstartedReservationCancels() {
   return withHost({}, async (context, app) => {
     context.host.capabilities();
@@ -435,6 +470,7 @@ async function run() {
   await testALaneSurfaceThatWillNotOpenLeavesNothingBehind();
   await testLeavingMidSeriesEarnsNothing();
   await testARefusedAbandonKeepsTheTable();
+  await testASecondBattleOpensAsCleanlyAsTheFirst();
   await testAWholeRelaySeriesReachesTheReward();
   await testTwoVerifiedContactsPlayTwoLanesAtOnce();
   await testTheGlassCanChangeSizeMidSeries();
