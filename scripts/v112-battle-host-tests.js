@@ -573,6 +573,52 @@ function testASecondBattleOpensAsCleanlyAsTheFirst() {
   });
 }
 
+// A series the authority refuses is not a reward waiting to be written: no retry
+// can change its mind, so nothing is protected by keeping the screen on it. If
+// the host stays on 'finalizing' the route disables Back and offers no retry, and
+// holding the reservation open stops the next Battle from being reserved at all.
+function testARefusedSeriesIsNotADeadEnd() {
+  const refused = (app) => ({
+    subscribe: (listener) => app.subscribe(listener),
+    battle: {
+      observeDisplay: (input) => app.battle.observeDisplay(input),
+      prepare: (input) => app.battle.prepare(input),
+      start: (handle) => app.battle.start(handle),
+      cancel: (handle) => app.battle.cancel(handle),
+      retryFinalization: () => app.battle.retryFinalization(),
+      snapshot: () => app.battle.snapshot(),
+      abandon: (reason) => app.battle.abandon(reason),
+      submitResult: () => { throw new Error('That series contradicts the reserved Battle setup'); },
+    },
+  });
+  return withHost({ application: refused }, async (context, app) => {
+    const route = Routes.create({ getHost: () => context.host,
+      getPlayers: () => roster(2), getStage: () => context.stage });
+    route.open();
+    assert.equal(await route.start(), true, 'The heat opened');
+    await playSeries(context);
+
+    const view = await awaitReward(context);
+    assert.match(view.message, /contradicts the reserved Battle setup/,
+      'The refusal has to reach the screen');
+    assert.equal(view.status, 'settled',
+      'A refused series cannot sit on "saving" with nothing able to save it');
+    route.refresh();
+    assert.equal(route.snapshot().hud.status, 'settled');
+    assert.equal(await route.close(), true, 'A refused series can still be left');
+    assert.equal(route.snapshot().route, 'closed');
+    assert.deepEqual(context.table.log, ['open', 'close'], 'The table went back');
+    assert.equal(app.snapshot().profile.fxp, 0, 'A refused series is worth nothing');
+
+    // And the reservation went back with it, or no further Battle can be made.
+    assert.equal(app.battle.snapshot(), null, 'A refused series holds no reservation');
+    route.open();
+    assert.equal(await route.start(), true, 'Another Battle can still be started');
+    assert.equal(route.snapshot().message, '');
+    await route.close();
+  });
+}
+
 function testAnUnstartedReservationCancels() {
   return withHost({}, async (context, app) => {
     context.host.capabilities();
@@ -594,6 +640,7 @@ async function run() {
   await testALaneSurfaceThatWillNotOpenLeavesNothingBehind();
   await testLeavingMidSeriesEarnsNothing();
   await testARefusedAbandonKeepsTheTable();
+  await testARefusedSeriesIsNotADeadEnd();
   await testASecondBattleOpensAsCleanlyAsTheFirst();
   await testAWholeRelaySeriesReachesTheReward();
   await testTwoVerifiedContactsPlayTwoLanesAtOnce();

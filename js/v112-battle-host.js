@@ -253,6 +253,18 @@
         .then(function () { stopRuntime(); wake(); })
         .catch(function (error) {
           message = error && error.message ? error.message : String(error);
+          // A refused series is not a reward waiting to be written: the authority
+          // never took it, so no retry can change its mind. Leaving the
+          // reservation open would keep the screen on a save nothing can finish,
+          // with no retry to offer and no Battle able to open behind it, so the
+          // reservation goes back and the series becomes something to read.
+          // A finalization that failed on its way to storage is the other case:
+          // that reward is owed and the authority keeps it for the retry.
+          var view = application.battle.snapshot();
+          if (view && view.status !== 'finalizing' && view.status !== 'finalization-failed') {
+            try { application.battle.abandon('result-refused'); } catch (_) {}
+            reservation = null;
+          }
           stopRuntime(); wake();
         });
       return submission;
