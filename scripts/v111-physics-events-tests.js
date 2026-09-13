@@ -19,6 +19,8 @@ function loadPhysics() {
     'js/vendor/matter.min.js',
     'js/v111-interfaces.js',
     'js/v111-physics-events.js',
+    'js/v112-plinko-matter.js',
+    'js/v112-plinko-live.js',
     'js/physics.js',
   ]) {
     let source = fs.readFileSync(path.join(root, relative), 'utf8');
@@ -194,8 +196,11 @@ function testEveryEventHasPhysicalRuntime() {
     }
     if (definition.id === 'meteor-shower') assert.equal(physics.getEventBodies().length, 3);
     if (definition.id === 'alien-invasion') {
+      assert.equal(definition.metadata.physics.kind, 'alien');
+      assert.equal(definition.metadata.physics.gravity, 0.10);
       assert.equal(physics.getTarget().style, 'portal');
-      assert.equal(flick.gravityScale, 0.08);
+      assert.equal(flick.gravityScale, 0.10);
+      assert.equal(flick.gravityY, 0.10);
     }
     if (definition.id === 'moon-gravity') assert.equal(flick.gravityScale, 0.28);
     if (definition.id === 'gravity-slam') assert.equal(flick.gravityScale, 2.55);
@@ -207,8 +212,9 @@ function testEveryEventHasPhysicalRuntime() {
     }
     if (definition.id === 'plinko') {
       const board = physics.getPlinko();
-      assert.equal(board.rows, 8);
-      assert.ok(board.bottom - board.top > 900);
+      assert.equal(board.rows, 24);
+      assert.equal(board.pegs.length, 252);
+      assert.equal(board.bottom - board.top, 2450);
       assert.equal(physics.getViewHint().trackingData.slots.length, 9);
     }
 
@@ -479,6 +485,7 @@ function testDeepPhysicalSemantics() {
   const alien = forcedPhysics('alien-invasion', 6124, 900);
   assert.equal(alien.getTarget().style, 'portal');
   assert.equal(alien.getTarget().armed, false);
+  assert.equal(alien.getLastFlickInfo().gravityY, 0.10);
 
   const slam = forcedPhysics('gravity-slam', 6125);
   assert.equal(slam.getLastFlickInfo().gravityScale, 2.55);

@@ -1015,3 +1015,17 @@ interface or behavior changes to the Program Integrator before proceeding.
   remote ref without truncation. Obsolete runs are still rejected by exact SHA.
 - Required tests: no shallow master freshness fetch, exact remote SHA checks,
   and the existing non-fast-forward sync rejection suite.
+
+## Revision 53 - Practice meter belongs to the table HUD
+
+- Trigger: play review found the Practice strength meter obstructing the flight
+  when positioned a fixed 190px above the viewport bottom.
+- Old behavior: the meter floated in the lower-middle play field, with the
+  two-row Alien version extending even farther into the object trajectory.
+- New behavior: Practice uses a compact translucent meter anchored by viewport
+  height within the table/HUD zone, directly above the Practice statistics.
+  The redundant flick hint is hidden while the meter is present, and ordinary
+  game screens keep their existing hint behavior.
+- Required tests: measured non-overlap and below-ground placement at 360×740
+  and 1366×768, static regression coverage, and the complete qualification
+  suite.

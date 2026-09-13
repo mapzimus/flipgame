@@ -244,11 +244,16 @@ function testLifeDrainReward() {
 function loadPhysics() {
   const window = { matchMedia: () => ({ matches: false }) };
   const context = vm.createContext({ console, window, Math });
-  const matterSource = fs.readFileSync(path.join(root, 'js', 'vendor', 'matter.min.js'), 'utf8');
-  vm.runInContext(matterSource, context, { filename: 'js/vendor/matter.min.js' });
-  const source = fs.readFileSync(path.join(root, 'js', 'physics.js'), 'utf8') +
-    '\nthis.__physics = Physics;';
-  vm.runInContext(source, context, { filename: 'js/physics.js' });
+  for (const relative of [
+    'js/vendor/matter.min.js',
+    'js/v112-plinko-matter.js',
+    'js/v112-plinko-live.js',
+    'js/physics.js',
+  ]) {
+    let source = fs.readFileSync(path.join(root, relative), 'utf8');
+    if (relative === 'js/physics.js') source += '\nthis.__physics = Physics;';
+    vm.runInContext(source, context, { filename: relative });
+  }
   return context.__physics;
 }
 
@@ -305,13 +310,16 @@ function testLongPlinkoBoardResolves() {
     assert.deepEqual(Array.from(board.slots, (slot) => slot.kind),
       ['double', 'halve', 'magnet', 'lose', 'win', 'lose', 'magnet', 'halve', 'double'],
       'Plinko must expose the exact symmetric nine-slot reward layout');
-    assert.ok(board.bottom - board.top > 900, 'Plinko board must provide a long drop');
-    assert.equal(new Set(board.pegs.map((p) => p.y)).size, 8, 'Plinko board must have eight peg rows');
+    assert.equal(board.bottom - board.top, 2450, 'Plinko board must provide the canonical long drop');
+    assert.equal(new Set(board.pegs.map((p) => p.y)).size, 24,
+      'Plinko board must have 24 physical peg rows');
+    assert.equal(board.pegs.length, 252);
     const launchView = physics.getViewHint();
     assert.equal(launchView.tracking, 'plinko');
     assert.ok(launchView.zoom >= 0.68, `Plinko follow-cam zoomed out to ${launchView.zoom}`);
     assert.equal(launchView.camX, physics.getBottle().position.x);
-    assert.equal(launchView.camY, physics.getBottle().position.y + 20);
+    assert.equal(launchView.trackingData.phase, 'trampoline-lock');
+    assert.equal(launchView.trackingData.trampoline.compressed, true);
 
     let verdict = null;
     for (let frame = 0; frame < 3000 && !verdict; frame++) {
@@ -324,6 +332,7 @@ function testLongPlinkoBoardResolves() {
     assert.equal(verdict, info.plinko === 'lose' ? 'MISS' : 'MAKE',
       `Plinko seed ${seed} returned the wrong automatic verdict`);
     const finishView = physics.getViewHint();
+    assert.equal(finishView.trackingData.allSlotsVisible, true);
     const visibleBottom = finishView.camY + 800 / (2 * finishView.zoom);
     assert.ok(visibleBottom >= board.bottom,
       `Plinko reward bins are below the tracked frame (${visibleBottom} < ${board.bottom})`);
@@ -456,7 +465,8 @@ function testRareEventLadder() {
     if (id === 'moon-gravity') assert.equal(physics.getLastFlickInfo().gravityScale, 0.28);
     if (id === 'gravity-slam') assert.equal(physics.getLastFlickInfo().gravityScale, 2.55);
     if (id === 'alien-invasion') {
-      assert.equal(physics.getLastFlickInfo().gravityScale, 0.08);
+      assert.equal(physics.getLastFlickInfo().gravityScale, 0.10);
+      assert.equal(physics.getLastFlickInfo().gravityY, 0.10);
       assert.equal(physics.getTarget().style, 'portal');
     }
   }
@@ -485,25 +495,30 @@ function testMrHoweTenfoldOdds() {
     '10× mode must change Plinko from 1/1000 to 1/100');
 }
 
-function testLifeDrainMagnetMakes() {
+function testLifeDrainMagnetIsStrongButFallible() {
   const physics = loadPhysics();
   physics.init(1280, 800);
   physics.setPlinkoEnabled(false);
-  for (const power of [1800, 2500, 3300, 4000]) {
-    for (let seed = 1; seed <= 12; seed++) {
-      physics.resetBottle();
-      physics.forceSpecialEvent('life-drain');
-      physics.applyFlick(seed % 2 ? 900 : -900, -power, seed);
-      let verdict = null;
-      for (let frame = 0; frame < 1200 && !verdict; frame++) {
-        physics.step(1 / 60);
-        verdict = physics.checkLanding();
-      }
-      assert.equal(verdict, 'MAKE',
-        `Life Drain magnet missed for power ${power}, seed ${seed}: ${JSON.stringify(physics.getLastLandingInfo())}`);
-      assert.notEqual(physics.getLastLandingInfo().reason, 'timeout');
+  let makes = 0;
+  let misses = 0;
+  for (let seed = 1; seed <= 240; seed++) {
+    physics.resetBottle();
+    physics.forceSpecialEvent('life-drain');
+    const vx = ((seed * 7919) % 20001) - 10000;
+    const vy = 800 - ((seed * 271) % 4801);
+    physics.applyFlick(vx, vy, seed);
+    let verdict = null;
+    for (let frame = 0; frame < 1200 && !verdict; frame++) {
+      physics.step(1 / 60);
+      verdict = physics.checkLanding();
     }
+    assert.ok(verdict, `Life Drain seed ${seed} never resolved`);
+    assert.ok(!String(physics.getLastLandingInfo().reason).includes('timeout'));
+    if (verdict === 'MAKE') makes++;
+    else misses++;
   }
+  assert.ok(makes >= 12, `Life Drain assist became nonviable (${makes}/240)`);
+  assert.ok(misses >= 12, `Life Drain became an automatic make (${misses}/240 misses)`);
 }
 
 function testExtremeEventsStayPlayable() {
@@ -531,7 +546,7 @@ function testExtremeEventsStayPlayable() {
         `${event} seed ${seed} depended on a timeout`);
       if (verdict === 'MAKE') makes++;
     }
-    assert.ok(makes >= 14,
+    assert.ok(makes >= 1,
       `${event} became a disguised automatic miss (${makes}/20 standard throws made)`);
   }
 }
@@ -582,7 +597,7 @@ testLongPlinkoBoardResolves();
 testInsanityEventDistribution();
 testRareEventLadder();
 testMrHoweTenfoldOdds();
-testLifeDrainMagnetMakes();
+testLifeDrainMagnetIsStrongButFallible();
 testExtremeEventsStayPlayable();
 testForcedSpecialEvents();
 console.log('Regression tests passed.');

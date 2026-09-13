@@ -21,20 +21,6 @@
   const practiceMeterEl = document.getElementById('practice-meter');
   const startBtn     = document.getElementById('start-btn');
   const practiceBtn  = document.getElementById('practice-btn');
-  const onlineBtn    = document.getElementById('online-btn');
-  const onlineScreen = document.getElementById('online-screen');
-  const onlineForm   = document.getElementById('online-form');
-  const onlineLobby  = document.getElementById('online-lobby');
-  const onlineNameEl = document.getElementById('online-name');
-  const onlineCodeEl = document.getElementById('online-code');
-  const onlineCreateBtn = document.getElementById('online-create-btn');
-  const onlineJoinBtn   = document.getElementById('online-join-btn');
-  const onlineBackBtn   = document.getElementById('online-back-btn');
-  const onlineLeaveBtn  = document.getElementById('online-leave-btn');
-  const onlineStartBtn  = document.getElementById('online-start-btn');
-  const onlineRoomCodeEl = document.getElementById('online-room-code');
-  const onlineStatusEl   = document.getElementById('online-status');
-  const onlineRosterEl   = document.getElementById('online-roster');
   const addPlayerBtn = document.getElementById('add-player-btn');
   const playerInputs = document.getElementById('player-inputs');
   const charPickScreen = document.getElementById('char-picker-screen');
@@ -167,12 +153,15 @@
   const FORCE_SKIN = (typeof window !== 'undefined' && window.FLIP_FORCE_SKIN) || null;
   const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
   const BASE_SKIN = BRAND.baseSkin || 'bottle';
-  // Online is a beta entry point in v111. It is intentionally absent unless a
-  // deployment opts in or the explicit local/query switch is present.
-  const query = new URLSearchParams(location.search);
-  const ONLINE_ENABLED = BRAND.onlineBeta === true || BRAND.online === true ||
-    query.get('online') === '1' || query.get('online') === 'beta';
-
+  // Local previews must not masquerade as the immutable public v1.11 build.
+  // Final source SHA/cache/APK identity is still assigned at the release gate.
+  if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+    const versionBadge = document.getElementById('version-badge');
+    if (versionBadge) {
+      versionBadge.textContent = 'v1.12 · DEV';
+      versionBadge.setAttribute('aria-label', 'Flipgame v1.12 development preview, not released');
+    }
+  }
   function characterList() {
     return window.Skins && Skins.list ? Skins.list() : [{ id: BASE_SKIN, name: 'Bottle', emoji: '🍾', color: '#1f9bff', tint: '#1f9bff' }];
   }
@@ -392,12 +381,13 @@
     const sel = normalizeColor(selColor);
     const id = charId || defaultCharId();
     const values = FLAVORS.map((f) => {
-      const character = characterById(id);
-      const nm = character?.v111Art ? `${character.name} — ${f.name}` : defaultNameFor(id, f.color);
+      const nm = defaultNameFor(id, f.color);
       const open = isColorAvailable(id, f.color);
       if (!open) return null;
       return `<button type="button" role="gridcell" class="picker-tile variant-tile" data-color="${f.color}" ` +
-        `aria-pressed="${f.color === sel}" tabindex="${f.color === sel ? '0' : '-1'}" aria-label="${escapeHtml(nm)}"><span class="variant-swatch" style="background:${f.color}" aria-hidden="true"></span><span>${escapeHtml(nm)}</span></button>`;
+        `aria-pressed="${f.color === sel}" tabindex="${f.color === sel ? '0' : '-1'}" aria-label="${escapeHtml(nm)}">` +
+        `<canvas class="fam-art" width="200" height="280" data-preview-char="${escapeHtml(resolveCharForColor(id, f.color))}" data-preview-color="${f.color}" aria-hidden="true"></canvas>` +
+        `<span class="variant-caption"><span class="variant-swatch" style="background:${f.color}" aria-hidden="true"></span><span>${escapeHtml(nm)}</span></span></button>`;
     });
     const tiles = values.filter(Boolean);
     if (tiles.length < values.length) tiles.push(undiscoveredTileHtml());
@@ -515,12 +505,12 @@
     if (pickerRow) closeCharPicker();
     playerCount = defs.length;
     playerInputs.innerHTML = defs.map((d, i) => rowHtml(i, d)).join('');
-    addPlayerBtn.disabled = playerCount >= 8;
-    addPlayerBtn.tabIndex = playerCount >= 8 ? -1 : 0;
+    addPlayerBtn.disabled = playerCount >= 16;
+    addPlayerBtn.tabIndex = playerCount >= 16 ? -1 : 0;
     const countLabel = document.getElementById('player-count-label');
     const limitNote = document.getElementById('player-limit-note');
     if (countLabel) countLabel.textContent = `${playerCount} players`;
-    if (limitNote) limitNote.textContent = playerCount >= 8 ? '8 player maximum' : 'Up to 8 players';
+    if (limitNote) limitNote.textContent = playerCount >= 16 ? '16 player maximum' : 'Up to 16 players';
     syncCpuDifficulty();
     syncFormatControls();
     paintAllPreviews();
@@ -543,7 +533,7 @@
   }
 
   function addPlayerInput() {
-    if (playerCount >= 8) return;
+    if (playerCount >= 16) return;
     const defs = readRows();
     defs.push(seatDefaults(defs.length, defs.map((d) => d.color)));
     renderFrom(defs);
@@ -644,8 +634,11 @@
   function renderCustomizeGrid(focusGrid = false) {
     const draft = currentDraft();
     if (!draft) return;
-    const name = draft.name || defaultNameFor(draft.charId, draft.color);
-    charPickTitle.textContent = `Customize P${pickerIndex + 1} · ${name}`;
+    charPickTitle.textContent = `Choose Your Flipper · P${pickerIndex + 1}`;
+    const previewName = document.getElementById('customize-preview-name');
+    const previewFamily = document.getElementById('customize-preview-family');
+    if (previewName) previewName.textContent = defaultNameFor(draft.charId, draft.color);
+    if (previewFamily) previewFamily.textContent = familyLabel(draft.charId);
     document.getElementById('customize-seat').textContent = `P${pickerIndex + 1}`;
     document.getElementById('customize-prev').disabled = pickerIndex === 0;
     document.getElementById('customize-next').disabled = pickerIndex === pickerDraftRows.length - 1;
@@ -707,9 +700,16 @@
     const col = normalizeColor(draft?.color || defaultColorFor(draft?.charId));
     charPickGrid.querySelectorAll('canvas[data-preview-char]').forEach((cv) => {
       const id = cv.dataset.previewChar;
+      const previewColor = cv.dataset.previewColor || col;
       const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
-      Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, col));
+      Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, previewColor));
     });
+    const hero = document.getElementById('customize-preview');
+    if (hero && draft) {
+      const id = resolveCharForColor(draft.charId, col);
+      const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
+      Renderer.drawPreview(hero, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, col));
+    }
   }
 
   if (charPickGrid) charPickGrid.addEventListener('click', (e) => {
@@ -771,6 +771,15 @@
     }
     mysteryCurrent = mysteryQueue.shift();
     mysteryOpened = false;
+    // A queued reveal must start with an empty canvas, including after a
+    // late sprite decode from the previous prize.
+    if (mysteryArtEl) {
+      const context = mysteryArtEl.getContext('2d');
+      context.save();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, mysteryArtEl.width, mysteryArtEl.height);
+      context.restore();
+    }
     // Warm the sprite for this character's own tint before it's on screen.
     const c = characterById(mysteryCurrent);
     const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
@@ -789,7 +798,7 @@
   }
 
   function paintMysteryArt() {
-    if (!mysteryCurrent || !mysteryArtEl || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
+    if (!mysteryCurrent || !mysteryOpened || !mysteryArtEl || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
     const c = characterById(mysteryCurrent);
     const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
     const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(mysteryCurrent) : mysteryCurrent;
@@ -802,7 +811,7 @@
     mysteryOpened = true;
     paintMysteryArt();
     mysteryScreen.classList.add('opening');
-    mysteryHeadlineEl.textContent = 'Unlocked — yours forever!';
+    mysteryHeadlineEl.textContent = 'A new Flipper joins the roster';
     mysteryNameEl.textContent = defaultNameFor(mysteryCurrent, null);
     mysteryFamilyEl.textContent = 'Added to Customize';
     mysteryGoBtn.textContent = mysteryQueue.length ? 'Next ▶' : 'Nice!';
@@ -896,12 +905,12 @@
   }
   function syncFormatControls() {
     const format = chosenFormat();
-    const teamAllowed = [2, 4, 6, 8].includes(playerCount);
+    const teamAllowed = playerCount >= 2 && playerCount <= 16 && playerCount % 2 === 0;
     const teamLabel = document.getElementById('team-format-option');
     if (teamLabel) teamLabel.setAttribute('aria-disabled', teamAllowed ? 'false' : 'true');
     if (!teamAllowed && format === 'team-clash') {
       document.querySelector('input[name="match-format"][value="classic"]').checked = true;
-      announce('Team Clash needs 2, 4, 6, or 8 players.');
+      announce('Team Clash needs an even roster from 2 to 16 players.');
     }
     const active = !teamAllowed && format === 'team-clash' ? 'classic' : format;
     document.getElementById('classic-lives')?.classList.toggle('hidden', active !== 'classic');
@@ -917,10 +926,11 @@
   }
   document.querySelectorAll('input[name="match-format"], input[name="cup-length"]').forEach((input) => {
     input.addEventListener('change', (event) => {
-      if (event.target.value === 'team-clash' && ![2,4,6,8].includes(playerCount)) {
+      if (event.target.value === 'team-clash' &&
+          !(playerCount >= 2 && playerCount <= 16 && playerCount % 2 === 0)) {
         event.target.checked = false;
         document.querySelector('input[name="match-format"][value="classic"]').checked = true;
-        announce('Team Clash needs 2, 4, 6, or 8 players.');
+        announce('Team Clash needs an even roster from 2 to 16 players.');
       }
       syncFormatControls(); saveSetup();
     });
@@ -1027,7 +1037,7 @@
       isAI: false, skin, variantId: replayShot?.variantId || flavorIdForColor(config.color),
       cosmeticId: replayShot?.cosmeticId || row.cosmeticId || null,
     };
-    Sound.unlock(); onlineMode = false; if (window.Net) Net.leave(); enterImmersive();
+    Sound.unlock(); enterImmersive();
     labScreen.classList.add('hidden'); setupScreen.classList.add('hidden'); gameScreen.classList.remove('hidden'); gameOverEl.classList.add('hidden');
     const advancedLabUsed = !!(config.eventId || config.seed != null || config.viewportPreset ||
       config.slowMotion || config.replaying || config.objectId !== (row.charId || defaultCharId()) ||
@@ -1043,7 +1053,7 @@
       visualArenaId: replayShot?.visualArenaId || visualArenaId, newMatch: true,
     });
     if (labReadoutEl) { labReadoutEl.classList.remove('hidden'); labReadoutEl.textContent = 'Lab shot ready.'; }
-    if (replayShot) requestAnimationFrame(() => launchFlick(replayShot.vx, replayShot.vy, replayShot.seed, false));
+    if (replayShot) requestAnimationFrame(() => launchFlick(replayShot.vx, replayShot.vy, replayShot.seed));
   }
   document.getElementById('lab-start-btn')?.addEventListener('click', () => startPhysicsLab(false));
   document.getElementById('lab-replay-btn')?.addEventListener('click', () => {
@@ -1091,7 +1101,7 @@
     try {
       const s = JSON.parse(localStorage.getItem(SETUP_KEY));
       if (!s || !Array.isArray(s.rows) || s.rows.length < 1) return false;
-      const rows = s.rows.slice(0, 8).map((r, i) => {
+      const rows = s.rows.slice(0, 16).map((r, i) => {
         const color = normalizeColor(r.color || defaultColorFor(r.charId || defaultCharId()));
         const charId = resolveCharForColor(r.charId || defaultCharId(), color);
         return {
@@ -1141,21 +1151,73 @@
   syncPreferenceControls();
 
   // ── Start game ─────────────────────────────────────────────────────────────
+  // Presentation routes only: these screens never resolve shots or grant
+  // progression. The existing launchConfiguredMatch remains the sole action.
+  const broadcastHome = document.getElementById('broadcast-home');
+  const broadcastReady = document.getElementById('broadcast-ready');
+  function showBroadcastHome() {
+    setupScreen.classList.add('hidden');
+    broadcastReady.classList.add('hidden');
+    broadcastHome.classList.remove('hidden');
+    document.getElementById('broadcast-home-title').focus({ preventScroll: true });
+    Renderer.drawPreview(document.getElementById('broadcast-home-object'), 'bottle', '#0b86ff');
+  }
+  function showBroadcastSetup() {
+    broadcastHome.classList.add('hidden');
+    setupScreen.classList.remove('hidden');
+    document.getElementById('setup-title').focus({ preventScroll: true });
+  }
+  document.getElementById('broadcast-setup').addEventListener('click', showBroadcastSetup);
+  document.getElementById('broadcast-home-back').addEventListener('click', showBroadcastHome);
+  document.getElementById('broadcast-practice').addEventListener('click', () => {
+    showBroadcastSetup(); practiceBtn.click();
+  });
+  // Presentation host is injected by the private activity composition. Missing
+  // capability means no Story reservation, simulated victory or reward write.
+  if (window.FlipgameV112JourneyRoutes) {
+    FlipgameV112JourneyRoutes.mount({ document,
+      getHost: () => window.FlipgameV112JourneyHost || null,
+      getHumans: count => {
+        if (!validateSetupNames()) return [];
+        return rowsToDefs(readRows()).filter(entry => !entry.isAI).slice(0, count).map(entry => ({
+          id: entry.id, displayName: entry.name, flipperId: entry.skin,
+          variantId: entry.variantId, cosmeticId: entry.cosmeticId,
+        }));
+      },
+      onOpen: () => broadcastHome.classList.add('hidden'),
+      onHome: showBroadcastHome,
+      onPlay: () => broadcastHome.classList.add('hidden'),
+    });
+  } else {
+    for (const id of ['journey-story', 'journey-rivals', 'journey-tour']) {
+      document.getElementById(id).addEventListener('click', () => {
+        document.getElementById('journey-home-status').textContent = 'This activity is not connected in this development build. Your progress has not changed.';
+      });
+    }
+  }
   // Platform owns the single wake lock and visibility lifecycle.
   async function enterImmersive() {
     try { if (v111Platform && v111Platform.enterMatch) await v111Platform.enterMatch({ fullscreen: true }); }
     catch (_) {}
   }
 
-  startBtn.addEventListener('click', () => {
+  function launchConfiguredMatch() {
     if (!validateSetupNames()) return;
     const defs = rowsToDefs(readRows());
     if (defs.length < 2) { alert('Need at least 2 players!'); return; }
+    const format = chosenFormat();
+    const cupLimit = chosenCupLength() === 'full' ? 8 : 12;
+    if (format === 'cup' && defs.length > cupLimit) {
+      announce(`${chosenCupLength() === 'full' ? 'Full' : 'Short'} Cup supports up to ${cupLimit} players.`, true);
+      return;
+    }
+    if (format === 'team-clash' && (defs.length > 16 || defs.length % 2 !== 0)) {
+      announce('Team Clash needs an even roster from 2 to 16 players.', true);
+      return;
+    }
     const dir = parseInt(document.querySelector('input[name="direction"]:checked')?.value ?? '1');
     saveSetup();
     Sound.unlock();   // first user gesture — unlock audio
-    onlineMode = false;
-    if (window.Net) Net.leave();
     enterImmersive();
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
@@ -1165,12 +1227,118 @@
       feel: chosenFeel(),
       startingLives: chosenStartingLives(),
       insanity: chosenGameMode() === 'insanity',
-      format: chosenFormat(),
+      format,
       cupLength: chosenCupLength(),
       arenaProfileId: chosenArenaProfile(),
       visualArenaId,
       newMatch: true,
     });
+  }
+
+  // Venue selection is a separate pre-match step, never a per-player cosmetic.
+  const arenaSelectScreen = document.getElementById('arena-select-screen');
+  const arenaSelectGrid = document.getElementById('arena-select-grid');
+  let arenaFrame = 0;
+  let arenaChoices = [];
+  function availableArenaChoices() {
+    const state = window.FlipgameV111Progression?.snapshot() || {};
+    const views = window.FlipgameV111Cosmetics?.listForPlayer(state) || [];
+    return [{ id: '', displayName: 'Baseline Table' }, ...views.filter(v => !v.locked && v.id.startsWith('arena.'))];
+  }
+  function paintArenaPreview(time = 0) {
+    if (arenaSelectScreen.classList.contains('hidden')) return;
+    const canvas = document.getElementById('arena-preview');
+    const ctx = canvas.getContext('2d');
+    if (window.FlipgameV112ArenaPreview) {
+      FlipgameV112ArenaPreview.draw(ctx, {arenaId: arenaDraft || 'baseline-table', width: canvas.width, height: canvas.height, timeMs: time, reducedMotion: document.body.classList.contains('reduce-motion')});
+    } else {
+      ctx.fillStyle = '#172b39'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#415564'; ctx.fillRect(0, canvas.height * .7, canvas.width, canvas.height * .03);
+    }
+    arenaFrame = requestAnimationFrame(paintArenaPreview);
+  }
+  function selectArena(id, focus = false) {
+    const choice = arenaChoices.find(v => v.id === id) || arenaChoices[0];
+    arenaDraft = choice.id;
+    document.getElementById('arena-preview-name').textContent = choice.displayName;
+    document.getElementById('arena-play').textContent = `Play Now · ${choice.displayName}`;
+    arenaSelectGrid.querySelectorAll('[data-venue]').forEach(button => {
+      const selected = button.dataset.venue === choice.id;
+      button.setAttribute('aria-pressed', String(selected));
+      if (selected && focus) button.focus();
+    });
+  }
+  function closeArenaSelect() {
+    cancelAnimationFrame(arenaFrame);
+    arenaSelectScreen.classList.add('hidden');
+    setupScreen.classList.remove('hidden');
+    startBtn.focus();
+  }
+  startBtn.addEventListener('click', () => {
+    if (!validateSetupNames()) return;
+    arenaChoices = availableArenaChoices();
+    arenaSelectGrid.replaceChildren();
+    for (const choice of arenaChoices) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'picker-tile'; button.dataset.venue = choice.id;
+      button.textContent = choice.displayName;
+      button.addEventListener('click', () => selectArena(choice.id));
+      arenaSelectGrid.appendChild(button);
+    }
+    selectArena(visualArenaId || '');
+    setupScreen.classList.add('hidden');
+    arenaSelectScreen.classList.remove('hidden');
+    document.getElementById('arena-select-title').focus();
+    cancelAnimationFrame(arenaFrame); arenaFrame = requestAnimationFrame(paintArenaPreview);
+  });
+  document.getElementById('arena-select-back').addEventListener('click', closeArenaSelect);
+  document.getElementById('arena-random').addEventListener('click', () => selectArena(arenaChoices[Math.floor(Math.random() * arenaChoices.length)].id, true));
+  document.getElementById('arena-play').addEventListener('click', () => {
+    if (!validateSetupNames()) return;
+    cancelAnimationFrame(arenaFrame);
+    arenaSelectScreen.classList.add('hidden');
+    const lineup = document.getElementById('broadcast-ready-lineup');
+    lineup.replaceChildren();
+    rowsToDefs(readRows()).forEach((entry, index) => {
+      const card = document.createElement('article'); card.className = 'broadcast-ready-entry';
+      const art = document.createElement('canvas'); art.width = 120; art.height = 150; art.setAttribute('aria-hidden', 'true');
+      const body = document.createElement('div');
+      const seat = document.createElement('span'); seat.className = 'broadcast-eyebrow'; seat.textContent = `Entry ${String(index + 1).padStart(2, '0')}`;
+      const name = document.createElement('h3'); name.textContent = entry.name;
+      const kind = document.createElement('p'); kind.textContent = entry.isAI ? 'CPU' : 'Human';
+      body.append(seat, name, kind); card.append(art, body); lineup.append(card);
+      Renderer.drawPreview(art, entry.skin || 'bottle', entry.color);
+    });
+    document.getElementById('broadcast-ready-arena').textContent = document.getElementById('arena-preview-name').textContent;
+    const details = document.getElementById('broadcast-ready-details'); details.replaceChildren();
+    const summary = [['Format', document.querySelector('input[name="match-format"]:checked')?.nextElementSibling?.textContent || 'Classic'],
+      ['Players', String(readRows().length)], ['Feel', chosenFeel()],
+      ['Direction', document.querySelector('input[name="direction"]:checked')?.nextElementSibling?.textContent || 'Left to right']];
+    if (chosenFormat() === 'classic') summary.splice(2, 0, ['Starting lives', String(chosenStartingLives())]);
+    for (const [label, value] of summary) {
+      const term = document.createElement('dt'), definition = document.createElement('dd');
+      term.textContent = label; definition.textContent = value; details.append(term, definition);
+    }
+    broadcastReady.classList.remove('hidden');
+    document.getElementById('broadcast-ready-title').focus({ preventScroll: true });
+  });
+  function closeBroadcastReady() {
+    broadcastReady.classList.add('hidden'); arenaSelectScreen.classList.remove('hidden');
+    document.getElementById('arena-play').focus();
+    cancelAnimationFrame(arenaFrame); arenaFrame = requestAnimationFrame(paintArenaPreview);
+  }
+  document.getElementById('broadcast-ready-back').addEventListener('click', closeBroadcastReady);
+  broadcastReady.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); closeBroadcastReady(); }
+  });
+  document.getElementById('broadcast-ready-play').addEventListener('click', () => {
+    if (broadcastReady.classList.contains('hidden')) return;
+    if (!validateSetupNames()) return;
+    visualArenaId = arenaDraft || null;
+    broadcastReady.classList.add('hidden'); launchConfiguredMatch();
+  });
+  arenaSelectScreen.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); closeArenaSelect(); }
   });
 
   // ── Practice (solo, no lives) ───────────────────────────────────────────────
@@ -1190,8 +1358,6 @@
     };
     saveSetup();
     Sound.unlock();
-    onlineMode = false;
-    if (window.Net) Net.leave();
     enterImmersive();
     setupScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
@@ -1268,36 +1434,6 @@
     enterImmersive();
     gameOverEl.classList.add('hidden');
     gameScreen.classList.remove('hidden');
-    if (onlineMode) {
-      // Online rematch: only the host can kick off; others wait for start.
-      if (window.Net && Net.isHost) {
-        const defs = (confirmedNextDefs || defsFromCurrentGame()).map((definition) => ({ ...definition, isAI: false }));
-        const payload = applyModeRematchOptions({
-          defs, direction: game.direction, startingLives: game.startingLives,
-          startIndex: confirmedNextDefs ? 0 : game.winnerIndex, newMatch: false,
-          difficulty: game.difficulty || 'medium',
-          feel: game.feel || chosenFeel(),
-          format: game.format,
-          cupLength: currentMatchOptions.cupLength,
-          arenaProfileId: currentMatchOptions.arenaProfileId,
-          visualArenaId: currentMatchOptions.visualArenaId,
-        }, replayModeState);
-        Net.startMatch(payload);
-        if (playAgainBtn) playAgainBtn.textContent = 'Same Setup';
-        const localOptions = { ...payload };
-        delete localOptions.defs;
-        delete localOptions.direction;
-        startGame(defs, game.direction, localOptions);
-        confirmedNextDefs = null;
-        confirmedTeamSwap = false;
-        arenaDraftSelection = null;
-      } else if (onlineStatusEl) {
-        // Non-host waits — Net.on('start') will fire beginOnlineMatch path via startGame
-        // Re-show a tiny waiting state on the game-over card label.
-        playAgainBtn.textContent = 'Waiting for host…';
-      }
-      return;
-    }
     if (game.practice) {
       startGame(
         [{ name: game.players[0].name, color: game.players[0].color, isAI: false,
@@ -1365,7 +1501,6 @@
   let moonFlipActive = false;
   // Easter egg: ~1/1000 flips the floor vanishes and the throw drops into a
   // plinko board (center = auto win). Physics rolls it from the flick seed;
-  // disabled online because prizes rewrite lives directly.
   let plinkoFlipActive = false;
   let rareEventActive = null;
   let activeArenaPhysicsId = null;
@@ -1375,6 +1510,69 @@
   let currentMatchOptions = {};
   let currentMatchDefs = [];
   let currentMatchId = null;
+  let easterEggState = null;
+  let easterPresentation = null;
+  // Captured after a committed Globe result. This contains only paint data;
+  // it never participates in selection, physics, outcomes, or rewards.
+  let easterGlobeFocus = null;
+
+  function resolvePresentationSecret(record, flick) {
+    easterPresentation = null;
+    easterGlobeFocus = null;
+    const registry = window.FlipgameV112EasterEggs;
+    if (!registry || !currentMatchId || !record) return;
+    if (!easterEggState || easterEggState.matchId !== currentMatchId) {
+      easterEggState = registry.createMatchState(currentMatchId);
+    }
+    const count = value => Math.max(0, Math.floor(Number(value) || 0));
+    const alien = record.objectId === 'alien' || record.eventId === 'alien-invasion' || /tractor|portal/.test(record.landingReason || '');
+    const sequence = easterEggState.lastSequence + 1;
+    const flipId = `${currentMatchId}:${record.heat || 0}:${record.turn}:${game.practiceAttempts}`;
+    // Hash domain is presentation-only: it never advances the event/input RNG.
+    const presentationSeed = `egg:${currentMatchId}:${flick?.seed ?? 0}:${record.turn}:${game.practiceAttempts}`;
+    try {
+      const response = registry.evaluate(easterEggState, {
+        schema: 'EasterEggOutcomeContextV1', matchId: currentMatchId, flipId, sequence,
+        presentationSeed, objectId: record.objectId, variantId: record.variantId,
+        arenaId: String(record.arenaId || 'baseline-table').replace(/^arena\./, ''),
+        playerName: record.displayName, physicsModeId: alien ? 'alien' : game.insanity ? 'insane' : 'normal',
+        eventId: record.eventId, laneId: 'main', outcomePhase: 'committed',
+        verdict: record.result, physical: true, automatic: record.eventId === 'plinko',
+        landingClass: alien && record.result === 'MAKE' ? 'alien-ring' : record.cap ? 'cap' : record.result === 'MAKE' ? 'upright' : 'miss',
+        rotationCount: count(record.rotations), bounceCount: count(record.bounces),
+        bankCount: count(record.banks), settleMs: Math.max(0, Number(record.settleMs) || 0),
+        clean: count(record.bounces) === 0, recovery: count(record.bounces) > 0,
+        pressureShot: !!record.suddenDeathBefore, matchTerminal: game.activePlayers().length <= 1,
+        testData: !!(record.testData || record.forced || record.practice || record.lab),
+        reducedMotion: reduceMotionActive(), audioMuted: !Settings.sound,
+      });
+      easterEggState = response.state;
+      easterPresentation = response.presentation;
+      if (easterPresentation && window.FlipgameV112EasterPresentation) {
+        // Camera requests are deliberately not granted over an event/reaction
+        // camera. The authored scene stays in its own screen-space inset.
+        if (easterPresentation.id === 'desk-globe-visible-wurld') {
+          const globe = window.FlipgameV112GlobeLive;
+          const orientation = globe && typeof globe.currentOrientation === 'function'
+            ? globe.currentOrientation() : null;
+          if (orientation) {
+            easterGlobeFocus = Object.freeze({ orientation, seed: presentationSeed,
+              durationMs: easterPresentation.visual.durationMs });
+          }
+        }
+        // Do not announce or play a Globe focus unless the real, visible
+        // hemisphere was actually captured. Other cues remain unaffected.
+        if (easterPresentation.id !== 'desk-globe-visible-wurld' || easterGlobeFocus) {
+          announce(easterPresentation.cue.accessibilityText);
+          const sound = FlipgameV112EasterPresentation.audioCue(easterPresentation);
+          if (sound) Sound.play(sound);
+        }
+      }
+    } catch (error) {
+      // Presentation failure must never roll back or change a committed flip.
+      console.warn('Optional presentation unavailable:', error.message);
+    }
+  }
   let currentMatchStartedAt = 0;
   let matchTelemetry = null;
   let flipTelemetry = null;
@@ -1423,9 +1621,6 @@
   // Konami code (keyboard) toggles party mode without the secret name.
   let konamiParty = false;
   try { konamiParty = localStorage.getItem('flipgame.party') === '1'; } catch (_) {}
-  let onlineMode = false;      // playing via Net rooms
-  let netAuthority = false;    // this client owns the current flick's verdict
-  let pendingNetResult = null; // authoritative result waiting to apply
   let mirrorMatch = null;
   let activeMirrorClaim = null;
   function detached(value) { return JSON.parse(JSON.stringify(value)); }
@@ -1466,62 +1661,6 @@
   function syncMirrorRoster() {
     try { if (mirrorMatch) mirrorMatch.syncRoster(activeMirrorRoster()); }
     catch (error) { console.error('Mirror Match roster sync failed', error); }
-  }
-  function captureOnlineMatchState() {
-    if (!gameStarted || !onlineMode) return null;
-    const modeState = v111Runtime && v111Runtime.modes
-      ? v111Runtime.modes.snapshot({ game, online: true }) : null;
-    return detached({
-      schema: 'FlipgameResumeStateV1',
-      matchId: currentMatchId,
-      matchStartedAt: currentMatchStartedAt,
-      defs: game.players.map((p, index) => ({ id: currentMatchDefs[index]?.id || p.netId || `seat-${index + 1}`, name: p.name,
-        color: p.color, isAI: !!p.isAI, skin: p.skin, netId: p.netId,
-        variantId: currentMatchDefs[index]?.variantId || null, cosmeticId: currentMatchDefs[index]?.cosmeticId || null })),
-      direction: game.direction,
-      options: currentMatchOptions,
-      game: {
-        state: game.state, currentPlayerIndex: game.currentPlayerIndex, turnCounter: game.turnCounter,
-        pointCount: game.pointCount, lastResult: game.lastResult, winnerIndex: game.winnerIndex,
-        startingLives: game.startingLives, maxLives: game.maxLives,
-        suddenDeathFlipThreshold: game.suddenDeathFlipThreshold,
-        onFirePlayerIndex: game.onFirePlayer ? game.players.indexOf(game.onFirePlayer) : null,
-        onFireBonus: game.onFireBonus, practiceMakes: game.practiceMakes,
-        practiceAttempts: game.practiceAttempts, practiceStreak: game.practiceStreak,
-        practiceBest: game.practiceBest,
-        players: game.players.map((p) => ({ lives: p.lives, streak: p.streak,
-          eliminated: !!p.eliminated, isHeatingUp: !!p.isHeatingUp, isOnFire: !!p.isOnFire,
-          alwaysMagnet: !!p.alwaysMagnet })),
-      },
-      modeState,
-      mirrorSnapshot: mirrorMatch && mirrorMatch.snapshot ? mirrorMatch.snapshot() : null,
-      settings: { feel: game.feel, difficulty: game.difficulty, insanity: game.insanity },
-    });
-  }
-  function restoreOnlineMatchState(snapshot) {
-    if (!snapshot || snapshot.schema !== 'FlipgameResumeStateV1' || !Array.isArray(snapshot.defs) || !snapshot.game) return false;
-    const mode = snapshot.options && snapshot.options.format;
-    const options = Object.assign({}, snapshot.options || {}, snapshot.settings || {},
-      mode === 'cup' ? { cupState: snapshot.modeState } : {},
-      mode === 'team-clash' ? { teamState: snapshot.modeState } : {},
-      snapshot.mirrorSnapshot ? { mirrorSnapshot: snapshot.mirrorSnapshot } : {},
-      { resumeMatchId: snapshot.matchId, resumeMatchStartedAt: snapshot.matchStartedAt });
-    onlineMode = true;
-    startGame(detached(snapshot.defs), snapshot.direction === -1 ? -1 : 1, options);
-    const value = snapshot.game;
-    value.players.forEach((saved, index) => Object.assign(game.players[index] || {}, saved));
-    game.currentPlayerIndex = Math.max(0, Math.min(game.players.length - 1, Number(value.currentPlayerIndex) || 0));
-    game.turnCounter = Math.max(0, Number(value.turnCounter) || 0);
-    game.pointCount = Math.max(0, Number(value.pointCount) || 0);
-    game.lastResult = value.lastResult || null;
-    game.winnerIndex = Number.isInteger(value.winnerIndex) ? value.winnerIndex : 0;
-    game.suddenDeathFlipThreshold = Math.max(0, Number(value.suddenDeathFlipThreshold) || 0);
-    game.onFireBonus = Math.max(0, Number(value.onFireBonus) || 0);
-    game.onFirePlayer = Number.isInteger(value.onFirePlayerIndex) ? game.players[value.onFirePlayerIndex] : null;
-    ['practiceMakes','practiceAttempts','practiceStreak','practiceBest'].forEach((key) => { game[key] = Math.max(0, Number(value[key]) || 0); });
-    if (Object.values(GAME_STATES).includes(value.state)) game.state = value.state;
-    updateHUD();
-    return true;
   }
   const RESULT_MS = 1500;
   // Worst grounded tilt (rad) a MAKE must have survived to count as a Great
@@ -1583,8 +1722,8 @@
     return rareEventActive === 'rainbow-trail' ? 'rainbow-corkscrew' : rareEventActive;
   }
 
-  function resolveGameFlip(result, landingInfo, authoritativeMeta = null) {
-    const meta = authoritativeMeta || landingMeta(landingInfo);
+  function resolveGameFlip(result, landingInfo) {
+    const meta = landingMeta(landingInfo);
     bridgeLandingInfo = landingInfo || null;
     const handled = v111Bridge('resolveFlip', {
       game,
@@ -1592,7 +1731,7 @@
       meta,
       landing: landingInfo || null,
       eventId: canonicalEventId(),
-      online: onlineMode,
+      online: false,
       forced: testDataFlipActive,
       testData: matchTestDataActive,
     }, false);
@@ -1602,36 +1741,74 @@
   }
 
   function advanceGameTurn() {
-    const handled = v111Bridge('advanceTurn', { game, online: onlineMode }, false);
+    const handled = v111Bridge('advanceTurn', { game, online: false }, false);
     if (!handled) game.advanceTurn();
   }
 
-  // CPU takes its turn: aim near the sweet-spot flick, with error set by difficulty.
-  // Alien bank-shot skins get a sideways aim instead of a pure vertical flip.
-  function aiFlick() {
-    if (game.state !== GAME_STATES.TURN_START && game.state !== GAME_STATES.ON_FIRE) return;
-    const sigma = { easy: 1000, medium: 400, hard: 220 }[game.difficulty] || 400;
-    const u1 = Math.random() || 1e-6, u2 = Math.random();
-    const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    const skin = game.currentPlayer()?.skin || BASE_SKIN;
-    const bank = window.Skins && Skins.physicsFor && Skins.physicsFor(skin);
-    if (bank && bank.floorResolve) {
-      const side = Math.random() < 0.5 ? -1 : 1;
-      const vx = side * (1100 + Math.abs(gauss) * sigma * 0.9 + Math.random() * 500);
-      const up = Math.max(900, 1700 + gauss * sigma * 0.55);
-      onFlick(vx, -up);
-      return;
+  function predictedCpuEvent(seed) {
+    if (currentMatchOptions.eventsDisabled) return null;
+    if (currentMatchOptions.lab && currentMatchOptions.labEventId) {
+      return String(currentMatchOptions.labEventId);
     }
-    // Aim at the measured sweet spot. This drifted out of date when POWER_SPEED
-    // was retuned: at the stale 2100 the CPU sat on the slope, so hard (63%)
-    // was barely better than medium (60%). At 2500 the tiers separate properly
-    // — easy 45% / medium 74% / hard 85%.
-    const up = Math.max(500, 2500 + gauss * sigma);   // sweet spot ~2500 px/s
-    const vx = (Math.random() - 0.5) * 420;           // slight lean
-    onFlick(vx, -up);
+    if (currentMatchOptions.arenaProfile?.physicsProfileId) {
+      return String(currentMatchOptions.arenaProfile.physicsProfileId);
+    }
+    const excludedEventIds = Array.isArray(currentMatchOptions.excludedEventIds)
+      ? currentMatchOptions.excludedEventIds.map((id) => String(id)) : [];
+    if (game.insanity && Physics.insanityEventForSeed) {
+      return Physics.insanityEventForSeed(seed, excludedEventIds);
+    }
+    if (!Physics.rareEventForSeed) return null;
+    const eventMultiplier = isMrHoweName(game.currentPlayer()?.name) ? 10 : 1;
+    return Physics.rareEventForSeed(seed, false, eventMultiplier, excludedEventIds);
   }
 
-  // Deterministic turn seed shared by all online peers (same turnCounter + seat).
+  // CPU intent is selected before release from the same deterministic seed
+  // that places Alien's tractor ring and later drives applyFlick. This keeps
+  // native Alien and a preselected Alien Invasion on the identical physical
+  // bank-and-ring challenge, without peeking at (or forcing) a verdict.
+  function aiFlick() {
+    if (game.state !== GAME_STATES.TURN_START && game.state !== GAME_STATES.ON_FIRE) return;
+    const cpu = window.FlipgameV112Cpu;
+    if (!cpu || typeof cpu.createLaunch !== 'function') {
+      throw new Error('FlipgameV112Cpu must load before a CPU turn');
+    }
+    const seed = turnArenaSeed();
+    const skin = game.currentPlayer()?.skin || BASE_SKIN;
+    const profile = (window.Skins && Skins.physicsFor && Skins.physicsFor(skin)) || {};
+    const eventId = predictedCpuEvent(seed);
+    const alien = !!profile.floorResolve || eventId === 'alien-invasion';
+    const target = alien && Physics.alienTargetForSeed
+      ? Physics.alienTargetForSeed(seed) : null;
+    const view = Physics.getViewHint ? Physics.getViewHint() : null;
+    const intent = cpu.createLaunch({
+      seed,
+      difficulty: game.difficulty,
+      physicsModeId: alien ? 'alien' : 'normal',
+      target,
+      arena: {
+        worldW: target?.worldW || view?.worldW || window.innerWidth,
+        viewW: target?.viewW || window.innerWidth,
+        viewH: target?.viewH || window.innerHeight,
+      },
+    });
+    onFlick(intent.vx, intent.vy, {
+      seed: intent.seed,
+      inputFeelMode: intent.inputFeelMode,
+      source: 'cpu',
+    });
+  }
+
+  function cpuLaunchPolicy(value) {
+    if (!value || typeof value !== 'object' || value.source !== 'cpu') return null;
+    return {
+      seed: Number(value.seed) >>> 0,
+      // Keep difficulty independent from the human accessibility/input choice.
+      inputFeelMode: 'standard',
+    };
+  }
+
+  // Deterministic turn seed from the local turn counter and seat.
   function turnArenaSeed() {
     const tc = game.turnCounter | 0;
     const pi = game.currentPlayerIndex | 0;
@@ -1647,7 +1824,7 @@
       defs,
       direction: dir,
       options: opts || {},
-      online: onlineMode,
+      online: false,
     }, null);
     if (prepared) {
       if (Array.isArray(prepared.defs)) defs = prepared.defs;
@@ -1655,6 +1832,7 @@
       if (prepared.options && typeof prepared.options === 'object') opts = prepared.options;
     }
     currentMatchOptions = Object.assign({}, opts || {});
+    gameScreen.classList.toggle('practice-active', !!currentMatchOptions.practice);
     currentMatchDefs = defs.map((definition) => ({ ...definition }));
     const cupContinuation = currentMatchOptions.format === 'cup' &&
       currentMatchOptions.cupState?.phase === 'between-heats' && matchTelemetry;
@@ -1708,7 +1886,7 @@
     Physics.init(physicsWidth, physicsHeight, physicsInset);  // logical coords
     const feel = (opts && opts.feel) || chosenFeel();
     if (Physics.setFeel) Physics.setFeel(feel);
-    if (!onlineMode) Settings.setFeel(feel);
+    Settings.setFeel(feel);
     if (Physics.setImpactCallback) {
       let lastWallT = 0;
       Physics.setImpactCallback((type, speed, x, y) => {
@@ -1759,7 +1937,7 @@
       perPlayer: game.players.map(() => ({ makes: 0, flips: 0, bestStreak: 0, lowestLives: Infinity })),
     };
     if (opts && opts.newMatch) matchWins = defs.map(() => 0);   // fresh series
-    v111Bridge('matchStarted', { game, options: opts || {}, online: onlineMode }, null);
+    v111Bridge('matchStarted', { game, options: opts || {}, online: false }, null);
 
     if (loopId) cancelAnimationFrame(loopId);
     lastTime = performance.now();
@@ -1825,67 +2003,11 @@
       Physics.step(stepDt);
       if (currentMatchOptions.lab && evaluating) captureLabTrajectoryPoint();
       if (evaluating) {
-        // Remote peers may receive the authoritative verdict before local settle.
-        if (pendingNetResult) {
-          const authority = pendingNetResult;
-          pendingNetResult = null;
-          // Event verdicts already contain the authority's final attempt and
-          // event-owned resolution. Never run them through local event physics:
-          // Rewind would consume a final MISS as its first local failure and
-          // Plinko/Roulette/split bodies could choose different local metadata.
-          const forced = authority.eventResult ? authority.result
-            : (Physics.forceLanding
-              ? Physics.forceLanding(authority.result, authority.landingInfo)
-              : authority.result);
-          evaluating = false;
-          showGlow = forced === 'MAKE';
-          resolveGameFlip(forced,
-            authority.eventResult ? authority.landingInfo : Physics.getLastLandingInfo(),
-            authority.meta);
-          break;
-        }
-        // Online non-authority: display-only sim — wait for the flicker's result
-        // so cross-device pad/float drift can't fork lives/turns.
-        if (onlineMode && !netAuthority) continue;
         const result = Physics.checkLanding();
         if (result) {
           evaluating = false;
           showGlow   = result === 'MAKE';
           const landingInfo = Physics.getLastLandingInfo();
-          if (onlineMode && netAuthority && window.Net) {
-            const eventId = canonicalEventId();
-            const packet = {
-              result,
-              info: {
-                tilt: landingInfo && landingInfo.tilt,
-                perfect: !!(landingInfo && landingInfo.perfect),
-                reason: landingInfo && landingInfo.reason,
-                onCap: !!(landingInfo && (landingInfo.onCap || landingInfo.reason === 'cap')),
-                maxTilt: landingInfo && landingInfo.maxTilt,
-                padOffset: landingInfo && landingInfo.padOffset,
-                bankHits: landingInfo && landingInfo.bankHits,
-              },
-              playerId: Net.selfId,
-            };
-            let authoritativeMeta = null;
-            if (eventId) {
-              const localMeta = landingMeta(landingInfo);
-              packet.eventId = eventId;
-              packet.eventResult = window.FlipgameNetworkProtocolV2.createEventResult({
-                eventId,
-                result,
-                meta: localMeta,
-              });
-              const resolved = window.FlipgameNetworkProtocolV2.resolveAuthoritativeResult(packet, eventId);
-              if (!resolved.ok) throw new Error(`Invalid local event result: ${resolved.code}`);
-              authoritativeMeta = resolved.value.meta;
-            }
-            Net.sendResult(packet);
-            netAuthority = false;
-            resolveGameFlip(result, landingInfo, authoritativeMeta);
-            break;
-          }
-          netAuthority = false;
           resolveGameFlip(result, landingInfo);
           break;
         }
@@ -1922,6 +2044,12 @@
       ? Physics.getEventRenderState(reduceMotionActive()) : null;
     const landingLifecycle = Physics.getLandingLifecycle ? Physics.getLandingLifecycle() : null;
     const lastFlickInfo = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
+    const globeFocus = game.state === GAME_STATES.RESULT && easterPresentation && easterGlobeFocus &&
+      window.FlipgameV112GlobeLive && typeof window.FlipgameV112GlobeLive.focusView === 'function'
+      ? window.FlipgameV112GlobeLive.focusView({ orientation: easterGlobeFocus.orientation,
+        seed: easterGlobeFocus.seed, elapsedMs: RESULT_MS - resultTimer,
+        durationMs: easterGlobeFocus.durationMs, reducedMotion: reduceMotionActive() })
+      : null;
     if (eventStatusEl) {
       const label = eventRenderState && eventRenderState.metadata && eventRenderState.metadata.displayName;
       eventStatusEl.textContent = label ? `${label} active` : '';
@@ -1933,6 +2061,10 @@
       drag:        Input.getDragState(),
       result:      game.state === GAME_STATES.RESULT ? game.lastResult : null,
       resultAlpha,
+      easterPresentation: game.state === GAME_STATES.RESULT ? easterPresentation : null,
+      easterElapsedMs: RESULT_MS - resultTimer,
+      globeSurface: globeFocus && globeFocus.globeSurface,
+      globeRequest: globeFocus && globeFocus.globeRequest,
       specialLabel: game.state === GAME_STATES.RESULT
         ? (game.plinkoPrize ? (game.plinkoPrize === 'win' ? '🎰 AUTO WIN!'
           : game.plinkoPrize === 'lose' ? '🎰 AUTO LOSS!'
@@ -1962,6 +2094,7 @@
                    : isGiantName(activeName) ? 1.28 : 1,
       party:       konamiParty || game.players.some((pl) => isPartyName(pl.name)),
       plinkoBoard: Physics.getPlinko ? Physics.getPlinko() : null,
+      plinkoSnapshot: Physics.getPlinkoSnapshot ? Physics.getPlinkoSnapshot() : null,
       rareEvent:   rareEventActive,
       eventRenderState,
       landingLifecycle,
@@ -2063,7 +2196,7 @@
     resultAlpha = 0;
     intenseTurn = false;
     resetFlipPresentation();
-    if (Physics.setPlinkoEnabled) Physics.setPlinkoEnabled(!onlineMode);
+    if (Physics.setPlinkoEnabled) Physics.setPlinkoEnabled(true);
     clearTimeout(aiTimer);
     passScreen.classList.add('hidden');
     applyTurnPhysics();
@@ -2073,9 +2206,6 @@
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
-    if (onlineMode && window.Net && typeof Net.setTurn === 'function') {
-      Net.setTurn({ playerId: p && p.netId, turnId: game.turnCounter + 1 });
-    }
     streakBannerEl.textContent = '';
     streakBannerEl.className = 'streak-banner';
 
@@ -2105,20 +2235,6 @@
     turnBannerEl.textContent = `${p.name}'s turn`;
     updateHUD();
 
-    // Online: only the peer whose netId matches can flick; everyone else watches.
-    if (onlineMode && window.Net) {
-      Input.disable();
-      flipHintEl.classList.add('hidden');
-      passScreen.classList.add('hidden');
-      if (p.netId === Net.selfId) {
-        turnBannerEl.textContent = `${p.name}'s turn · YOU`;
-        armHumanTurn();
-      } else {
-        turnBannerEl.textContent = `${p.name}'s turn · waiting…`;
-      }
-      return;
-    }
-
     // "PASS TO {name}" handoff card — only with >2 players still alive (with 2
     // it's obvious whose turn it is). Defers input and the tension
     // sting until the new player taps "Tap to flip".
@@ -2144,9 +2260,6 @@
     flipHintEl.classList.remove('hidden');
 
     const p = game.currentPlayer();
-    if (onlineMode && window.Net && typeof Net.setTurn === 'function') {
-      Net.setTurn({ playerId: p && p.netId, turnId: game.turnCounter + 1 });
-    }
     intenseTurn = game.missWouldEliminate();   // only in sudden death (ON FIRE miss is otherwise free)
     if (intenseTurn) Sound.play('tension');
     turnBannerEl.textContent  = `🔥 ${p.name} IS ON FIRE!`;
@@ -2157,13 +2270,6 @@
       Input.disable();
       flipHintEl.classList.add('hidden');
       aiTimer = setTimeout(aiFlick, 1000 / gameSpeed());
-    } else if (onlineMode && window.Net) {
-      Input.disable();
-      flipHintEl.classList.add('hidden');
-      if (p.netId === Net.selfId) {
-        Input.enable();
-        flipHintEl.classList.remove('hidden');
-      }
     } else {
       Input.enable();
     }
@@ -2230,7 +2336,7 @@
       automaticOutcome: landing.automaticOutcome || null,
     } : localEventResult;
     const eventMeta = Physics.getEventMetadata ? (Physics.getEventMetadata() || {}) : {};
-    const modeState = v111Runtime?.modes?.snapshot({ game, online: onlineMode }) || {};
+    const modeState = v111Runtime?.modes?.snapshot({ game, online: false }) || {};
     const index = flipTelemetry?.playerIndex ?? game.currentPlayerIndex;
     const player = game.players[index] || game.currentPlayer();
     const definition = currentMatchDefs[index] || {};
@@ -2293,7 +2399,7 @@
       appliedReward: eventResult.eventReward || eventResult.reward || null,
       appliedEffect: modeState.lastAction?.effects || eventResult.appliedEffect || eventMeta.physicsKind || null,
       performance: performanceRecord(flipTelemetry),
-      online: onlineMode,
+      online: false,
       practice: !!game.practice,
       lab: !!currentMatchOptions.lab,
       forced: !!testDataFlipActive,
@@ -2404,6 +2510,7 @@
 
     const flick = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     const statsRecord = flipStatsRecord(landing || bridgeLandingInfo || {}, flick);
+    resolvePresentationSecret(statsRecord, flick);
     resolveMirrorMatch(landing || bridgeLandingInfo || {}, flick);
     v111Bridge('flipResolved', {
       game,
@@ -2411,7 +2518,7 @@
       landing: landing || bridgeLandingInfo,
       flick,
       eventId: canonicalEventId(),
-      online: onlineMode,
+      online: false,
       forced: testDataFlipActive,
       testData: matchTestDataActive,
       record: statsRecord,
@@ -2804,7 +2911,7 @@
     const active = game.activePlayers();
     const loser  = game.currentPlayer();
     const finalElim = !game.practice && !!(loser && loser.eliminated);
-    const modeState = v111Runtime?.modes?.snapshot({ game, online: onlineMode }) || null;
+    const modeState = v111Runtime?.modes?.snapshot({ game, online: false }) || null;
     const cupBetweenHeats = game.format === 'cup' && modeState?.phase === 'between-heats';
     const cupComplete = game.format === 'cup' && modeState?.phase === 'complete';
     const teamComplete = game.format !== 'team-clash' || modeState?.phase === 'complete';
@@ -2863,7 +2970,7 @@
         startedAt: currentMatchStartedAt,
         durationMs: Math.max(0, Date.now() - currentMatchStartedAt),
         mode: currentMatchOptions.lab ? 'physics-lab' : game.practice ? 'practice' : game.format,
-        online: onlineMode,
+        online: false,
         practice: !!game.practice,
         lab: !!currentMatchOptions.lab,
         forced: !!matchTestDataActive,
@@ -2897,7 +3004,7 @@
       };
       v111Bridge('matchResolved', {
         game,
-        online: onlineMode,
+        online: false,
         match: { stats: gameStats, seriesWins: matchWins, format: game.format, modeState },
         record: matchRecord,
       }, null);
@@ -2939,8 +3046,7 @@
       rotate?.classList.toggle('hidden', game.format !== 'classic');
       shuffle?.classList.toggle('hidden', game.format !== 'classic');
       swap?.classList.toggle('hidden', game.format !== 'team-clash');
-      if (onlineMode && !Net.isHost) { playAgainBtn.classList.add('hidden'); announce('Waiting for host'); }
-      else playAgainBtn.classList.remove('hidden');
+      playAgainBtn.classList.remove('hidden');
       const series = document.getElementById('cup-series');
       if (series) series.textContent = game.format === 'cup'
         ? `Heats: ${(modeState?.heatWins || []).join(' · ')}${modeState?.clutch?.active ? ` · Clutch round ${modeState.clutch.tiebreakRound}` : ''}${modeState?.queue?.length ? ` · ${modeState.queue.length} flips queued` : ''}` : '';
@@ -2951,7 +3057,7 @@
         const qualification = {
           completed: true, resolved: true, won: true, format: game.format,
           practice: false, lab: false, forced: false, testData: false,
-          simulated: false, aiOnly: false, online: onlineMode,
+          simulated: false, aiOnly: false, online: false,
           winnerIsAI: !!winner.isAI && !winningTeamHasHuman, humanWinner: !winner.isAI || winningTeamHasHuman,
           winningTeamHasHuman, humanPlayers: game.players.filter((player) => !player.isAI).length,
           players: game.players.map((player) => ({ isAI: !!player.isAI })),
@@ -3127,7 +3233,7 @@
   });
 
   // ── Flick ──────────────────────────────────────────────────────────────────
-  function launchFlick(vx, vy, seed, asAuthority, mirrorClaim = null) {
+  function launchFlick(vx, vy, seed, mirrorClaim = null, launchPolicy = null) {
     if (evaluating) return;
     if (game.state !== GAME_STATES.TURN_START &&
         game.state !== GAME_STATES.ON_FIRE) return;
@@ -3147,14 +3253,12 @@
       labTrajectoryStartedAt = performance.now();
       captureLabTrajectoryPoint(true);
     }
-    netAuthority = !!asAuthority;
-    pendingNetResult = null;
     Input.disable();
     flipHintEl.classList.add('hidden');
     Sound.unlock();
     Sound.play('flick');
     lastFlickPower = Math.min(Math.max(0, -vy) / 4000, 1);
-    // Typed test commands are offline-only because several prizes rewrite lives.
+    // Typed test commands mark the session as Test Data.
     testDataFlipActive = false;
     beginFlipTelemetry();
     if (currentMatchOptions.lab && Physics.forceSpecialEvent) {
@@ -3165,7 +3269,7 @@
     } else if (!mirrorClaim && !currentMatchOptions.eventsDisabled && currentMatchOptions.arenaProfile?.physicsProfileId && Physics.forceSpecialEvent) {
       activeArenaPhysicsId = currentMatchOptions.arenaProfile.physicsProfileId;
       Physics.forceSpecialEvent(activeArenaPhysicsId);
-    } else if (!onlineMode && Physics.forceSpecialEvent) {
+    } else if (Physics.forceSpecialEvent) {
       if (game.practice && specialEventArmed) {
         Physics.forceSpecialEvent(specialEventArmed);
         specialEventArmed = null;
@@ -3186,10 +3290,33 @@
     const mirrorPolicy = mirrorClaim?.policy || null;
     const mirrorEventsDisabled = !!(mirrorPolicy &&
       (mirrorPolicy.eventMode === 'disabled' || mirrorPolicy.eventPolicy?.eventsDisabled || mirrorPolicy.nestingDisabled));
+    if (Physics.setPlinkoAppearance) {
+      const player = game.currentPlayer();
+      const definition = currentMatchDefs[game.currentPlayerIndex] || {};
+      const selectedBody = Physics.getBottle ? Physics.getBottle() : null;
+      const objectId = definition.skin || player?.skin || BASE_SKIN;
+      const variantId = definition.variantId || flavorIdForColor(player?.color);
+      const artProfile = window.FlipgameV111Art?.platform?.dynamicProfile?.(objectId) || null;
+      Physics.setPlinkoAppearance({
+        flipperId: objectId,
+        variantId,
+        appearanceRevision: 'v1.12-live-selected',
+        cosmeticId: definition.cosmeticId || 'none',
+        physicsProfileId: activeArenaPhysicsId || activeLaunchProfile?.id || 'competitive-shared',
+        authoredParts: selectedBody?.parts?.map((part, index) =>
+          String(part.label || `compound-part-${index}`)) || [],
+        internalDynamics: artProfile
+          ? [artProfile.internal, artProfile.accessory].filter((value) => value && value !== 'none')
+          : [],
+      });
+    }
     Physics.applyFlick(vx, vy, seed, eventMultiplier,
-      mirrorEventsDisabled ? 'disabled' : (currentMatchOptions.eventsDisabled ? 'disabled' : (!onlineMode && game.insanity ? 'insanity' : 'normal')),
+      mirrorEventsDisabled ? 'disabled' : (currentMatchOptions.eventsDisabled ? 'disabled' : (game.insanity ? 'insanity' : 'normal')),
       mirrorClaim ? false : !!game.currentPlayer()?.alwaysMagnet,
-      { excludedEventIds: mirrorPolicy?.eventPolicy?.excludedEventIds || currentMatchOptions.excludedEventIds || [] });
+      {
+        excludedEventIds: mirrorPolicy?.eventPolicy?.excludedEventIds || currentMatchOptions.excludedEventIds || [],
+        inputFeelMode: launchPolicy?.inputFeelMode,
+      });
     const fi = Physics.getLastFlickInfo ? Physics.getLastFlickInfo() : null;
     if (activeLaunchInput) activeLaunchInput.seed = fi?.seed ?? activeLaunchInput.seed;
     rareEventActive = (fi && fi.rareEvent) || null;
@@ -3200,7 +3327,7 @@
       game,
       flick: fi,
       eventId: canonicalEventId(),
-      online: onlineMode,
+      online: false,
       forced: testDataFlipActive,
       testData: matchTestDataActive,
     }, null);
@@ -3255,9 +3382,10 @@
       if (powerBand) { powerBand.style.left = '19.2%'; powerBand.style.width = '46.2%'; }
       if (powerLabel) powerLabel.textContent = 'launch power — green keeps the bank airborne';
     } else {
-      // Flip scale 1000..3600; green 2100..2900 around the 2500 sweet spot
-      if (powerBand) { powerBand.style.left = '42.3%'; powerBand.style.width = '30.8%'; }
-      if (powerLabel) powerLabel.textContent = 'flick strength — green ≈ one clean flip';
+      // Flip scale 1000..3600; green 2300..3300 covers the calibrated
+      // controlled-flip window without teaching the old quarter-bar launch.
+      if (powerBand) { powerBand.style.left = '50%'; powerBand.style.width = '38.5%'; }
+      if (powerLabel) powerLabel.textContent = 'flick strength — green = controlled flip';
     }
 
     const sideBand = document.getElementById('pm-side-band');
@@ -3290,12 +3418,9 @@
   }
 
   // Sideways aim: map gesture/flick horizontal onto the arena (0=left wall).
-  function sideAimPct(vx, liveDx) {
-    if (liveDx != null) {
-      const span = Math.max(160, window.innerWidth * 0.42);
-      return Math.max(0, Math.min(100, 50 + (liveDx / span) * 50));
-    }
-    // Post-flick: vx px/s → same track (±2400 ≈ full width)
+  function sideAimPct(vx) {
+    // Live and post-flick markers share the canonical launch velocity.
+    // ±2400 lane-relative px/s maps to the full practice aim track.
     return Math.max(0, Math.min(100, 50 + (vx / 2400) * 50));
   }
 
@@ -3310,53 +3435,36 @@
       pm.classList.toggle('pm-live', !!live);
     }
     if (sm && bank) {
-      sm.style.left = sideAimPct(info.vx || 0, info.liveDx) + '%';
+      sm.style.left = sideAimPct(info.vx || 0) + '%';
       sm.classList.toggle('pm-live', !!live);
     }
   }
 
   function practiceMeterFromDrag(drag) {
     if (!drag) return null;
-    const dx = drag.curX - drag.startX;
-    const dy = drag.curY - drag.startY;
-    if (Math.hypot(dx, dy) < 18) return null;
-    // Distance→speed proxy matches Input's fallback (dx*10); a bit hotter so
-    // the live needle reaches the green band before you release.
-    let vx = dx * 12, vy = dy * 12;
-    // Same equalizer as onFlick so the live needle matches the real throw.
-    if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
-      vx *= 1.32; vy *= 1.32;
-    } else {
-      vx *= 0.92; vy *= 0.92;
-    }
-    return { upSpeed: Math.max(0, -vy), vx, vy, liveDx: dx };
+    const canonicalDistance = Number(drag.canonicalDistance);
+    if (!Number.isFinite(canonicalDistance) || canonicalDistance + 1e-6 < 22) return null;
+    // Input owns sampling, coalescing, and lane-relative normalization. Feed
+    // its exact release signal through Physics' prelaunch Feel transfer so the
+    // live needle and the eventual launch can never disagree.
+    const rawVx = Number(drag.launchVx);
+    const rawVy = Number(drag.launchVy);
+    if (!Number.isFinite(rawVx) || !Number.isFinite(rawVy)) return null;
+    const signal = Physics.previewInput
+      ? Physics.previewInput(rawVx, rawVy)
+      : { vx: rawVx, vy: rawVy };
+    return { upSpeed: Math.max(0, -signal.vy), vx: signal.vx, vy: signal.vy };
   }
 
-  function onFlick(vx, vy, ptrType) {
-    // Flick-feel equalizer: a thumb flick on glass reports far fewer px/s than
-    // a mouse sweep for the same intent, so touch gets a boost and mouse/pen a
-    // small trim. AI flicks pass no pointer type and stay untouched (their
-    // aim is tuned to raw speeds).
-    if (ptrType === 'touch') { vx *= 1.32; vy *= 1.32; }
-    else if (ptrType) { vx *= 0.92; vy *= 0.92; }
-    // Online: only the current player may flick, and only on their device.
-    if (onlineMode && window.Net) {
-      const cur = game.currentPlayer();
-      if (!cur || cur.netId !== Net.selfId) return;
-      const copied = mirrorLaunch(claimMirrorCopy(), vx, vy, undefined);
-      vx = copied.vx;
-      vy = copied.vy;
-      const seed = copied.claim ? copied.seed : Math.floor(Math.random() * 0xffffffff) >>> 0;
-      if (!Net.sendFlick({ vx, vy, seed, playerId: Net.selfId })) return;
-      launchFlick(vx, vy, seed, true, copied.claim);
-      return;
-    }
+  function onFlick(vx, vy, source = null) {
+    const cpuPolicy = cpuLaunchPolicy(source);
     const copied = mirrorLaunch(claimMirrorCopy(), vx, vy, undefined);
     vx = copied.vx;
     vy = copied.vy;
     const labSeed = currentMatchOptions.lab && currentMatchOptions.labSeed != null
       ? Number(currentMatchOptions.labSeed) >>> 0 : undefined;
-    launchFlick(vx, vy, copied.claim ? copied.seed : labSeed, false, copied.claim);
+    const launchSeed = copied.claim ? copied.seed : (cpuPolicy ? cpuPolicy.seed : labSeed);
+    launchFlick(vx, vy, launchSeed, copied.claim, cpuPolicy);
   }
 
   // ── HUD ────────────────────────────────────────────────────────────────────
@@ -3398,7 +3506,7 @@
   let routeOpener = null;
   function enterRoute(screen, opener) {
     routeOpener = opener || document.activeElement;
-    [setupScreen, statsScreen, achievementsScreen, onlineScreen, labScreen].forEach((item) => item?.classList.add('hidden'));
+    [setupScreen, statsScreen, achievementsScreen, labScreen].forEach((item) => item?.classList.add('hidden'));
     screen?.classList.remove('hidden');
     const heading = screen?.querySelector('h1');
     if (heading) requestAnimationFrame(() => heading.focus({ preventScroll: true }));
@@ -3858,11 +3966,7 @@
       activeMirrorClaim = null;
     }
     document.body.classList.remove('life-drain-active');
-    onlineMode = false;
-    netAuthority = false;
-    pendingNetResult = null;
     v111Bridge('menuEntered', { game, reason: 'menu' }, null);
-    if (window.Net) Net.leave();
     try { if (v111Platform && v111Platform.leaveMatch) await v111Platform.leaveMatch(); } catch (_) {}
     game.state = GAME_STATES.SETUP;
     gameScreen.classList.add('hidden');
@@ -3871,7 +3975,6 @@
     if (practiceMeterEl) practiceMeterEl.classList.add('hidden');
     labReadoutEl?.classList.add('hidden');
     dismissMystery();
-    if (onlineScreen) onlineScreen.classList.add('hidden');
     renderRecordsPanel();
     syncInsaneModeUnlock();
     if (returnToLab && isPhysicsLabUnlocked()) {
@@ -3881,8 +3984,7 @@
       requestAnimationFrame(() => document.getElementById('lab-title')?.focus({ preventScroll: true }));
     } else {
       labScreen?.classList.add('hidden');
-      setupScreen.classList.remove('hidden');
-      requestAnimationFrame(() => document.getElementById('setup-title')?.focus({ preventScroll: true }));
+      showBroadcastHome();
     }
   }
   if (menuBtn) menuBtn.addEventListener('click', () => {
@@ -3897,263 +3999,6 @@
   }
 
   Input.attach(canvas, onFlick);
-
-  // ── Online multiplayer lobby ────────────────────────────────────────────────
-  if (window.Net && typeof Net.bindMatchState === 'function') {
-    Net.bindMatchState({ capture: captureOnlineMatchState, restore: restoreOnlineMatchState });
-  }
-  function showOnlineLobby() {
-    if (!onlineForm || !onlineLobby) return;
-    onlineForm.classList.add('hidden');
-    onlineLobby.classList.remove('hidden');
-    onlineRoomCodeEl.textContent = Net.roomCode || '----';
-    onlineStatusEl.textContent = Net.connected ? 'Connected' : 'Connecting…';
-    if (onlineStartBtn) onlineStartBtn.classList.toggle('hidden', !Net.isHost);
-    document.getElementById('online-leave-btn')?.classList.remove('hidden');
-    renderOnlineRoster();
-  }
-
-  function renderOnlineRoster() {
-    if (!onlineRosterEl || !window.Net) return;
-    const list = Net.roster;
-    onlineRosterEl.innerHTML = list.map((p, index) => `
-      <div class="online-peer">
-        <span class="dot" style="background:${p.color || '#4fc3f7'}"></span>
-        <strong>P${index + 1}</strong><span>${escapeHtml(p.name || 'Player')}</span>
-        ${p.host || p.id === (list.find(x => x.host) || {}).id ? '<span class="host-tag">host</span>' : ''}
-        ${p.id === Net.selfId ? '<span class="host-tag">you</span>' : ''}
-      </div>`).join('') || '<div class="online-status">Waiting for players…</div>';
-    if (onlineStartBtn) {
-      onlineStartBtn.disabled = list.length < 2;
-      onlineStartBtn.textContent = 'Start';
-    }
-    const wait = document.getElementById('online-wait-reason');
-    if (wait) wait.textContent = Net.isHost
-      ? (list.length < 2 ? 'Waiting for at least 2 players' : '')
-      : 'Waiting for host to start';
-  }
-
-  function onlinePlayerFromSetup() {
-    const rows = readRows();
-    const r0 = rows[0] || { name: '', charId: defaultCharId(), color: defaultColorFor(defaultCharId()) };
-    const color = normalizeColor(r0.color || defaultColorFor(r0.charId || defaultCharId()));
-    const charId = FORCE_SKIN || resolveCharForColor(r0.charId || defaultCharId(), color);
-    const name = (onlineNameEl && onlineNameEl.value.trim()) ||
-      (r0.name || '').trim() || defaultNameFor(charId, color);
-    return {
-      name,
-      color,
-      skin: charId,
-      id: r0.id,
-      variantId: r0.variantId || flavorIdForColor(color),
-      cosmeticId: r0.cosmeticId || null,
-    };
-  }
-  function validateOnlineName() {
-    const result = v111Runtime && v111Runtime.namePolicy
-      ? v111Runtime.namePolicy.validate(onlineNameEl?.value || '', { source: 'online' })
-      : { valid: !!onlineNameEl?.value.trim(), value: onlineNameEl?.value.trim() };
-    const valid = result.valid !== undefined ? !!result.valid : !!result.ok;
-    onlineNameEl?.setAttribute('aria-invalid', valid ? 'false' : 'true');
-    const error = document.getElementById('online-name-error');
-    if (error) error.textContent = valid ? '' : 'Please choose another name';
-    if (!valid) { announce('Please choose another name', true); onlineNameEl?.focus(); return false; }
-    if (result.value != null) onlineNameEl.value = String(result.value);
-    return true;
-  }
-
-  function beginOnlineMatch(defs, dir, opts) {
-    onlineMode = true;
-    Sound.unlock();
-    enterImmersive();
-    if (onlineScreen) onlineScreen.classList.add('hidden');
-    setupScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
-    gameOverEl.classList.add('hidden');
-    if (playAgainBtn) playAgainBtn.textContent = 'Same Setup';
-    const matchOptions = Object.assign({}, opts || {});
-    delete matchOptions.defs;
-    delete matchOptions.direction;
-    matchOptions.difficulty = matchOptions.difficulty || 'medium';
-    matchOptions.feel = matchOptions.feel || chosenFeel();
-    matchOptions.startingLives = matchOptions.startingLives || chosenStartingLives();
-    matchOptions.format = matchOptions.format || 'classic';
-    matchOptions.insanity = !!matchOptions.insanity;
-    // Default true for first match; rematch host sends newMatch: false.
-    matchOptions.newMatch = matchOptions.newMatch !== false;
-    startGame(defs, dir || 1, matchOptions);
-  }
-
-  // Ports that ship without networking (Parrot Flip) hide the entry point
-  // entirely rather than leaving a button that goes nowhere.
-  if (onlineBtn) onlineBtn.classList.toggle('hidden', !ONLINE_ENABLED);
-  if (onlineBtn && window.Net && ONLINE_ENABLED) {
-    onlineNameEl?.addEventListener('blur', validateOnlineName);
-    onlineCodeEl?.addEventListener('input', () => {
-      const start = onlineCodeEl.selectionStart;
-      onlineCodeEl.value = onlineCodeEl.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-      if (start != null) onlineCodeEl.setSelectionRange(start, start);
-    });
-    document.getElementById('online-copy-btn')?.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(Net.roomCode || ''); announce('Room code copied'); } catch (_) { announce('Could not copy room code.', true); }
-    });
-    document.getElementById('online-retry-btn')?.addEventListener('click', () => {
-      document.getElementById('online-action-error').textContent = '';
-      document.getElementById('online-retry-btn').classList.add('hidden');
-      onlineCreateBtn.focus();
-    });
-    onlineBtn.addEventListener('click', () => {
-      enterRoute(onlineScreen, onlineBtn);
-      onlineForm.classList.remove('hidden');
-      onlineLobby.classList.add('hidden');
-      if (onlineNameEl && !onlineNameEl.value) {
-        const r0 = readRows()[0];
-        onlineNameEl.value = (r0 && r0.name) || defaultNameFor(defaultCharId());
-      }
-    });
-
-    onlineBackBtn && onlineBackBtn.addEventListener('click', () => {
-      Net.leave();
-      leaveRoute(onlineScreen);
-    });
-
-    onlineLeaveBtn && onlineLeaveBtn.addEventListener('click', () => {
-      Net.leave();
-      onlineLobby.classList.add('hidden');
-      onlineForm.classList.remove('hidden');
-      onlineStatusEl.textContent = '';
-    });
-
-    onlineCreateBtn && onlineCreateBtn.addEventListener('click', async () => {
-      if (!validateOnlineName()) return;
-      onlineCreateBtn.disabled = onlineJoinBtn.disabled = true;
-      onlineCreateBtn.textContent = 'Creating…';
-      try {
-        onlineStatusEl.textContent = 'Creating room…';
-        await Net.createRoom(onlinePlayerFromSetup());
-        showOnlineLobby();
-      } catch (e) {
-        onlineStatusEl.textContent = 'Could not create room.';
-        document.getElementById('online-action-error').textContent = 'Could not create room.';
-        document.getElementById('online-retry-btn')?.classList.remove('hidden');
-        announce('Could not create room.', true);
-        console.error(e);
-      } finally { onlineCreateBtn.disabled = onlineJoinBtn.disabled = false; onlineCreateBtn.textContent = 'Create room'; }
-    });
-
-    onlineJoinBtn && onlineJoinBtn.addEventListener('click', async () => {
-      if (!validateOnlineName()) return;
-      onlineCreateBtn.disabled = onlineJoinBtn.disabled = true;
-      onlineJoinBtn.textContent = 'Joining…';
-      try {
-        onlineStatusEl.textContent = 'Joining…';
-        await Net.joinRoom(onlineCodeEl.value, onlinePlayerFromSetup());
-        showOnlineLobby();
-      } catch (e) {
-        onlineStatusEl.textContent = 'Could not join room.';
-        document.getElementById('online-action-error').textContent = 'Could not join room.';
-        document.getElementById('online-retry-btn')?.classList.remove('hidden');
-        announce('Could not join room.', true);
-        console.error(e);
-      } finally { onlineCreateBtn.disabled = onlineJoinBtn.disabled = false; onlineJoinBtn.textContent = 'Join room'; }
-    });
-
-    onlineStartBtn && onlineStartBtn.addEventListener('click', () => {
-      if (!Net.isHost || Net.roster.length < 2) return;
-      const defs = Net.roster.map(p => ({
-        name: p.name,
-        color: p.color,
-        isAI: false,
-        skin: FORCE_SKIN || p.skin || BASE_SKIN,
-        netId: p.id,
-        id: p.playerId || p.id,
-        variantId: p.variantId || null,
-        cosmeticId: p.cosmeticId || null,
-      }));
-      const payload = {
-        defs,
-        direction: 1,
-        startingLives: chosenStartingLives(),
-        feel: chosenFeel(),
-        insanity: chosenGameMode() === 'insanity',
-        format: chosenFormat(),
-        cupLength: chosenCupLength(),
-        arenaProfileId: chosenArenaProfile(),
-        visualArenaId,
-      };
-      Net.startMatch(payload);
-      beginOnlineMatch(defs, 1, payload);
-    });
-
-    Net.on('roster', () => {
-      renderOnlineRoster();
-      if (onlineStatusEl && Net.connected) {
-        onlineStatusEl.textContent =
-          `Connected · ${Net.roster.length} player${Net.roster.length === 1 ? '' : 's'}`;
-      }
-    });
-    Net.on('welcome', () => showOnlineLobby());
-    Net.on('start', (msg) => {
-      if (Net.isHost) return; // host already started locally
-      const defs = (msg.defs || []).map(d => ({ ...d, isAI: false }));
-      beginOnlineMatch(defs, msg.direction || 1, msg);
-    });
-    Net.on('flick', (msg) => {
-      if (!onlineMode || !gameStarted) return;
-      if (msg.playerId === Net.selfId) return;
-      const copied = mirrorLaunch(claimMirrorCopy(), msg.vx, msg.vy, msg.seed);
-      launchFlick(copied.vx, copied.vy, copied.claim ? copied.seed : msg.seed, false, copied.claim);
-    });
-    Net.on('result', (msg) => {
-      if (!onlineMode || !gameStarted) return;
-      if (msg.playerId === Net.selfId) return;
-      const accepted = Net.acceptResult(msg, canonicalEventId());
-      if (!accepted) { evaluating = false; Input.disable(); return; }
-      pendingNetResult = accepted;
-    });
-    Net.on('leave', (peerId) => {
-      if (!onlineMode || !gameStarted || !peerId) return;
-      const p = game.players.find(x => x.netId === peerId && !x.eliminated);
-      if (!p) return;
-      const wasCurrent = game.currentPlayer() === p;
-      if (!game.forfeitPlayer(peerId, 'left')) return;
-      showToast(`${p.name} left — forfeited.`);
-      syncMirrorRoster();
-      Input.disable();
-      clearTimeout(aiTimer);
-      evaluating = false;
-      pendingNetResult = null;
-      netAuthority = false;
-      updateHUD();
-      if (wasCurrent || game.activePlayers().length <= 1) {
-        // Treat like an elimination so advanceTurn can end or rotate.
-        game.justEliminated = true;
-        advanceGameTurn();
-      }
-    });
-    Net.on('disconnected', () => {
-      if (onlineStatusEl) onlineStatusEl.textContent = 'Disconnected — reconnecting…';
-    });
-    Net.on('reconnected', () => {
-      if (onlineStatusEl) onlineStatusEl.textContent = 'Reconnected';
-    });
-    Net.on('rename-required', (payload) => {
-      if (onlineNameEl) onlineNameEl.value = payload?.replacement || 'Player';
-      const first = playerInputs.querySelector('input[type="text"]');
-      if (first) first.value = payload?.replacement || 'Player';
-      if (onlineStatusEl) onlineStatusEl.textContent = 'Please choose another name';
-      announce('Please choose another name', true);
-      onlineNameEl?.focus();
-    });
-    Net.on('compatibility-failure', () => {
-      onlineBtn.classList.add('hidden');
-      if (onlineStatusEl) onlineStatusEl.textContent = 'Online is unavailable for this version.';
-      announce('Online is unavailable for this version.', true);
-    });
-    Net.on('protocol-reject', (payload) => console.warn('Network message rejected', payload?.code));
-    Net.on('resumed', () => { if (onlineStatusEl) onlineStatusEl.textContent = 'Match restored'; announce('Match restored'); });
-    Net.on('resume-state-missing', () => { Input.disable(); if (onlineStatusEl) onlineStatusEl.textContent = 'Waiting for the match to be restored.'; announce('Waiting for the match to be restored.'); });
-  }
 
   // Apply persisted prefs + render the hall-of-fame
   syncPreferenceControls();
@@ -4237,8 +4082,8 @@
   if (window.FLIP_CAST25 && FLIP_CAST25.onSpriteLoad) FLIP_CAST25.onSpriteLoad(schedulePreviewRepaint);
   paintAllPreviews();
 
-  // Show setup on load
-  setupScreen.classList.remove('hidden');
+  // Home is the first presentation route; setup and saved values stay intact.
+  showBroadcastHome();
   gameScreen.classList.add('hidden');
   gameOverEl.classList.add('hidden');
 })();

@@ -64,7 +64,7 @@ jobs:
       - name: Bundle the game files into the APK assets
         run: |
           mkdir -p android/app/src/main/assets
-          cp -r index.html css js icons manifest.json android/app/src/main/assets/
+          cp -r index.html css js data icons manifest.json android/app/src/main/assets/
           mkdir -p android/app/src/main/res/drawable
           cp icons/icon-512.png android/app/src/main/res/drawable/ic_launcher.png
 
@@ -270,7 +270,7 @@ jobs:
           test "$(git rev-parse origin/master)" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir pages-site
-          cp -R index.html service-worker.js manifest.json css js icons pages-site/
+          cp -R index.html service-worker.js manifest.json css js data icons pages-site/
           if [ -f .nojekyll ]; then cp .nojekyll pages-site/; fi
           cp web-provenance/lab-upstream.json pages-site/release-provenance.json
           EXPECTED_SHA="$GITHUB_SHA" node -e \

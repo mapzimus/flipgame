@@ -4,7 +4,7 @@
 
   var VERSION = '111';
   var WORKER_URL = 'service-worker.js?v=' + VERSION;
-  var STYLE_URLS = ['css/style.css?v=' + VERSION];
+  var STYLE_URLS = ['css/style.css?v=' + VERSION, 'css/v112-broadcast.css?v=' + VERSION];
   var SCRIPT_URLS = [
     'js/vendor/matter.min.js?v=111',
     'js/polyfills.js?v=111',
@@ -13,10 +13,19 @@
     'js/v111-name-policy.js?v=111',
     'js/v111-save-backup.js?v=111',
     'js/v111-stats.js?v=111',
+    // The private v1.12 authority captures the already-loaded shared Stats
+    // writer. Its readiness gate must resolve before legacy presentation boots.
+    'js/v112-browser-bundle.js?v=' + VERSION,
     'js/v111-platform.js?v=111',
     'js/v111-art-platform.js?v=111',
     'js/v111-object-manifest.js?v=111',
     'js/v111-art-reference.js?v=111',
+    // Optional, local-only sphere renderer. It must load before art pack B so
+    // the existing Desk Globe stand can delegate its sphere without changing
+    // any competitive art or physics.
+    'js/v112-globe.js?v=' + VERSION,
+    'js/v112-globe-live.js?v=' + VERSION,
+    'js/v112-art-system.js?v=' + VERSION,
     'js/v111-art-pack-a.js?v=111',
     'js/v111-art-pack-b.js?v=111',
     'js/v111-art-pack-c.js?v=111',
@@ -30,17 +39,28 @@
     'js/v111-physics-events.js?v=111',
     'js/v111-mirror-match.js?v=111',
     'js/game.js?v=111',
+    // Canonical v1.12 Plinko authority. The Matter host and live bridge must
+    // load before physics.js so Plinko cannot fall back to the retired path.
+    'js/v112-plinko-matter.js?v=' + VERSION,
+    'js/v112-plinko-live.js?v=' + VERSION,
     'js/physics.js?v=111',
+    // Staged v1.12 development dependency. The release integrator will fold
+    // this into the v1.12 cache identity and precache at the release gate.
+    'js/v112-cpu.js?v=' + VERSION,
     'js/input.js?v=111',
+    'js/v112-plinko-presentation.js?v=' + VERSION,
     'js/renderer.js?v=111',
     'js/audio.js?v=111',
     'js/settings.js?v=111',
     'js/records.js?v=111',
     'js/achievements.js?v=111',
     'js/cast25.js?v=111',
+    'js/v112-variant-names.js?v=' + VERSION,
+    'js/v112-arena-preview.js?v=' + VERSION,
+    'js/v112-easter-eggs.js?v=' + VERSION,
+    'js/v112-easter-presentation.js?v=' + VERSION,
+    'js/v112-journey-routes.js?v=' + VERSION,
     'js/skins.js?v=111',
-    'js/v111-network-protocol.js?v=111',
-    'js/net.js?v=111',
     'js/main.js?v=111',
   ];
   var started = false;
@@ -140,7 +160,16 @@
     started = true;
     await ensureReleaseController();
     for (var style of STYLE_URLS) await loadStyle(style);
-    for (var script of SCRIPT_URLS) await loadScript(script);
+    for (var script of SCRIPT_URLS) {
+      await loadScript(script);
+      if (script.indexOf('js/v112-browser-bundle.js') === 0) {
+        var application = window.FlipgameV112;
+        if (!application || !application.ready || typeof application.ready.then !== 'function') {
+          throw new Error('The v1.12 application authority did not initialize.');
+        }
+        await application.ready;
+      }
+    }
     var status = document.getElementById('flipgame-boot-status');
     if (status && status.parentNode) status.parentNode.removeChild(status);
     document.body.classList.add('flipgame-boot-ready');

@@ -28,9 +28,13 @@ for (const required of [
 
 for (const id of ['charpick-close', 'customize-prev', 'customize-next',
   'customize-tab-object', 'customize-tab-variant', 'customize-tab-cosmetic',
-  'customize-tab-arena', 'customize-cancel', 'customize-apply']) {
+  'customize-cancel', 'customize-apply']) {
   assert.match(html, new RegExp(`id=["']${id}["']`), `${id} target is missing`);
 }
+// v1.12 moved the global venue choice out of each player's customization and
+// into its own pre-match Arena Select screen.
+assert.doesNotMatch(html, /id=["']customize-tab-arena["']/);
+assert.match(html, /id=["']arena-select-screen["']/);
 assert.match(css, /button, select, input\[type="text"\], input\[type="date"\], \.file-action\s*\{[^}]*min-block-size:\s*48px/s);
 assert.match(css, /\.picker-tile\s*\{[^}]*min-block-size:\s*148px/s);
 

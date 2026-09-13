@@ -204,42 +204,35 @@ function testMirrorIsKinematicAndTrajectoryNeutral() {
 }
 
 function testAlienViewportCalibration() {
-  const samples = 120;
-  let classicMakes = 0;
-  for (let seed = 1; seed <= samples; seed += 1) {
-    const vx = ((seed * 49) % 1400) - 750;
-    const vy = -900 - ((seed * 17) % 2100);
-    if (simulate({ width: 1280, height: 720, vx, vy, seed }).verdict === 'MAKE') {
-      classicMakes += 1;
-    }
-  }
-  const classicRate = classicMakes / samples;
-  const rates = [];
+  // The authoritative 240-shot matched-rate gate lives in
+  // v112-alien-calibration-tests.js. This legacy corrective suite keeps a fast
+  // cross-viewport bank/lifecycle smoke test and no longer freezes lucky seeds.
   for (const [width, height] of [[360, 640], [768, 1024], [1280, 720], [1920, 1080], [3840, 2160]]) {
-    let makes = 0;
-    for (let seed = 1; seed <= samples; seed += 1) {
+    let banked = 0;
+    for (let seed = 1; seed <= 12; seed += 1) {
       const vx = ((seed * 49) % 1400) - 750;
       const vy = -900 - ((seed * 17) % 2100);
-      if (simulate({ eventId: 'alien-invasion', width, height, vx, vy, seed }).verdict === 'MAKE') {
-        makes += 1;
+      const outcome = simulate({ eventId: 'alien-invasion', width, height, vx, vy, seed });
+      if (outcome.info.bankHits > 0) banked += 1;
+      if (outcome.verdict === 'MAKE') {
+        assert.ok(outcome.info.bankHits >= 1);
+        assert.equal(outcome.info.reason, 'tractor-ring');
       }
     }
-    const rate = makes / samples;
-    rates.push(rate);
-    assert.ok(Math.abs(rate - classicRate) <= 0.10,
-      `Alien ${width}x${height} rate ${rate} diverged from Classic ${classicRate}`);
+    assert.ok(banked > 0, `Alien never reached a valid bank at ${width}x${height}`);
   }
-  assert.ok(Math.max(...rates) - Math.min(...rates) <= 0.12,
-    `Alien viewport spread was ${Math.max(...rates) - Math.min(...rates)}`);
 
-  // The reported cross-viewport seed must retain the same physical outcome.
+  // Native Alien and Invasion must remain identical within the same viewport.
   for (const [width, height] of [[360, 640], [3840, 2160]]) {
-    const outcome = simulate({ eventId: 'alien-invasion', width, height,
+    const invasion = simulate({ eventId: 'alien-invasion', width, height,
       vx: -603, vy: -951, seed: 3 });
-    assert.equal(outcome.verdict, 'MAKE');
-    assert.ok(outcome.info.bankHits >= 1);
-
     const nativeAlien = simulateAlienMode({ width, height, vx: -603, vy: -951, seed: 3 });
+    assert.equal(invasion.verdict, nativeAlien.verdict);
+    assert.equal(invasion.info.reason, nativeAlien.info.reason);
+    assert.equal(invasion.info.bankHits, nativeAlien.info.bankHits);
+    if (invasion.verdict === 'MAKE') assert.ok(invasion.info.bankHits >= 1);
+    assert.equal(invasion.physics.getLastFlickInfo().gravityY, 0.10);
+    assert.equal(nativeAlien.physics.getLastFlickInfo().gravityY, 0.10);
     assert.equal(nativeAlien.physics.getTarget().halfWidth,
       nativeAlien.physics.alienMetricsForViewport(width, height).ringRadius);
     assert.ok(['MAKE', 'MISS'].includes(nativeAlien.verdict));
