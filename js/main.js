@@ -72,6 +72,9 @@
   const v112PhysicsDriver = (v112App && window.FlipgameV112PhysicsDriver && window.Physics)
     ? FlipgameV112PhysicsDriver.create(Physics) : null;
   if (v112App && v112PhysicsDriver) FlipgameV112.attachPhysics(v112PhysicsDriver);
+  // Assigned once the Battle lane host is composed below. Until then the Battle
+  // route has no host and refuses to start a heat.
+  let battleHost = null;
   let v112OwnsMatch = false;
   function privateRewardAuthorityActive() { return v112OwnsMatch === true; }
   function abandonPrivateSession() {
@@ -549,12 +552,34 @@
     syncRowChrome(row);
   }
 
+  // Paging changes visibility only: every seat remains in readRows/saveSetup.
+  const rosterPages = { setup: 0, ready: 0 };
+  function showRosterPage(kind, page) {
+    const container = kind === 'setup' ? playerInputs : document.getElementById('broadcast-ready-lineup');
+    const rows = [...container.children];
+    const pages = Math.max(1, Math.ceil(rows.length / 8));
+    rosterPages[kind] = Math.max(0, Math.min(pages - 1, page));
+    rows.forEach((row, index) => { row.hidden = Math.floor(index / 8) !== rosterPages[kind]; });
+    document.getElementById(`${kind}-roster-pages`).classList.toggle('hidden', pages === 1);
+    document.getElementById(`${kind}-roster-page`).textContent = `Entries ${rosterPages[kind] * 8 + 1}–${Math.min(rows.length, (rosterPages[kind] + 1) * 8)} of ${rows.length}`;
+    document.getElementById(`${kind}-roster-prev`).disabled = rosterPages[kind] === 0;
+    document.getElementById(`${kind}-roster-next`).disabled = rosterPages[kind] === pages - 1;
+  }
+  for (const kind of ['setup', 'ready']) {
+    for (const [direction, change] of [['prev', -1], ['next', 1]]) {
+      document.getElementById(`${kind}-roster-${direction}`).addEventListener('click', () => {
+        showRosterPage(kind, rosterPages[kind] + change);
+      });
+    }
+  }
+
   function renderFrom(defs) {
     // Re-rendering replaces the rows wholesale; an open picker would be left
     // holding a detached node whose mutations go nowhere.
     if (pickerRow) closeCharPicker();
     playerCount = defs.length;
     playerInputs.innerHTML = defs.map((d, i) => rowHtml(i, d)).join('');
+    showRosterPage('setup', rosterPages.setup);
     addPlayerBtn.disabled = playerCount >= 16;
     addPlayerBtn.tabIndex = playerCount >= 16 ? -1 : 0;
     const countLabel = document.getElementById('player-count-label');
@@ -587,6 +612,7 @@
     const defs = readRows();
     defs.push(seatDefaults(defs.length, defs.map((d) => d.color)));
     renderFrom(defs);
+    showRosterPage('setup', Math.floor((defs.length - 1) / 8));
     if (typeof saveSetup === 'function') saveSetup();
     const row = playerInputs.lastElementChild;
     if (row) row.querySelector('input[type="text"]')?.focus();
@@ -630,6 +656,7 @@
       const defs = readRows();
       defs.splice(removedIndex, 1);
       renderFrom(defs);
+      showRosterPage('setup', Math.floor(Math.max(0, removedIndex - 1) / 8));
       if (typeof saveSetup === 'function') saveSetup();
       const previous = playerInputs.children[Math.max(0, removedIndex - 1)];
       (previous?.querySelector('.remove-player-btn') || addPlayerBtn).focus();
@@ -917,6 +944,7 @@
     const invalid = inputs.filter((input) => !validateNameInput(input));
     if (invalid.length) {
       announce('Please choose another name', true);
+      showRosterPage('setup', Math.floor(inputs.indexOf(invalid[0]) / 8));
       invalid[0].focus();
       return false;
     }
@@ -1222,6 +1250,22 @@
   document.getElementById('broadcast-practice').addEventListener('click', () => {
     showBroadcastSetup(); practiceBtn.click();
   });
+  if (window.FlipgameV112BattleRoutes) {
+    FlipgameV112BattleRoutes.mount({ document,
+      getHost: () => battleHost,
+      getPlayers: () => validateSetupNames() ? rowsToDefs(readRows()).map(entry => ({
+        id: entry.id, displayName: entry.name, type: entry.isAI ? 'cpu' : 'human',
+        flipperId: entry.skin, variantId: entry.variantId, cosmeticId: entry.cosmeticId,
+      })) : [],
+      onOpen: () => broadcastHome.classList.add('hidden'),
+      onHome: showBroadcastHome,
+      onEditRoster: showBroadcastSetup,
+    });
+  } else {
+    document.getElementById('battle-open').addEventListener('click', () => {
+      document.getElementById('journey-home-status').textContent = 'Battle is not connected in this development build. Your progress has not changed.';
+    });
+  }
   // Presentation host is injected by the private activity composition. Missing
   // capability means no Story reservation, simulated victory or reward write.
   if (window.FlipgameV112JourneyRoutes) {
@@ -1248,7 +1292,7 @@
   function showAppRoute(screen) {
     document.getElementById('broadcast-home')?.classList.add('hidden');
     setupScreen.classList.add('hidden');
-    ['journey-screen', 'battle-screen', 'store-screen', 'tutorial-screen'].forEach((id) => {
+    ['journey-screen', 'store-screen', 'tutorial-screen'].forEach((id) => {
       document.getElementById(id)?.classList.toggle('hidden', id !== screen.id);
     });
     screen.classList.remove('hidden');
@@ -1281,9 +1325,6 @@
       grid.appendChild(button);
     });
   }
-  document.getElementById('journey-battle')?.addEventListener('click', () => {
-    showAppRoute(document.getElementById('battle-screen'));
-  });
   document.getElementById('journey-store')?.addEventListener('click', () => {
     renderStoreGrid();
     showAppRoute(document.getElementById('store-screen'));
@@ -1291,7 +1332,6 @@
   document.getElementById('journey-tutorial')?.addEventListener('click', () => {
     showAppRoute(document.getElementById('tutorial-screen'));
   });
-  document.getElementById('battle-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('battle-screen')));
   document.getElementById('store-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('store-screen')));
   document.getElementById('tutorial-back')?.addEventListener('click', () => hideAppRoute(document.getElementById('tutorial-screen')));
   document.getElementById('tutorial-start-tour')?.addEventListener('click', () => {
@@ -1423,6 +1463,7 @@
       body.append(seat, name, kind); card.append(art, body); lineup.append(card);
       Renderer.drawPreview(art, entry.skin || 'bottle', entry.color);
     });
+    showRosterPage('ready', 0);
     document.getElementById('broadcast-ready-arena').textContent = document.getElementById('arena-preview-name').textContent;
     const details = document.getElementById('broadcast-ready-details'); details.replaceChildren();
     const summary = [['Format', document.querySelector('input[name="match-format"]:checked')?.nextElementSibling?.textContent || 'Classic'],

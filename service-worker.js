@@ -56,6 +56,7 @@ const PRECACHE_URLS = [
   './js/v112-easter-eggs.js',
   './js/v112-easter-presentation.js',
   './js/v112-journey-routes.js',
+  './js/v112-battle-routes.js',
   './js/skins.js',
   './js/main.js',
   './data/v112-globe/natural-earth-land-110m.geojson',
