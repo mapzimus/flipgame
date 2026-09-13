@@ -341,9 +341,15 @@
   // Default player name for a skin + color — always a unique pun per flavor.
   function defaultNameFor(charId, color) {
     const col = color != null ? normalizeColor(color) : defaultColorFor(charId);
+    const id = resolveCharForColor(charId, col);
+    const names = window.FLIP_V112_VARIANT_NAMES;
+    if (names && typeof names.nameFor === 'function') {
+      const authored = names.nameFor(id, col) || names.nameFor(familyKey(id), col);
+      if (authored) return authored;
+    }
     if (window.Skins && Skins.nameFor) return Skins.nameFor(charId, col);
     const f = FLAVORS.find((x) => x.color === col);
-    const c = characterById(resolveCharForColor(charId, col));
+    const c = characterById(id);
     return (c && c.name) || (f && f.name) || 'Player';
   }
   function familyLabel(charId) {
@@ -515,6 +521,7 @@
   function paintRowPreview(row) {
     const cv = row && row.querySelector('.skin-preview');
     if (!cv || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
+    clearPreviewCanvas(cv);
     const color = normalizeColor(row.dataset.color || defaultColorFor(row.dataset.char));
     const charId = resolveCharForColor(row.dataset.char || defaultCharId(), color);
     const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(charId) : charId;
@@ -715,16 +722,32 @@
 
   function currentDraft() { return pickerDraftRows[pickerIndex] || null; }
   function cosmeticTilesHtml(type) {
+    const selected = type === 'arena' ? arenaDraft : currentDraft()?.cosmeticId;
+    const noneSelected = !selected;
+    const none = `<button type="button" role="gridcell" class="picker-tile" data-${type}="" ` +
+      `aria-pressed="${noneSelected}" tabindex="${noneSelected ? '0' : '-1'}"><span aria-hidden="true">∅</span><span>None</span></button>`;
+    if (type === 'arena' && v112App && typeof v112App.arenas === 'function') {
+      const arenas = v112App.arenas();
+      const visible = arenas.filter((row) => !row.locked);
+      const tiles = visible.map((row) =>
+        `<button type="button" role="gridcell" class="picker-tile" data-arena="${escapeHtml(row.id)}" aria-pressed="${selected === row.id}" tabindex="${selected === row.id ? '0' : '-1'}"><span aria-hidden="true">🏟️</span><span>${escapeHtml(row.displayName)}</span></button>`);
+      if (arenas.some((row) => row.locked)) tiles.push(undiscoveredTileHtml());
+      return none + tiles.join('');
+    }
+    if (type !== 'arena' && v112App && typeof v112App.store === 'function') {
+      const items = v112App.store().filter((item) => !item.locked && (type === 'cosmetic' || !item.slot || item.slot === type || item.kind === type));
+      const visible = items.filter((item) => item.owned);
+      const tiles = visible.map((item) =>
+        `<button type="button" role="gridcell" class="picker-tile" data-cosmetic="${escapeHtml(item.id)}" aria-pressed="${selected === item.id}" tabindex="${selected === item.id ? '0' : '-1'}"><span aria-hidden="true">✦</span><span>${escapeHtml(item.displayName)}</span></button>`);
+      if (items.some((item) => !item.owned)) tiles.push(undiscoveredTileHtml());
+      return none + tiles.join('');
+    }
     const state = window.FlipgameV111Progression ? FlipgameV111Progression.snapshot() : {};
     const views = window.FlipgameV111Cosmetics ? FlipgameV111Cosmetics.listForPlayer(state) : [];
     const internal = window.FlipgameV111Cosmetics?.internalCatalog?.() || [];
     const wantedScope = type === 'arena' ? 'global' : 'personal';
     const scoped = views.map((view, index) => ({ view, scope: internal[index]?.scope }))
       .filter((entry) => entry.scope === wantedScope);
-    const selected = type === 'arena' ? arenaDraft : currentDraft()?.cosmeticId;
-    const noneSelected = !selected;
-    const none = `<button type="button" role="gridcell" class="picker-tile" data-${type}="" ` +
-      `aria-pressed="${noneSelected}" tabindex="${noneSelected ? '0' : '-1'}"><span aria-hidden="true">∅</span><span>None</span></button>`;
     const visible = scoped.map((entry) => entry.view).filter((view) => !view.locked);
     const tiles = visible.map((view) =>
       `<button type="button" role="gridcell" class="picker-tile" data-${type}="${escapeHtml(view.id)}" aria-pressed="${selected === view.id}" tabindex="${selected === view.id ? '0' : '-1'}"><span aria-hidden="true">✦</span><span>${escapeHtml(view.displayName)}</span></button>`);
@@ -795,20 +818,34 @@
     pickerOpener = null;
   }
 
+  function clearPreviewCanvas(canvas) {
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.restore();
+  }
   function paintPickerPreviews() {
     if (!pickerRow || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
     const draft = currentDraft();
     const col = normalizeColor(draft?.color || defaultColorFor(draft?.charId));
     charPickGrid.querySelectorAll('canvas[data-preview-char]').forEach((cv) => {
+      if (cv.closest('[data-locked="1"]')) {
+        clearPreviewCanvas(cv);
+        return;
+      }
       const id = cv.dataset.previewChar;
       const previewColor = cv.dataset.previewColor || col;
       const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
+      clearPreviewCanvas(cv);
       Renderer.drawPreview(cv, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, previewColor));
     });
     const hero = document.getElementById('customize-preview');
     if (hero && draft) {
       const id = resolveCharForColor(draft.charId, col);
       const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(id) : id;
+      clearPreviewCanvas(hero);
       Renderer.drawPreview(hero, drawAs === 'bottle' ? 'bottle' : id, drawTintFor(id, col));
     }
   }
@@ -859,8 +896,20 @@
 
   function queueMysteryReveals(ids) {
     if (!ids || !ids.length || !mysteryScreen) return;
-    mysteryQueue.push(...ids);
+    mysteryQueue.push(...ids.map((value) => (value && typeof value === 'object'
+      ? value : { id: value, contentId: value, type: 'object' })));
     if (!mysteryCurrent) nextMysteryReveal();
+  }
+  function queueAuthorityReveals(reveals) {
+    const items = (reveals || []).filter((entry) => entry &&
+      (entry.type === 'object' || entry.type === 'store' || entry.type === 'cosmetic'
+        || entry.type === 'arena' || entry.type === 'feature'));
+    if (items.length) queueMysteryReveals(items);
+  }
+  function mysteryContentId(entry) {
+    if (!entry) return null;
+    if (typeof entry === 'string') return entry;
+    return entry.contentId || entry.id;
   }
 
   function nextMysteryReveal() {
@@ -872,6 +921,7 @@
     }
     mysteryCurrent = mysteryQueue.shift();
     mysteryOpened = false;
+    const revealId = mysteryContentId(mysteryCurrent);
     // A queued reveal must start with an empty canvas, including after a
     // late sprite decode from the previous prize.
     if (mysteryArtEl) {
@@ -882,9 +932,9 @@
       context.restore();
     }
     // Warm the sprite for this character's own tint before it's on screen.
-    const c = characterById(mysteryCurrent);
-    const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
-    if (window.Skins && Skins.preload) Skins.preload([{ id: mysteryCurrent, color: tint }]);
+    const c = characterById(revealId);
+    const tint = (c && (c.tint || c.color)) || defaultColorFor(revealId);
+    if (window.Skins && Skins.preload && c) Skins.preload([{ id: revealId, color: tint }]);
 
     mysteryScreen.classList.remove('opening');
     mysteryHeadlineEl.textContent = 'New unlock!';
@@ -900,11 +950,13 @@
 
   function paintMysteryArt() {
     if (!mysteryCurrent || !mysteryOpened || !mysteryArtEl || typeof Renderer === 'undefined' || !Renderer.drawPreview) return;
-    const c = characterById(mysteryCurrent);
-    const tint = (c && (c.tint || c.color)) || defaultColorFor(mysteryCurrent);
-    const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(mysteryCurrent) : mysteryCurrent;
-    Renderer.drawPreview(mysteryArtEl, drawAs === 'bottle' ? 'bottle' : mysteryCurrent,
-                         drawTintFor(mysteryCurrent, tint));
+    const revealId = mysteryContentId(mysteryCurrent);
+    const c = characterById(revealId);
+    if (!c) return;
+    const tint = (c && (c.tint || c.color)) || defaultColorFor(revealId);
+    const drawAs = (window.Skins && Skins.drawAs) ? Skins.drawAs(revealId) : revealId;
+    Renderer.drawPreview(mysteryArtEl, drawAs === 'bottle' ? 'bottle' : revealId,
+                         drawTintFor(revealId, tint));
   }
 
   function openMysteryBox() {
@@ -912,9 +964,17 @@
     mysteryOpened = true;
     paintMysteryArt();
     mysteryScreen.classList.add('opening');
-    mysteryHeadlineEl.textContent = 'A new Flipper joins the roster';
-    mysteryNameEl.textContent = defaultNameFor(mysteryCurrent, null);
-    mysteryFamilyEl.textContent = 'Added to Customize';
+    const revealId = mysteryContentId(mysteryCurrent);
+    const character = characterById(revealId);
+    const label = (mysteryCurrent && mysteryCurrent.displayName) || (character
+      ? defaultNameFor(revealId, null) : String(revealId));
+    mysteryHeadlineEl.textContent = character ? 'A new Flipper joins the roster'
+      : 'Something new is yours';
+    mysteryNameEl.textContent = label;
+    mysteryFamilyEl.textContent = character ? 'Added to Customize' : 'Added to your collection';
+    if (v112App && typeof v112App.dismissReveal === 'function' && mysteryCurrent && mysteryCurrent.id) {
+      try { v112App.dismissReveal(mysteryCurrent.id); } catch (_) {}
+    }
     mysteryGoBtn.textContent = mysteryQueue.length ? 'Next ▶' : 'Nice!';
     Sound.play('win');
   }
@@ -930,6 +990,18 @@
     if (!mysteryOpened) openMysteryBox();
     else nextMysteryReveal();
   });
+  let seenRevealIds = new Set();
+  if (v112App && typeof v112App.subscribe === 'function') {
+    v112App.subscribe((state) => {
+      const pending = (state && state.pendingReveals) || [];
+      const fresh = pending.filter((entry) => entry && !seenRevealIds.has(entry.id));
+      fresh.forEach((entry) => seenRevealIds.add(entry.id));
+      if (!fresh.length) return;
+      queueAuthorityReveals(fresh);
+      try { renderFrom(readRows()); } catch (_) {}
+      if (pickerRow) renderCustomizeGrid();
+    });
+  }
 
   function rosterToLiveDefs(roster) {
     return (roster || []).map((entry, index) => {
@@ -1568,6 +1640,14 @@
   }
   // Presentation host is injected by the private activity composition. Missing
   // capability means no Story reservation, simulated victory or reward write.
+  if (v112App && v112App.ready) {
+    v112App.ready.then(() => {
+      const owner = new URLSearchParams(location.search).get('owner');
+      if (owner === 'Howe Test Mode') {
+        try { v112App.enableOwnerTesting(owner); } catch (_) {}
+      }
+    }).catch(() => {});
+  }
   if (window.FlipgameV112JourneyRoutes) {
     if (v112App && window.FlipgameV112JourneyHost) {
       journeyHost = FlipgameV112JourneyHost.createJourneyHost({
@@ -3585,10 +3665,14 @@
         winRec = privateRewardAuthorityActive() ? null : Records.recordWin(qualification);
         renderRecordsPanel();
         if (winner && window.Skins) {
-          const unlockedObjects = (winRec?.unlocked || []).filter((entry) => entry.type === 'object').map((entry) => entry.contentId);
-          if (unlockedObjects.length) {
-            queueMysteryReveals(unlockedObjects);
+          const unlockedRewards = (winRec?.unlocked || []).filter((entry) =>
+            entry && (entry.type === 'object' || entry.type === 'store' || entry.type === 'arena'
+              || entry.type === 'feature' || entry.type === 'cosmetic'));
+          const revealIds = unlockedRewards.map((entry) => entry.contentId || entry.id).filter(Boolean);
+          if (revealIds.length) {
+            queueMysteryReveals(revealIds);
             try { renderFrom(readRows()); } catch (_) {}
+            if (pickerRow) renderCustomizeGrid();
           }
         }
       } else {
@@ -4006,6 +4090,7 @@
   }
 
   function updateHUD() {
+    document.body.classList.toggle('on-fire-live', !!(game && game.onFirePlayer));
     if (game.practice) {
       const pct = game.practiceAttempts ? Math.round(game.practiceMakes / game.practiceAttempts * 100) : 0;
       playerListEl.innerHTML = `<div class="practice-stats">
@@ -4433,7 +4518,7 @@
       `<button type="button" role="gridcell" class="picker-tile achievement-tile" aria-label="${escapeHtml(view.name)}" tabindex="${index ? -1 : 0}"><span aria-hidden="true">${escapeHtml(view.emoji)}</span><strong>${escapeHtml(view.name)}</strong><span>${escapeHtml(view.desc || '')}</span>${view.earnedAt ? `<time datetime="${escapeHtml(view.earnedAt)}">Earned ${new Date(view.earnedAt).toLocaleDateString()}</time>` : ''}</button>`);
     if (achievementFilter !== 'earned' && views.some((view) => view.locked)) tiles.push(undiscoveredTileHtml());
     grid.innerHTML = tiles.join('');
-    document.getElementById('achievement-summary').textContent = `${discovered.length} discovered`;
+    document.getElementById('achievement-summary').textContent = `${discovered.length} of ${all.length || 120} discovered`;
     document.getElementById('achievement-empty').classList.toggle('hidden', views.length > 0);
   }
   achievementsBtn?.addEventListener('click', () => { enterRoute(achievementsScreen, achievementsBtn); renderAchievements(); });

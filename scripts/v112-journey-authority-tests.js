@@ -36,6 +36,8 @@ async function run() {
     assert.ok(app.supported.activities.includes('story'));
     assert.ok(app.supported.activities.includes('tutorial'));
     assert.deepEqual(Array.from(app.supported.physics), ['normal', 'insane', 'alien']);
+    assert.equal(app.arenas().length, 23);
+    assert.equal(app.achievements().length, 120);
 
     for (const formatId of ['classic', 'cup', 'team-clash']) {
       app.beginSession({ formatId, roster: [{ name: 'One' }, { name: 'Two' }] });
