@@ -27,7 +27,15 @@ async function scenario(){
     click('battle-open');inspect('battle-screen');
     check(d.getElementById('battle-body').textContent.includes('1v1v1v1'),'All formats shown');
     check(d.getElementById('battle-body').textContent.includes('8v8'),'Largest team format shown');
-    check([...d.querySelectorAll('#battle-body button')].find(b=>b.textContent==='Begin Battle').disabled,'Missing host must disable start');
+    // Battle is connected now, so the setup screen must report the display this
+    // build genuinely qualified — one physics surface is one alternating lane —
+    // and offer to begin exactly when the lineup matches the chosen format.
+    const battleText=()=>d.getElementById('battle-body').textContent;
+    check(/Alternating relay · one active lane/.test(battleText()),`Battle did not qualify the display ${width}: ${battleText()}`);
+    const lineup=battleText().match(/(\d+) entries in your lineup · (\d+) required/);
+    check(lineup,'Battle states the lineup it needs');
+    check([...d.querySelectorAll('#battle-body button')].find(b=>b.textContent==='Begin Battle').disabled===(lineup[1]!==lineup[2]),
+      `Begin Battle must follow the lineup count ${width}: ${lineup[0]}`);
     click('battle-back');await new Promise(r=>setTimeout(r,0));
     click('broadcast-setup');
     const initial=d.querySelectorAll('.player-input-row').length;
@@ -71,7 +79,7 @@ async function scenario(){
     const storyOpen=!d.getElementById('journey-screen').classList.contains('hidden');
     check(storyOpen||/not connected/.test(d.getElementById('journey-home-status').textContent),'Story route neither opened nor announced');
     check(d.getElementById('game-screen').classList.contains('hidden'),'No gameplay authority invoked');
-    reports.push({width,height,entries:16,pages:2,battle:'fail-closed',story:storyOpen?'opened':'announced'});
+    reports.push({width,height,entries:16,pages:2,battle:'alternating-relay',story:storyOpen?'opened':'announced'});
   }
   await report({reports});
 }

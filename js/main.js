@@ -225,6 +225,12 @@
   function isCharUnlocked(id) {
     const c = characterById(id);
     if (!c) return false;
+    // Whoever pays the rewards decides what is unlocked. A Flipper the private
+    // v1.12 authority has not granted must never be offered: it would refuse
+    // the reservation outright, and a classic match built on one would play to
+    // the end and earn nothing.
+    if (v112App && typeof v112App.isObjectAvailable === 'function' &&
+        !v112App.isObjectAvailable(id)) return false;
     if (window.FlipgameV111Content && window.FlipgameV111Progression) {
       const view = FlipgameV111Content.viewObject(FlipgameV111Progression.snapshot(), id);
       if (view) return !view.locked;
@@ -1264,6 +1270,9 @@
     let arenaTurn = 0;
     let seats = new Map();
     let laneSeat = null;
+    // The reward authority renames every competitor to its seat position, so the
+    // look of a seat is found by where it sat in the lineup, never by the id the
+    // setup screen happened to generate for that row.
     function seatFor(playerId) { return seats.get(String(playerId)) || null; }
     function paint(dt) {
       const seat = laneSeat || {};
@@ -1326,7 +1335,7 @@
       laneRects: () => [{ laneId: 'lane-1', left: 0, top: 0,
         width: window.innerWidth, height: window.innerHeight }],
       measure: () => ({ width: window.innerWidth, observedContacts: 1 }),
-      remember(defs) { seats = new Map(defs.map(def => [String(def.id), def])); },
+      remember(defs) { seats = new Map(defs.map((def, index) => ['seat-' + (index + 1), def])); },
       adapter(context) {
         return {
           resources: context.resources,
