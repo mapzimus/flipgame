@@ -517,6 +517,7 @@ function testDeepPhysicalSemantics() {
   const shrinkMassBefore = shrink.getBottle().mass;
   const initialAngular = Math.abs(shrink.getBottle().angularVelocity);
   assert.ok(runUntil(shrink, () => shrink.getEventRenderState().runtime.flags.shrunk === true, 240));
+  assert.equal(shrink.getEventRenderState().runtime.bodyScale, 0.62);
   assert.ok(Math.abs(shrink.getEventRenderState().runtime.angularSpeedAfter) > initialAngular,
     'Shrink Ray failed to conserve angular momentum/increase angular speed');
   const shrinkMassAfter = shrink.getBottle().mass;

@@ -2898,8 +2898,8 @@ const Physics = (() => {
         bottle.bounds.max.y < groundY - GROUND_TOUCH_PX) {
       const wave = Math.sin(arenaTime * 9 + rarePhase);
       const corkscrewForce = {
-        x: wave * bottle.mass * 0.00062,
-        y: -Math.abs(wave) * bottle.mass * 0.00010,
+        x: wave * bottle.mass * 0.00090,
+        y: -Math.abs(wave) * bottle.mass * 0.00016,
       };
       Body.applyForce(bottle, { x: bottle.position.x, y: bottle.position.y - 34 }, corkscrewForce);
       if (eventRuntime) eventRuntime.corkscrewForce = corkscrewForce;
@@ -3195,6 +3195,9 @@ const Physics = (() => {
         slideDirection: eventRuntime.slideDirection,
         assistVelocity: eventRuntime.assistVelocity || null,
         tableOffset: eventRuntime.tableOffset || null,
+        bodyScale: eventRuntime.bodyScale,
+        originY: eventRuntime.originY,
+        lastHeartbeatMs: eventRuntime.lastHeartbeatMs,
         iceFriction: eventRuntime.iceFriction,
         frictionReturnProgress: eventRuntime.frictionReturnProgress,
         compression: eventRuntime.compression,

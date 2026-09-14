@@ -16,6 +16,23 @@ assert.doesNotMatch(speed, /if \(cur && cur\.isAI\) return 4;/);
 
 assert.match(renderer, /strokeText\(title, W \/ 2/);
 assert.match(renderer, /'rgba\(255,70,0,0\.40\)'/);
+assert.match(renderer, /function eventObjectScale/);
+assert.match(renderer, /function eventCapDetached/);
+assert.match(renderer, /bodiesWithLabel\(bodies, 'fizz-cap'\)/);
+assert.match(renderer, /bodiesWithLabel\(bodies, 'cap-toss-cap'\)/);
+assert.match(renderer, /bodiesWithLabel\(bodies, 'quake-debris'\)/);
+assert.match(renderer, /bodiesWithLabel\(bodies, 'ice-bumper'\)/);
+assert.match(renderer, /runtime\.heartbeatCount/);
+assert.match(renderer, /runtime\.originX/);
+assert.match(renderer, /runtime\.targetX/);
+assert.match(renderer, /flags\.reversing/);
+assert.match(renderer, /event === 'life-drain'/);
+assert.doesNotMatch(renderer, /event === 'magnet' \|\| event === 'life-drain'/);
+
+const physics = fs.readFileSync(path.join(root, 'js/physics.js'), 'utf8');
+assert.match(physics, /bodyScale: eventRuntime\.bodyScale/);
+assert.match(physics, /originY: eventRuntime\.originY/);
+assert.match(physics, /x: wave \* bottle\.mass \* 0\.00090/);
 
 const hard = [];
 const medium = [];
