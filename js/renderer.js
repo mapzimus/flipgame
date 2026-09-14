@@ -155,18 +155,22 @@ const Renderer = (() => {
 
   function drawQuakeDebris(body) {
     if (!body || !body.bounds) return;
-    const width = body.bounds.max.x - body.bounds.min.x;
-    const height = body.bounds.max.y - body.bounds.min.y;
+    const width = Math.max(22, body.bounds.max.x - body.bounds.min.x);
+    const height = Math.max(16, body.bounds.max.y - body.bounds.min.y);
     ctx.save();
     ctx.translate(body.x, body.y);
     ctx.rotate(body.angle || 0);
-    ctx.fillStyle = '#8d6e63';
-    ctx.strokeStyle = 'rgba(40,20,10,0.55)';
-    ctx.lineWidth = 2;
+    ctx.fillStyle = '#ffb074';
+    ctx.strokeStyle = '#5a2410';
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = 'rgba(255,140,60,0.45)';
+    ctx.shadowBlur = 10;
     ctx.beginPath();
     ctx.roundRect(-width / 2, -height / 2, width, height, 3);
     ctx.fill();
     ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,230,0.45)';
+    ctx.fillRect(-width * 0.28, -height * 0.28, width * 0.35, height * 0.28);
     ctx.restore();
   }
 
