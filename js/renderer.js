@@ -244,37 +244,37 @@ const Renderer = (() => {
   function drawRareEventOverlay(event) {
     if (!event) return;
     const colors = {
-      'rainbow-trail': ['rgba(255,40,120,0.14)', 'rgba(40,210,255,0.13)'],
-      'rainbow-corkscrew': ['rgba(255,40,120,0.14)', 'rgba(40,210,255,0.13)'],
-      'half-full': ['rgba(30,150,255,0.18)', 'rgba(80,220,255,0.04)'],
-      'power-launch': ['rgba(255,70,0,0.22)', 'rgba(255,190,30,0.04)'],
-      'fizz-jet': ['rgba(100,235,255,0.18)', 'rgba(255,255,255,0.04)'],
-      'golden-flip': ['rgba(255,192,25,0.22)', 'rgba(255,245,170,0.04)'],
-      'bouncy-bottle': ['rgba(95,255,120,0.16)', 'rgba(255,225,70,0.04)'],
-      earthquake: ['rgba(255,115,50,0.19)', 'rgba(80,20,10,0.06)'],
-      'moon-gravity': ['rgba(75,70,180,0.24)', 'rgba(120,210,255,0.04)'],
-      'ice-slide': ['rgba(80,225,255,0.23)', 'rgba(180,245,255,0.04)'],
-      'alien-invasion': ['rgba(80,255,125,0.24)', 'rgba(70,40,170,0.06)'],
-      'gravity-slam': ['rgba(230,20,35,0.23)', 'rgba(20,0,0,0.08)'],
-      trampoline: ['rgba(70,255,120,0.18)', 'rgba(255,235,40,0.04)'],
-      'wind-tunnel': ['rgba(80,220,255,0.18)', 'rgba(255,255,255,0.03)'],
-      'double-flip': ['rgba(185,70,255,0.22)', 'rgba(70,30,200,0.04)'],
-      'shrink-ray': ['rgba(65,255,205,0.17)', 'rgba(20,90,80,0.04)'],
-      'portal-pair': ['rgba(135,75,255,0.21)', 'rgba(35,220,255,0.05)'],
-      'tether-swing': ['rgba(255,205,80,0.18)', 'rgba(255,255,255,0.03)'],
-      mitosis: ['rgba(80,255,190,0.18)', 'rgba(150,80,255,0.05)'],
-      'ceiling-flip': ['rgba(255,90,190,0.17)', 'rgba(255,255,255,0.03)'],
-      'meteor-shower': ['rgba(255,85,25,0.23)', 'rgba(40,0,0,0.07)'],
-      magnet: ['rgba(40,210,255,0.21)', 'rgba(255,45,80,0.04)'],
-      'heart-rush': ['rgba(255,40,105,0.22)', 'rgba(255,160,190,0.04)'],
-      'black-hole': ['rgba(95,50,180,0.26)', 'rgba(0,0,0,0.12)'],
-      boomerang: ['rgba(255,165,45,0.17)', 'rgba(255,240,100,0.03)'],
-      'roulette-table': ['rgba(220,30,75,0.19)', 'rgba(20,170,90,0.04)'],
-      rewind: ['rgba(60,160,255,0.19)', 'rgba(150,90,255,0.04)'],
-      plinko: ['rgba(255,195,45,0.17)', 'rgba(50,160,255,0.04)'],
-      'mirror-match': ['rgba(170,225,255,0.18)', 'rgba(255,255,255,0.06)'],
-      'cap-toss': ['rgba(255,125,30,0.18)', 'rgba(255,215,70,0.04)'],
-      'life-drain': ['rgba(60,255,75,0.23)', 'rgba(0,70,15,0.08)'],
+      'rainbow-trail': ['rgba(255,40,120,0.32)', 'rgba(40,210,255,0.22)'],
+      'rainbow-corkscrew': ['rgba(255,40,120,0.32)', 'rgba(40,210,255,0.22)'],
+      'half-full': ['rgba(30,150,255,0.36)', 'rgba(80,220,255,0.10)'],
+      'power-launch': ['rgba(255,70,0,0.40)', 'rgba(255,190,30,0.12)'],
+      'fizz-jet': ['rgba(100,235,255,0.34)', 'rgba(255,255,255,0.10)'],
+      'golden-flip': ['rgba(255,192,25,0.40)', 'rgba(255,245,170,0.12)'],
+      'bouncy-bottle': ['rgba(95,255,120,0.32)', 'rgba(255,225,70,0.10)'],
+      earthquake: ['rgba(255,115,50,0.38)', 'rgba(80,20,10,0.14)'],
+      'moon-gravity': ['rgba(75,70,180,0.42)', 'rgba(120,210,255,0.10)'],
+      'ice-slide': ['rgba(80,225,255,0.40)', 'rgba(180,245,255,0.12)'],
+      'alien-invasion': ['rgba(80,255,125,0.40)', 'rgba(70,40,170,0.14)'],
+      'gravity-slam': ['rgba(230,20,35,0.42)', 'rgba(20,0,0,0.16)'],
+      trampoline: ['rgba(70,255,120,0.36)', 'rgba(255,235,40,0.10)'],
+      'wind-tunnel': ['rgba(80,220,255,0.36)', 'rgba(255,255,255,0.08)'],
+      'double-flip': ['rgba(185,70,255,0.40)', 'rgba(70,30,200,0.12)'],
+      'shrink-ray': ['rgba(65,255,205,0.34)', 'rgba(20,90,80,0.10)'],
+      'portal-pair': ['rgba(135,75,255,0.40)', 'rgba(35,220,255,0.12)'],
+      'tether-swing': ['rgba(255,205,80,0.36)', 'rgba(255,255,255,0.08)'],
+      mitosis: ['rgba(80,255,190,0.36)', 'rgba(150,80,255,0.12)'],
+      'ceiling-flip': ['rgba(255,90,190,0.34)', 'rgba(255,255,255,0.08)'],
+      'meteor-shower': ['rgba(255,85,25,0.42)', 'rgba(40,0,0,0.16)'],
+      magnet: ['rgba(40,210,255,0.40)', 'rgba(255,45,80,0.10)'],
+      'heart-rush': ['rgba(255,40,105,0.42)', 'rgba(255,160,190,0.12)'],
+      'black-hole': ['rgba(95,50,180,0.46)', 'rgba(0,0,0,0.20)'],
+      boomerang: ['rgba(255,165,45,0.34)', 'rgba(255,240,100,0.08)'],
+      'roulette-table': ['rgba(220,30,75,0.38)', 'rgba(20,170,90,0.10)'],
+      rewind: ['rgba(60,160,255,0.38)', 'rgba(150,90,255,0.10)'],
+      plinko: ['rgba(255,195,45,0.34)', 'rgba(50,160,255,0.10)'],
+      'mirror-match': ['rgba(170,225,255,0.36)', 'rgba(255,255,255,0.12)'],
+      'cap-toss': ['rgba(255,125,30,0.36)', 'rgba(255,215,70,0.10)'],
+      'life-drain': ['rgba(60,255,75,0.42)', 'rgba(0,70,15,0.16)'],
     };
     const pair = colors[event] || ['rgba(255,255,255,0.10)', 'rgba(255,255,255,0)'];
     ctx.save();
@@ -284,6 +284,19 @@ const Renderer = (() => {
     g.addColorStop(1, pair[0]);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
+
+    const title = String(event).replace(/-/g, ' ').toUpperCase();
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = `900 ${Math.max(28, Math.min(52, W * 0.045))}px system-ui, sans-serif`;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.72)';
+    ctx.lineWidth = 8;
+    ctx.fillStyle = '#fff8e8';
+    ctx.strokeText(title, W / 2, Math.max(16, H * 0.07));
+    ctx.fillText(title, W / 2, Math.max(16, H * 0.07));
+    ctx.restore();
 
     const phase = reduceMotion ? 0 : clock;
     if (event === 'wind-tunnel') {
