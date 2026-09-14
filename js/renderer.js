@@ -82,6 +82,94 @@ const Renderer = (() => {
 
   function bottleDrawScale() { return BOTTLE_DRAW_SCALE; }
 
+  function eventRuntime() {
+    return fxEventState && fxEventState.runtime ? fxEventState.runtime : null;
+  }
+
+  function eventObjectScale() {
+    const runtime = eventRuntime();
+    if (runtime && runtime.flags && runtime.flags.shrunk) {
+      const scale = Number(runtime.bodyScale);
+      if (Number.isFinite(scale) && scale > 0) return scale;
+      const visualScale = Number(fxEventState && fxEventState.visual && fxEventState.visual.objectScale);
+      if (Number.isFinite(visualScale) && visualScale > 0) return visualScale;
+    }
+    return 1;
+  }
+
+  function eventCapDetached() {
+    const id = fxEventState && fxEventState.eventId;
+    const flags = eventRuntime() && eventRuntime().flags;
+    return !!(flags && ((id === 'cap-toss' && flags.split) || (id === 'fizz-jet' && flags.capEjected)));
+  }
+
+  function slamCompression() {
+    if (!fxEventState || fxEventState.eventId !== 'gravity-slam') return 0;
+    const value = Number(eventRuntime() && eventRuntime().compression);
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+  }
+
+  function bodiesWithLabel(bodies, label) {
+    return (bodies || []).filter((body) => body && body.label === label);
+  }
+
+  function drawEventCap(body, color) {
+    if (!body) return;
+    const width = body.bounds ? (body.bounds.max.x - body.bounds.min.x) : 28;
+    const height = body.bounds ? (body.bounds.max.y - body.bounds.min.y) : 10;
+    ctx.save();
+    ctx.translate(body.x, body.y);
+    ctx.rotate(body.angle || 0);
+    ctx.fillStyle = color || '#ff6d00';
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.roundRect(-width / 2, -height / 2, width, height, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    ctx.fillRect(-width * 0.28, -height * 0.28, width * 0.22, height * 0.36);
+    ctx.restore();
+  }
+
+  function drawIceBumper(body) {
+    if (!body || !body.bounds) return;
+    const width = body.bounds.max.x - body.bounds.min.x;
+    const height = body.bounds.max.y - body.bounds.min.y;
+    ctx.save();
+    ctx.translate(body.x, body.y);
+    ctx.rotate(body.angle || 0);
+    const frost = ctx.createLinearGradient(-width / 2, 0, width / 2, 0);
+    frost.addColorStop(0, 'rgba(170,245,255,0.18)');
+    frost.addColorStop(0.5, 'rgba(220,255,255,0.92)');
+    frost.addColorStop(1, 'rgba(170,245,255,0.18)');
+    ctx.fillStyle = frost;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(-width / 2, -height / 2, width, height, 10);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawQuakeDebris(body) {
+    if (!body || !body.bounds) return;
+    const width = body.bounds.max.x - body.bounds.min.x;
+    const height = body.bounds.max.y - body.bounds.min.y;
+    ctx.save();
+    ctx.translate(body.x, body.y);
+    ctx.rotate(body.angle || 0);
+    ctx.fillStyle = '#8d6e63';
+    ctx.strokeStyle = 'rgba(40,20,10,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-width / 2, -height / 2, width, height, 3);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // ── Color helpers (per-player liquid flavor) ────────────────────────────────
   function hexToRgba(hex, a) {
     const n = parseInt(hex.slice(1), 16);
@@ -300,12 +388,14 @@ const Renderer = (() => {
 
     const phase = reduceMotion ? 0 : clock;
     if (event === 'wind-tunnel') {
+      const gust = fxEventState && fxEventState.runtime && fxEventState.runtime.gustVector;
+      const dir = gust && Number(gust.x) < 0 ? -1 : 1;
       ctx.strokeStyle = 'rgba(190,245,255,0.60)';
       ctx.lineWidth = 4;
       for (let i = 0; i < 13; i++) {
         const y = (i + 0.5) * H / 13;
-        const x = ((phase * 520 + i * 137) % (W + 260)) - 130;
-        ctx.beginPath(); ctx.moveTo(x - 110, y); ctx.lineTo(x + 110, y - 18); ctx.stroke();
+        const x = ((phase * 520 * dir + i * 137) % (W + 260) + (W + 260)) % (W + 260) - 130;
+        ctx.beginPath(); ctx.moveTo(x - 110 * dir, y); ctx.lineTo(x + 110 * dir, y - 18); ctx.stroke();
       }
     } else if (event === 'gravity-slam') {
       ctx.strokeStyle = 'rgba(255,80,65,0.56)';
@@ -361,19 +451,47 @@ const Renderer = (() => {
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.stroke();
-    } else if (event === 'magnet' || event === 'life-drain') {
-      const c = event === 'life-drain' ? '#62ff57' : '#4de8ff';
-      ctx.strokeStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 26;
+    } else if (event === 'magnet') {
+      const poleX = (fxEventState && fxEventState.runtime && fxEventState.runtime.magnetVector
+        && Number.isFinite(fxEventState.runtime.magnetVector.targetX))
+        ? fxEventState.runtime.magnetVector.targetX : W / 2;
+      ctx.strokeStyle = '#4de8ff'; ctx.shadowColor = '#4de8ff'; ctx.shadowBlur = 26;
       for (let i = 1; i <= 4; i++) {
         ctx.globalAlpha = 0.82 / i;
         ctx.lineWidth = 6;
         ctx.beginPath(); ctx.ellipse(p.x, p.y, 55 + i * 32 + pulse * 8, 75 + i * 42, 0, 0, Math.PI * 2); ctx.stroke();
       }
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#ff3b5c';
+      ctx.beginPath(); ctx.arc(poleX - 22, groundY - 18, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#4de8ff';
+      ctx.beginPath(); ctx.arc(poleX + 22, groundY - 18, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = '900 16px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('N', poleX + 22, groundY - 13);
+      ctx.fillText('S', poleX - 22, groundY - 13);
+    } else if (event === 'life-drain') {
+      const wash = ctx.createRadialGradient(p.x, p.y, 8, p.x, p.y, 210);
+      wash.addColorStop(0, `rgba(40,255,70,${0.22 + pulse * 0.10})`);
+      wash.addColorStop(1, 'rgba(0,40,10,0)');
+      ctx.fillStyle = wash;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 210, 0, Math.PI * 2); ctx.fill();
     } else if (event === 'heart-rush') {
+      const count = Math.max(0, Math.min(3, Number(fxEventState && fxEventState.runtime
+        && fxEventState.runtime.heartbeatCount) || 0));
       ctx.fillStyle = `rgba(255,65,125,${0.55 + pulse * 0.35})`;
       ctx.font = `900 ${54 + pulse * 22}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
-      for (const [dx, dy] of [[-95,-25],[100,-70],[-55,90],[75,70]]) ctx.fillText('♥', p.x + dx, p.y + dy);
+      const slots = [[-95, -25], [100, -70], [-55, 90]];
+      for (let i = 0; i < count; i++) ctx.fillText('♥', p.x + slots[i][0], p.y + slots[i][1]);
+      if (count > 0) {
+        ctx.strokeStyle = `rgba(255,65,125,${0.40 + pulse * 0.35})`;
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 62 + count * 20 + pulse * 10, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     } else if (event === 'power-launch' || event === 'double-flip') {
       const c = event === 'power-launch' ? '#ff8a20' : '#cf67ff';
       ctx.strokeStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 25; ctx.lineWidth = 9;
@@ -515,14 +633,55 @@ const Renderer = (() => {
     if (id === 'half-full') {
       ctx.fillStyle = 'rgba(75,195,255,.28)'; ctx.fillRect(0, groundY - 28, W, 28);
     } else if (id === 'fizz-jet') {
+      const thrust = runtime.thrustVector || { x: 0, y: 1 };
+      const mag = Math.max(1e-8, Math.hypot(thrust.x || 0, thrust.y || 0));
+      const sx = -(thrust.x || 0) / mag;
+      const sy = -(thrust.y || 0) / mag;
       ctx.strokeStyle = '#b9f5ff'; ctx.lineWidth = 3;
-      for (let i=0;i<12;i++) { const r=4+(i%4)*2, x=p.x+Math.sin(i*5+phase)*48, y=p.y+65+i*15; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke(); }
+      for (let i = 0; i < 12; i++) {
+        const dist = 22 + i * 14;
+        const wobble = Math.sin(i * 5 + phase) * 16;
+        const x = p.x + sx * dist + (-sy) * wobble;
+        const y = p.y + sy * dist + sx * wobble;
+        ctx.beginPath(); ctx.arc(x, y, 4 + (i % 4) * 2, 0, Math.PI * 2); ctx.stroke();
+      }
+      bodiesWithLabel(bodies, 'fizz-cap').forEach((body) => drawEventCap(body, '#ff8a20'));
     } else if (id === 'bouncy-bottle') {
       ctx.strokeStyle = '#85ff9b'; ctx.lineWidth = 5; for(let i=0;i<4;i++){ctx.globalAlpha=.75-i*.15;ctx.beginPath();ctx.ellipse(p.x,groundY,70+i*35,12+i*7,0,0,Math.PI*2);ctx.stroke();}
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#85ff9b';
+      ctx.font = '900 28px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${runtime.bounces || 0}/${runtime.maxBounces || 3}`, p.x, groundY - 36);
     } else if (id === 'earthquake') {
+      const table = runtime.tableOffset || { x: 0, y: 0 };
+      ctx.save();
+      ctx.translate(table.x || 0, table.y || 0);
       ctx.strokeStyle='#ff8b55';ctx.lineWidth=5;ctx.beginPath();for(let x=0;x<=W;x+=40){const y=groundY-8-(x/40%2)*16;if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();
+      ctx.restore();
+      bodiesWithLabel(bodies, 'quake-debris').forEach(drawQuakeDebris);
+    } else if (id === 'ice-slide') {
+      bodiesWithLabel(bodies, 'ice-bumper').forEach(drawIceBumper);
     } else if (id === 'shrink-ray') {
-      ctx.strokeStyle='#6dffd1';ctx.lineWidth=3;for(let i=0;i<5;i++){ctx.beginPath();ctx.arc(p.x,p.y,45+i*22,phase+i,phase+i+1.6);ctx.stroke();}
+      const scale = eventObjectScale();
+      ctx.strokeStyle='#6dffd1';ctx.lineWidth=3;for(let i=0;i<5;i++){ctx.beginPath();ctx.arc(p.x,p.y,(45+i*22)*scale,phase+i,phase+i+1.6);ctx.stroke();}
+    } else if (id === 'rainbow-corkscrew' || id === 'rainbow-trail') {
+      const force = runtime.corkscrewForce || { x: 0, y: 0 };
+      const sway = 26 + Math.min(48, Math.abs(force.x || 0) * 22000);
+      const bands = ['#ff3b6a', '#ff8a1d', '#ffe14a', '#4ae06a', '#3ac6ff', '#b46bff'];
+      for (let i = 0; i < bands.length; i++) {
+        ctx.strokeStyle = bands[i];
+        ctx.lineWidth = 4;
+        ctx.globalAlpha = 0.58;
+        ctx.beginPath();
+        for (let t = 0; t <= 14; t++) {
+          const x = p.x + Math.sin(phase * 6 + t * 0.45 + i) * sway + i * 3 - 8;
+          const y = p.y + 16 + t * 13;
+          if (t === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
     } else if (id === 'portal-pair' && runtime.portals) {
       runtime.portals.forEach((portal,index)=>{ctx.strokeStyle=index?'#4ee8ff':'#b66cff';ctx.shadowColor=ctx.strokeStyle;ctx.shadowBlur=18;ctx.lineWidth=10;ctx.beginPath();ctx.ellipse(portal.x,portal.y,48,76,0,0,Math.PI*2);ctx.stroke();});
     } else if (id === 'tether-swing' && runtime.anchor) {
@@ -532,15 +691,60 @@ const Renderer = (() => {
     } else if (id === 'black-hole' && runtime.singularity) {
       const s=runtime.singularity,g=ctx.createRadialGradient(s.x,s.y,3,s.x,s.y,92);g.addColorStop(0,'#000');g.addColorStop(.45,'#090014');g.addColorStop(.7,'rgba(148,76,255,.82)');g.addColorStop(1,'rgba(70,15,130,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(s.x,s.y,92,0,Math.PI*2);ctx.fill();
     } else if (id === 'boomerang') {
-      ctx.strokeStyle='#ffbf58';ctx.lineWidth=6;ctx.setLineDash([18,10]);ctx.beginPath();ctx.arc(p.x,p.y,150,-2.8,.5);ctx.stroke();ctx.setLineDash([]);
+      const originX = Number.isFinite(runtime.originX) ? runtime.originX : p.x;
+      const originY = Number.isFinite(runtime.originY) ? runtime.originY : groundY - 80;
+      const targetX = Number.isFinite(runtime.targetX) ? runtime.targetX : originX;
+      const midX = (originX + targetX) / 2;
+      const midY = Math.min(originY, groundY - 220) - 90;
+      ctx.strokeStyle='#ffbf58';ctx.lineWidth=6;ctx.setLineDash([18,10]);
+      ctx.beginPath(); ctx.moveTo(originX, originY); ctx.quadraticCurveTo(midX, midY, targetX, groundY - 8); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#ffe27a';
+      ctx.beginPath(); ctx.arc(originX, originY, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff7a18';
+      ctx.beginPath(); ctx.arc(targetX, groundY - 8, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff8e0';
+      ctx.font = '800 16px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('ORIGIN', originX, originY - 16);
+      ctx.fillText('TARGET', targetX, groundY - 24);
     } else if (id === 'roulette-table') {
       const slot=runtime.rouletteSlot||0;for(let i=0;i<8;i++){ctx.fillStyle=i===slot?'#ffe15a':(i%2?'#178755':'#bc264b');ctx.beginPath();ctx.moveTo(p.x,groundY);ctx.arc(p.x,groundY,115,i*Math.PI/4,(i+1)*Math.PI/4);ctx.fill();}ctx.fillStyle='#fff';ctx.font='900 26px system-ui';ctx.textAlign='center';ctx.fillText(`×${[1,2,3,4,4,3,2,1][slot]}`,p.x,groundY+8);
     } else if (id === 'rewind') {
       ctx.strokeStyle='#75bdff';ctx.lineWidth=7;ctx.beginPath();ctx.arc(p.x,p.y,95,.45,Math.PI*1.8);ctx.stroke();ctx.fillStyle='#75bdff';ctx.beginPath();ctx.moveTo(p.x-96,p.y-10);ctx.lineTo(p.x-70,p.y-34);ctx.lineTo(p.x-63,p.y+2);ctx.fill();
+      if (runtime.flags && runtime.flags.reversing) {
+        ctx.globalAlpha = 0.28;
+        for (let i = 1; i <= 5; i++) {
+          ctx.strokeStyle = '#9ad4ff';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.ellipse(p.x - i * 16, p.y + i * 10, 42, 68, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#fff';
+        ctx.font = '900 22px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('REWIND', p.x, p.y - 130);
+      } else if (runtime.flags && runtime.flags.replayed) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '900 20px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ONE RETRY', p.x, p.y - 130);
+      }
     } else if (id === 'mirror-match') {
       const x=W/2;ctx.strokeStyle='rgba(210,245,255,.8)';ctx.lineWidth=5;ctx.setLineDash([12,8]);ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,groundY);ctx.stroke();ctx.setLineDash([]);
     } else if (id === 'cap-toss') {
       ctx.strokeStyle='#ff9d42';ctx.lineWidth=8;ctx.beginPath();ctx.arc(p.x,groundY-7,42,0,Math.PI*2);ctx.stroke();
+      const caps = bodiesWithLabel(bodies, 'cap-toss-cap');
+      caps.forEach((body) => {
+        drawEventCap(body, '#ff6d00');
+        ctx.strokeStyle = '#ffd54a';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(body.x, groundY - 7, 28, 0, Math.PI * 2);
+        ctx.stroke();
+      });
     } else if (id === 'mitosis') {
       ctx.strokeStyle='rgba(80,255,190,.35)';ctx.lineWidth=3;ctx.setLineDash([8,10]);
       ctx.beginPath();ctx.moveTo(p.x,Math.max(24,p.y-120));ctx.lineTo(p.x,Math.min(groundY-8,p.y+120));ctx.stroke();
@@ -580,6 +784,11 @@ const Renderer = (() => {
     if (skyOnly) return;
     if (fxPlinko) return;   // plinko drop: the floor has vanished
 
+    const quake = (fxEventState && fxEventState.eventId === 'earthquake' && eventRuntime()
+      && eventRuntime().tableOffset) ? eventRuntime().tableOffset : { x: 0, y: 0 };
+    ctx.save();
+    ctx.translate(quake.x || 0, quake.y || 0);
+
     // Extra-wide table so open-arena zoom-outs still show a floor.
     const x0 = -W * 2, tw = W * 5;
     ctx.fillStyle = '#3e2723';
@@ -608,6 +817,7 @@ const Renderer = (() => {
       ctx.fillStyle = g;
       ctx.fillRect(x0, groundY - 5, tw, 6);
     }
+    ctx.restore();
   }
 
   // ── Sky ambience: moon throws + seasonal easter eggs ───────────────────────
@@ -712,6 +922,10 @@ const Renderer = (() => {
       ctx.beginPath();
       ctx.arc(x, y, 90 * BOTTLE_DRAW_SCALE, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = 'rgba(40, 18, 0, 0.42)';
+      ctx.beginPath();
+      ctx.ellipse(x, groundY + 6, 62 * BOTTLE_DRAW_SCALE, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
       if (!reduceMotion && Math.random() < 0.35) {
         spawnSplash(x + (Math.random() - 0.5) * 90, y - Math.random() * 110, 1, 'rgba(255,220,110,0.9)');
       }
@@ -720,10 +934,11 @@ const Renderer = (() => {
     ctx.save();
     // tiny/giant name eggs scale the paint; the extra y shift keeps the drawn
     // base on the table (projectBottleCenter compensates for the stock scale).
-    const drawScale = BOTTLE_DRAW_SCALE * (fxSize || 1);
+    const drawScale = BOTTLE_DRAW_SCALE * (fxSize || 1) * eventObjectScale();
+    const squash = slamCompression();
     ctx.translate(x, y + (plinkoPresentation ? 0 : (BOTTLE_DRAW_SCALE - drawScale) * 43));
     ctx.rotate(angle);
-    ctx.scale(drawScale, drawScale);
+    ctx.scale(drawScale * (1 + squash * 0.18), drawScale * (1 - squash * 0.28));
     if (plinkoPresentation) ctx.scale(plinkoPresentation.scale.x, plinkoPresentation.scale.y);
     // Ghost name egg: the object flips see-through. Cosmetic only.
     if (fxGhost) ctx.globalAlpha = 0.55;
@@ -850,17 +1065,20 @@ const Renderer = (() => {
     ctx.fillRect(-35, -47, 70, 5);
 
     // ── Wide orange Gatorade cap ───────────────────────────────────────────
-    ctx.fillStyle = '#ff6d00';
-    ctx.beginPath();
-    ctx.roundRect(-24, -146, 48, 26, 6);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.22)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.28)';
-    ctx.beginPath();
-    ctx.roundRect(-21, -144, 12, 7, 2);
-    ctx.fill();
+    // Cap Toss / Fizz Jet detach a real cap body; keep the primary uncapped.
+    if (!eventCapDetached()) {
+      ctx.fillStyle = '#ff6d00';
+      ctx.beginPath();
+      ctx.roundRect(-24, -146, 48, 26, 6);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      ctx.beginPath();
+      ctx.roundRect(-21, -144, 12, 7, 2);
+      ctx.fill();
+    }
 
     if (dynamics && dynamics.paintOverlay) dynamics.paintOverlay(ctx, skin || 'bottle', artState);
 
@@ -1478,6 +1696,11 @@ const Renderer = (() => {
     // The Plinko camera owns framing; shrinking here made the selected art and
     // its internal dynamics look like a replacement token.
     fxSize    = state.sizeFx || 1;
+    if (!reduceMotion && fxEventState && fxEventState.eventId === 'earthquake' && eventRuntime()
+        && eventRuntime().tableOffset) {
+      const mag = Math.hypot(eventRuntime().tableOffset.x || 0, eventRuntime().tableOffset.y || 0);
+      shakeAmp = Math.max(shakeAmp, Math.min(6.5, 2 + mag * 0.28));
+    }
     clock += dt;
     const nextMotionKey = state.flipSeed == null ? 'idle' : `flip:${String(state.flipSeed)}`;
     if (nextMotionKey !== motionFlipKey) {
@@ -1632,6 +1855,7 @@ const Renderer = (() => {
     plinkoPresentation = null; fxPlinko = null;
     fxGolden = fxGhost = fxNinja = fxRainbow = fxTrail = false; // never leak cosmetics into previews
     fxRareEvent = null;
+    fxEventState = null;
     fxSize = 1;
     canvas = target;
     ctx = target.getContext('2d');
