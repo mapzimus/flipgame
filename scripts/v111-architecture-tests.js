@@ -15,7 +15,7 @@ function noop() {}
 
 function testFrozenInterfaceCatalog() {
   assert.equal(Interfaces.CONTRACT_REVISION, 3);
-  assert.equal(Interfaces.RELEASE_VERSION, 'v1.11');
+  assert.equal(Interfaces.RELEASE_VERSION, 'v1.12');
   assert.equal(Interfaces.EVENT_IDS.length, 30);
   assert.equal(new Set(Interfaces.EVENT_IDS).size, 30);
   assert.deepEqual(Interfaces.EVENT_IDS.slice(0, 3), [
@@ -247,7 +247,7 @@ function testBrowserGlobalsAndLoaderSeams() {
   assert.equal(context.FlipgameV111.art.current(), context.FlipgameV111Art);
   assert.equal(context.FlipgameV111Art.platform.cacheInfo().variantsBuilt, 0);
 
-  const scripts = [...read('js/v111-boot.js').matchAll(/['"](js\/[^"]+?\.js\?v=111)['"]/g)]
+  const scripts = [...read('js/v111-boot.js').matchAll(/['"](js\/[^"]+?\.js\?v=112)['"]/g)]
     .map((match) => match[1].replace(/\?v=\d+$/, ''));
   const position = (file) => scripts.indexOf(file);
   assert.ok(position('js/v111-interfaces.js') < position('js/v111-runtime.js'));

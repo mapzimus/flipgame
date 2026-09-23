@@ -27,19 +27,19 @@ function classList() {
 }
 
 function harness({ protocol = 'https:', hostname = 'example.test', registerError = null,
-  controlledVersion = '110', updateError = null, executionErrorAt = null } = {}) {
+  controlledVersion = '111', updateError = null, executionErrorAt = null } = {}) {
   const scripts = [];
   const styles = [];
   const elements = new Map();
-  const oldWorker = eventTarget({ scriptURL: 'https://example.test/flipgame/service-worker.js?v=110', state: 'activated' });
-  const newWorker = eventTarget({ scriptURL: 'https://example.test/flipgame/service-worker.js?v=111', state: 'installing' });
-  const controller = controlledVersion === '111' ? newWorker : oldWorker;
-  if (controlledVersion === '111') newWorker.state = 'activated';
+  const oldWorker = eventTarget({ scriptURL: 'https://example.test/flipgame/service-worker.js?v=111', state: 'activated' });
+  const newWorker = eventTarget({ scriptURL: 'https://example.test/flipgame/service-worker.js?v=112', state: 'installing' });
+  const controller = controlledVersion === '112' ? newWorker : oldWorker;
+  if (controlledVersion === '112') newWorker.state = 'activated';
   const serviceWorker = eventTarget({ controller });
   let registerCalls = 0;
   let updateCalls = 0;
   const registration = {
-    installing: controlledVersion === '111' ? null : newWorker,
+    installing: controlledVersion === '112' ? null : newWorker,
     waiting: null,
     active: controller,
     update: async () => { updateCalls++; if (updateError) throw updateError; },
@@ -56,7 +56,7 @@ function harness({ protocol = 'https:', hostname = 'example.test', registerError
       if (element.tagName === 'SCRIPT') {
         scripts.push(element.src);
         queueMicrotask(() => {
-          if (element.src === 'js/v112-browser-bundle.js?v=111') {
+          if (element.src === 'js/v112-browser-bundle.js?v=112') {
             window.FlipgameV112 = { ready: Promise.resolve({ ready: true }) };
           }
           if (element.src === executionErrorAt) {
@@ -117,12 +117,12 @@ async function main() {
   upgrade.activateV111();
   assert.equal(await upgrade.window.__FLIPGAME_BOOT_PROMISE__, true);
   assert.ok(upgrade.scripts.length > 20, 'ordered runtime did not load after v111 control');
-  assert.equal(upgrade.scripts.at(-1), 'js/main.js?v=111');
-  assert.deepEqual(upgrade.styles, ['css/style.css?v=111', 'css/v112-broadcast.css?v=111']);
+  assert.equal(upgrade.scripts.at(-1), 'js/main.js?v=112');
+  assert.deepEqual(upgrade.styles, ['css/style.css?v=112', 'css/v112-broadcast.css?v=112']);
   assert.equal(upgrade.document.body.classList.contains('flipgame-boot-ready'), true);
 
   const installedOffline = harness({
-    controlledVersion: '111',
+    controlledVersion: '112',
     registerError: new Error('offline registration must not run'),
     updateError: new Error('offline update must not run'),
   });
@@ -139,11 +139,11 @@ async function main() {
   assert.ok(notice && notice.children.some((child) => child.textContent === 'Retry update'));
 
   const executionFailed = harness({
-    protocol: 'http:', hostname: 'localhost', executionErrorAt: 'js/settings.js?v=111',
+    protocol: 'http:', hostname: 'localhost', executionErrorAt: 'js/settings.js?v=112',
   });
   assert.equal(await executionFailed.window.__FLIPGAME_BOOT_PROMISE__, false);
-  assert.ok(executionFailed.scripts.includes('js/settings.js?v=111'));
-  assert.ok(!executionFailed.scripts.includes('js/main.js?v=111'),
+  assert.ok(executionFailed.scripts.includes('js/settings.js?v=112'));
+  assert.ok(!executionFailed.scripts.includes('js/main.js?v=112'),
     'loader continued after a runtime execution failure');
   assert.equal(executionFailed.document.body.classList.contains('flipgame-boot-failed'), true);
   assert.equal(executionFailed.document.body.classList.contains('flipgame-boot-ready'), false,

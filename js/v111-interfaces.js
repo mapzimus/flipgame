@@ -13,7 +13,7 @@
   'use strict';
 
   var CONTRACT_REVISION = 3;
-  var RELEASE_VERSION = 'v1.11';
+  var RELEASE_VERSION = 'v1.12';
   var ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
   var EVENT_CATALOG_SOURCE = [

@@ -48,8 +48,8 @@ test('DOM smoke: complete route shell and accessibility regions are present', ()
 
 test('loader order installs architecture, safety, modes, mirror, and platform before main without Online', () => {
   const htmlSources = [...html.matchAll(/<script src="([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(htmlSources, ['js/v111-boot.js?v=111'], 'index must expose only the release-unique boot script');
-  const sources = [...boot.matchAll(/['"](js\/[^'"]+\.js\?v=111)['"]/g)]
+  assert.deepEqual(htmlSources, ['js/v111-boot.js?v=112'], 'index must expose only the release-unique boot script');
+  const sources = [...boot.matchAll(/['"](js\/[^'"]+\.js\?v=112)['"]/g)]
     .map((match) => match[1].replace(/\?.*$/, ''));
   const position = (name) => sources.indexOf(`js/${name}`);
   for (const name of [
@@ -68,7 +68,7 @@ test('loader order installs architecture, safety, modes, mirror, and platform be
   assert.ok(position('v111-mirror-match.js') < position('main.js'));
   assert.ok(position('v111-platform.js') < position('main.js'));
   assert.ok(sources.every((source) => source !== 'js/v111.js'));
-  assert.match(html + boot, /\?v=111/);
+  assert.match(html + boot, /\?v=112/);
   assert.doesNotMatch(html + boot, /\?v=110/);
   assert.match(boot, /service-worker\.js\?v=['"]?\s*\+\s*VERSION|WORKER_URL/);
   assert.match(boot, /await waitForReleaseController\(registration\)/);
@@ -116,7 +116,7 @@ test('all objects, variants, cosmetics and independent visual arenas feed render
   assert.equal(manifest.objects.length, 25);
   assert.equal(manifest.flavorOrder.length, 12);
   assert.equal(manifest.variants.length, 300);
-  assert.match(skins, /return legacy\.concat\(additions\)/);
+  assert.match(skins, /return legacy\.concat\(additions(, calibrated)?\)/);
   assert.match(skins, /FLIP_V111_OBJECT_MANIFEST/);
   assert.match(skins, /FlipArtV111/);
   assert.match(skins, /preload:\s*\(pairs\)/);
@@ -216,7 +216,7 @@ test('checksummed game-save controls use the data-owner API and preserve owned p
   }
   assert.match(html, /accept="\.flipgame-save,application\/octet-stream,application\/json"/);
   assert.match(main, /FlipgameV111SaveBackup/);
-  assert.match(main, /backup\.serialize\(gameSavePayload\(\), \{ releaseVersion: 'v1\.11' \}\)/);
+  assert.match(main, /backup\.serialize\(gameSavePayload\(\), \{ releaseVersion \}\)/);
   assert.match(main, /backup\.parse\(await file\.text\(\), \{ adapters: \[normalizeGameSavePayload\] \}\)/);
   assert.match(main, /FlipgameV111Progression\?\.reconcile/);
   assert.match(main, /Math\.max\(Number\(current\.qualifyingWins\)/);
