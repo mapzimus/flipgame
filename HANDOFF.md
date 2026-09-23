@@ -1,15 +1,15 @@
-# Flipgame v1.11 Maintainer Handoff
+# Flipgame v1.12 Maintainer Handoff
 
 Flipgame is a static HTML5 Canvas game built with vanilla JavaScript and a
 vendored Matter.js runtime. The public web build and self-contained Android APK
 are produced from the same `master` commit and visibly identify themselves as
-`v1.11`.
+`v1.12`.
 
 ## Release locations
 
 - Repository: <https://github.com/mapzimus/flipgame>
 - Live game: <https://mapzimus.github.io/flipgame/>
-- APK: the immutable `v1.11` GitHub release and moving `apk-latest` alias
+- APK: the immutable `v1.12` GitHub release and moving `apk-latest` alias
 
 ## Local verification
 
@@ -20,7 +20,7 @@ python -m http.server 5174
 ```
 
 Then open <http://localhost:5174/>. The service worker deliberately does not
-register on localhost.
+register on localhost, and the badge reads `v1.12 · DEV`.
 
 Run all automated qualification suites with:
 
@@ -32,26 +32,34 @@ Get-ChildItem scripts -Filter '*test*.js' | Sort-Object Name | ForEach-Object {
 node --test tests/*.test.js
 ```
 
+The `*browser*`, `*-real-tests` and broadcast-layout suites drive a real
+Chromium. Set `CHROME_PATH` if Chrome/Edge isn't in a default location. Running
+as root (containers) needs a wrapper that adds `--no-sandbox`.
+
+`node scripts/v112-release-gap-qualification-tests.js` is the one-shot release
+audit (23 gates). It must be fully green before a release.
+
 ## Architecture
 
+- `js/v111-boot.js`: ordered runtime loader and service-worker release gate
 - `js/game.js`: serializable Classic state/rules
 - `js/physics.js`: fixed-step physics, landing lifecycle, and event bodies
-- `js/v111-physics-events.js`: immutable physical event registry/metadata
-- `js/v111-modes.js`: Cup, Team Clash, Arena Draft, and rematch adapters
-- `js/v111-progression.js`: save migration and secret progression state
-- `js/v111-stats.js`: device-local IndexedDB records, aggregates, import/export
-- `js/v111-name-policy.js`: shared offline name normalization and validation
-- `js/v111-network-protocol.js` and `js/net.js`: hidden Online Beta protocol
-- `js/v111-art-*.js`: authored SVG/canvas object variants
-- `js/v111-mirror-match.js`: persistent isolated copy queue
+- `js/v111-*.js`: v1.11 foundations (interfaces, modes, stats, names, art packs)
+- `js/v112-*.js`: v1.12 sources (rules, profile, story, battle, plinko, globe…)
+- `js/v112-browser-bundle.js`: **generated** private v1.12 application
+  authority. Never hand-edit it. After touching any bundled source module run
+  `node scripts/build-v112-browser.mjs` (CI runs `--check` via the tests).
 - `js/main.js`: UI/runtime integration only
 - `js/renderer.js`: world, object, cosmetic, arena, event, and HUD rendering
 - `android/`: offline WebView wrapper with Storage Access Framework parity
 
-The authoritative product and interface contract is
-`docs/v111-contract.md`. Integration decisions are in
-`docs/v111-integration-log.md`; release defects are tracked in
-`docs/v111-defects.md`.
+Online multiplayer was removed in v1.12. There is no relay or peer transport.
+
+The authoritative product and interface contracts are `docs/v111-contract.md`
+and `docs/v112-contract.md`. Integration decisions are in
+`docs/v112-integration-log.md`, and defects are in `docs/v112-defects.md`. Older
+plans, research, audits and the Codex recovery handover live in `docs/archive/`
+for history only.
 
 ## Release invariants
 
@@ -62,15 +70,28 @@ The authoritative product and interface contract is
 - Statistics are local-only and never affect rules, physics, or RNG.
 - Object variants and cosmetics never change colliders or scoring.
 - The web build and APK must come from one approved commit.
-- Bump the visible badge, query-string assets, service-worker cache, Android
-  version, and release metadata together.
-- Preserve the persistent Android release key. v1.11 establishes the signing
+- Preserve the persistent Android release key. v1.11 established the signing
   identity used for all future in-place APK upgrades.
+
+## Bumping the release (e.g. v1.12 → v1.13)
+
+CI refuses to publish a commit under a version tag that already exists, so every
+release after a tagged one needs a bump. Change all of these together:
+
+- `js/v111-interfaces.js` `RELEASE_VERSION`, then rebuild the bundle
+- `js/v111-boot.js` `VERSION`, `__FLIPGAME_BOOT_VERSION__`, every `?v=` query
+- `index.html` boot status, version badge + aria-label, boot `?v=`
+- `service-worker.js` `CACHE_NAME`
+- `android/app/build.gradle` `versionCode` / `versionName`
+- `.github/workflows/build-apk.yml` badging `grep`s
+- The version pins in `scripts/version-tests.js`, `v111-release-tests.js`,
+  `v111-boot-tests.js`, `v111-architecture-tests.js`,
+  `v112-runtime-cpu-wiring-tests.js`, `verify-dual-deployment-tests.js`,
+  `v112-release-gap-qualification-tests.js` and `tests/v111-ui-renderer.test.js`
 
 ## Deployment
 
-After all gates pass, fast-forward `master` to the approved integration commit
-and push. Confirm both the Pages deployment and `Build offline APK` workflow
-refer to that exact SHA. Download the release APK and verify its sidecar hash,
-embedded `build-metadata.json`, certificate report, offline launch, and version
-badge before declaring the release complete.
+Merge to `master` and push. Confirm both the Pages deployment and the
+`Build offline APK` workflow refer to that exact SHA. Download the release APK
+and verify its sidecar hash, embedded `build-metadata.json`, certificate report,
+offline launch, and version badge before declaring the release complete.
