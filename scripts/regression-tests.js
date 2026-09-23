@@ -27,7 +27,7 @@ function players(count) {
 function igniteInSuddenDeath(game, startingLives = 20) {
   game.init(players(8), 1, { startingLives });
   game.callbacks = {};
-  game.turnCounter = 70;
+  game.turnCounter = game.suddenDeathFlipThreshold;
   game.currentPlayer().streak = 2;
   game.currentPlayer().isHeatingUp = true;
   game.resolveFlip('MAKE');
@@ -88,7 +88,7 @@ function testOrdinarySuddenDeathPenaltyRemains() {
   const game = loadGame();
   game.init(players(8), 1, { startingLives: 3 });
   game.callbacks = {};
-  game.turnCounter = 70;
+  game.turnCounter = game.suddenDeathFlipThreshold;
   game.resolveFlip('MISS');
   assert.equal(game.currentPlayer().lives, 2);
   assert.equal(game.lastPenalty, 1);

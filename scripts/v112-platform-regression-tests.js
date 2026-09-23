@@ -67,7 +67,7 @@ async function testWakeLockLifecycle() {
 
 function testOfflineAndroidAndArtifactMetadata() {
   const workflow = read('.github/workflows/build-apk.yml');
-  assert.match(workflow, /cp -r index\.html css js icons manifest\.json android\/app\/src\/main\/assets\//,
+  assert.match(workflow, /cp -r index\.html css js data icons manifest\.json android\/app\/src\/main\/assets\//,
     'the whole js directory is bundled, including new v111 modules');
   assert.match(workflow, /git rev-parse HEAD/);
   assert.match(workflow, /test "\$source_commit" = "\$GITHUB_SHA"/);
