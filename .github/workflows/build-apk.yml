@@ -45,6 +45,9 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy 'tools' package (the action's default) is gone from the SDK repo.
+          packages: 'platform-tools'
 
       - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
