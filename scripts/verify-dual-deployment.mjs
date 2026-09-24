@@ -70,7 +70,7 @@ function validateMetadata(metadata, expectedSha, expectedVersion, origin) {
   }
   const unique = new Set(metadata.runtimeFiles);
   if (unique.size !== metadata.runtimeFiles.length ||
-      metadata.runtimeFiles.some((relative) => !/^(?:index\.html|service-worker\.js|manifest\.json|\.nojekyll|(?:css|js|icons)\/[A-Za-z0-9._/-]+)$/.test(relative) || relative.includes(".."))) {
+      metadata.runtimeFiles.some((relative) => !/^(?:index\.html|service-worker\.js|manifest\.json|\.nojekyll|(?:css|js|data|icons)\/[A-Za-z0-9._/-]+)$/.test(relative) || relative.includes(".."))) {
     fail(`${origin} provenance contains an unsafe or duplicate runtime path`);
   }
 }
