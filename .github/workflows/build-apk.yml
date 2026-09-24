@@ -123,8 +123,8 @@ jobs:
           aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
           test -x "$aapt_bin"
           "$aapt_bin" dump badging flipgame-offline.apk | tee apk-badging.txt
-          grep -q "versionCode='112'" apk-badging.txt
-          grep -q "versionName='1.12'" apk-badging.txt
+          grep -q "versionCode='113'" apk-badging.txt
+          grep -q "versionName='1.13'" apk-badging.txt
           sha256sum flipgame-offline.apk > flipgame-offline.apk.sha256
           rm -f "$RUNNER_TEMP/flipgame-release.keystore"
 

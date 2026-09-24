@@ -14,23 +14,8 @@
 #journey-body > p { line-height: 1.65; max-inline-size: 65ch; }
 @media (min-width:768px) { .journey-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (min-width:1100px) { .journey-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
-.broadcast-wordmark { font-size: 22px; letter-spacing: -.04em; font-weight: 900; }
-.broadcast-kicker, .broadcast-eyebrow { color: #d6b67f; font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
-.broadcast-masthead { justify-content: space-between; }
+.broadcast-eyebrow { color: #9fb0bd; font-size: 14px; font-weight: 600; }
 .broadcast-home-main, .broadcast-ready-main { inline-size: 100%; max-inline-size: 1480px; margin-inline: auto; display: grid; grid-template-columns: minmax(0,1fr); gap: 24px; align-items: center; }
-.broadcast-lead h1 { font-size: clamp(46px,6vw,88px); line-height: .98; letter-spacing: -.055em; margin: 24px 0; color: #f1ede4; }
-.broadcast-deck { max-inline-size: 29em; line-height: 1.65; color: #bac6cf; font-size: 18px; }
-.broadcast-home-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-block: 30px 18px; }
-.broadcast-home-actions button { min-block-size: 56px; padding-inline: 24px; }
-.broadcast-home-actions .primary-action { display: flex; justify-content: space-between; gap: 40px; }
-.broadcast-local { color: #91a4b4; font-size: 12px; }
-.broadcast-object-stage { position: relative; margin: 0; min-inline-size: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 40%,#304453,#142330 68%); border: 1px solid #354958; }
-#broadcast-home-object { display: block; inline-size: min(100%,500px); block-size: clamp(230px,38vh,430px); object-fit: contain; margin-inline: auto; position: relative; }
-.broadcast-stage-rule { position: absolute; inset: 60% 12% auto; block-size: 1px; background: #b99864; }
-.broadcast-object-stage figcaption { position: relative; padding: 24px 30px; display: grid; gap: 10px; border-block-start: 1px solid #354958; }
-.broadcast-object-stage strong { font-size: clamp(23px,2.5vw,36px); font-weight: 750; line-height: 1.15; }
-.broadcast-object-stage figcaption > span:last-child { color: #a0b1bf; font-size: 12px; }
-.broadcast-home-footer { justify-content: space-between; color: #a0b1bf; font-size: 12px; letter-spacing: .04em; }
 .broadcast-ready-main { align-items: start; }
 .broadcast-ready-main h2 { margin: 8px 0 22px; font-size: clamp(24px,2.5vw,36px); }
 .broadcast-ready-lineup { display: grid; gap: 12px; }
@@ -56,13 +41,11 @@
 .app-header { border-block-end: 1px solid #34424e; }
 .app-header h1 { letter-spacing: -.035em; font-weight: 850; }
 .setup-header { justify-content: space-between; padding-block: 14px; }
-.setup-header h1 { font-size: clamp(24px, 3vw, 40px); text-transform: uppercase; line-height: 1; }
-.setup-header h1 span:first-child { color: #f1ede4; }
-.setup-header h1 span:last-child { color: #e7bb70; }
+.setup-header h1 { font-size: clamp(24px, 3vw, 40px); line-height: 1; }
 .setup-header .utility-nav button { border: 0; border-radius: 0; background: transparent; color: #bfc8cf; }
 .setup-main { max-inline-size: 1480px; inline-size: 100%; margin-inline: auto; }
 .panel { border: 1px solid #34424e; border-radius: 3px; background: #111f2a; box-shadow: none; }
-.panel-heading h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .16em; color: #e7bb70; }
+.panel-heading h2 { font-size: 18px; color: #f1ede4; }
 .panel-heading .context-label { color: #9eacb8; font-size: 12px; }
 .players-panel { border-inline-start: 3px solid #e7bb70; }
 .player-input-row { position: relative; background: linear-gradient(110deg, #1c303e, #15232f); border: 1px solid #344652; border-radius: 3px; }
@@ -70,9 +53,9 @@
 .player-input-row input[type="text"] { border: 0; border-block-end: 1px solid #425461; background: transparent; color: #fff8eb; border-radius: 0; }
 .player-input-row .char-change-btn { background: transparent; border: 0; padding-inline: 0; color: #c0cfda; justify-content: space-between; }
 .player-input-row .player-num { font-size: 12px; font-weight: 850; }
-.ai-toggle { border-radius: 3px; background: #233847; border-color: #405664; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.ai-toggle { border-radius: 3px; background: #233847; border-color: #405664; font-size: 14px; }
 .ai-toggle.cpu { color: #f0bf79; }
-.control-group legend { color: #a5b4bf; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.control-group legend { color: #c3cfd8; font-size: 14px; font-weight: 600; }
 .segment-group label span { border-radius: 2px; background: #182b38; }
 .segment-group input:checked + span { background: #e7bb70; color: #111a21; box-shadow: none; }
 .segment-group { gap: 3px; }
@@ -217,13 +200,6 @@ body.battle-lane-live .battle-main button { min-block-size: 40px; padding: 6px 1
   .skin-preview { inline-size: 48px; block-size: 68px; }
 }
 @media (max-width: 767px) {
-  .broadcast-home-main { gap: 22px; align-content: start; }
-  .broadcast-lead h1 { font-size: 46px; margin-block: 16px; }
-  .broadcast-deck { font-size: 16px; }
-  .broadcast-home-actions { margin-block: 20px 12px; }
-  .broadcast-home-actions button { flex: 1 1 auto; padding-inline: 16px; }
-  .broadcast-masthead .broadcast-kicker { max-inline-size: 140px; text-align: end; font-size: 10px; }
-  .broadcast-object-stage figcaption { padding: 20px; }
   .broadcast-ready-footer .helper { display: none; }
   .broadcast-ready-footer .primary-action { inline-size: 100%; }
   .setup-header #broadcast-home-back { padding-inline: 8px; }
@@ -242,3 +218,17 @@ body.battle-lane-live .battle-main button { min-block-size: 40px; padding: 6px 1
   .customize-main .tab-list { position: sticky; top: -8px; z-index: 2; background: #101e2a; padding-block: 6px; }
   .variant-tile .fam-art { block-size: 124px; }
 }
+
+/* Home: a plain game menu. One centered column that scrolls on short screens. */
+.home-screen { grid-template-rows: minmax(0, 1fr); }
+.home-main { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 16px; }
+.home-main > * { inline-size: min(100%, 520px); }
+#broadcast-home-object { display: block; block-size: clamp(150px, 30vh, 320px); inline-size: auto; max-inline-size: 100%; aspect-ratio: 500 / 620; margin-block-start: auto; }
+.home-main h1 { margin: 0; font-size: clamp(40px, 7vw, 72px); line-height: 1; color: #f1ede4; }
+.home-rules { margin: 0; color: #bac6cf; font-size: 17px; line-height: 1.5; }
+.home-actions { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+.home-actions button { min-block-size: 60px; font-size: 20px; }
+.home-main .journey-home-links { justify-content: center; margin-block-end: auto; }
+.home-main .journey-home-links button { flex: 1 1 30%; }
+.home-main #journey-home-status:empty { display: none; }
+body:has(#game-screen:not(.hidden)) #version-badge { display: none; }

@@ -120,7 +120,7 @@
     var opts = options || {};
     var document = {
       schema: SCHEMA, version: VERSION,
-      releaseVersion: String(opts.releaseVersion || (Interfaces && Interfaces.RELEASE_VERSION) || 'v1.12'),
+      releaseVersion: String(opts.releaseVersion || (Interfaces && Interfaces.RELEASE_VERSION) || 'v1.13'),
       createdAt: Number.isFinite(Number(opts.createdAt)) ? Math.trunc(Number(opts.createdAt)) : Date.now(),
       payload: sanitizeNames(payload, { invalidReplacement: '' }),
     };

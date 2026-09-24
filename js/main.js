@@ -226,8 +226,8 @@
   if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
     const versionBadge = document.getElementById('version-badge');
     if (versionBadge) {
-      versionBadge.textContent = 'v1.12 · DEV';
-      versionBadge.setAttribute('aria-label', 'Flipgame v1.12 development preview, not released');
+      versionBadge.textContent = 'v1.13 · DEV';
+      versionBadge.setAttribute('aria-label', 'Flipgame v1.13 development preview, not released');
     }
   }
   function characterList() {
@@ -1845,7 +1845,7 @@
     const choice = arenaChoices.find(v => !v.locked && v.id === id) || arenaChoices.find(v => !v.locked) || arenaChoices[0];
     arenaDraft = choice.id;
     document.getElementById('arena-preview-name').textContent = choice.displayName;
-    document.getElementById('arena-play').textContent = `Play Now · ${choice.displayName}`;
+    document.getElementById('arena-play').textContent = 'Play';
     arenaSelectGrid.querySelectorAll('[data-venue]').forEach(button => {
       const selected = button.dataset.venue === choice.id;
       button.setAttribute('aria-pressed', String(selected));
@@ -1892,7 +1892,7 @@
       const card = document.createElement('article'); card.className = 'broadcast-ready-entry';
       const art = document.createElement('canvas'); art.width = 120; art.height = 150; art.setAttribute('aria-hidden', 'true');
       const body = document.createElement('div');
-      const seat = document.createElement('span'); seat.className = 'broadcast-eyebrow'; seat.textContent = `Entry ${String(index + 1).padStart(2, '0')}`;
+      const seat = document.createElement('span'); seat.className = 'broadcast-eyebrow'; seat.textContent = `P${index + 1}`;
       const name = document.createElement('h3'); name.textContent = entry.name;
       const kind = document.createElement('p'); kind.textContent = entry.isAI ? 'CPU' : 'Human';
       body.append(seat, name, kind); card.append(art, body); lineup.append(card);
@@ -2974,7 +2974,7 @@
     const flightMs = firstContactMs != null && settleMs != null
       ? Math.max(0, Number(firstContactMs) + Number(settleMs)) : measuredFlightMs;
     const record = {
-      releaseVersion: v111Runtime?.releaseVersion || 'v1.12',
+      releaseVersion: v111Runtime?.releaseVersion || 'v1.13',
       matchId: currentMatchId,
       heat: Number(modeState.heatNumber ?? modeState.heatIndex ?? 0) || null,
       round: Number(modeState.roundNumber ?? modeState.tiebreakRound ?? 0) || null,
@@ -3592,7 +3592,7 @@
         playerIds: seats.map((seat) => participantRecords[seat]?.playerId).filter(Boolean),
       })) : [];
       const matchRecord = {
-        releaseVersion: v111Runtime?.releaseVersion || 'v1.12',
+        releaseVersion: v111Runtime?.releaseVersion || 'v1.13',
         matchId: currentMatchId,
         startedAt: currentMatchStartedAt,
         durationMs: Math.max(0, Date.now() - currentMatchStartedAt),
@@ -4553,7 +4553,7 @@
   document.getElementById('save-export')?.addEventListener('click', () => {
     const backup = window.FlipgameV111SaveBackup;
     if (!backup?.serialize) return announce('Game save backup is unavailable.', true);
-    const releaseVersion = window.FlipgameV111Interfaces?.RELEASE_VERSION || 'v1.12';
+    const releaseVersion = window.FlipgameV111Interfaces?.RELEASE_VERSION || 'v1.13';
     const value = backup.serialize(gameSavePayload(), { releaseVersion });
     downloadText(`flipgame-${releaseVersion}.flipgame-save`, value, 'application/octet-stream');
   });
