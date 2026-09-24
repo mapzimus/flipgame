@@ -245,8 +245,10 @@ jobs:
 
   deploy_github_pages:
     name: Publish mapzimus.github.io/flipgame
-    needs: publish_mapzimus
-    if: github.ref == 'refs/heads/master'
+    # Waits for mapzimus.com so a healthy dual publish shares one provenance,
+    # but a mapzimus.com failure must not hold GitHub Pages back.
+    needs: [build, publish_mapzimus]
+    if: always() && github.ref == 'refs/heads/master' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -262,6 +264,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download the Cloudflare-verified provenance
+        if: needs.publish_mapzimus.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: flipgame-web-provenance-${{ github.sha }}
@@ -277,7 +280,13 @@ jobs:
           mkdir pages-site
           cp -R index.html service-worker.js manifest.json css js data icons pages-site/
           if [ -f .nojekyll ]; then cp .nojekyll pages-site/; fi
-          cp web-provenance/lab-upstream.json pages-site/release-provenance.json
+          if [ -f web-provenance/lab-upstream.json ]; then
+            cp web-provenance/lab-upstream.json pages-site/release-provenance.json
+          else
+            echo "::warning::mapzimus.com did not publish; GitHub Pages is publishing on its own."
+            EXPECTED_SHA="$GITHUB_SHA" RELEASE_VERSION="${{ needs.build.outputs.release_version }}" node -e \
+              "require('fs').writeFileSync('pages-site/release-provenance.json', JSON.stringify({schema:'FlipgamePagesProvenanceV1',upstream:{repository:'mapzimus/flipgame',sourceSha:process.env.EXPECTED_SHA,releaseVersion:process.env.RELEASE_VERSION}}, null, 2) + '\\n')"
+          fi
           EXPECTED_SHA="$GITHUB_SHA" node -e \
             "const m=require('./pages-site/release-provenance.json');if(m?.upstream?.sourceSha!==process.env.EXPECTED_SHA)process.exit(1)"
 
@@ -303,7 +312,8 @@ jobs:
   verify_dual_origins:
     name: Verify both public Flipgame origins
     needs: [publish_mapzimus, deploy_github_pages]
-    if: always() && github.ref == 'refs/heads/master'
+    # Only meaningful when both origins actually published.
+    if: always() && github.ref == 'refs/heads/master' && needs.publish_mapzimus.result == 'success' && needs.deploy_github_pages.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -319,13 +329,14 @@ jobs:
 
   publish_release:
     name: Publish the signed APK release
-    needs: [build, verify_dual_origins]
-    if: always() && github.ref == 'refs/heads/master' && needs.build.result == 'success' && needs.verify_dual_origins.result == 'success'
+    needs: [build, deploy_github_pages, verify_dual_origins]
+    # Gated on GitHub Pages, not mapzimus.com. A dual check that ran must pass.
+    if: always() && github.ref == 'refs/heads/master' && needs.build.result == 'success' && needs.deploy_github_pages.result == 'success' && needs.verify_dual_origins.result != 'failure'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Check out the exact dual-origin-verified commit
+      - name: Check out the exact published commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0

@@ -33,8 +33,10 @@ assert.match(workflow, /git -C lab add -- vendor\/apps\/flip-game/,
 assert.match(workflow, /git -C lab push origin HEAD:main/);
 assert.match(workflow, /uses: actions\/upload-pages-artifact@v3/);
 assert.match(workflow, /uses: actions\/deploy-pages@v4/);
-assert.match(workflow, /deploy_github_pages:[\s\S]*needs: publish_mapzimus/,
-  'GitHub Pages must wait for the verified Cloudflare publication');
+assert.match(workflow, /deploy_github_pages:[\s\S]*needs: \[build, publish_mapzimus\]/,
+  'GitHub Pages waits for the Cloudflare publication attempt so a healthy run shares its provenance');
+assert.match(workflow, /deploy_github_pages:[\s\S]*if: always\(\)[^\n]*needs\.build\.result == 'success'/,
+  'a mapzimus.com failure must not block GitHub Pages');
 assert.match(workflow, /verify_dual_origins:[\s\S]*verify-dual-deployment\.mjs/,
   'a final job must reconcile provenance and bytes at both public origins');
 assert.match(workflow, /mapzimus\.com\/flipgame\/release-provenance\.json/,
@@ -46,8 +48,10 @@ assert.match(fs.readFileSync(path.join(root, 'scripts', 'verify-dual-deployment.
   'exact byte reconciliation must use the untransformed Cloudflare Pages production origin');
 assert.doesNotMatch(workflow, /mapzimus\.com\/flipgame\/\.upstream\.json/,
   'Cloudflare blocks dot-prefixed public provenance files');
-assert.match(workflow, /publish_release:[\s\S]*needs: \[build, verify_dual_origins\]/,
-  'the public APK release must wait for both qualified web origins');
+assert.match(workflow, /publish_release:[\s\S]*needs: \[build, deploy_github_pages, verify_dual_origins\]/,
+  'the public APK release waits for GitHub Pages and any dual-origin check that ran');
+assert.match(workflow, /needs\.verify_dual_origins\.result != 'failure'/,
+  'a dual-origin check that ran and failed must still block the APK release');
 const buildSection = workflow.split(/\n  publish_mapzimus:/)[0];
 assert.doesNotMatch(buildSection, /gh release (?:create|upload)/,
   'the build job may upload a private artifact but must not publish an APK before web verification');
