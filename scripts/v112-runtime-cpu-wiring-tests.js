@@ -33,6 +33,7 @@ async function testDevelopmentBootOrder() {
     appendChild(element) {
       if (element.tagName === 'SCRIPT') {
         scripts.push(element.src);
+        if (element.src.startsWith('js/v112-browser-bundle.js')) window.FlipgameV112 = { ready: Promise.resolve() };
         queueMicrotask(() => element.onload());
       }
     },
@@ -72,14 +73,14 @@ async function testDevelopmentBootOrder() {
   });
   vm.runInContext(read('js/v111-boot.js'), context, { filename: 'js/v111-boot.js' });
   assert.equal(await window.__FLIPGAME_BOOT_PROMISE__, true);
-  const cpuIndex = scripts.indexOf('js/v112-cpu.js?v=111');
-  const physicsIndex = scripts.indexOf('js/physics.js?v=111');
-  const mainIndex = scripts.indexOf('js/main.js?v=111');
+  const cpuIndex = scripts.indexOf('js/v112-cpu.js?v=112');
+  const physicsIndex = scripts.indexOf('js/physics.js?v=112');
+  const mainIndex = scripts.indexOf('js/main.js?v=112');
   assert.ok(physicsIndex >= 0 && cpuIndex > physicsIndex && mainIndex > cpuIndex,
     `CPU module must load after Physics and before main: ${scripts.join(', ')}`);
-  assert.equal(window.__FLIPGAME_BOOT_VERSION__, 'v1.11',
+  assert.equal(window.__FLIPGAME_BOOT_VERSION__, 'v1.12',
     'staged development wiring must not change release identity');
-  assert.deepEqual(styles, ['css/style.css?v=111', 'css/v112-broadcast.css?v=111']);
+  assert.deepEqual(styles, ['css/style.css?v=112', 'css/v112-broadcast.css?v=112']);
 }
 
 function cpuHarness({ alienSkin = false, predictedEvent = null } = {}) {

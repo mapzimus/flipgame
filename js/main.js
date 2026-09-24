@@ -222,8 +222,7 @@
   const FORCE_SKIN = (typeof window !== 'undefined' && window.FLIP_FORCE_SKIN) || null;
   const BRAND = (typeof window !== 'undefined' && window.FLIP_BRAND) || {};
   const BASE_SKIN = BRAND.baseSkin || 'bottle';
-  // Local previews must not masquerade as the immutable public v1.11 build.
-  // Final source SHA/cache/APK identity is still assigned at the release gate.
+  // Local previews must not masquerade as the published build.
   if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
     const versionBadge = document.getElementById('version-badge');
     if (versionBadge) {
@@ -2975,7 +2974,7 @@
     const flightMs = firstContactMs != null && settleMs != null
       ? Math.max(0, Number(firstContactMs) + Number(settleMs)) : measuredFlightMs;
     const record = {
-      releaseVersion: v111Runtime?.releaseVersion || 'v1.11',
+      releaseVersion: v111Runtime?.releaseVersion || 'v1.12',
       matchId: currentMatchId,
       heat: Number(modeState.heatNumber ?? modeState.heatIndex ?? 0) || null,
       round: Number(modeState.roundNumber ?? modeState.tiebreakRound ?? 0) || null,
@@ -3593,7 +3592,7 @@
         playerIds: seats.map((seat) => participantRecords[seat]?.playerId).filter(Boolean),
       })) : [];
       const matchRecord = {
-        releaseVersion: v111Runtime?.releaseVersion || 'v1.11',
+        releaseVersion: v111Runtime?.releaseVersion || 'v1.12',
         matchId: currentMatchId,
         startedAt: currentMatchStartedAt,
         durationMs: Math.max(0, Date.now() - currentMatchStartedAt),
@@ -4554,8 +4553,9 @@
   document.getElementById('save-export')?.addEventListener('click', () => {
     const backup = window.FlipgameV111SaveBackup;
     if (!backup?.serialize) return announce('Game save backup is unavailable.', true);
-    const value = backup.serialize(gameSavePayload(), { releaseVersion: 'v1.11' });
-    downloadText('flipgame-v1.11.flipgame-save', value, 'application/octet-stream');
+    const releaseVersion = window.FlipgameV111Interfaces?.RELEASE_VERSION || 'v1.12';
+    const value = backup.serialize(gameSavePayload(), { releaseVersion });
+    downloadText(`flipgame-${releaseVersion}.flipgame-save`, value, 'application/octet-stream');
   });
   document.getElementById('save-import')?.addEventListener('change', async (event) => {
     const file = event.target.files?.[0];

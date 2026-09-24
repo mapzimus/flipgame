@@ -212,7 +212,7 @@
   }
 
   // Natural Earth 1:110m land, simplified to half-degree coordinates for this
-  // 76px-radius globe. The source is public domain; see docs/v111-art-pack-b.md.
+  // 76px-radius globe. The source is public domain; see docs/archive/v111-art-pack-b.md.
   // Each ring is pipe-separated, points are comma-separated, and lon/lat are
   // stored as signed base-36 integers at two units per degree. Keeping the
   // geographic data packed makes the offline/APK payload smaller than GeoJSON.

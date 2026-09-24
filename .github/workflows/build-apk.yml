@@ -51,7 +51,9 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Run v1.11 qualification suites
+      - name: Run qualification suites
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
         shell: bash
         run: |
           set -euo pipefail
@@ -118,8 +120,8 @@ jobs:
           aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
           test -x "$aapt_bin"
           "$aapt_bin" dump badging flipgame-offline.apk | tee apk-badging.txt
-          grep -q "versionCode='111'" apk-badging.txt
-          grep -q "versionName='1.11'" apk-badging.txt
+          grep -q "versionCode='112'" apk-badging.txt
+          grep -q "versionName='1.12'" apk-badging.txt
           sha256sum flipgame-offline.apk > flipgame-offline.apk.sha256
           rm -f "$RUNNER_TEMP/flipgame-release.keystore"
 
@@ -313,7 +315,7 @@ jobs:
         run: node scripts/verify-dual-deployment.mjs --sha "$GITHUB_SHA"
 
   publish_release:
-    name: Publish the signed v1.11 APK release
+    name: Publish the signed APK release
     needs: [build, verify_dual_origins]
     if: always() && github.ref == 'refs/heads/master' && needs.build.result == 'success' && needs.verify_dual_origins.result == 'success'
     runs-on: ubuntu-latest

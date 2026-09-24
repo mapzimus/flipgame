@@ -2,83 +2,83 @@
 (function () {
   'use strict';
 
-  var VERSION = '111';
-  var WORKER_URL = 'service-worker.js?v=' + VERSION;
-  var STYLE_URLS = ['css/style.css?v=' + VERSION, 'css/v112-broadcast.css?v=' + VERSION];
+  var VERSION = '112';
+  var WORKER_URL = 'service-worker.js?v=112';
+  var STYLE_URLS = ['css/style.css?v=112', 'css/v112-broadcast.css?v=112'];
   var SCRIPT_URLS = [
-    'js/vendor/matter.min.js?v=111',
-    'js/polyfills.js?v=111',
-    'js/v111-interfaces.js?v=111',
-    'js/v111-runtime.js?v=111',
-    'js/v111-name-policy.js?v=111',
-    'js/v111-save-backup.js?v=111',
-    'js/v111-stats.js?v=111',
+    'js/vendor/matter.min.js?v=112',
+    'js/polyfills.js?v=112',
+    'js/v111-interfaces.js?v=112',
+    'js/v111-runtime.js?v=112',
+    'js/v111-name-policy.js?v=112',
+    'js/v111-save-backup.js?v=112',
+    'js/v111-stats.js?v=112',
     // The private v1.12 authority captures the already-loaded shared Stats
     // writer. Its readiness gate must resolve before legacy presentation boots.
-    'js/v112-browser-bundle.js?v=' + VERSION,
-    'js/v111-platform.js?v=111',
-    'js/v111-art-platform.js?v=111',
-    'js/v111-object-manifest.js?v=111',
-    'js/v111-art-reference.js?v=111',
+    'js/v112-browser-bundle.js?v=112',
+    'js/v111-platform.js?v=112',
+    'js/v111-art-platform.js?v=112',
+    'js/v111-object-manifest.js?v=112',
+    'js/v111-art-reference.js?v=112',
     // Optional, local-only sphere renderer. It must load before art pack B so
     // the existing Desk Globe stand can delegate its sphere without changing
     // any competitive art or physics.
-    'js/v112-globe.js?v=' + VERSION,
-    'js/v112-globe-live.js?v=' + VERSION,
-    'js/v112-art-system.js?v=' + VERSION,
-    'js/v111-art-pack-a.js?v=111',
-    'js/v111-art-pack-b.js?v=111',
-    'js/v111-art-pack-c.js?v=111',
-    'js/v111-legacy-object-dynamics.js?v=111',
-    'js/v111-reaction-renderer.js?v=111',
-    'js/v111-bootstrap.js?v=111',
-    'js/v111-content-catalog.js?v=111',
-    'js/v111-cosmetic-catalog.js?v=111',
-    'js/v111-progression.js?v=111',
-    'js/v111-modes.js?v=111',
-    'js/v111-physics-events.js?v=111',
-    'js/v111-mirror-match.js?v=111',
-    'js/game.js?v=111',
+    'js/v112-globe.js?v=112',
+    'js/v112-globe-live.js?v=112',
+    'js/v112-art-system.js?v=112',
+    'js/v111-art-pack-a.js?v=112',
+    'js/v111-art-pack-b.js?v=112',
+    'js/v111-art-pack-c.js?v=112',
+    'js/v111-legacy-object-dynamics.js?v=112',
+    'js/v111-reaction-renderer.js?v=112',
+    'js/v111-bootstrap.js?v=112',
+    'js/v111-content-catalog.js?v=112',
+    'js/v111-cosmetic-catalog.js?v=112',
+    'js/v111-progression.js?v=112',
+    'js/v111-modes.js?v=112',
+    'js/v111-physics-events.js?v=112',
+    'js/v111-mirror-match.js?v=112',
+    'js/game.js?v=112',
     // Canonical v1.12 Plinko authority. The Matter host and live bridge must
     // load before physics.js so Plinko cannot fall back to the retired path.
-    'js/v112-plinko-matter.js?v=' + VERSION,
-    'js/v112-plinko-live.js?v=' + VERSION,
-    'js/physics.js?v=111',
-    'js/v112-physics-driver.js?v=' + VERSION,
-    'js/v112-hud-projection.js?v=' + VERSION,
+    'js/v112-plinko-matter.js?v=112',
+    'js/v112-plinko-live.js?v=112',
+    'js/physics.js?v=112',
+    'js/v112-physics-driver.js?v=112',
+    'js/v112-hud-projection.js?v=112',
     // Staged v1.12 development dependency. The release integrator will fold
     // this into the v1.12 cache identity and precache at the release gate.
-    'js/v112-cpu.js?v=' + VERSION,
-    'js/input.js?v=111',
-    'js/v112-plinko-presentation.js?v=' + VERSION,
-    'js/renderer.js?v=111',
-    'js/audio.js?v=111',
-    'js/settings.js?v=111',
-    'js/records.js?v=111',
-    'js/achievements.js?v=111',
-    'js/cast25.js?v=111',
-    'js/v112-variant-names.js?v=' + VERSION,
-    'js/v112-arena-preview.js?v=' + VERSION,
-    'js/v112-easter-eggs.js?v=' + VERSION,
-    'js/v112-easter-presentation.js?v=' + VERSION,
-    'js/v112-journey-routes.js?v=' + VERSION,
-    'js/v112-journey-host.js?v=' + VERSION,
+    'js/v112-cpu.js?v=112',
+    'js/input.js?v=112',
+    'js/v112-plinko-presentation.js?v=112',
+    'js/renderer.js?v=112',
+    'js/audio.js?v=112',
+    'js/settings.js?v=112',
+    'js/records.js?v=112',
+    'js/achievements.js?v=112',
+    'js/cast25.js?v=112',
+    'js/v112-variant-names.js?v=112',
+    'js/v112-arena-preview.js?v=112',
+    'js/v112-easter-eggs.js?v=112',
+    'js/v112-easter-presentation.js?v=112',
+    'js/v112-journey-routes.js?v=112',
+    'js/v112-journey-host.js?v=112',
     // Battle plays its series in the page, because only the page owns pointers,
     // lanes and physics. These are the rules, input router and coordinator it
     // needs; the private application still owns the reward for a finished one.
-    'js/v112-battle.js?v=' + VERSION,
-    'js/v112-activity.js?v=' + VERSION,
-    'js/v112-multipointer.js?v=' + VERSION,
-    'js/v112-battle-runtime.js?v=' + VERSION,
-    'js/v112-battle-host.js?v=' + VERSION,
-    'js/v112-battle-routes.js?v=' + VERSION,
-    'js/skins.js?v=111',
-    'js/main.js?v=111',
+    'js/v112-battle.js?v=112',
+    'js/v112-activity.js?v=112',
+    'js/v112-multipointer.js?v=112',
+    'js/v112-battle-runtime.js?v=112',
+    'js/v112-battle-host.js?v=112',
+    'js/v112-battle-routes.js?v=112',
+    'js/skins.js?v=112',
+    'js/main.js?v=112',
   ];
   var started = false;
   var bootFailure = null;
 
-  window.__FLIPGAME_BOOT_VERSION__ = 'v1.11';
+  window.__FLIPGAME_BOOT_VERSION__ = 'v1.12';
   window.__FLIPGAME_BOOT_ASSETS__ = Object.freeze({
     styles: Object.freeze(STYLE_URLS.slice()),
     scripts: Object.freeze(SCRIPT_URLS.slice()),
@@ -127,7 +127,7 @@
     if (controlledByThisRelease()) return Promise.resolve();
     return new Promise(function (resolve, reject) {
       var settled = false;
-      var timer = setTimeout(function () { finish(new Error('The v1.11 offline update did not finish.')); }, 30000);
+      var timer = setTimeout(function () { finish(new Error('The v1.12 offline update did not finish.')); }, 30000);
       var workers = [registration.installing, registration.waiting, registration.active].filter(Boolean);
 
       function cleanup() {
@@ -145,7 +145,7 @@
         if (controlledByThisRelease()) finish();
         else if (workers.some(function (worker) {
           return versionOfWorker(worker) === VERSION && worker.state === 'redundant';
-        })) finish(new Error('The v1.11 offline update was rejected.'));
+        })) finish(new Error('The v1.12 offline update was rejected.'));
       }
 
       navigator.serviceWorker.addEventListener('controllerchange', check);
@@ -164,7 +164,7 @@
       scope: './', updateViaCache: 'none',
     });
     await waitForReleaseController(registration);
-    if (!controlledByThisRelease()) throw new Error('The v1.11 worker is not controlling this page.');
+    if (!controlledByThisRelease()) throw new Error('The v1.12 worker is not controlling this page.');
   }
 
   async function start() {
@@ -198,7 +198,7 @@
     }
     status.textContent = '';
     var title = document.createElement('strong');
-    title.textContent = 'Flipgame v1.11 update paused';
+    title.textContent = 'Flipgame v1.12 update paused';
     var message = document.createElement('p');
     message.textContent = 'Reconnect to the internet, then retry. Your local game data is safe.';
     var retry = document.createElement('button');
@@ -213,7 +213,7 @@
 
   window.addEventListener('error', function (event) {
     if (!document.body.classList.contains('flipgame-boot-ready')) {
-      bootFailure = event.error || new Error(event.message || 'A v1.11 runtime script could not execute.');
+      bootFailure = event.error || new Error(event.message || 'A v1.12 runtime script could not execute.');
       showFailure(bootFailure);
     }
   });

@@ -17,7 +17,8 @@ const PLINKO = ['double', 'halve', 'magnet', 'lose', 'win', 'lose', 'magnet', 'h
 function loadPhysics() {
   const context = vm.createContext({ console, Math, window: { matchMedia: () => ({ matches: false }) } });
   for (const relative of [
-    'js/vendor/matter.min.js', 'js/v111-interfaces.js', 'js/v111-physics-events.js', 'js/physics.js',
+    'js/vendor/matter.min.js', 'js/v111-interfaces.js', 'js/v111-physics-events.js',
+    'js/v112-plinko-matter.js', 'js/v112-plinko-live.js', 'js/physics.js',
   ]) {
     let source = fs.readFileSync(path.join(ROOT, relative), 'utf8');
     if (relative === 'js/physics.js') source += '\nthis.__physics = Physics;';
