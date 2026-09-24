@@ -159,10 +159,10 @@ async function run() {
     const missing = [...bootAssets, ...Array.from(styles, p => p.split('?')[0])].filter(p => !cache.has(p));
     assert.deepEqual(missing, [], 'fresh offline precache omits required boot dependencies: ' + missing.join(', '));
   });
-  await test('release identities are v1.12/112 when candidate is approved', 'release-gate', () => {
-    assert.equal(require('../js/v111-interfaces.js').RELEASE_VERSION, 'v1.12', 'deliberately deferred identity bump still required');
+  await test('release identities are the current version when candidate is approved', 'release-gate', () => {
+    assert.equal(require('../js/v111-interfaces.js').RELEASE_VERSION, 'v1.13', 'deliberately deferred identity bump still required');
     const gradle = read('android/app/build.gradle');
-    assert.match(gradle, /versionCode\s+112\b/); assert.match(gradle, /versionName\s+['"]1\.12['"]/);
+    assert.match(gradle, /versionCode\s+113\b/); assert.match(gradle, /versionName\s+['"]1\.13['"]/);
   });
   const report = { schema: 'ReleaseGapQualificationV1', qualificationBaseline: 'c831ece',
     sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: Root, encoding: 'utf8' }).trim(),

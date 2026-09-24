@@ -22,45 +22,49 @@
 </head>
 <body>
   <div id="flipgame-boot-status" role="status" aria-live="polite">
-    <strong>Starting Flipgame v1.12</strong>
+    <strong>Starting Flipgame v1.13</strong>
     <p>If loading pauses, reconnect and retry. Your local game data is safe.</p>
     <a href="index.html">Retry update</a>
   </div>
   <div id="app-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="app-error" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
 
-  <section id="broadcast-home" class="screen hidden app-shell" data-route="home" aria-labelledby="broadcast-home-title">
-    <header class="app-header broadcast-masthead"><span class="broadcast-wordmark">FLIPGAME</span><span class="broadcast-kicker">Wurld Flip Championship</span></header>
-    <main class="app-main broadcast-home-main">
-      <section class="broadcast-lead"><p class="broadcast-eyebrow">From the table. To the wurld.</p><h1 id="broadcast-home-title" tabindex="-1">One table.<br>All the pressure.</h1><p class="broadcast-deck">Build your lineup. Pick your Flipper. Find out who can hold it together.</p><div class="broadcast-home-actions"><button id="broadcast-setup" class="primary-action" type="button">Set up a match <span aria-hidden="true">→</span></button><button id="broadcast-practice" class="secondary-action" type="button">Practice</button></div><p class="broadcast-local">Local play · One screen · Your people</p></section>
-      <figure class="broadcast-object-stage"><div class="broadcast-stage-rule" aria-hidden="true"></div><canvas id="broadcast-home-object" width="500" height="620" aria-hidden="true"></canvas><figcaption><span class="broadcast-eyebrow">WFC Standard</span><strong>Ten lives.<br>Try not to yeet it.</strong><span>Eight entries. One table.</span></figcaption></figure>
-      <nav class="journey-home-links" aria-label="More ways to play"><button id="journey-story" type="button">Story · Pressure Signal</button><button id="journey-rivals" type="button">Rival Board</button><button id="journey-tour" type="button">First Flip Tour</button><button id="battle-open" type="button">Battle · Share the table</button><button id="journey-store" type="button">Store</button><button id="journey-tutorial" type="button">Tutorial</button><p id="journey-home-status" role="status"></p></nav>
-    </main><footer class="app-footer broadcast-home-footer"><span>WFF · Fair-Form Certified</span><span>Pressure Signal</span></footer>
+  <section id="broadcast-home" class="screen hidden app-shell home-screen" data-route="home" aria-labelledby="broadcast-home-title">
+    <main class="app-main home-main">
+      <canvas id="broadcast-home-object" width="500" height="620" aria-hidden="true"></canvas>
+      <h1 id="broadcast-home-title" tabindex="-1">Flip Game</h1>
+      <p class="home-rules">Flip the bottle and land it standing up. Miss and you lose lives. Last player standing wins.</p>
+      <div class="home-actions">
+        <button id="broadcast-setup" class="primary-action" type="button">Play</button>
+        <button id="broadcast-practice" class="secondary-action" type="button">Practice</button>
+      </div>
+      <nav class="journey-home-links" aria-label="More ways to play"><button id="journey-story" type="button">Story</button><button id="journey-rivals" type="button">Rivals</button><button id="battle-open" type="button">Battle</button><button id="journey-store" type="button">Store</button><button id="journey-tutorial" type="button">How to play</button><button id="journey-tour" type="button">Demo tour</button><p id="journey-home-status" role="status"></p></nav>
+    </main>
   </section>
 
   <section id="journey-screen" class="screen hidden app-shell" aria-labelledby="journey-title">
-    <header class="app-header"><button id="journey-back" class="back-btn" type="button">Home</button><h1 id="journey-title" tabindex="-1">Pressure Signal</h1></header>
+    <header class="app-header"><button id="journey-back" class="back-btn" type="button">Home</button><h1 id="journey-title" tabindex="-1">Story</h1></header>
     <main class="app-main journey-main"><p id="journey-message" class="journey-message" role="status" aria-live="polite"></p><div id="journey-body"></div></main>
-    <footer class="app-footer"><p class="helper">Local play. Checkpoints save between completed matches.</p></footer>
+    <footer class="app-footer"><p class="helper">Progress saves after each match you finish.</p></footer>
   </section>
 
   <section id="battle-screen" class="screen hidden app-shell" data-route="battle" aria-labelledby="battle-title">
-    <header class="app-header"><button id="battle-back" class="back-btn" type="button">Leave Battle</button><h1 id="battle-title" tabindex="-1">Share the table.</h1><span class="broadcast-kicker">Battle</span></header>
+    <header class="app-header"><button id="battle-back" class="back-btn" type="button">Leave Battle</button><h1 id="battle-title" tabindex="-1">Battle</h1></header>
     <main class="app-main battle-main"><p id="battle-message" role="status" aria-live="polite"></p><div id="battle-body"></div><div id="battle-stage" class="battle-stage hidden" aria-label="Battle playing lanes"></div></main>
-    <footer class="app-footer"><p class="helper">Local competition · Every power stays physical · Every flip can miss</p></footer>
+    <footer class="app-footer"><p class="helper">Timed heats. Most points wins.</p></footer>
   </section>
   <section id="store-screen" class="screen hidden app-shell" data-route="store" aria-labelledby="store-title">
     <header class="app-header"><button id="store-back" class="back-btn" type="button">Home</button><h1 id="store-title" tabindex="-1">Store</h1></header>
-    <main class="app-main"><p id="store-wallet" class="helper">Flip Credits buy looks only.</p><div id="store-grid" class="picker-grid" role="grid"></div></main>
+    <main class="app-main"><p id="store-wallet" class="helper">Spend Flip Credits on new looks. They don't change how anything flips.</p><div id="store-grid" class="picker-grid" role="grid"></div></main>
   </section>
   <section id="tutorial-screen" class="screen hidden app-shell" data-route="tutorial" aria-labelledby="tutorial-title">
     <header class="app-header"><button id="tutorial-back" class="back-btn" type="button">Home</button><h1 id="tutorial-title" tabindex="-1">Tutorial</h1></header>
-    <main class="app-main"><p>First Flip Tour is the local tutorial. It is Test Data: nothing you flip here earns FXP, Flip Credits, or unlocks.</p><button id="tutorial-start-tour" class="primary-action" type="button">Open First Flip Tour</button></main>
+    <main class="app-main"><p>A short guided walkthrough of flicking and landing. Flips here don't earn rewards.</p><button id="tutorial-start-tour" class="primary-action" type="button">Start the tour</button></main>
   </section>
 
   <section id="setup-screen" class="screen hidden app-shell" data-route="setup" aria-labelledby="setup-title">
     <header class="app-header setup-header">
-      <button id="broadcast-home-back" class="back-btn" type="button">Home</button><h1 id="setup-title" tabindex="-1"><span>Your</span> <span>Lineup</span></h1>
+      <button id="broadcast-home-back" class="back-btn" type="button">Home</button><h1 id="setup-title" tabindex="-1">Players</h1>
       <nav class="utility-nav" aria-label="Game information">
         <button id="stats-btn" type="button"><span aria-hidden="true">▥</span><span>Stats</span></button>
         <button id="achievements-btn" type="button"><span aria-hidden="true">★</span><span>Achievements</span></button>
@@ -69,7 +73,7 @@
     <main class="app-main setup-main">
       <div class="setup-layout">
         <section class="panel players-panel" aria-labelledby="players-heading">
-          <div class="panel-heading"><h2 id="players-heading">Entries</h2><span id="player-count-label" class="context-label">2 players</span></div>
+          <div class="panel-heading"><h2 id="players-heading">Players</h2><span id="player-count-label" class="context-label">2 players</span></div>
           <div id="player-inputs" class="player-input-grid"></div>
           <nav id="setup-roster-pages" class="roster-pages hidden" aria-label="Lineup pages"><button id="setup-roster-prev" type="button">Previous</button><span id="setup-roster-page" role="status" aria-live="polite"></span><button id="setup-roster-next" type="button">Next</button></nav>
           <div class="add-player-row"><button id="add-player-btn" type="button">Add player</button><span id="player-limit-note" class="helper">Up to 16 players</span></div>
@@ -108,7 +112,7 @@
   <section id="char-picker-screen" class="screen hidden app-shell" data-route="customize" aria-labelledby="charpick-title">
     <header class="app-header"><button type="button" id="charpick-close" class="back-btn">Back</button><h1 id="charpick-title" tabindex="-1">Customize P1</h1></header>
     <main class="app-main customize-main">
-      <aside class="customize-showcase" aria-label="Selected Flipper preview"><p class="eyebrow">Your entry</p><canvas id="customize-preview" width="300" height="420" aria-hidden="true"></canvas><h2 id="customize-preview-name"></h2><p id="customize-preview-family"></p><span class="equipment-mark">WFF · Fair-Form Certified</span></aside>
+      <aside class="customize-showcase" aria-label="Selected Flipper preview"><canvas id="customize-preview" width="300" height="420" aria-hidden="true"></canvas><h2 id="customize-preview-name"></h2><p id="customize-preview-family"></p></aside>
       <div class="seat-switcher" aria-label="Choose player"><button type="button" id="customize-prev">Previous player</button><strong id="customize-seat">P1</strong><button type="button" id="customize-next">Next player</button></div>
       <div class="tab-list" role="tablist" aria-label="Customization category"><button type="button" role="tab" id="customize-tab-object" aria-controls="customize-panel" aria-selected="true" data-customize-tab="object">Object</button><button type="button" role="tab" id="customize-tab-variant" aria-controls="customize-panel" aria-selected="false" tabindex="-1" data-customize-tab="variant">Variant</button><button type="button" role="tab" id="customize-tab-cosmetic" aria-controls="customize-panel" aria-selected="false" tabindex="-1" data-customize-tab="cosmetic">Cosmetic</button></div>
       <p id="arena-scope-note" class="scope-note hidden">Applies to everyone</p>
@@ -120,18 +124,18 @@
   <section id="mystery-screen" class="screen hidden centered-screen" role="dialog" aria-modal="true" aria-labelledby="mystery-headline"><div class="mystery-card"><h2 id="mystery-headline">A new flippable appears!</h2><div class="mystery-stage" aria-hidden="true"><div id="mystery-box" class="mystery-box"><div class="mbox-lid"></div><div class="mbox-body">?</div></div><div id="mystery-prize" class="mystery-prize"><canvas id="mystery-art" class="mystery-art" width="300" height="420"></canvas></div></div><div id="mystery-name" class="mystery-name" aria-live="polite"></div><div id="mystery-family"></div><button type="button" id="mystery-go-btn" class="primary-action">Reveal</button><div id="mystery-queue" class="helper"></div></div></section>
 
   <section id="arena-select-screen" class="screen hidden app-shell" data-route="arena-select" aria-labelledby="arena-select-title">
-    <header class="app-header"><button type="button" id="arena-select-back" class="back-btn">Back</button><h1 id="arena-select-title" tabindex="-1">Choose the venue</h1></header>
+    <header class="app-header"><button type="button" id="arena-select-back" class="back-btn">Back</button><h1 id="arena-select-title" tabindex="-1">Pick a table</h1></header>
     <main class="app-main arena-select-main">
-      <section class="arena-showcase" aria-labelledby="arena-preview-name"><canvas id="arena-preview" width="960" height="540" aria-hidden="true"></canvas><div class="arena-caption"><p class="eyebrow">WFC · Match venue</p><h2 id="arena-preview-name">Baseline Table</h2><p>Same rules. A different place to feel the pressure.</p></div></section>
+      <section class="arena-showcase" aria-labelledby="arena-preview-name"><canvas id="arena-preview" width="960" height="540" aria-hidden="true"></canvas><div class="arena-caption"><h2 id="arena-preview-name">Baseline Table</h2></div></section>
       <section class="arena-options" aria-label="Available arenas"><button type="button" id="arena-random" class="secondary-action">Random Unlocked</button><div id="arena-select-grid" class="arena-select-grid" role="group" aria-label="Arena choices"></div></section>
     </main>
-    <footer class="app-footer"><p class="helper">Visual setting only. Competitive physics stay the same.</p><button type="button" id="arena-play" class="primary-action">Play Now · Baseline Table</button></footer>
+    <footer class="app-footer"><p class="helper">Looks only. Every table plays the same.</p><button type="button" id="arena-play" class="primary-action">Play</button></footer>
   </section>
 
   <section id="broadcast-ready" class="screen hidden app-shell" data-route="ready" aria-labelledby="broadcast-ready-title">
-    <header class="app-header"><button id="broadcast-ready-back" class="back-btn" type="button">Arena</button><h1 id="broadcast-ready-title" tabindex="-1">The table is set.</h1><span class="broadcast-kicker">Ready</span></header>
-    <main class="app-main broadcast-ready-main"><section aria-labelledby="broadcast-ready-lineup-title"><p class="broadcast-eyebrow">Your lineup</p><h2 id="broadcast-ready-lineup-title">Every entry counts.</h2><div id="broadcast-ready-lineup" class="broadcast-ready-lineup"></div><nav id="ready-roster-pages" class="roster-pages hidden" aria-label="Ready lineup pages"><button id="ready-roster-prev" type="button">Previous</button><span id="ready-roster-page" role="status" aria-live="polite"></span><button id="ready-roster-next" type="button">Next</button></nav></section><aside class="broadcast-match-ticket"><p class="broadcast-eyebrow">Match card</p><h2 id="broadcast-ready-arena"></h2><dl id="broadcast-ready-details"></dl><p>Take your place. The first flip is yours to make.</p></aside></main>
-    <footer class="app-footer broadcast-ready-footer"><p class="helper">Check your lineup and settings before play.</p><button id="broadcast-ready-play" class="primary-action" type="button">Begin match</button></footer>
+    <header class="app-header"><button id="broadcast-ready-back" class="back-btn" type="button">Arena</button><h1 id="broadcast-ready-title" tabindex="-1">Ready?</h1></header>
+    <main class="app-main broadcast-ready-main"><section aria-labelledby="broadcast-ready-lineup-title"><h2 id="broadcast-ready-lineup-title">Players</h2><div id="broadcast-ready-lineup" class="broadcast-ready-lineup"></div><nav id="ready-roster-pages" class="roster-pages hidden" aria-label="Ready lineup pages"><button id="ready-roster-prev" type="button">Previous</button><span id="ready-roster-page" role="status" aria-live="polite"></span><button id="ready-roster-next" type="button">Next</button></nav></section><aside class="broadcast-match-ticket"><h2 id="broadcast-ready-arena"></h2><dl id="broadcast-ready-details"></dl></aside></main>
+    <footer class="app-footer broadcast-ready-footer"><button id="broadcast-ready-play" class="primary-action" type="button">Start</button></footer>
   </section>
 
   <section id="stats-screen" class="screen hidden app-shell" data-route="stats" aria-labelledby="stats-title">
@@ -188,7 +192,7 @@
 
   <section id="game-over" class="screen hidden app-shell game-over-screen" data-route="game-over" aria-labelledby="game-over-title"><header class="app-header"><h1 id="game-over-title" tabindex="-1">Match complete</h1></header><main class="app-main game-over-main"><div class="result-hero"><div class="trophy-emoji" aria-hidden="true">🏆</div><div id="winner-name"></div><p id="result-summary"></p></div><div id="cup-series" class="series-markers"></div><section id="arena-draft" class="arena-draft hidden" aria-labelledby="arena-draft-title"><h2 id="arena-draft-title">Choose the next heat arena</h2><p>These modifiers affect every player equally.</p><div id="arena-draft-choices" class="arena-draft-choices" role="radiogroup" aria-label="Next heat arena"></div></section><div id="scoreboard" class="result-grid"></div><section aria-labelledby="this-match-title"><h2 id="this-match-title">This match</h2><div id="game-stats"></div></section><div id="award-notices" aria-live="polite"></div><div id="next-order" class="proposal-panel hidden" aria-live="polite"></div></main><footer class="app-footer result-footer"><button id="rotate-order-btn" type="button" class="secondary-action">Rotate first player</button><button id="shuffle-order-btn" type="button" class="secondary-action">Shuffle order</button><button id="swap-teams-btn" type="button" class="secondary-action hidden">Swap teams</button><button id="play-again-btn" type="button" class="primary-action">Same Setup</button><button id="home-btn" type="button" class="secondary-action">Main menu</button></footer></section>
 
-  <div id="version-badge" aria-label="Bottle Game version 1.12">v1.12</div>
-  <script src="js/v111-boot.js?v=112"></script>
+  <div id="version-badge" aria-label="Bottle Game version 1.13">v1.13</div>
+  <script src="js/v111-boot.js?v=113"></script>
 </body>
 </html>

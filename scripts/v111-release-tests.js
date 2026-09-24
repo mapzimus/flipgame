@@ -17,11 +17,11 @@ const gradle = read('android/app/build.gradle');
 const workflow = read('.github/workflows/build-apk.yml');
 const interfaces = require(path.join(root, 'js/v111-interfaces.js'));
 
-assert.equal(interfaces.RELEASE_VERSION, 'v1.12');
-assert.match(index, /id="version-badge"[^>]*aria-label="[^"]*version 1\.12"[^>]*>v1\.12</);
-assert.match(worker, /CACHE_NAME\s*=\s*'flipgame-v1-12'/);
-assert.match(gradle, /versionCode\s+112\b/);
-assert.match(gradle, /versionName\s+'1\.12'/);
+assert.equal(interfaces.RELEASE_VERSION, 'v1.13');
+assert.match(index, /id="version-badge"[^>]*aria-label="[^"]*version 1\.13"[^>]*>v1\.13</);
+assert.match(worker, /CACHE_NAME\s*=\s*'flipgame-v1-13'/);
+assert.match(gradle, /versionCode\s+113\b/);
+assert.match(gradle, /versionName\s+'1\.13'/);
 assert.match(workflow, /assembleRelease/);
 assert.match(workflow, /ANDROID_KEYSTORE_BASE64/);
 assert.match(workflow, /apksigner_bin="\$\(find "\$ANDROID_HOME\/build-tools"/,
@@ -37,7 +37,7 @@ assert.doesNotMatch(workflow, /assembleDebug/);
 for (const [file, html] of [['index.html', index], ['js/v111-boot.js', boot]]) {
   const versions = [...html.matchAll(/\?v=(\d+)/g)].map((match) => match[1]);
   assert.ok(versions.length > 0, `${file} has no versioned local assets`);
-  assert.deepEqual([...new Set(versions)], ['112'], `${file} contains stale or mixed query versions`);
+  assert.deepEqual([...new Set(versions)], ['113'], `${file} contains stale or mixed query versions`);
 }
 
 const precached = new Set([...worker.matchAll(/['"](\.\/[^'"]+)['"]/g)]
@@ -50,7 +50,7 @@ for (const html of [index]) {
     referenced.add(normalizeAsset(value));
   }
 }
-for (const match of boot.matchAll(/['"]((?:css|js)\/[^'"]+\?v=112)['"]/g)) {
+for (const match of boot.matchAll(/['"]((?:css|js)\/[^'"]+\?v=113)['"]/g)) {
   referenced.add(normalizeAsset(match[1]));
 }
 for (const icon of manifest.icons || []) referenced.add(normalizeAsset(icon.src));
@@ -66,13 +66,13 @@ const runtimeModules = fs.readdirSync(path.join(root, 'js'))
   .map((name) => './js/' + name);
 for (const asset of runtimeModules) {
   const indexPath = asset.replace(/^\.\//, '');
-  assert.match(index + '\n' + boot, new RegExp(indexPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\?v=112'),
+  assert.match(index + '\n' + boot, new RegExp(indexPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\?v=113'),
     `atomic boot graph does not load ${asset}`);
   assert.ok(precached.has(asset), `runtime module is not precached: ${asset}`);
 }
 
 const externalScripts = [...index.matchAll(/<script src=["']([^"']+)["']/g)].map((match) => match[1]);
-assert.deepEqual(externalScripts, ['js/v111-boot.js?v=112'],
+assert.deepEqual(externalScripts, ['js/v111-boot.js?v=113'],
   'production HTML must not request mutable runtime scripts before worker verification');
 assert.match(boot, /service-worker\.js\?v=['"]?\s*\+\s*VERSION|WORKER_URL/);
 assert.match(boot, /controlledByThisRelease\(\)/);
@@ -90,4 +90,4 @@ const retiredRasterFiles = fs.existsSync(retiredRasterRoot)
   : [];
 assert.equal(retiredRasterFiles.length, 0, 'retired generated raster skins must not ship');
 
-console.log(`v1.12 release tests passed (${referenced.size} referenced assets, ${runtimeModules.length} runtime modules).`);
+console.log(`v1.13 release tests passed (${referenced.size} referenced assets, ${runtimeModules.length} runtime modules).`);

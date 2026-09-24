@@ -1,15 +1,15 @@
-# Flipgame v1.12 Maintainer Handoff
+# Flipgame v1.13 Maintainer Handoff
 
 Flipgame is a static HTML5 Canvas game built with vanilla JavaScript and a
 vendored Matter.js runtime. The public web build and self-contained Android APK
 are produced from the same `master` commit and visibly identify themselves as
-`v1.12`.
+`v1.13`.
 
 ## Release locations
 
 - Repository: <https://github.com/mapzimus/flipgame>
 - Live game: <https://mapzimus.github.io/flipgame/>
-- APK: the immutable `v1.12` GitHub release and moving `apk-latest` alias
+- APK: the immutable `v1.13` GitHub release and moving `apk-latest` alias
 
 ## Local verification
 
@@ -20,7 +20,7 @@ python -m http.server 5174
 ```
 
 Then open <http://localhost:5174/>. The service worker deliberately does not
-register on localhost, and the badge reads `v1.12 · DEV`.
+register on localhost, and the badge reads `v1.13 · DEV`.
 
 Run all automated qualification suites with:
 
@@ -73,7 +73,7 @@ for history only.
 - Preserve the persistent Android release key. v1.11 established the signing
   identity used for all future in-place APK upgrades.
 
-## Bumping the release (e.g. v1.12 → v1.13)
+## Bumping the release (e.g. v1.13 → v1.14)
 
 CI refuses to publish a commit under a version tag that already exists, so every
 release after a tagged one needs a bump. Change all of these together:

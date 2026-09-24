@@ -75,7 +75,7 @@ async function scenario(){
     click('start-btn');inspect('arena-select-screen');click('arena-play');inspect('broadcast-ready');
     check(d.querySelectorAll('.broadcast-ready-entry').length===16,'Ready retains sixteen entries');
     check(visible('.broadcast-ready-entry').length===8,'Ready displays one page');
-    click('ready-roster-next');check(visible('.broadcast-ready-entry')[0].textContent.includes('Entry 09'),'Ready page two contains ninth seat');
+    click('ready-roster-next');check(visible('.broadcast-ready-entry')[0].textContent.includes('P9'),'Ready page two contains ninth seat');
     check(d.getElementById('broadcast-ready-details').textContent.includes('16'),'Ready summary is full roster, not visible page');
     if(width>=1100){const pager=d.getElementById('ready-roster-pages').getBoundingClientRect();check(pager.bottom<=d.querySelector('#broadcast-ready .app-footer').getBoundingClientRect().top+1,`Ready pager clipped ${width}`);}
     click('broadcast-ready-back');click('arena-select-back');click('broadcast-home-back');

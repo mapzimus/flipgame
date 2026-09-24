@@ -30,14 +30,14 @@ function listen(server) {
   const canonical = new Map([
     ['css/style.css', Buffer.from('body{color:#fff}')],
     ['icons/icon.svg', Buffer.from('<svg/>')],
-    ['index.html', Buffer.from('<div id="version-badge">v1.12</div>')],
+    ['index.html', Buffer.from('<div id="version-badge">v1.13</div>')],
     ['js/app.js', Buffer.from('window.ready=true;')],
     ['manifest.json', Buffer.from('{"start_url":"./"}')],
-    ['service-worker.js', Buffer.from("const CACHE_NAME='flipgame-v1-12';")],
+    ['service-worker.js', Buffer.from("const CACHE_NAME='flipgame-v1-13';")],
   ]);
   const metadata = {
     schema: 'MapzimusVendorSnapshotV1', snapshotVersion: 1,
-    upstream: { repository: 'mapzimus/flipgame', sourceSha: sha, releaseVersion: 'v1.12' },
+    upstream: { repository: 'mapzimus/flipgame', sourceSha: sha, releaseVersion: 'v1.13' },
     runtimeFiles, contentSha256: runtimeDigest(runtimeFiles, canonical),
   };
   let corruptSecondOrigin = false;
@@ -52,7 +52,7 @@ function listen(server) {
     }
     if (!relative) {
       if (origin === 'b' && injectBeaconSecondOrigin) {
-        response.end(Buffer.from('<div id="version-badge">v1.12</div><script src="https://static.cloudflareinsights.com/beacon.min.js"></script>'));
+        response.end(Buffer.from('<div id="version-badge">v1.13</div><script src="https://static.cloudflareinsights.com/beacon.min.js"></script>'));
         return;
       }
       response.end(canonical.get('index.html')); return;
