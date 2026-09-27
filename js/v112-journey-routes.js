@@ -33,7 +33,7 @@
     const listeners=new Set();let host=null,detach=null,pending=null,busy=false;
     let state={route:'closed',title:'Pressure Signal',items:[],message:null};
     function snapshot(){return frozen({...clone(state),busy});}
-    function emit(){const view=snapshot();listeners.forEach(fn=>{try{fn(view);}catch(_){}});return view;}
+    function emit(){const view=snapshot();listeners.forEach(fn=>{try{fn(view);}catch(error){if(typeof options.onRenderError==='function')options.onRenderError(error,view);}});return view;}
     function connect(methods){
       const next=options.getHost();
       if(!next||next.schema!=='FlipgameV112JourneyHostV1'||methods.some(key=>typeof next[key]!=='function')){
@@ -57,15 +57,20 @@
       }
     }
     async function perform(fn){
-      if(busy)return snapshot();busy=true;emit();
+      if(busy)return emit();busy=true;emit();
       try{await fn();}catch(error){state={...state,route:state.route==='closed'?'unavailable':state.route,message:error.message||'Activity unavailable.'};}
       finally{busy=false;emit();}return snapshot();
     }
     function humans(count){const rows=options.getHumans(count);if(!Array.isArray(rows)||rows.length!==count)throw new Error('Choose '+count+' human player'+(count===1?'':'s')+' in Setup first.');return clone(rows);}
     async function release(){if(pending){const handle=pending;await host.cancelPreparedStory(handle);pending=null;}}
-    function open(route){return perform(async()=>{
+    function open(route){
+      // Show the screen before any work runs, so a slow or stuck load can
+      // never leave both Home and this screen hidden.
+      if(state.route!=='playing'&&state.route!=='pending-result'&&!busy)
+        state={route,title:route==='rivals'?'Rival Board':'Pressure Signal',items:[],message:'Loading…'};
+      return perform(async()=>{
       if(state.route==='playing'||state.route==='pending-result')throw new Error('Finish or leave the active match first.');
-      state={route,title:route==='rivals'?'Rival Board':'Pressure Signal',items:[],message:null};
+      state={route,title:route==='rivals'?'Rival Board':'Pressure Signal',items:[],message:'Loading…'};
       connect(['storyViews','prepareStory','startPreparedStory','cancelPreparedStory','activitySnapshot','retryFinalization']);
       await release();const views=host.storyViews();
       state.items=clone(route==='rivals'?views.rivalBoard.entries:views.hub.chapters);
@@ -121,8 +126,14 @@
       continueTour,close,retry,refresh});
   }
   function mount(options){
-    const d=options.document,controller=create(options),screen=d.getElementById('journey-screen');
+    const d=options.document,screen=d.getElementById('journey-screen');
     const title=d.getElementById('journey-title'),body=d.getElementById('journey-body'),message=d.getElementById('journey-message');
+    const controller=create(Object.assign({},options,{onRenderError(error,view){
+      if(view.route==='closed'||view.route==='playing')return;
+      screen.classList.remove('hidden');
+      message.textContent='This screen could not load: '+(error&&error.message?error.message:String(error))+'. Go Home and try again.';
+      d.getElementById('journey-back').disabled=false;
+    }}));
     function node(tag,text,className){const element=d.createElement(tag);if(text!=null)element.textContent=text;if(className)element.className=className;return element;}
     function button(label,action,disabled){const b=node('button',label,'secondary-action');b.type='button';b.disabled=!!disabled;b.addEventListener('click',action);return b;}
     controller.subscribe(view=>{

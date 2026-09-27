@@ -73,14 +73,14 @@ async function testDevelopmentBootOrder() {
   });
   vm.runInContext(read('js/v111-boot.js'), context, { filename: 'js/v111-boot.js' });
   assert.equal(await window.__FLIPGAME_BOOT_PROMISE__, true);
-  const cpuIndex = scripts.indexOf('js/v112-cpu.js?v=113');
-  const physicsIndex = scripts.indexOf('js/physics.js?v=113');
-  const mainIndex = scripts.indexOf('js/main.js?v=113');
+  const cpuIndex = scripts.indexOf('js/v112-cpu.js?v=114');
+  const physicsIndex = scripts.indexOf('js/physics.js?v=114');
+  const mainIndex = scripts.indexOf('js/main.js?v=114');
   assert.ok(physicsIndex >= 0 && cpuIndex > physicsIndex && mainIndex > cpuIndex,
     `CPU module must load after Physics and before main: ${scripts.join(', ')}`);
-  assert.equal(window.__FLIPGAME_BOOT_VERSION__, 'v1.13',
+  assert.equal(window.__FLIPGAME_BOOT_VERSION__, 'v1.14',
     'staged development wiring must not change release identity');
-  assert.deepEqual(styles, ['css/style.css?v=113', 'css/v112-broadcast.css?v=113']);
+  assert.deepEqual(styles, ['css/style.css?v=114', 'css/v112-broadcast.css?v=114']);
 }
 
 function cpuHarness({ alienSkin = false, predictedEvent = null } = {}) {
