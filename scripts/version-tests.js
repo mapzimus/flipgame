@@ -16,16 +16,16 @@ const badgeMatch = index.match(/id="version-badge"[^>]*>(v\d+\.\d+)</);
 assert.ok(cacheMatch, 'service-worker cache version is missing');
 assert.ok(badgeMatch, 'visible version badge is missing');
 
-assert.equal(publicVersion, 'v1.13');
+assert.equal(publicVersion, 'v1.14');
 assert.equal(badgeMatch[1], publicVersion, 'visible badge and release metadata differ');
 assert.equal(`v${cacheMatch[1]}.${cacheMatch[2]}`, publicVersion,
   'service-worker cache and public versions differ');
-assert.ok(index.includes('version 1.13'), 'version badge accessibility label is stale');
+assert.ok(index.includes('version 1.14'), 'version badge accessibility label is stale');
 
 for (const [file, html] of [['index.html', index]]) {
   const versions = [...html.matchAll(/\?v=(\d+)/g)].map((match) => match[1]);
   assert.ok(versions.length > 0, `${file} has no versioned assets`);
-  assert.deepEqual([...new Set(versions)], ['113'], `${file} has mixed asset build identifiers`);
+  assert.deepEqual([...new Set(versions)], ['114'], `${file} has mixed asset build identifiers`);
 }
 
-console.log(`Version consistency tests passed (${publicVersion}, build 113).`);
+console.log(`Version consistency tests passed (${publicVersion}, build 114).`);
