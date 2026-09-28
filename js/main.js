@@ -226,8 +226,8 @@
   if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
     const versionBadge = document.getElementById('version-badge');
     if (versionBadge) {
-      versionBadge.textContent = 'v1.14 · DEV';
-      versionBadge.setAttribute('aria-label', 'Flipgame v1.14 development preview, not released');
+      versionBadge.textContent = 'v1.15 · DEV';
+      versionBadge.setAttribute('aria-label', 'Flipgame v1.15 development preview, not released');
     }
   }
   function characterList() {
@@ -2974,7 +2974,7 @@
     const flightMs = firstContactMs != null && settleMs != null
       ? Math.max(0, Number(firstContactMs) + Number(settleMs)) : measuredFlightMs;
     const record = {
-      releaseVersion: v111Runtime?.releaseVersion || 'v1.14',
+      releaseVersion: v111Runtime?.releaseVersion || 'v1.15',
       matchId: currentMatchId,
       heat: Number(modeState.heatNumber ?? modeState.heatIndex ?? 0) || null,
       round: Number(modeState.roundNumber ?? modeState.tiebreakRound ?? 0) || null,
@@ -3592,7 +3592,7 @@
         playerIds: seats.map((seat) => participantRecords[seat]?.playerId).filter(Boolean),
       })) : [];
       const matchRecord = {
-        releaseVersion: v111Runtime?.releaseVersion || 'v1.14',
+        releaseVersion: v111Runtime?.releaseVersion || 'v1.15',
         matchId: currentMatchId,
         startedAt: currentMatchStartedAt,
         durationMs: Math.max(0, Date.now() - currentMatchStartedAt),
@@ -4553,7 +4553,7 @@
   document.getElementById('save-export')?.addEventListener('click', () => {
     const backup = window.FlipgameV111SaveBackup;
     if (!backup?.serialize) return announce('Game save backup is unavailable.', true);
-    const releaseVersion = window.FlipgameV111Interfaces?.RELEASE_VERSION || 'v1.14';
+    const releaseVersion = window.FlipgameV111Interfaces?.RELEASE_VERSION || 'v1.15';
     const value = backup.serialize(gameSavePayload(), { releaseVersion });
     downloadText(`flipgame-${releaseVersion}.flipgame-save`, value, 'application/octet-stream');
   });
