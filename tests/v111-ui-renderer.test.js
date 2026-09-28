@@ -48,8 +48,8 @@ test('DOM smoke: complete route shell and accessibility regions are present', ()
 
 test('loader order installs architecture, safety, modes, mirror, and platform before main without Online', () => {
   const htmlSources = [...html.matchAll(/<script src="([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(htmlSources, ['js/v111-boot.js?v=114'], 'index must expose only the release-unique boot script');
-  const sources = [...boot.matchAll(/['"](js\/[^'"]+\.js\?v=114)['"]/g)]
+  assert.deepEqual(htmlSources, ['js/v111-boot.js?v=115'], 'index must expose only the release-unique boot script');
+  const sources = [...boot.matchAll(/['"](js\/[^'"]+\.js\?v=115)['"]/g)]
     .map((match) => match[1].replace(/\?.*$/, ''));
   const position = (name) => sources.indexOf(`js/${name}`);
   for (const name of [
@@ -68,7 +68,7 @@ test('loader order installs architecture, safety, modes, mirror, and platform be
   assert.ok(position('v111-mirror-match.js') < position('main.js'));
   assert.ok(position('v111-platform.js') < position('main.js'));
   assert.ok(sources.every((source) => source !== 'js/v111.js'));
-  assert.match(html + boot, /\?v=114/);
+  assert.match(html + boot, /\?v=115/);
   assert.doesNotMatch(html + boot, /\?v=110/);
   assert.match(boot, /service-worker\.js\?v=['"]?\s*\+\s*VERSION|WORKER_URL/);
   assert.match(boot, /await waitForReleaseController\(registration\)/);
