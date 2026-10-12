@@ -106,6 +106,7 @@ function cpuHarness({ alienSkin = false, predictedEvent = null } = {}) {
     innerHeight: 720,
     Skins: { physicsFor: () => ({ floorResolve: alienSkin }) },
     FlipgameV112Cpu: {
+      difficultyForTier: require('../js/v112-cpu.js').difficultyForTier,
       createLaunch(value) {
         calls.intents.push(value);
         return { seed: value.seed, vx: 612, vy: -1840, inputFeelMode: 'standard' };
@@ -119,6 +120,7 @@ function cpuHarness({ alienSkin = false, predictedEvent = null } = {}) {
     game,
     GAME_STATES: { TURN_START: 'TURN_START', ON_FIRE: 'ON_FIRE' },
     currentMatchOptions: {},
+    currentMatchDefs: [],
     BASE_SKIN: 'bottle',
     isMrHoweName: () => false,
     onFlick(vx, vy, source) { calls.releases.push({ vx, vy, source }); },
@@ -135,6 +137,13 @@ function testLiveCpuIntentAndSeedBinding() {
   assert.equal(normal.calls.intents.length, 1);
   assert.equal(normal.calls.intents[0].physicsModeId, 'normal');
   assert.equal(normal.calls.intents[0].target, null);
+  assert.equal(normal.calls.intents[0].difficulty, 'hard', 'Free Play uses the configured difficulty');
+  for (const [tier, difficulty] of [[1,'easy'],[4,'medium'],[8,'hard']]) {
+    const story = cpuHarness();
+    story.context.currentMatchDefs[2] = { cpuTier: tier };
+    story.context.aiFlick();
+    assert.equal(story.calls.intents[0].difficulty, difficulty, 'Story retains the authored rival tier');
+  }
   assert.equal(normal.calls.releases[0].source.inputFeelMode, 'standard');
   assert.equal(normal.calls.releases[0].source.seed, normal.calls.intents[0].seed);
   assert.equal(normal.calls.eventSeed, normal.calls.intents[0].seed,

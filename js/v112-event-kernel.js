@@ -1202,7 +1202,7 @@
       settled: booleanField },
     rewind: { replayCount: integerField(0, 1), correctiveImpulseApplied: booleanField },
     plinko: { objectColliderRef: stringField, slotSensorRef: nullableStringField,
-      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(10000, 30000),
+      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(10000, 32400),
       settled: booleanField, completionKind: stringField,
       recoveryStartedMs: nullableIntegerField(22000, 30000),
       recoveryImpulseCount: integerField(0, 1000) },
@@ -1231,10 +1231,21 @@
       if (values.slotSensorRef != null && values.objectColliderRef === values.slotSensorRef) {
         throw new Error('Plinko object and slot sensor must differ');
       }
-      if (['clean', 'recovered', 'no-contest'].indexOf(values.completionKind) < 0) {
-        throw new Error('Plinko completionKind is invalid');
+      if (['clean', 'recovered', 'no-contest', 'engine-sensor'].indexOf(values.completionKind) < 0) {
+      throw new Error('Plinko completionKind is invalid');
       }
-      if (values.completionKind === 'clean') {
+      if (values.completionKind === 'engine-sensor') {
+        // The shipping Matter host includes its 2.4-second spring transport
+        // and can settle later than the new runtime's 10-15 second contract.
+        // Preserve the measured time and real sensor result, never clamp it
+        // into a fictional clean/recovered result.
+        if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||
+            (values.recoveryImpulseCount === 0 && values.recoveryStartedMs != null) ||
+            (values.recoveryImpulseCount > 0 && (values.recoveryStartedMs == null ||
+              values.recoveryStartedMs > values.dropDurationMs))) {
+          throw new Error('Live engine completion requires settled sensor and recovery provenance');
+        }
+      } else if (values.completionKind === 'clean') {
         if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||
             values.dropDurationMs < PLINKO_TRANSPORT.cleanDropMinMs ||
             values.dropDurationMs > PLINKO_TRANSPORT.cleanDropMaxMs ||

@@ -15,7 +15,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   let driverSerial = 0;
-  const SUPPORTED_EVENT_ADAPTERS = Object.freeze({ plinko: true });
+  const EVENT_IDS = new Set(['rainbow-corkscrew','half-full','power-launch','fizz-jet','golden-flip','bouncy-bottle','earthquake','moon-gravity','ice-slide','alien-invasion','gravity-slam','trampoline','wind-tunnel','shrink-ray','portal-pair','tether-swing','mitosis','double-flip','ceiling-flip','meteor-shower','magnet','heart-rush','black-hole','boomerang','roulette-table','rewind','plinko','mirror-match','cap-toss','life-drain']);
   function create(physics) {
     if (!physics || typeof physics.getObservation !== 'function' ||
         typeof physics.subscribeObservations !== 'function') {
@@ -48,8 +48,8 @@
         warning = null;
       }
       if (!active || active.sequence !== observation.launchSequence || active.resolved) return;
-      const eventId = observation.eventId || null;
-      let unsupportedReason = eventId && !SUPPORTED_EVENT_ADAPTERS[eventId]
+      const eventId = observation.eventId || (observation.nativeAlien ? 'alien-invasion' : null);
+      let unsupportedReason = eventId && (!EVENT_IDS.has(eventId) || (observation.landing && !observation.eventEvidence))
         ? 'event-adapter-required' : null;
       if (observation.landing && !eventId && observation.firstContactMs == null &&
           !observation.landing.airborneTerminalEvidence) {
@@ -60,6 +60,9 @@
         launchId: active.launchId, atMs: observation.atMs, qualified: true,
         manual: active.manual, grounded: observation.grounded,
         phase: observation.phase, eventId,
+        seed: observation.seed,
+        nativeAlien: observation.nativeAlien === true,
+        eventEvidence: observation.eventEvidence || null,
         landing: observation.landing,
         supported: !unsupportedReason, unsupportedReason,
       });

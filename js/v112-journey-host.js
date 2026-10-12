@@ -109,6 +109,8 @@
         return copy({
           kind: 'story',
           status: status,
+          result: status === 'settled' && state.session.resolution
+            ? state.session.resolution.presentation : null,
           message: status === 'finalizing' ? 'Saving the match result…'
             : (status === 'retryable' ? (state.warning || 'Match saved pending reward retry')
               : (status === 'settled' ? 'Result saved. Your checkpoint is shown below.' : null)),
