@@ -1046,6 +1046,17 @@
     document.getElementById('reward-report-progress').value = report.levelProgress.ratio;
     document.getElementById('reward-report-summary').textContent =
       `Result saved. Earned ${report.fxpAwarded} FXP and ${report.fcAwarded} Flip Credits. Flip Level ${report.afterLevel}.`;
+    const metrics = document.getElementById('reward-report-performance'); metrics.replaceChildren();
+    if (report.performance) {
+      const p = report.performance;
+      const summary = document.createElement('summary'); summary.textContent = 'What counted toward performance?';
+      const text = document.createElement('p');
+      text.textContent = `${p.eligibleShots} eligible manual flips. ` + (p.confidence === 0
+        ? 'This sample stays neutral; fewer than four eligible flips cannot change the multiplier.'
+        : 'The last 24 eligible flips measure make rate for the selected feel, cap/perfect landings, consecutive ordinary makes, at-risk flips, and shared team contribution. Events and Test Data do not improve this score.');
+      metrics.append(summary, text);
+      metrics.open = false;
+    }
     const total = document.getElementById('reward-report-total'), button = document.getElementById('reward-report-continue');
     finishReportTally = () => {
       if (reportAnimation) cancelAnimationFrame(reportAnimation); reportAnimation = null;
@@ -1215,6 +1226,18 @@
     saveSetup();
   });
   let labLastSuccessful = null;
+  let tourLastSuccessful = null, tourShowGhost = false, tourMisses = 0, tourAdvice = '';
+  const tourHelp = document.getElementById('tour-help');
+  const tourGhostButton = document.getElementById('tour-ghost-btn');
+  function tourGhostForTable() {
+    return tourShowGhost && tourLastSuccessful && tourLastSuccessful.skin === game.currentPlayer()?.skin &&
+      tourLastSuccessful.width === canvas.width && tourLastSuccessful.height === canvas.height ? tourLastSuccessful : null;
+  }
+  tourGhostButton.addEventListener('click', () => {
+    tourShowGhost = !tourShowGhost;
+    tourGhostButton.setAttribute('aria-pressed', String(tourShowGhost));
+    tourGhostButton.textContent = tourShowGhost ? 'Hide my successful path' : 'Show my successful path';
+  });
   let activeLabTrajectory = [];
   let labTrajectoryStartedAt = 0;
   let activeLaunchInput = null;
@@ -1229,7 +1252,7 @@
       (Number.isFinite(settle) ? Math.max(0, 1000 - settle / 10) : 0);
   }
   function captureLabTrajectoryPoint(force = false) {
-    if (!currentMatchOptions.lab || (!evaluating && !force)) return;
+    if ((!currentMatchOptions.lab && !currentMatchOptions.tour) || (!evaluating && !force)) return;
     const body = Physics.getBottle && Physics.getBottle();
     const x = Number(body?.position?.x);
     const y = Number(body?.position?.y);
@@ -1744,11 +1767,16 @@
               ? spec.tour.request.roster[0] : { displayName: 'Player', flipperId: 'bottle' };
             const skin = (attempt && attempt.flipperId) || human.flipperId || BASE_SKIN;
             const eventId = attempt && attempt.eventSelection && attempt.eventSelection.eventId;
+            if (spec.tour?.state?.attemptNumber === 0) {
+              tourLastSuccessful = null; tourShowGhost = false; tourMisses = 0; tourAdvice = '';
+            }
             startGame(rosterToLiveDefs([{
               id: human.id || 'tour-human', displayName: human.displayName || 'Player',
               flipperId: skin, variantId: human.variantId, cosmeticId: human.cosmeticId, human: true,
             }]), 1, {
               practice: true, testData: true, reservedSession: true, tour: true,
+              tourInstruction: spec.tour?.step?.instruction || 'Flick upward, then let the object settle.',
+              tourSeed: attempt?.turnSeed,
               forced: !!eventId, labEventId: eventId || null, startingLives: 10,
             });
             return;
@@ -1765,6 +1793,7 @@
             visualArenaId: (request.rulesOptions && request.rulesOptions.arenaId)
               || (request.activityContext && request.activityContext.arenaId),
             reservedSession: true, journey: 'story',
+            storyCard: spec.card || null,
             eventsDisabled: !!(request.rulesOptions && request.rulesOptions.events
               && request.rulesOptions.events.enabled === false),
           });
@@ -2476,6 +2505,20 @@
     bridgeLandingInfo = landingInfo || null;
     if (currentMatchOptions.tour && journeyHost) {
       const pose = result === 'MAKE' ? (meta.onCap ? 'cap' : 'upright') : 'miss';
+      captureLabTrajectoryPoint(true);
+      if (!currentMatchOptions.labEventId && result === 'MAKE') {
+        const body = Physics.getBottle();
+        tourLastSuccessful = { path: activeLabTrajectory.map(point => ({ ...point })),
+          x: body.position.x, y: body.position.y, angle: body.angle,
+          skin: game.currentPlayer()?.skin, width: canvas.width, height: canvas.height };
+        tourMisses = 0;
+      } else if (result === 'MISS') tourMisses++;
+      const reason = String(landingInfo?.reason || '');
+      const advice = /rotation|not-flipped|under/.test(reason) ? 'Try a faster upward flick for a full turn.'
+        : /off-plane|off-table|out-of|wall/.test(reason) ? 'Aim closer to straight up to stay over the table.'
+        : 'Try a little less power and let the bottle settle.';
+      tourAdvice = result === 'MISS' ? advice : '';
+      document.getElementById('tour-feedback').textContent = result === 'MAKE' ? 'That landing counted. Your path is available for comparison.' : advice;
       try {
         journeyHost.resolveTourLanding({ phase: 'resolved', result, pose });
       } catch (error) { console.warn('Tour landing was not accepted', error); }
@@ -2597,6 +2640,20 @@
       if (prepared.options && typeof prepared.options === 'object') opts = prepared.options;
     }
     currentMatchOptions = Object.assign({}, opts || {});
+    const storyContext = document.getElementById('story-table-context');
+    storyContext.hidden = currentMatchOptions.journey !== 'story';
+    if (!storyContext.hidden) {
+      const card = currentMatchOptions.storyCard;
+      storyContext.textContent = card ? `${card.actLabel} · ${card.chapterTitle} · ${card.headline}` : 'Story match';
+    }
+    tourHelp.hidden = !currentMatchOptions.tour;
+    if (currentMatchOptions.tour) {
+      document.getElementById('tour-instruction').textContent = currentMatchOptions.tourInstruction;
+      document.getElementById('tour-feedback').textContent = tourAdvice || 'Flick upward, or focus the table and press Space. Arrows adjust power and aim.';
+      tourGhostButton.hidden = !tourLastSuccessful || tourMisses < 2 || tourLastSuccessful.skin !== defs[0]?.skin;
+      tourGhostButton.setAttribute('aria-pressed', String(tourShowGhost));
+      tourGhostButton.textContent = tourShowGhost ? 'Hide my successful path' : 'Show my successful path';
+    }
     menuBtn.textContent = currentMatchOptions.tour ? 'Skip tour' : '☰';
     menuBtn.setAttribute('aria-label', currentMatchOptions.tour ? 'Skip tour' : 'Main menu');
     menuBtn.classList.toggle('tour-skip', !!currentMatchOptions.tour);
@@ -2780,7 +2837,7 @@
     // per sub-step so verdicts + settle/cap windows behave identically at any speed.
     for (let s = 0; s < speed; s++) {
       Physics.step(stepDt);
-      if (currentMatchOptions.lab && evaluating) captureLabTrajectoryPoint();
+      if ((currentMatchOptions.lab || currentMatchOptions.tour) && evaluating) captureLabTrajectoryPoint();
       if (evaluating) {
         const result = Physics.checkLanding();
         if (result) {
@@ -2887,7 +2944,8 @@
       cosmeticId:  currentMatchDefs[game.currentPlayerIndex]?.cosmeticId || null,
       visualArenaId: currentMatchOptions.visualArenaId || null,
       playerName:  activeName || 'Player',
-      successfulShotGhost: currentMatchOptions.lab && currentMatchOptions.showSuccessfulGhost ? labLastSuccessful : null,
+      successfulShotGhost: currentMatchOptions.tour ? tourGhostForTable() : currentMatchOptions.lab && currentMatchOptions.showSuccessfulGhost ? labLastSuccessful : null,
+      gestureGuide: currentMatchOptions.tour && !evaluating && !tourGhostForTable(),
       intense:     intenseTurn,
       suddenDeath: game.sdLevelForNextFlip ? game.sdLevelForNextFlip() > 0 : game.inSuddenDeath(),
       awaitingFlick: game.state === GAME_STATES.TURN_START || game.state === GAME_STATES.ON_FIRE,
@@ -4065,7 +4123,7 @@
       Physics.resetBottle();
       prepareTurnArena();
     }
-    if (currentMatchOptions.lab) {
+    if (currentMatchOptions.lab || currentMatchOptions.tour) {
       activeLabTrajectory = [];
       labTrajectoryStartedAt = performance.now();
       captureLabTrajectoryPoint(true);
@@ -4293,8 +4351,10 @@
     const copied = mirrorLaunch(claimMirrorCopy(), vx, vy, undefined);
     vx = copied.vx;
     vy = copied.vy;
-    const labSeed = currentMatchOptions.lab && currentMatchOptions.labSeed != null
-      ? Number(currentMatchOptions.labSeed) >>> 0 : undefined;
+    const labSeed = currentMatchOptions.tour && currentMatchOptions.tourSeed != null
+      ? Number(currentMatchOptions.tourSeed) >>> 0
+      : currentMatchOptions.lab && currentMatchOptions.labSeed != null
+        ? Number(currentMatchOptions.labSeed) >>> 0 : undefined;
     const launchSeed = copied.claim ? copied.seed : (cpuPolicy ? cpuPolicy.seed : labSeed);
     launchFlick(vx, vy, launchSeed, copied.claim, cpuPolicy);
   }

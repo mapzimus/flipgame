@@ -61,6 +61,7 @@
         manual: active.manual, grounded: observation.grounded,
         phase: observation.phase, eventId,
         seed: observation.seed,
+        feel: observation.feel,
         nativeAlien: observation.nativeAlien === true,
         eventEvidence: observation.eventEvidence || null,
         landing: observation.landing,

@@ -30,6 +30,7 @@ const Physics = (() => {
       atMs: simElapsedMs, phase: landingPhase,
       grounded: !!(wasAirborne && bottle && touchingLandingPlane()),
       wasAirborne, hasFlipped,
+      feel: feelMode,
       eventId: activeEventDefinition ? activeEventDefinition.id :
         (lastFlickInfo && lastFlickInfo.eventId) || null,
       seed: lastFlickInfo && lastFlickInfo.seed,
@@ -40,6 +41,7 @@ const Physics = (() => {
         result: observedLanding.result,
         pose: observedLanding.onCap ? 'cap' : observedLanding.result === 'MAKE' ? 'upright' : 'miss',
         reason: observedLanding.reason,
+        perfect: observedLanding.perfect === true,
         stableForMs: measuredStableMs,
         deadlineEvidence: observationDeadlineEvidence,
         airborneTerminalEvidence: observationAirborneEvidence,
