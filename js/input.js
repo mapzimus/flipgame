@@ -20,6 +20,7 @@ const Input = (() => {
   let rect = null;                             // canvas rect, captured at gesture start
   let enabled = false;
   let activePointerId = null;                  // the one pointer that owns the in-flight flick
+  let keyboardSpeed = 2100, keyboardSide = 0;
 
   function eventTime(e) {
     const stamp = Number(e && e.timeStamp);
@@ -103,9 +104,22 @@ const Input = (() => {
     canvas.addEventListener('pointerup',    onUp);
     canvas.addEventListener('pointercancel', onCancel);
     canvas.addEventListener('lostpointercapture', onLostPointerCapture);
+    canvas.tabIndex = 0;
+    canvas.setAttribute('aria-label', 'Flip table. Arrow up and down adjust power. Left and right adjust sideways aim. Space releases a flip.');
+    canvas.addEventListener('keydown', onKeyboard);
   }
 
   function enable()  { enabled = true;  }
+  function onKeyboard(e) {
+    if (!enabled || dragging || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) return;
+    e.preventDefault();
+    if (e.key === 'ArrowUp') keyboardSpeed = Math.min(3600, keyboardSpeed + 150);
+    else if (e.key === 'ArrowDown') keyboardSpeed = Math.max(600, keyboardSpeed - 150);
+    else if (e.key === 'ArrowLeft') keyboardSide = Math.max(-1800, keyboardSide - 200);
+    else if (e.key === 'ArrowRight') keyboardSide = Math.min(1800, keyboardSide + 200);
+    else if (!e.repeat) onFlick(keyboardSide, -keyboardSpeed, 'keyboard');
+  }
   function disable() {
     enabled = false;
     dragging = false;

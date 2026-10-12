@@ -67,6 +67,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   // actually observed. No navigator estimate can qualify a lane.
   var battleDisplay = { width: 0, verifiedContacts: 1 };
   var serial = 0;
+  var lastRewardReport = null;
   var physicsDriver = null;
   var detachPhysics = null;
   var storyRuntime = null;
@@ -98,6 +99,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     return freeze({ schema: 'FlipgameBrowserSnapshotV1', sourceIdentity: sourceIdentity,
       ready: !closed, writer: progression.writerStatus(), warning: warning,
       profile: progression.snapshot(), pendingReveals: progression.pendingReveals(),
+      levelProgress: Economy.levelProgress(progression.snapshot().fxp),
+      rewardReport: copy(lastRewardReport),
       battle: battleSnapshot(),
       story: storyReservation ? { handle: storyReservation.handle, matchId: storyReservation.request.matchId,
         status: storyReservation.status } : null,
@@ -231,6 +234,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       practiceScore: { flips: 0, makes: 0, misses: 0, caps: 0 },
       flip: null, seenLaunchIds: new Set(), ordinaryShots: [], manualHumanFlips: 0,
       resolution: null, lastLanding: null, lastRulesOutcome: null, finalPromise: null,
+      rewardBaseline: progression.snapshot(),
       startedAt: Date.now(), totalFlips: 0, testData: progression.snapshot().ownerTestMode === true });
     warning = null;
     emit('session-started');
@@ -282,6 +286,25 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     coordinator.start(request);
     return installSession(request, coordinator);
   }
+  function savedRewardReport(current, result) {
+    var before = current.rewardBaseline, after = progression.snapshot();
+    if (!before || current.testData || after.ownerTestMode) return null;
+    var fxp = Math.max(0, after.fxp - before.fxp), fc = Math.max(0, after.fcBalance - before.fcBalance);
+    if (!fxp && !fc) return null;
+    var rewards = result.presentation && result.presentation.rewards;
+    var commands = result.transaction && result.transaction.commandResults || [];
+    var match = rewards || commands.map(function (entry) { return entry.result || entry; })
+      .find(function (entry) { return entry.ordinaryReward || (entry.reward && entry.reward.breakdown); });
+    if (match && match.ordinaryReward) match = { fxpAwarded: match.ordinaryReward.fxp, reward: match.ordinaryReward };
+    return freeze({ schema: 'SavedRewardReportV1', matchId: current.request.matchId,
+      activityId: current.request.activityId, fxpAwarded: fxp, fcAwarded: fc,
+      beforeLevel: before.flipLevel, afterLevel: after.flipLevel,
+      beforeFxp: before.fxp, afterFxp: after.fxp,
+      levelProgress: Economy.levelProgress(after.fxp),
+      matchFxp: match ? match.fxpAwarded : null,
+      breakdown: match && match.reward ? copy(match.reward.breakdown) : null,
+      multiplier: match && match.reward ? match.reward.performanceMultiplier : null });
+  }
   function finish() {
     if (!session || session.practice) return Promise.reject(new Error('No terminal match to finish'));
     var current = session;
@@ -293,6 +316,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var outcome = current.rules.toMatchOutcome({ telemetry: telemetry });
     current.finalPromise = current.owner.finalize(outcome).then(function (result) {
       current.resolution = result; current.status = 'completed'; current.finalPromise = null;
+      lastRewardReport = savedRewardReport(current, result);
       if (storyReservation && storyReservation.request.matchId === current.request.matchId) {
         storyReservation.status = 'completed';
       }
@@ -454,6 +478,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (current.status === 'completed') return Promise.resolve(current.resolution);
     if (current.finalPromise) return current.finalPromise;
     if (!current.state || current.state.phase !== 'complete') return Promise.reject(new Error('The Battle is still running'));
+    current.rewardBaseline = current.rewardBaseline || progression.snapshot();
     current.status = 'finalizing';
     var manual = battleFlips(current.state);
     current.manualHumanFlips = manual.length;
@@ -462,6 +487,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       telemetry: rewardInput(current, Battle.toMatchOutcomeV2(current.state)) });
     current.finalPromise = current.owner.finalize(outcome).then(function (result) {
       current.resolution = result; current.status = 'completed'; current.finalPromise = null;
+      lastRewardReport = savedRewardReport(current, result);
       diagnostics.recordMatch({ request: current.request, outcome: outcome,
         startedAt: current.startedAt, players: current.config.players,
         totalFlips: current.state.resolvedAttempts.length, testData: current.testData });

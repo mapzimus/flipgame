@@ -49,6 +49,11 @@ async function run() {
   assert.equal(snapshot.warning, null, snapshot.warning);
   assert.equal(snapshot.session.status, 'completed');
   assert(snapshot.profile.fxp > fxpBefore, 'Real branded settled rules outcomes earned progression');
+  assert.equal(snapshot.rewardReport.fxpAwarded, snapshot.profile.fxp - fxpBefore);
+  assert.equal(snapshot.rewardReport.afterFxp, snapshot.profile.fxp);
+  assert.equal(snapshot.rewardReport.afterLevel, snapshot.profile.flipLevel);
+  assert.equal(snapshot.levelProgress.level, snapshot.profile.flipLevel);
+  assert(Object.isFrozen(snapshot.rewardReport), 'Reward presentation is read-only');
   assert(snapshot.pendingReveals.length > 0, 'Crossed levels reveal content');
   const rewarded = snapshot.profile.fxp;
   await h.app.retryFinalization(); await h.app.retryFinalization();

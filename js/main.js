@@ -1000,15 +1000,83 @@
     else nextMysteryReveal();
   });
   let seenRevealIds = new Set();
+  const seenReportIds = new Set();
+  const rewardDialog = document.getElementById('reward-report');
+  let reportAnimation = null, finishReportTally = null;
+  function renderProgress(state) {
+    const profile = state.profile, progress = state.levelProgress;
+    if (!profile || !progress) return;
+    document.getElementById('home-progression').textContent =
+      `FL ${profile.flipLevel} · ${profile.fxp} FXP · ${profile.fcBalance} FC`;
+    document.getElementById('home-level-progress').value = progress.ratio;
+    document.getElementById('home-level-progress').setAttribute('aria-valuetext',
+      progress.next == null ? 'Maximum Flip Level reached' : `${progress.earned} of ${progress.required} FXP to the next level`);
+    let tourSeen = false; try { tourSeen = localStorage.getItem('flipgame.tour-offer-seen') === '1'; } catch (_) {}
+    document.getElementById('first-run-offer').hidden = tourSeen || profile.fxp > 0 || profile.ownerTestMode === true;
+  }
+  function flushAuthorityReveals(state) {
+    if (rewardDialog.open || state.session?.status === 'finalizing' || state.battle?.status === 'finalizing') return;
+    const fresh = (state.pendingReveals || []).filter(entry => entry && !seenRevealIds.has(entry.id));
+    fresh.forEach(entry => seenRevealIds.add(entry.id));
+    if (!fresh.length) return;
+    queueAuthorityReveals(fresh);
+    try { renderFrom(readRows()); } catch (_) {}
+    if (pickerRow) renderCustomizeGrid();
+  }
+  function showRewardReport(report) {
+    if (!report || seenReportIds.has(report.matchId)) return;
+    seenReportIds.add(report.matchId);
+    const rows = document.getElementById('reward-report-rows'); rows.replaceChildren();
+    const row = (label, value) => {
+      const term = document.createElement('dt'), amount = document.createElement('dd');
+      term.textContent = label; amount.textContent = value; rows.append(term, amount);
+    };
+    const b = report.breakdown;
+    if (b) {
+      row('Completion', `${b.completionFXP} FXP`);
+      row('Participation and setup', `${b.variableBase} FXP before performance`);
+      row('Performance', `${Number(report.multiplier || 1).toFixed(2)}× on participation and setup`);
+      row('Win bonus', `${b.winBonus} FXP`);
+    } else if (report.matchFxp != null) row('Match reward', `${report.matchFxp} FXP`);
+    if (report.matchFxp != null && report.fxpAwarded > report.matchFxp)
+      row('Other earned rewards', `${report.fxpAwarded - report.matchFxp} FXP`);
+    row('Credits added', `${report.fcAwarded} FC`);
+    document.getElementById('reward-report-level').textContent = report.afterLevel > report.beforeLevel
+      ? `Level up! FL ${report.beforeLevel} → FL ${report.afterLevel}` : `FL ${report.afterLevel} · ${report.afterFxp} FXP`;
+    document.getElementById('reward-report-progress').value = report.levelProgress.ratio;
+    document.getElementById('reward-report-summary').textContent =
+      `Result saved. Earned ${report.fxpAwarded} FXP and ${report.fcAwarded} Flip Credits. Flip Level ${report.afterLevel}.`;
+    const total = document.getElementById('reward-report-total'), button = document.getElementById('reward-report-continue');
+    finishReportTally = () => {
+      if (reportAnimation) cancelAnimationFrame(reportAnimation); reportAnimation = null;
+      total.textContent = `+${report.fxpAwarded} FXP`; button.textContent = 'Continue'; finishReportTally = null;
+    };
+    button.textContent = 'Finish tally';
+    rewardDialog.showModal();
+    if (reduceMotionActive()) finishReportTally();
+    else {
+      const started = performance.now();
+      const paint = now => {
+        const ratio = Math.min(1, Math.max(0, (now - started) / 1000));
+        total.textContent = `+${Math.round(report.fxpAwarded * ratio)} FXP`;
+        if (ratio < 1) reportAnimation = requestAnimationFrame(paint); else finishReportTally();
+      }; reportAnimation = requestAnimationFrame(paint);
+    }
+  }
+  document.getElementById('reward-report-continue').addEventListener('click', () => {
+    if (finishReportTally) { finishReportTally(); return; }
+    rewardDialog.close(); flushAuthorityReveals(v112App.snapshot());
+  });
+  rewardDialog.addEventListener('cancel', event => {
+    event.preventDefault();
+    if (finishReportTally) finishReportTally();
+    else { rewardDialog.close(); flushAuthorityReveals(v112App.snapshot()); }
+  });
   if (v112App && typeof v112App.subscribe === 'function') {
     v112App.subscribe((state) => {
-      const pending = (state && state.pendingReveals) || [];
-      const fresh = pending.filter((entry) => entry && !seenRevealIds.has(entry.id));
-      fresh.forEach((entry) => seenRevealIds.add(entry.id));
-      if (!fresh.length) return;
-      queueAuthorityReveals(fresh);
-      try { renderFrom(readRows()); } catch (_) {}
-      if (pickerRow) renderCustomizeGrid();
+      renderProgress(state);
+      showRewardReport(state.rewardReport);
+      flushAuthorityReveals(state);
     });
   }
 
@@ -1745,32 +1813,57 @@
     screen.classList.add('hidden');
     document.getElementById('broadcast-home')?.classList.remove('hidden');
   }
+  let selectedStoreCosmetic = null, storePreviewFrame = null;
+  function paintStorePreview(now = performance.now()) {
+    if (document.getElementById('store-screen').classList.contains('hidden') || !selectedStoreCosmetic) return;
+    const human = rowsToDefs(readRows()).find(entry => !entry.isAI);
+    Renderer.drawCosmeticPreview(document.getElementById('store-preview'), human?.skin || BASE_SKIN,
+      human?.color || '#0b86ff', selectedStoreCosmetic, reduceMotionActive() ? 0 : now / 1000);
+    if (!reduceMotionActive()) storePreviewFrame = requestAnimationFrame(paintStorePreview);
+  }
   function renderStoreGrid() {
     const grid = document.getElementById('store-grid');
     const wallet = document.getElementById('store-wallet');
     if (!grid) return;
     const items = (v112App && typeof v112App.store === 'function') ? v112App.store() : [];
     const profile = v112App && v112App.snapshot ? v112App.snapshot().profile : null;
-    if (wallet) wallet.textContent = profile && profile.fc != null
-      ? `${profile.fc} Flip Credits · looks only`
+    if (wallet) wallet.textContent = profile && profile.fcBalance != null
+      ? `${profile.fcBalance} Flip Credits · looks only`
       : 'Flip Credits buy looks only.';
     grid.replaceChildren();
+    if (!items.some(item => item.id === selectedStoreCosmetic)) selectedStoreCosmetic = items[0]?.id || null;
+    const selected = items.find(item => item.id === selectedStoreCosmetic);
+    const buy = document.getElementById('store-buy');
+    if (selected) {
+      document.getElementById('store-preview-name').textContent = selected.displayName;
+      document.getElementById('store-preview-description').textContent = `${selected.type} · ${selected.price} FC · looks only`;
+      document.getElementById('store-status').textContent = selected.owned ? 'In your collection. Equip it in Customize.'
+        : selected.affordable ? 'Ready to buy.' : `${selected.price - (profile?.fcBalance || 0)} more FC needed.`;
+      buy.disabled = selected.owned || !selected.affordable;
+      buy.textContent = selected.owned ? 'Owned' : `Buy for ${selected.price} FC`;
+    }
     items.forEach((item) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'picker-tile';
-      button.textContent = item.owned ? item.displayName : `${item.displayName} · ${item.price || item.fc || ''} FC`;
-      if (item.owned) button.disabled = true;
-      else button.addEventListener('click', () => {
-        try { v112App.purchaseCosmetic(item.id); renderStoreGrid(); }
-        catch (error) { announce(error.message || 'Could not buy that cosmetic.', true); }
+      button.textContent = `${item.displayName} · ${item.owned ? 'Owned' : item.price + ' FC'}`;
+      button.setAttribute('aria-pressed', String(item.id === selectedStoreCosmetic));
+      button.addEventListener('click', () => {
+        selectedStoreCosmetic = item.id; renderStoreGrid();
       });
       grid.appendChild(button);
     });
+    if (storePreviewFrame) cancelAnimationFrame(storePreviewFrame);
+    paintStorePreview();
   }
+  document.getElementById('store-buy').addEventListener('click', () => {
+    if (!selectedStoreCosmetic) return;
+    try { v112App.purchaseCosmetic(selectedStoreCosmetic); renderStoreGrid(); }
+    catch (error) { document.getElementById('store-status').textContent = error.message || 'Could not buy this cosmetic.'; }
+  });
   document.getElementById('journey-store')?.addEventListener('click', () => {
-    renderStoreGrid();
     showAppRoute(document.getElementById('store-screen'));
+    renderStoreGrid();
   });
   document.getElementById('journey-tutorial')?.addEventListener('click', () => {
     showAppRoute(document.getElementById('tutorial-screen'));
@@ -1780,6 +1873,14 @@
   document.getElementById('tutorial-start-tour')?.addEventListener('click', () => {
     hideAppRoute(document.getElementById('tutorial-screen'));
     document.getElementById('journey-tour')?.click();
+  });
+  function dismissTourOffer() {
+    try { localStorage.setItem('flipgame.tour-offer-seen', '1'); } catch (_) {}
+    document.getElementById('first-run-offer').hidden = true;
+  }
+  document.getElementById('first-run-dismiss').addEventListener('click', dismissTourOffer);
+  document.getElementById('first-run-tour').addEventListener('click', () => {
+    dismissTourOffer(); document.getElementById('journey-tour').click();
   });
   // Platform owns the single wake lock and visibility lifecycle.
   async function enterImmersive() {
@@ -1828,6 +1929,7 @@
   const arenaSelectScreen = document.getElementById('arena-select-screen');
   const arenaSelectGrid = document.getElementById('arena-select-grid');
   let arenaFrame = 0;
+  let arenaRematchPending = false;
   let arenaChoices = [];
   function availableArenaChoices() {
     if (v112App && typeof v112App.arenas === 'function') {
@@ -1866,11 +1968,17 @@
   function closeArenaSelect() {
     cancelAnimationFrame(arenaFrame);
     arenaSelectScreen.classList.add('hidden');
-    setupScreen.classList.remove('hidden');
-    startBtn.focus();
+    if (arenaRematchPending) {
+      arenaRematchPending = false;
+      gameOverEl.classList.remove('hidden');
+      document.getElementById('new-arena-btn').focus();
+    } else {
+      setupScreen.classList.remove('hidden');
+      startBtn.focus();
+    }
   }
   startBtn.addEventListener('click', () => {
-    if (!validateSetupNames()) return;
+    if (!arenaRematchPending && !validateSetupNames()) return;
     arenaChoices = availableArenaChoices();
     arenaSelectGrid.replaceChildren();
     for (const choice of arenaChoices) {
@@ -1894,6 +2002,15 @@
     selectArena((unlocked[Math.floor(Math.random() * unlocked.length)] || arenaChoices[0]).id, true);
   });
   document.getElementById('arena-play').addEventListener('click', () => {
+    if (arenaRematchPending) {
+      cancelAnimationFrame(arenaFrame);
+      arenaSelectScreen.classList.add('hidden');
+      visualArenaId = arenaDraft || null;
+      currentMatchOptions.visualArenaId = visualArenaId;
+      arenaRematchPending = false;
+      playAgainBtn.click();
+      return;
+    }
     if (!validateSetupNames()) return;
     cancelAnimationFrame(arenaFrame);
     arenaSelectScreen.classList.add('hidden');
@@ -2071,6 +2188,13 @@
       arenaDraftSelection = null;
       startGame(defs, game.direction, nextOptions);
     }
+  });
+
+  document.getElementById('new-arena-btn').addEventListener('click', () => {
+    if (currentMatchOptions.journey === 'story' || playAgainBtn.disabled) return;
+    arenaRematchPending = true;
+    gameOverEl.classList.add('hidden');
+    startBtn.click();
   });
 
   // Restore yesterday's lobby, else two fresh seats (rotate families / colors).
@@ -2473,6 +2597,9 @@
       if (prepared.options && typeof prepared.options === 'object') opts = prepared.options;
     }
     currentMatchOptions = Object.assign({}, opts || {});
+    menuBtn.textContent = currentMatchOptions.tour ? 'Skip tour' : '☰';
+    menuBtn.setAttribute('aria-label', currentMatchOptions.tour ? 'Skip tour' : 'Main menu');
+    menuBtn.classList.toggle('tour-skip', !!currentMatchOptions.tour);
     gameScreen.classList.toggle('practice-active', !!currentMatchOptions.practice);
     currentMatchDefs = defs.map((definition) => ({ ...definition }));
     const cupContinuation = currentMatchOptions.format === 'cup' &&
@@ -4718,6 +4845,7 @@
       return;
     }
     const returnToLab = !!currentMatchOptions.lab;
+    if (currentMatchOptions.tour && journeyHost) journeyHost.skipTour();
     if (loopId) cancelAnimationFrame(loopId);
     loopId = null;
     clearTimers();
@@ -4754,7 +4882,7 @@
     }
   }
   if (menuBtn) menuBtn.addEventListener('click', () => {
-    if (confirm('Return to the main menu? The current game will end.')) backToMenu();
+    if (currentMatchOptions.tour || confirm('Return to the main menu? The current game will end.')) backToMenu();
   });
   if (homeBtn) homeBtn.addEventListener('click', backToMenu);
   if (window.matchMedia) {
@@ -4842,6 +4970,7 @@
       paintAllPreviews();
       paintPickerPreviews();
       if (mysteryOpened) paintMysteryArt();   // the reveal art decodes late too
+      if (reduceMotionActive() && !document.getElementById('store-screen').classList.contains('hidden')) paintStorePreview();
     });
   }
   if (window.Skins && Skins.onSpriteLoad) Skins.onSpriteLoad(schedulePreviewRepaint);
