@@ -92,6 +92,16 @@ async function scenario(){
       check(shown('journey-screen')&&!shown('game-screen'),'Completed encounter returns to the Story hub');
       check(!shown('game-over'),'Story does not offer a Free Play rematch');
       check(/Signal held|Result recorded/.test(d.getElementById('journey-body').textContent),'Authoritative win/loss feedback is shown');
+      check(d.getElementById('reward-report').open,'Earned terminal result opens Flip Report');
+      {
+        const report=w.FlipgameV112.snapshot().rewardReport;
+        check(d.getElementById('reward-report-level').textContent.includes('FL '+report.afterLevel),'Report uses the saved level');
+        click('reward-report-continue');
+        if(d.getElementById('reward-report').open)click('reward-report-continue');
+        check(!d.getElementById('reward-report').open,'Tally skip and Continue are separate actions');
+        // Reveals follow the report; finish them before the next encounter.
+        for(let n=0;n<40&&shown('mystery-screen');n++)click('mystery-go-btn');
+      }
       const earned=w.FlipgameV112.snapshot().profile.fxp;
       await w.FlipgameV112.retryFinalization();
       check(w.FlipgameV112.snapshot().profile.fxp===earned,'Repeated finalization cannot duplicate Story rewards');

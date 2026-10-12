@@ -1409,3 +1409,48 @@ separate engine-sensor fact variant with actual total elapsed time, slot contact
 and measured first recovery time. Canonical clean/recovered/no-contest rules
 retain their original validation. Plinko pacing remains a product/physics gap;
 this repair does not pretend it conforms by clamping measured time.
+
+
+## 2026-10-11 — Plan gap repair: progression and play flow (not released)
+
+The plan drift review identified missing presentation around existing earned
+progression. Home now displays saved FXP, Flip Level, Flip Credits and level
+progress. The Store reads fcBalance, lets players preview all 40 cosmetics on
+one animated canvas using the shipping renderer, and separates selection from
+purchase. Owned and unaffordable purchases are disabled; successful purchases
+update the wallet and Customize availability immediately.
+
+Flip Report opens only after successful authoritative finalization. Its totals
+come from the saved profile delta and its breakdown from the existing reward
+transaction. It cannot award rewards. Count-up can be completed immediately,
+Continue is a separate action, reduced motion skips animation, and unlock
+reveals are deferred until the report closes. Failed saves and Test Data do not
+present an earned report.
+
+Story previews now show authored act/title, format, refrain, rival identity and
+available Replay Desk clues. Fresh profiles get an optional Tour offer with a
+persistent dismissal. The live Tour exposes Skip tour; focused table keyboard
+controls use the same launch and physics path as pointer input. Arrows adjust
+power/aim and Space launches once; disabled turns and active pointer gestures
+reject keyboard input.
+
+New Arena opens the existing venue selector from the result screen. Cancel
+returns to results; Play uses the existing rematch operation and retains the
+players, format, feel, lives, direction and Cup/team continuation behavior.
+
+New browser coverage checks phone/desktop progression and Store layout,
+preview selection without spending, exact purchase debit, owned state and
+Customize availability, authored Story copy, Tour exit, and New Arena
+cancellation/setup preservation. Story physical-match coverage now requires the
+saved Flip Report and confirms duplicate finalization cannot award twice.
+
+Remaining audit work includes actual simultaneous Battle lanes, the additional
+performance telemetry components, Tour success-ghost guidance, in-match Story
+environment context and Plinko pacing. Creative/hardware/APK qualification is
+still unverified. This batch does not change the v1.15 release identity.
+
+Validation: all 94 script suites and inherited Node tests passed. The new
+progression/Store/Tour/rematch browser scenario passed at 360px and 1280px;
+broadcast layout passed six sizes through 3840px. Physical solo/co-op Story
+completion required a saved Flip Report and duplicate-finalization protection.
+Bundle source consistency and git diff checks passed.

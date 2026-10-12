@@ -173,12 +173,19 @@
           body.append(archive);
         }
       }else if(view.route==='preview'){
-        const card=view.card;body.append(node('p',card.eyebrow,'broadcast-eyebrow'),node('h2',card.headline),node('p',card.lead));
+        const card=view.card;
+        if(card.storyTitle)body.append(node('p',card.storyTitle+(card.actLabel?' · '+card.actLabel:''),'broadcast-eyebrow'));
+        body.append(node('p',card.eyebrow,'broadcast-eyebrow'),node('h2',card.headline),node('p',card.lead));
+        if(card.formatLabel)body.append(node('p',card.formatLabel));
+        if(card.refrain)body.append(node('p',card.refrain));
+        if(card.rival)body.append(node('p',card.rival.name+' · '+card.rival.callsign));
+        if(card.clue){const signal=node('aside',null,'journey-card');signal.append(node('p','REPLAY DESK','broadcast-eyebrow'),node('p',card.clue));body.append(signal);}
         const details=node('p',view.request.roster.length+' players · '+view.request.startingLives+' lives · '+(view.request.physicsModeId==='alien'?'Alien physics':'Normal physics'));
         body.append(details,node('p','Prescribed venue: '+view.request.arenaId),button(card.controls.primaryLabel,controller.enter,view.busy));
       }else if(view.route==='tour'&&view.tour){
         const step=view.tour.step;body.append(node('p','Test Data · No rewards','broadcast-eyebrow'),node('h2',step.title||'Try a flip'));
         body.append(node('p',step.id==='lives-turns'?'A miss costs the current stake. An ON FIRE-ending miss is free. Turns pass after the result.':step.instruction));
+        if(step.kind==='attempt')body.append(node('p','Mouse, touch or pen: flick upward. Keyboard: focus the flip table, adjust power with ↑/↓ and aim with ←/→, then press Space to release. You can skip from the table at any time.'));
         if(step.kind==='complete')body.append(button('Replay Tour',controller.startTour,view.busy));
         else body.append(button(step.kind==='attempt'?'Try it':'Continue',controller.continueTour,view.busy));
         body.append(button('Skip Tour',controller.close,view.busy));

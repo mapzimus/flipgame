@@ -19,6 +19,7 @@ class FakeCanvas {
   }
 
   addEventListener(type, handler) { this.listeners.set(type, handler); }
+  setAttribute() {}
   getBoundingClientRect() {
     return { left: 0, top: 0, width: this.width, height: this.height };
   }
@@ -366,6 +367,19 @@ function testPracticeConsumerUsesReleaseSignal() {
     'live Practice meter still uses a different device/displacement signal');
 }
 
+function testKeyboardLaunchAndCancellation() {
+  const input = loadInput(), canvas = new FakeCanvas(360, 740), launches = [];
+  input.attach(canvas, (vx, vy, type) => launches.push({ vx, vy, type }));
+  canvas.emit('keydown', { key: ' ' }); assert.equal(launches.length, 0, 'Disabled input cannot launch');
+  input.enable(); canvas.emit('keydown', { key: 'ArrowUp' }); canvas.emit('keydown', { key: 'ArrowRight' });
+  canvas.emit('keydown', { key: ' ' });
+  assert.deepEqual(launches[0], { vx: 200, vy: -2250, type: 'keyboard' });
+  canvas.emit('keydown', { key: ' ', repeat: true }); assert.equal(launches.length, 1, 'Held Space cannot repeat launches');
+  canvas.emit('pointerdown'); canvas.emit('keydown', { key: ' ' });
+  assert.equal(launches.length, 1, 'Keyboard cannot take over an active pointer gesture');
+  input.disable(); canvas.emit('keydown', { key: ' ' }); assert.equal(launches.length, 1);
+}
+testKeyboardLaunchAndCancellation();
 testLaneRelativeAndPointerParity();
 testLowMidHighGestureCorpusAndSpinParity();
 testCoalescedAndPointerUpSamples();

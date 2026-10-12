@@ -1890,10 +1890,39 @@ const Renderer = (() => {
     }
   }
 
+  function drawCosmeticPreview(target, skin, color, cosmeticId, phase = 0) {
+    drawPreview(target, skin, color);
+    const previous = { ctx, W, H, fxCosmeticId, fxSize, plinkoPresentation, fxPlinko };
+    const savedParticles = particles.slice();
+    ctx = target.getContext('2d'); W = target.width; H = target.height;
+    fxCosmeticId = cosmeticId; fxSize = .7; plinkoPresentation = null; fxPlinko = null;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    try {
+      const body = { position: { x: W / 2, y: H * .52 + (BOTTLE_DRAW_SCALE - 1) * 43 }, angle: 0 };
+      if (String(cosmeticId).startsWith('finish.')) drawPersonalFinish(body, body.position.y + 55);
+      else if (String(cosmeticId).startsWith('nameplate.')) drawCosmeticNameplate('Your name');
+      else {
+        particles.length = 0;
+        const trail = String(cosmeticId).startsWith('trail.');
+        for (let i = 0; i < 16; i++) {
+          const angle = i * Math.PI * 2 / 16 + phase;
+          const radius = trail ? 30 : 55 + Math.sin(phase) * 18;
+          particles.push({ x: W / 2 + Math.cos(angle) * radius,
+            y: H * .78 + (trail ? i * 4 : Math.sin(angle) * radius),
+            r: 4 + i % 3, color: cosmeticColor(cosmeticId), life: .7, maxLife: 1,
+            trail, style: String(cosmeticId).split('.')[1] });
+        }
+        drawParticles();
+      }
+    } finally {
+      ctx.restore(); particles.splice(0, particles.length, ...savedParticles);
+      ({ ctx, W, H, fxCosmeticId, fxSize, plinkoPresentation, fxPlinko } = previous);
+    }
+  }
   // drawBottle is exported for the art-iteration harness (drawing one object
   // without the full scene); the game itself only calls frame().
   return {
     init, resize, frame, setReduceMotion, projectPoint, projectBottleCenter,
-    bottleDrawScale, drawBottle, drawPreview, burst, nudge,
+    bottleDrawScale, drawBottle, drawPreview, drawCosmeticPreview, burst, nudge,
   };
 })();
