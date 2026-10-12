@@ -251,3 +251,13 @@ body:has(#game-screen:not(.hidden)) #version-badge { display: none; }
 
 #menu-btn.tour-skip { width: auto; min-width: 88px; font-size: 14px; }
 #game-canvas:focus-visible { outline: 3px solid #ffd166; outline-offset: -3px; }
+
+#tour-help { position: absolute; top: 72px; right: 16px; max-width: min(300px, calc(100% - 32px)); padding: 12px; border-radius: 10px; background: #172937ed; color: #fff; font-size: 14px; z-index: 12; }
+#tour-help[hidden] { display: none; }
+#tour-help p { margin: 0 0 8px; }
+#tour-help button { min-height: 48px; }
+
+#story-table-context { position: absolute; top: 56px; left: 16px; max-width: calc(100% - 32px); padding: 6px 10px; margin: 0; border-radius: 6px; background: #172937df; color: #fff; font-size: 13px; pointer-events: none; }
+#story-table-context[hidden] { display: none; }
+
+#game-screen.battle-lane #tour-help, #game-screen.battle-lane #story-table-context { display: none; }

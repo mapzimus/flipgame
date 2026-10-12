@@ -1454,3 +1454,52 @@ progression/Store/Tour/rematch browser scenario passed at 360px and 1280px;
 broadcast layout passed six sizes through 3840px. Physical solo/co-op Story
 completion required a saved Flip Report and duplicate-finalization protection.
 Bundle source consistency and git diff checks passed.
+
+
+## 2026-10-11 — Continue plan repair: Tour guidance and measured performance
+
+Tour keeps the current instruction on the table, draws a static upward input
+illustration, and gives miss advice from the actual landing reason. It records
+only genuine ordinary makes as optional success paths. After two subsequent
+misses on the same object, players can show/hide their recorded path. This
+presentation never applies forces, resolves outcomes or writes progression;
+it is withheld for a different object or viewport. Tour help is hidden outside
+Tour. Physical launches now use TrainingAttemptV1.turnSeed; the previous host
+dropped that prescribed seed and fell back to a new random engine seed.
+
+Story carries its authored broadcast card through the host and shows the act,
+chapter and encounter on the table. This is presentation context; environment
+art/animation remains separate work.
+
+Private performance input now uses the observed human input feel and cap/perfect
+landing evidence. Per-human ordinary streaks reset on misses or special events.
+The last 24 eligible manual ordinary shots contribute:
+- Quality: the fraction of makes that are cap or engine-marked perfect.
+- Streak: the fraction of attempts making after an ordinary make by that human.
+- Clutch: make rate against the existing feel baseline when losing the stake
+  would eliminate the actor, or actual sudden death is active. Fire-free misses
+  are excluded from the at-risk definition.
+- Team: the weakest human teammate's adjusted make rate, averaged across
+  multi-human teams/alliances; an unobserved teammate contributes neutral zero.
+
+The existing Economy weights, confidence regression and 0.85–1.25 envelope
+are unchanged. Fewer than four eligible attempts remain neutral. CPU launches,
+Test Data and event payouts cannot inflate the sample. The Flip Report offers
+an explanation of the eligible sample. Battle uses its validated manual ledger
+for poses, ordinary runs and sudden-death opportunities; engine-perfect evidence
+and its selected input feel are not yet carried by that ledger, so its original
+Standard baseline remains a separate follow-up. Native Alien event-bridge shots
+also remain outside ordinary quality/streak scoring.
+
+A new browser test reaches an actual upright MAKE, then two physical misses,
+shows the captured path, checks the toggle leaves physics untouched, verifies
+profile isolation and checks no help/ghost leaks into Practice. Other browser
+checks require live Story context and a Tour keyboard launch with the prescribed
+seed and exactly one real resolved landing.
+
+Validation: the 95-script sweep found a missing performance-details DOM mount
+that prevented the report from opening. The mount was corrected and the failed
+physical Story suite and Node suite were rerun successfully. All 95 script
+suites and 52 Node tests pass. Progression/Tour browser checks were rerun after
+the correction, including the genuine recorded success ghost. Generated bundle
+consistency and diff checks pass.

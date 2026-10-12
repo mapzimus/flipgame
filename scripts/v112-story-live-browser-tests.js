@@ -32,6 +32,7 @@ async function scenario(){
       if(coop)d.querySelector('#journey-body select').value='co-op';
       action('View match');await pause(50);action('Enter Match');await pause(50);
       check(shown('game-screen'),'Entering Story must show the actual game screen');
+      check(!d.getElementById('story-table-context').hidden&&d.getElementById('story-table-context').textContent.includes('The Open'),'Authored Story context remains on the live table');
       check(!shown('journey-screen'),'Preview yields to the table');
       const session=w.FlipgameV112.snapshot().session;
       check(session.status==='active'&&session.request.activityId==='story','Real prescribed Story session');

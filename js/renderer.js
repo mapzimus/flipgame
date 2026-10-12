@@ -1806,6 +1806,13 @@ const Renderer = (() => {
     drawRareEventWorld(fxRareEvent, bottle, groundY);
     drawModernEventWorld(fxEventState, bottle, groundY, state.eventBodies);
     drawSuccessfulShotGhost(state.successfulShotGhost);
+    if (state.gestureGuide && bottle) {
+      // Static input illustration only; it never applies a force or predicts a verdict.
+      ctx.save(); ctx.strokeStyle = '#d8f7ff'; ctx.globalAlpha = .65; ctx.lineWidth = 4;
+      const x = bottle.position.x + 70, y = bottle.position.y;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - 100);
+      ctx.moveTo(x - 12, y - 84); ctx.lineTo(x, y - 100); ctx.lineTo(x + 12, y - 84); ctx.stroke(); ctx.restore();
+    }
     drawRainbowTail();
     drawBottle(bottle, liquid, isOnFire, liquidColor, groundY, skin, state.variantId, renderState);
     drawSelectedObjectClones(state.eventBodies, liquid, liquidColor, groundY, skin, state.variantId, renderState);

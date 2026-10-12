@@ -29,9 +29,9 @@ async function run() {
     FlipgameV112.attachPhysics({ snapshot: function () { return frame; },
       subscribe: function (listener) { wake = listener; return function () { wake = null; }; } });
     function sample(input) { frame = Object.assign({}, frame, input); wake(); }
-    function shot(angle, flipped) {
+    function shot(angle, flipped, feel) {
       frame = { launchId: 'launch-' + (++serial), qualified: true, manual: true,
-        atMs: 0, grounded: false, angle: 0, speed: 1, angularVelocity: 0.1, hasFlipped: false };
+        feel: feel || 'standard', atMs: 0, grounded: false, angle: 0, speed: 1, angularVelocity: 0.1, hasFlipped: false };
       wake(); sample({ atMs: 700, grounded: true, angle: angle, speed: 0,
         angularVelocity: 0, hasFlipped: flipped !== false });
       if (FlipgameV112.snapshot().session.lastLanding &&
@@ -55,12 +55,24 @@ async function run() {
   assert.equal(snapshot.levelProgress.level, snapshot.profile.flipLevel);
   assert(Object.isFrozen(snapshot.rewardReport), 'Reward presentation is read-only');
   assert(snapshot.pendingReveals.length > 0, 'Crossed levels reveal content');
-  const rewarded = snapshot.profile.fxp;
+  let rewarded = snapshot.profile.fxp;
   await h.app.retryFinalization(); await h.app.retryFinalization();
   h.run('wake(); wake();');
   assert.equal(h.app.snapshot().profile.fxp, rewarded, 'Repeated finalization cannot reward twice');
   assert.doesNotMatch(JSON.stringify(h.app.snapshot()), /MatchClaimTokenV1|bearerNonce|reservedAt|"nonce"/);
-  h.run(`FlipgameV112.beginSession({ activityId:'practice', roster:[{name:'One'}] }); shot(0); shot(Math.PI);`);
+  h.run(`FlipgameV112.beginSession({ startingLives: 3, roster:[{name:'One'}, {name:'Two'}] });`);
+  for(let i=0;i<6&&h.app.snapshot().session.status==='active';i++)h.run("shot(Math.PI,true,'forgiving');");
+  for(let i=0;i<20&&h.app.snapshot().session.status==='active';i++)h.run("shot(Math.PI / 2,true,'forgiving');");
+  await new Promise(resolve=>setImmediate(resolve));
+  const measured=h.app.snapshot().rewardReport.performance;
+  assert(measured.eligibleShots>=4,'Meaningful physical sample');
+  assert.equal(measured.expectedMakeRate,0.6,'Observed Forgiving feel sets baseline');
+  assert(measured.components.landingQuality>0,'Real cap landings contribute quality');
+  assert(measured.components.ordinaryStreak>0,'Consecutive ordinary makes contribute');
+  assert(measured.multiplier>=0.85&&measured.multiplier<=1.25,'Frozen reward bounds');
+  assert.equal(measured.components.teamContribution,0,'Unaffiliated seats receive no teamwork component');
+  rewarded = h.app.snapshot().profile.fxp;
+  h.run(`FlipgameV112.beginSession({ activityId:'practice' , roster:[{name:'One'}] }); shot(0); shot(Math.PI);`);
   snapshot = h.app.snapshot();
   assert.equal(snapshot.session.practice.makes, 2);
   assert.equal(snapshot.session.practice.caps, 1);

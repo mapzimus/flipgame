@@ -33,6 +33,7 @@
     var closeLiveMatch = typeof opts.closeLiveMatch === 'function' ? opts.closeLiveMatch : null;
     var listeners = new Set();
     var pendingHandle = null;
+    var preparedCard = null;
     var kind = null;
     var live = false;
     var releasing = false;
@@ -57,6 +58,7 @@
     function prepareStory(input) {
       pendingHandle = null; kind = 'story'; live = false;
       var prepared = application.prepareStory(input);
+      preparedCard = copy(prepared.card);
       pendingHandle = prepared.handle;
       wake();
       return { handle: prepared.handle, request: copy(prepared.request), card: copy(prepared.card) };
@@ -129,7 +131,7 @@
       } else if (kind === 'story') {
         var session = application.snapshot().session;
         if (!session || !session.request) throw new Error('Story is not installed on the table');
-        spec = { kind: 'story', request: copy(session.request) };
+        spec = { kind: 'story', request: copy(session.request), card: copy(preparedCard) };
       } else {
         throw new Error('Nothing is prepared for the live table');
       }

@@ -55,6 +55,22 @@ async function scenario(){
  check(tourAction,'Tour entry action');tourAction.click();await pause(80);
  }
  check(d.getElementById('menu-btn').textContent==='Skip tour','Tour exposes a visible exit');
+ check(!d.getElementById('tour-help').hidden,'Live Tour keeps instruction and input guidance visible');
+ const table=d.getElementById('game-canvas');
+ const beforeTour=w.FlipgameV112.snapshot().profile.fxp;
+ const prescribedSeed=w.FlipgameV112.tourSnapshot().activeAttempt.turnSeed;
+ table.dispatchEvent(new w.KeyboardEvent('keydown',{key:' ',bubbles:true}));
+ check(w.eval('Physics.getLastFlickInfo().seed')===prescribedSeed,'Tour uses its prescribed physical seed');
+ check(w.eval('game.state')==='EVALUATING','Keyboard launches actual Tour physics');
+ for(let i=0;i<300&&w.FlipgameV112.tourSnapshot().resolvedAttemptCount===0;i++){
+  w.eval('for(let j=0;j<160;j++) Physics.step(1/60)');await pause(20);
+ }
+ check(w.FlipgameV112.tourSnapshot().resolvedAttemptCount===1,'Real keyboard Tour landing resolves exactly once');
+ check(w.FlipgameV112.snapshot().profile.fxp===beforeTour,'Tour physics earns no progression');
+ // Return to the next live step to check the table exit.
+ for(let i=0;i<8&&d.getElementById('game-screen').classList.contains('hidden');i++){
+  const action=[...d.querySelectorAll('#journey-body button')].find(b=>/^(Continue|Try it)$/.test(b.textContent));check(action,'Next Tour action');action.click();await pause(80);
+ }
  d.getElementById('menu-btn').click();await pause(80);
  check(!w.FlipgameV112.snapshot().session,'Skip releases the Tour session');
  d.getElementById('broadcast-practice').click();await pause(80);
