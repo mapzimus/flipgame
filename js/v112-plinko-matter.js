@@ -209,6 +209,7 @@
     var settledSlot = null;
     var contactLog = [];
     var recoveryApplied = 0;
+    var recoveryStartedMs = null;
     var antiBalanceTicks = 0;
     var antiBalanceApplied = 0;
     var antiBalanceBurstTicks = 0;
@@ -663,6 +664,7 @@
         throw new Error('Plinko Matter host accepts only scheduled recovery impulses');
       }
       expected.forEach(function (command) {
+        if (recoveryStartedMs == null) recoveryStartedMs = currentTick * FIXED_DT_MS;
         Body.setVelocity(contactChassisBody, {
           x: contactChassisBody.velocity.x + command.x,
           y: contactChassisBody.velocity.y + command.y,
@@ -882,7 +884,7 @@
           actualSensorContact: settled ? contactedSensors.has(
             geometry.sensors[settledSlot].colliderRef) : false,
           settledTick: settledTick, dropMs: dropMs },
-        recovery: { applied: recoveryApplied, limit: RECOVERY_LIMIT,
+        recovery: { applied: recoveryApplied, limit: RECOVERY_LIMIT, startedAtMs: recoveryStartedMs,
           antiBalanceApplied: antiBalanceApplied, antiBalanceLimit: 48 },
         timedOut: !settled && currentTick >= TIMEOUT_TICK,
         contactCount: contactLog.length, contactDigest: digestContacts(contactLog),

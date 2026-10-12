@@ -26,6 +26,7 @@ const modules = [
   ['v112-progression-runtime', 'Catalog, Economy, Profile, Backup, root, commonJs', [dep('v112-progression-catalog'), dep('v112-economy'), dep('v112-profile'), dep('v112-profile-backup'), 'platform', 'true']],
   ['v112-rules', 'loadEventKernel', [`function () { return ${dep('v112-event-kernel')}; }`]],
   ['v112-event-kernel', 'Rules', [dep('v112-rules')]],
+  ['v112-event-rules-adapter', 'Kernel', [dep('v112-event-kernel')]],
   ['v112-landing-verdict', 'Rules', [dep('v112-rules')]],
   ['v112-battle', '', []],
   ['v112-activity', 'root, commonJs', ['platform', 'true']],

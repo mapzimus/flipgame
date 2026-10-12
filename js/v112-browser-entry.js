@@ -46,6 +46,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
   var Rules = require('./v112-rules.js');
   var Battle = require('./v112-battle.js');
   var Landing = require('./v112-landing-verdict.js');
+  var EventKernel = require('./v112-event-kernel.js');
+  var EventRules = require('./v112-event-rules-adapter.js');
   var Activity = require('./v112-activity.js');
   var Economy = require('./v112-economy.js');
   var Names = require('./v111-name-policy.js');
@@ -176,7 +178,10 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     }));
     var authority = Landing.createAuthority({ matchId: request.matchId,
       rulesConnector: rules.claimLandingConnector(), laneIds: ['main'] });
-    return { rules: rules, physics: authority.claimPhysicsLane('main'),
+    var eventAuthority = rules.claimEventAuthority();
+    return { rules: rules, eventLane: eventAuthority.createLane('main'),
+      eventConsumer: EventRules.createRulesAdapter({ authority: eventAuthority.rules }),
+      physics: authority.claimPhysicsLane('main'),
       consumer: authority.claimRulesLane('main') };
   }
   var registry = Activity.createActivityRegistry([
@@ -306,7 +311,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (!session || session.status === 'abandoned') return snapshot();
     if (session.status === 'finalizing' || session.status === 'finalization-failed') throw new Error('Retry the completed match’s rewards first');
     if (session.status === 'completed') return snapshot();
-    if (session.flip && session.flip.phase !== 'resolved') session.physics.abort(session.flip.handle, 'session-left');
+    if (session.flip && session.flip.phase !== 'resolved' && !session.flip.eventClaim) session.physics.abort(session.flip.handle, 'session-left');
     session.owner.abandon(session.request.matchId, 'left-game');
     diagnostics.recordMatch({ request: session.request, startedAt: session.startedAt, completed: false,
       players: session.practice ? session.request.roster : playState(session.rules.snapshot()).players,
@@ -581,7 +586,47 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       emit('event-frame-deferred');
       return;
     }
-    observeOrdinaryPhysics(frame, { eventId: frame.eventId });
+    var launchId = String(frame.launchId);
+    if (session.seenLaunchIds.has(launchId) && (!session.flip || session.flip.launchId !== launchId || session.flip.phase === 'resolved')) return;
+    if (!session.flip || session.flip.launchId !== launchId) {
+      if (session.flip && session.flip.phase !== 'resolved') throw new Error('A flip is still in flight');
+      if (session.practice) Object.assign(session, makeRules(session.request, true));
+      var state = session.rules.snapshot(), play = playState(state), player = play.players[play.currentPlayerIndex];
+      var eventClass = EventKernel.EVENT_CLASS_BY_ID[frame.eventId];
+      var selection = session.eventLane.issueSelection({ schema: 'EventSelectionV2', eventId: frame.eventId,
+        displayName: frame.eventId, eventClass: eventClass, turnSeed: frame.seed || 0, eventSeed: frame.seed || 0,
+        oddsProfile: session.request.physicsModeId, forced: session.testData === true,
+        testData: session.testData === true, consumed: false,
+        telegraph: { glyph: frame.eventId, title: frame.eventId, instruction: 'Physical event.', durationMs: 0, cues: [] } });
+      EventKernel.claimSelection(session.eventLane.runtime, selection, frame.eventId, eventClass);
+      var claim = EventKernel.issueLaunchClaim(session.eventLane.runtime, selection);
+      session.flip = { launchId: launchId, eventClaim: claim, eventId: frame.eventId, phase: 'airborne',
+        launchedAtMs: frame.atMs, player: copy(player), before: copy(state.currentHeat || state),
+        seat: play.currentPlayerIndex, manualHuman: frame.manual === true && player.human === true };
+      session.seenLaunchIds.add(launchId);
+      if (session.flip.manualHuman) session.manualHumanFlips++;
+      emit('event-frame-bridged');
+    }
+    if (!frame.landing || !frame.eventEvidence) return;
+    var flip = session.flip, evidence = frame.eventEvidence;
+    if (evidence.eventId !== flip.eventId) throw new Error('Physical event changed after launch');
+    var terminal = EventKernel.issueTerminalEvidence(session.eventLane.runtime, flip.eventClaim, evidence);
+    var outcome = EventKernel.issueOutcome(session.eventLane.runtime, flip.eventClaim, terminal, {
+      eventId: flip.eventId, eventClass: EventKernel.EVENT_CLASS_BY_ID[flip.eventId], laneId: 'main',
+      launchClaimId: flip.eventClaim.claimId, result: frame.landing.result, pose: frame.landing.pose,
+      reason: frame.landing.reason, facts: evidence.facts,
+      evidence: { steps: evidence.steps, contacts: evidence.contacts, elapsedMs: evidence.elapsedMs } });
+    var consumed = session.eventConsumer.resolve({ outcome: outcome,
+      resolutionIdentity: session.rules.nextResolutionIdentity(flip.eventClaim.claimId) });
+    session.lastRulesOutcome = consumed.transition.outcome;
+    flip.phase = 'resolved'; session.lastLanding = copy(outcome); session.totalFlips++;
+    diagnostics.recordFlip({ request: session.request, launchId: launchId, player: flip.player,
+      before: flip.before, seat: flip.seat, launchedAtMs: flip.launchedAtMs,
+      firstContactAtMs: frame.atMs, landing: frame.landing,
+      frame: frame.nativeAlien ? Object.assign({}, frame, { eventId: null }) : frame,
+      after: session.rules.snapshot(), rulesOutcome: session.lastRulesOutcome, testData: session.testData });
+    emit('flip-resolved');
+    if (!session.practice && session.rules.snapshot().phase === 'complete') finish().catch(function () {});
   }
 
   // The host engine owns the driver. Its subscriber only wakes this private

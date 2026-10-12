@@ -85,8 +85,9 @@ function testMarkersAndUnsupportedEvents() {
   assert.equal(driver.cancelArmedLaunch(), true);
   assert.equal(driver.cancelArmedLaunch(), false);
   launch(h, driver, 66, 2400, 1 / 60, 'moon-gravity');
-  assert.equal(driver.snapshot().supported, false);
-  assert.equal(driver.status().warning, 'event-adapter-required');
+  assert.equal(driver.snapshot().supported, true);
+  assert.equal(driver.status().warning, null);
+  assert.equal(driver.snapshot().eventEvidence.eventId, 'moon-gravity');
   driver.close(); const closedCount = count;
   h.physics.resetBottle(); h.physics.step(1 / 60);
   assert.equal(count, closedCount); assert.throws(() => driver.armLaunch({ manual: true }), /closed/);

@@ -50,7 +50,7 @@
         if(activity.kind==='tour'&&activity.tour)state={route:'tour',title:'First Flip Tour',tour:clone(activity.tour),status:activity.status,message:activity.message||null};
         else if(activity.status==='settled'){
           const rival=state.origin==='rivals',views=host.storyViews();
-          state={route:rival?'rivals':'story',title:rival?'Rival Board':'Pressure Signal',items:clone(rival?views.rivalBoard.entries:views.hub.chapters),message:activity.message||'Result saved. Your checkpoint is shown below.'};
+          state={route:rival?'rivals':'story',title:rival?'Rival Board':'Pressure Signal',items:clone(rival?views.rivalBoard.entries:views.hub.chapters),notes:clone(views.fieldNotes),result:clone(activity.result),message:activity.message||'Result saved. Your checkpoint is shown below.'};
         }
         else state={...state,route:activity.status==='playing'?'playing':'pending-result',message:activity.message||'Saving the match result…',status:activity.status};
         emit();
@@ -74,6 +74,7 @@
       connect(['storyViews','prepareStory','startPreparedStory','cancelPreparedStory','activitySnapshot','retryFinalization']);
       await release();const views=host.storyViews();
       state.items=clone(route==='rivals'?views.rivalBoard.entries:views.hub.chapters);
+      state.notes=clone(views.fieldNotes);
       state.message=route==='rivals'?'Invitations are permanent. Story and Rival Board share first clears.':'Checkpoints save between matches. Replays never erase your progress.';
     });}
     function choose(id,cooperative){return perform(async()=>{
@@ -121,9 +122,16 @@
       state={route:'closed',title:'Pressure Signal',items:[],message:null};if(options.onHome)options.onHome();
     });}
     function retry(){return perform(async()=>{if(!host||state.status!=='retryable')throw new Error('No finalization to retry.');await host.retryFinalization();refresh();});}
+    // The page has already abandoned the engine session. Release presentation
+    // state too, or the next Story click still thinks that match is running.
+    function leaveMatch(){return perform(async()=>{
+      if(state.route!=='playing'&&state.route!=='pending-result'&&state.route!=='tour')return;
+      if(host&&typeof host.leaveLive==='function')host.leaveLive();
+      pending=null;state={route:'closed',title:'Pressure Signal',items:[],message:null};
+    });}
     return Object.freeze({snapshot,subscribe(fn){listeners.add(fn);fn(snapshot());return()=>listeners.delete(fn);},
       openStory:()=>open('story'),openRivals:()=>open('rivals'),choose,enter,startTour:tour,
-      continueTour,close,retry,refresh});
+      continueTour,close,retry,refresh,leaveMatch});
   }
   function mount(options){
     const d=options.document,screen=d.getElementById('journey-screen');
@@ -141,6 +149,12 @@
       title.textContent=view.title;message.textContent=view.message||'';body.replaceChildren();
       d.getElementById('journey-back').disabled=view.busy;
       if(view.route==='story'||view.route==='rivals'){
+        if(view.result){
+          const result=node('article',null,'journey-card');
+          result.append(node('h2',view.result.title),node('p',view.result.headline));
+          if(view.result.completionLine)result.append(node('p',view.result.completionLine));
+          body.append(result);
+        }
         let cooperative;
         if(view.route==='story'){
           const label=node('label','Play style','journey-play-style');cooperative=node('select');
@@ -150,9 +164,14 @@
         (view.items||[]).forEach(item=>{
           if(item.locked){const lock=node('div','🔒','locked-tile journey-card');lock.setAttribute('aria-label','Locked');grid.append(lock);return;}
           const card=node('article',null,'journey-card');card.append(node('p',item.callsign,'broadcast-eyebrow'),node('h2',item.title||item.rivalName));
-          card.append(node('p',item.defeated||item.status==='cleared'?'Cleared · Rematch available':view.route==='story'?'Story match':'Signature invitation'));
+          card.append(node('p',item.defeated||item.status==='cleared'?'Cleared · Rematch available':view.route==='story'?(item.status==='preliminary'?'WFC qualifier · Win to meet your rival':'Signature encounter · Defeat your rival'):'Signature invitation'));
           card.append(button(item.defeated||item.status==='cleared'?'Replay':'View match',()=>controller.choose(item.chapterId||item.rivalId,cooperative&&cooperative.value==='co-op'),view.busy));grid.append(card);
         });body.append(grid);
+        if(view.route==='story'&&view.notes?.notes?.length){
+          const archive=node('details',null,'journey-card');archive.append(node('summary','Field Notes'));
+          view.notes.notes.forEach(note=>{const entry=node('article');entry.append(node('p',note.kicker,'broadcast-eyebrow'),node('h2',note.title),node('p',note.body));archive.append(entry);});
+          body.append(archive);
+        }
       }else if(view.route==='preview'){
         const card=view.card;body.append(node('p',card.eyebrow,'broadcast-eyebrow'),node('h2',card.headline),node('p',card.lead));
         const details=node('p',view.request.roster.length+' players · '+view.request.startingLives+' lives · '+(view.request.physicsModeId==='alien'?'Alien physics':'Normal physics'));

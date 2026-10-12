@@ -70,13 +70,17 @@
   // progression writes. Legacy Records/Achievements stay display-only for
   // those matches so rewards cannot be scored twice.
   const v112App = window.FlipgameV112 || null;
-  const v112PhysicsDriver = (v112App && window.FlipgameV112PhysicsDriver && window.Physics)
+  // Physics is a classic-script `const`, so it lives in the global lexical
+  // scope rather than on window. Checking window.Physics disconnects every
+  // real launch from the private rules and campaign checkpoint runtime.
+  const v112PhysicsDriver = (v112App && window.FlipgameV112PhysicsDriver && typeof Physics !== 'undefined')
     ? FlipgameV112PhysicsDriver.create(Physics) : null;
   if (v112App && v112PhysicsDriver) FlipgameV112.attachPhysics(v112PhysicsDriver);
   // Assigned once the Battle lane host is composed below. Until then the Battle
   // route has no host and refuses to start a heat.
   let battleHost = null;
   let journeyHost = null;
+  let journeyRoutes = null;
   let v112OwnsMatch = false;
   function privateRewardAuthorityActive() { return v112OwnsMatch === true; }
   function abandonPrivateSession() {
@@ -166,7 +170,8 @@
   function applyTurnPhysics() {
     if (!Physics.setProfile) return;
     const skin = (game && game.currentPlayer && game.currentPlayer()?.skin) || BASE_SKIN;
-    Physics.setProfile(window.Skins && Skins.physicsFor ? Skins.physicsFor(skin) : null);
+    const physicsSkin = currentMatchOptions.journey === 'story' && currentMatchOptions.physicsModeId === 'alien' ? 'alien' : skin;
+    Physics.setProfile(window.Skins && Skins.physicsFor ? Skins.physicsFor(physicsSkin) : null);
   }
 
   function scheduleReflow() {
@@ -1016,6 +1021,7 @@
         name: entry.displayName || entry.name || ('Player ' + (index + 1)),
         color: flavor.color,
         isAI: entry.human === false || entry.kind === 'cpu' || entry.isAI === true,
+        cpuTier: entry.cpuTier || null,
         skin,
         variantId: entry.variantId || flavorIdForColor(flavor.color),
         cosmeticId: entry.cosmeticId || null,
@@ -1659,6 +1665,11 @@
         startLiveMatch(spec) {
           broadcastHome.classList.add('hidden');
           document.getElementById('journey-screen')?.classList.add('hidden');
+          setupScreen.classList.add('hidden');
+          gameOverEl.classList.add('hidden');
+          gameScreen.classList.remove('hidden');
+          Sound.unlock();
+          enterImmersive();
           if (spec.kind === 'tour') {
             const attempt = spec.tour && spec.tour.activeAttempt;
             const human = spec.tour && spec.tour.request && spec.tour.request.roster
@@ -1698,7 +1709,7 @@
         },
       });
     }
-    FlipgameV112JourneyRoutes.mount({ document,
+    journeyRoutes = FlipgameV112JourneyRoutes.mount({ document,
       getHost: () => journeyHost,
       getHumans: count => {
         if (!validateSetupNames()) return [];
@@ -2020,6 +2031,11 @@
   }
 
   playAgainBtn.addEventListener('click', () => {
+    if (currentMatchOptions.journey === 'story') {
+      gameOverEl.classList.add('hidden');
+      journeyRoutes.refresh();
+      return;
+    }
     const replayModeState = v111Runtime?.modes?.snapshot({ game }) || null;
     enterImmersive();
     gameOverEl.classList.add('hidden');
@@ -2341,6 +2357,13 @@
       } catch (error) { console.warn('Tour landing was not accepted', error); }
       return;
     }
+    if (currentMatchOptions.journey === 'story' && v112App?.snapshot().session?.rules?.phase === 'complete') {
+      // Co-op can finish with both allies alive. Use the campaign's terminal
+      // state instead of asking the older last-player-standing game to finish.
+      game.state = GAME_STATES.GAME_OVER;
+      onGameOver();
+      return;
+    }
     const handled = v111Bridge('resolveFlip', {
       game,
       result,
@@ -2393,13 +2416,15 @@
     const skin = game.currentPlayer()?.skin || BASE_SKIN;
     const profile = (window.Skins && Skins.physicsFor && Skins.physicsFor(skin)) || {};
     const eventId = predictedCpuEvent(seed);
-    const alien = !!profile.floorResolve || eventId === 'alien-invasion';
+    const alien = currentMatchOptions.physicsModeId === 'alien' || !!profile.floorResolve || eventId === 'alien-invasion';
     const target = alien && Physics.alienTargetForSeed
       ? Physics.alienTargetForSeed(seed) : null;
     const view = Physics.getViewHint ? Physics.getViewHint() : null;
     const intent = cpu.createLaunch({
       seed,
-      difficulty: game.difficulty,
+      difficulty: currentMatchDefs[game.currentPlayerIndex]?.cpuTier
+        ? cpu.difficultyForTier(currentMatchDefs[game.currentPlayerIndex].cpuTier)
+        : game.difficulty,
       physicsModeId: alien ? 'alien' : 'normal',
       target,
       arena: {
@@ -2749,6 +2774,7 @@
 
   // ── State callbacks ────────────────────────────────────────────────────────
   function currentIsBankShot() {
+    if (currentMatchOptions.journey === 'story' && currentMatchOptions.physicsModeId === 'alien') return true;
     const skin = game.currentPlayer()?.skin || BASE_SKIN;
     const bank = window.Skins && Skins.physicsFor && Skins.physicsFor(skin);
     return !!(bank && bank.floorResolve);
@@ -2865,7 +2891,7 @@
     // "PASS TO {name}" handoff card — only with >2 players still alive (with 2
     // it's obvious whose turn it is). Defers input and the tension
     // sting until the new player taps "Tap to flip".
-    if (game.activePlayers().length > 2) {
+    if (game.activePlayers().filter(player => !player.isAI).length > 1 && game.activePlayers().length > 2) {
       Input.disable();
       flipHintEl.classList.add('hidden');
       showPassGate(p);
@@ -3085,6 +3111,30 @@
   }
 
   function onResult() {
+    if (currentMatchOptions.journey === 'story') {
+      // Keep the canvas/HUD projection on the same lives and alliance effects
+      // as the campaign owner. The older controller only schedules presentation.
+      const session = v112App.snapshot().session;
+      const state = session.rules, outcome = session.lastRulesOutcome;
+      game.players.forEach((player, index) => {
+        const authoritative = state.players[index];
+        Object.assign(player, { lives: authoritative.lives, streak: authoritative.streak,
+          isHeatingUp: authoritative.heatingUp, isOnFire: authoritative.onFire,
+          eliminated: authoritative.eliminated, alwaysMagnet: authoritative.alwaysMagnet });
+      });
+      game.pointCount = state.stake;
+      game.turnCounter = state.attemptCounter;
+      game.onFireBonus = state.onFireEarned;
+      game.onFirePlayer = state.onFirePlayerId == null ? null : game.players.find(player => player.id === state.onFirePlayerId);
+      if (outcome) {
+        game.lastPenalty = outcome.suddenDeath.penalty;
+        game.onFireGain = outcome.onFire.rewardApplied;
+        game.justIgnited = outcome.onFire.justIgnited;
+        game.fireEnded = outcome.onFire.ended;
+        game.fireCapped = outcome.onFire.capped;
+        game.justEliminated = game.currentPlayer().eliminated;
+      }
+    }
     Input.disable();
     passScreen.classList.add('hidden');
     flipHintEl.classList.add('hidden');
@@ -3534,6 +3584,15 @@
     Sound.setSuddenDeath(false);
     Input.disable();
     passScreen.classList.add('hidden');
+
+    // Story's private runtime saves the terminal result and returns to its hub.
+    // A generic rematch would silently turn the prescribed encounter into Free Play.
+    if (currentMatchOptions.journey === 'story') {
+      gameScreen.classList.add('hidden');
+      gameOverEl.classList.add('hidden');
+      journeyRoutes.refresh();
+      return;
+    }
 
     const active = game.activePlayers();
     const loser  = game.currentPlayer();
@@ -4653,6 +4712,11 @@
 
   // Exit to the main menu (setup): stop the loop + timers, show setup fresh.
   async function backToMenu() {
+    if (currentMatchOptions.journey === 'story' &&
+        ['finalizing','finalization-failed'].includes(v112App?.snapshot().session?.status)) {
+      journeyRoutes.refresh();
+      return;
+    }
     const returnToLab = !!currentMatchOptions.lab;
     if (loopId) cancelAnimationFrame(loopId);
     loopId = null;
@@ -4667,6 +4731,7 @@
     }
     document.body.classList.remove('life-drain-active');
     abandonPrivateSession();
+    if (journeyRoutes) await journeyRoutes.leaveMatch();
     v111Bridge('menuEntered', { game, reason: 'menu' }, null);
     try { if (v111Platform && v111Platform.leaveMatch) await v111Platform.leaveMatch(); } catch (_) {}
     game.state = GAME_STATES.SETUP;

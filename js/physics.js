@@ -32,7 +32,10 @@ const Physics = (() => {
       wasAirborne, hasFlipped,
       eventId: activeEventDefinition ? activeEventDefinition.id :
         (lastFlickInfo && lastFlickInfo.eventId) || null,
+      seed: lastFlickInfo && lastFlickInfo.seed,
+      nativeAlien: alienShotActive() && !activeEventDefinition,
       firstContactMs, contacts: contactCount, bounces: bounceCount,
+      eventEvidence: observedLanding ? observedEventEvidence() : null,
       landing: observedLanding ? Object.freeze({
         result: observedLanding.result,
         pose: observedLanding.onCap ? 'cap' : observedLanding.result === 'MAKE' ? 'upright' : 'miss',
@@ -53,6 +56,60 @@ const Physics = (() => {
     if (typeof listener !== 'function') throw new TypeError('Physics observer must be a function');
     observationListeners.add(listener);
     return () => observationListeners.delete(listener);
+  }
+  // Private event consumers read evidence from the same bodies and runtime
+  // that classified the landing; UI code never supplies an event verdict.
+  function observedEventEvidence() {
+    const id = lastLandingInfo && (lastLandingInfo.eventId || (alienShotActive() ? 'alien-invasion' : null));
+    if (!id || !bottle) return null;
+    const state = eventRuntime || {}, flags = state.flags || {};
+    const made = lastLandingInfo.result === 'MAKE';
+    const physics = (activeEventMetadata && activeEventMetadata.physics) || {};
+    const rotations = Math.min(100, Math.abs(totalRotation) / (Math.PI * 2));
+    const distance = Math.abs(bottle.position.x - (state.originX == null ? canvasW / 2 : state.originX));
+    const ref = body => 'matter-body-' + body.id;
+    let facts;
+    switch (id) {
+      case 'rainbow-corkscrew': facts = { corkscrewRadians: Math.min(200, Math.abs(totalRotation)) }; break;
+      case 'half-full': facts = { centerOfMassShift: Math.max(-1, Math.min(1, state.liquidShift || 0)), baseStabilized: !!flags.baseStabilizing }; break;
+      case 'power-launch': facts = { impulseScale: physics.launchScale || 1 }; break;
+      case 'fizz-jet': facts = { topEjected: !!fizzCap, thrustMs: Math.min(60000, state.elapsedMs || 0) }; break;
+      case 'golden-flip': facts = { massScale: state.massScale || bottle.mass / (state.originalMass || bottle.mass) }; break;
+      case 'bouncy-bottle': facts = { bounceCount: Math.min(3, state.bounces || bounceCount), fullySettled: made || bottle.speed < 7 }; break;
+      case 'earthquake': facts = { tableTravel: Math.hypot(state.tableOffset?.x || 0, state.tableOffset?.y || 0), debrisContacts: state.contacts || 0 }; break;
+      case 'moon-gravity': facts = { gravityScale: Math.max(.001, Math.min(1, Math.abs(engine.gravity.y / profile.gravity))) }; break;
+      case 'ice-slide': facts = { slideDistance: distance, frictionRecovered: bottle.friction > .001 }; break;
+      case 'alien-invasion': facts = { bankCount: Math.min(100, bankHits), ringEntered: lastLandingInfo.reason === 'tractor-ring' }; break;
+      case 'gravity-slam': facts = { peakImpact: Math.abs(bottle.velocity.y) }; break;
+      case 'trampoline': facts = { relaunchCount: flags.relaunched ? 1 : 0, returnedToTable: touchingFloor() }; break;
+      case 'wind-tunnel': facts = { lateralImpulse: bottle.velocity.x }; break;
+      case 'shrink-ray': facts = { scale: state.bodyScale || 1 }; break;
+      case 'portal-pair': facts = { portalPasses: flags.teleported ? 1 : 0, speedRatio: state.conservation?.speedRatio || 1 }; break;
+      case 'tether-swing': facts = { cableAttached: state.startAngle != null, released: !!flags.released, swingRadians: Math.abs((state.releaseAngle || 0) - (state.startAngle || 0)) }; break;
+      case 'mitosis': {
+        const copies = state.copyOutcomes || [];
+        facts = { primaryColliderRef: ref(bottle), secondaryColliderRef: ref(mitosisBottle), primaryLanded: !!copies[0]?.made, secondaryLanded: !!copies[1]?.made, landedCopies: state.landedCount || 0 }; break;
+      }
+      case 'double-flip': facts = { rotations }; break;
+      case 'ceiling-flip': facts = { ceilingContact: contactCount > 0 && state.landingPlane === 'ceiling' }; break;
+      case 'meteor-shower': facts = { debrisContacts: state.meteorHits || 0 }; break;
+      case 'magnet': facts = { magneticImpulse: Math.hypot(state.magnetVector?.x || 0, state.magnetVector?.y || 0) }; break;
+      case 'heart-rush': facts = { pulseCount: Math.min(3, state.pulseCount || 0) }; break;
+      case 'black-hole': facts = { orbitRadians: Math.min(1000, Math.abs(totalRotation)) }; break;
+      case 'boomerang': facts = { returnedToOrigin: distance < 55, returnDistance: distance }; break;
+      case 'roulette-table': facts = { wheelColliderRef: ref(state.wheelBody), objectColliderRef: ref(bottle), sectorIndex: state.rouletteSlot, sectorCount: 8, settled: true }; break;
+      case 'rewind': facts = { replayCount: flags.replayed ? 1 : 0, correctiveImpulseApplied: !!state.correctionImpulse }; break;
+      case 'plinko': {
+        const snapshot = getPlinkoSnapshot(), outcome = snapshot && snapshot.outcome;
+        if (!outcome || outcome.actualSensorContact !== true) return null;
+        facts = { objectColliderRef: ref(bottle), slotSensorRef: outcome.sensorRef, slotIndex: outcome.slotIndex, dropDurationMs: snapshot.elapsedMs, settled: true, completionKind: 'engine-sensor', recoveryStartedMs: snapshot.recovery?.startedAtMs ?? null, recoveryImpulseCount: snapshot.recovery?.applied || 0 }; break;
+      }
+      case 'mirror-match': facts = { normalizedLaunchX: Math.max(-4, Math.min(4, lastFlickInfo.vx / 4000)), normalizedLaunchY: Math.max(-4, Math.min(4, lastFlickInfo.vy / 4000)), spin: lastFlickInfo.spin, profileSeed: lastFlickInfo.seed, physicsProfileId: profile.id || 'competitive-shared' }; break;
+      case 'cap-toss': facts = { bodyColliderRef: ref(bottle), topColliderRef: ref(capTossCap), bodyLanded: !!state.bodyOutcome?.made, topLanded: !!state.capOutcome?.made }; break;
+      case 'life-drain': facts = { magnetAssisted: !!state.magnetVector }; break;
+      default: return null;
+    }
+    return Object.freeze({ eventId: id, seed: lastFlickInfo.seed, facts: Object.freeze(facts), steps: Math.max(1, flightFrames), contacts: Math.min(256, contactCount), elapsedMs: simElapsedMs });
   }
   let onImpact = null;          // (type, speed, x, y) → wall/ceiling/ground juice
   let groundImpactSent = false; // one thud per flick
@@ -868,6 +925,7 @@ const Physics = (() => {
         result, landingInfo: lastLandingInfo,
       }));
     }
+    publishObservation('landing');
     return result;
   }
 

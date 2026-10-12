@@ -1356,3 +1356,56 @@ log, and defect ledger remain release history and are not rewritten.
   `v112-release-gap-qualification` (the deliberately deferred identity bump),
   `v112-runtime-cpu-wiring`, `v112-status-dashboard` (asserts a branch name), and
   one `tests/v111-ui-renderer` source-shape assertion.
+
+## 2026-10-11 — Story runtime repair (local, not released)
+
+Reproduced v1.15 in the actual shipped page: Story → View match → Enter Match
+hid every screen except the pass overlay. After Ready, no table was visible.
+The static release audit still passed all 23 gates. A real DOM/gesture test
+then found that main checked window.Physics even though physics.js declares a
+classic-script const, preventing the private physics driver from attaching.
+
+The repair connects the actual table and private driver, retains prescribed CPU
+tiers, skips unnecessary solo handoff, releases the route after abandonment,
+and returns terminal encounters to the checkpoint hub with the existing
+StoryPostMatch presentation. Co-op presentation reads private lives/alliance
+state; the private terminal state can end with both allies alive. Earned Field
+Notes are available through an optional disclosure in Story.
+
+A complete physical match exposed a second disconnected boundary: events were
+marked unsupported except Plinko. Engine observations now include terminal
+physical evidence and the private composition uses the existing branded
+EventKernel/EventRulesAdapter, rather than caller-authored verdicts. Event
+launches have one-use claims and qualify manual participation; abandoning one
+releases the session without attempting an ordinary landing abort. Plinko now
+publishes its terminal observation. Native Alien ring evidence uses the same
+physical adapter and mode physics is independent of the selected artwork.
+
+New coverage:
+- scripts/v112-story-live-browser-tests.js opens actual Story on phone/desktop,
+  flicks via Pointer Events into Matter, checks exactly-one scoring, abandons,
+  re-enters, starts co-op, and completes a physical encounter with result save.
+  The long match fast-forwards the test physics/presentation clock; verdicts
+  still come from actual collisions and no MAKE/MISS is injected.
+- scripts/v112-story-events-physics-tests.js drives three actual Matter flips
+  per canonical event into the private authority (90 flips); Practice gives no
+  earned rewards.
+- CPU wiring checks cover authored tiers 1, 4 and 8, plus ordinary difficulty.
+
+The generated private bundle is rebuilt with build-v112-browser.mjs. Release
+identity remains v1.15 because these are local repair changes. A version bump
+and web/APK release verification are required before publication.
+
+Validation follow-up: all 93 script suites passed (the native data browser suite
+required CHROME_PATH to the installed Chrome), and node --test tests/*.test.js
+passed. The actual Story browser scenario completes both solo and co-op
+encounters and checks repeated finalization cannot award twice. Event coverage
+also includes 12 physical native Alien attempts, with 9 genuine ring makes.
+
+The existing Matter Plinko host does not consistently meet the plan's 10–15
+second timing: its own qualification reports board-drop times as high as 17.38
+seconds, plus the 2.4-second spring/board intro. The adapter therefore uses a
+separate engine-sensor fact variant with actual total elapsed time, slot contact,
+and measured first recovery time. Canonical clean/recovered/no-contest rules
+retain their original validation. Plinko pacing remains a product/physics gap;
+this repair does not pretend it conforms by clamping measured time.
