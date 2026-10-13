@@ -86,6 +86,9 @@ assert.ok(settled.every(result => result.snap.landing.actualSensorContact));
 const durations = settled.map(result => result.snap.landing.dropMs).sort((a, b) => a - b);
 const medianDropMs = durations[Math.floor(durations.length / 2)];
 assert.ok(medianDropMs >= 10000, 'the physical board must retain a long dramatic median drop');
+assert.ok(medianDropMs <= 13000, 'median board descent should stay near the planned twelve seconds');
+assert.ok(durations.filter(ms => ms >= 10000 && ms <= 15000).length / durations.length >= .8,
+  'at least 80% of the fixed corpus should descend within the normal 10–15 second band');
 const replayA = simulate(9123, .37), replayB = simulate(9123, .37);
 assert.deepEqual({ slot: replayA.snap.landing.slotIndex, tick: replayA.snap.landing.settledTick,
   contacts: replayA.snap.contactDigest, recovery: replayA.snap.recovery },
