@@ -261,3 +261,9 @@ body:has(#game-screen:not(.hidden)) #version-badge { display: none; }
 #story-table-context[hidden] { display: none; }
 
 #game-screen.battle-lane #tour-help, #game-screen.battle-lane #story-table-context { display: none; }
+
+#battle-touch-pad { min-height: 100px; display:grid; place-items:center; touch-action:none; border:2px dashed #f2bf58; border-radius:10px; background:#172937; color:#fff; }
+body.battle-lane-live #battle-touch-check { display:none; }
+.battle-live-canvas { border-right:1px solid #f2bf58; }
+
+.battle-table-label { color:#fff; padding:6px; background:#172937cc; z-index:5; text-align:center; border-radius:6px; margin:0; }

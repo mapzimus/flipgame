@@ -1559,3 +1559,62 @@ suites were rerun, together with adversarial Kernel, private composition,
 neutral timeout and live browser tests. Battle neutral cancellation is now
 covered by the same real-browser jam test. Bundle consistency and diff checks
 pass. PR #35 was merged before this separate repair batch.
+
+
+## 2026-10-12 — Real simultaneous Battle surfaces and remaining performance evidence
+
+The shipping host no longer hardcodes capacity one. Physics, Renderer and Sound
+can create independent instances while retaining the primary classic-script
+interface. Each Battle lane owns a Matter world/body, camera, particles,
+reaction controller, audio context, event state, observer and canvas. Supplied
+lane resources point to those actual instances. On exit all observers, event
+resources, audio contexts, labels and added canvases are released.
+
+A pre-match touch surface observes simultaneous touch pointer IDs. It starts
+at one and does not infer contacts from navigator/device names. Two observed
+contacts plus the existing width rule enable two lanes; four plus the width
+rule enable four. Single-pointer devices retain the existing relay. The
+qualification survives only this page session. Runtime still owns each pointer,
+launch gate, assignment, score, heat and winner. The host only applies input
+and reports the actual collider landing.
+
+Rendering and input now agree on useful lane count: Duel uses two lanes even
+on four-contact hardware, and other formats can use four. Resizing an airborne
+lane retains its original physics geometry until settlement, then resets and
+re-aims it at the new rectangle. Each live table labels its current competitor;
+paired sudden death invites only its two active lanes.
+
+Battle engine observers carry the runtime's immutable attempt ID. The private
+composition matches observed feel, perfect/cap/native pose evidence to the
+validated ledger attempt. A mismatched pose or powered event does not improve
+performance, and a powered event breaks the ordinary streak. Expected make
+rate uses actual active lane count rather than unused hardware capacity.
+
+Observer provenance is checked through module-owned WeakSet/WeakMap identity
+and frozen engine observation ports. A driver wrapping caller-authored snapshots
+cannot attach to the Battle reward pipeline. Closing a lane removes its listener
+while retaining only bounded scalar evidence for finalization. Native Alien
+bank-and-ring attempts now enter the ordinary performance sample; forced
+Alien/events do not. Small-sample neutrality and existing reward bounds remain.
+
+New browser coverage plays complete physical two-lane and four-lane series,
+including Duel on four-contact hardware and paired sudden death. It checks
+independent worlds and bodies, simultaneous actual flight, per-canvas paint,
+launch gating, persisted rewards, matching observed scoring evidence, selected
+feel/lane baseline, forged-observer rejection, duplicate-finalization safety
+and canvas cleanup. The original real relay/CPU/resize walkthrough still
+passes. The event corpus confirms all 90 forced events stay outside ordinary
+performance and all 12 native Alien attempts enter it.
+
+Validation: the 98-script sweep passed, along with 52 Node tests. After adding
+observer provenance and useful-lane/DPR camera checks, the affected driver,
+authority, host/runtime, composition, event, relay, simultaneous browser,
+Plinko neutral-exit, layout and Node suites were rerun. Private bundle source
+consistency and diff checks pass.
+
+Actual target smartboard contact behavior, GPU/frame-rate budget and Android
+qualification still require those devices. The browser tests are evidence of
+real independent engines and UI behavior, not a claim of that hardware signoff.
+Release identity remains v1.15 and needs a release bump/web/APK verification
+before publication. Broader Story environment art and Battle neutral retry
+remain separate work.

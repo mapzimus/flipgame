@@ -1,6 +1,13 @@
 // physics.js — Matter.js world, bottle body, liquid sim
 
 const Physics = (() => {
+  const observationSources = new WeakSet();
+  Object.defineProperty(globalThis, 'FlipgamePhysicsObservationSources', {
+    value: Object.freeze({ isSource: value => observationSources.has(value) }),
+  });
+  // The primary instance keeps the legacy interface; Battle creates additional
+  // worlds whose bodies, collision callbacks and event state are independent.
+  function createInstance() {
   const { Engine, Bodies, Body, World, Events, Constraint } = Matter;
 
   let engine, world, bottle, ground, leftWall, rightWall, ceilingBody;
@@ -3333,8 +3340,11 @@ const Physics = (() => {
     return verdict;
   }
 
+  const observationSource = Object.freeze({ getObservation, subscribeObservations });
+  observationSources.add(observationSource);
   return {
     init, reflow, step, resetBottle, applyFlick, checkLanding, forceLanding,
+    observationSource: () => observationSource,
     getBottle, getLiquid, getGroundY, getLastLandingInfo, getLastFlickInfo,
     setProfile, getTarget, getObstacles, getViewHint, isOpenArena, placeTarget,
     seedTurn, setPlinkoEnabled, forcePlinko, forceSpecialEvent, forceSpecialEventName,
@@ -3349,4 +3359,8 @@ const Physics = (() => {
     getArenaProfiles,
     getObservation, subscribeObservations,
   };
+  }
+  const primary = createInstance();
+  Object.defineProperty(primary, 'createInstance', { value: createInstance });
+  return primary;
 })();

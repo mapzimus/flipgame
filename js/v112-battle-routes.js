@@ -246,7 +246,7 @@
         function stateBusy(){return s.busy||h.status!=='playing';}
         body.append(scores);
         // An empty lane list is a lane-sized hole on the result, not a status.
-        if(h.lanes.length){const lanes=element('div',null,'battle-lane-status');for(const lane of h.lanes)lanes.append(element('p',`${lane.label} · ${lane.status}`));body.append(lanes);}
+        if(h.lanes.length){const lanes=element('div',null,'battle-lane-status');for(const lane of h.lanes){const status=element('p',`${lane.label} · ${lane.status}`);status.dataset.laneId=lane.laneId;lanes.append(status);}body.append(lanes);}
         body.append(element('p',h.message || ({finalizing:'Saving the authoritative result…',retryable:'Result waiting to be saved.',settled:'Battle complete.'}[h.status]||'')));
         if(h.status==='retryable')body.append(button('Retry saving',()=>controller.retry(),s.busy));
       }

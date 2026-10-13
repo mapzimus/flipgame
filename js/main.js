@@ -1469,243 +1469,150 @@
     showBroadcastSetup(); practiceBtn.click();
   });
   // ── Battle lane ────────────────────────────────────────────────────────────
-  // Battle borrows the one physics surface this build has: the live table, the
-  // real bottle, the real collider. The lane runtime decides whose launch this
-  // is; the adapter below only launches what it is handed and reports what
-  // settled. It never chooses a player, a score or a winner.
+  // Each Battle lane owns its physics, renderer, audio and event lifecycle.
+  // The runtime assigns competitors and gates launches; these surfaces only
+  // apply the supplied input and report the collider's actual landing.
   const battleLane = (() => {
-    let live = false;
-    let frameId = null;
-    let lastAt = 0;
-    let airborne = null;
-    let aim = null;
-    let arenaTurn = 0;
-    let armedFor = null;
-    let struck = true;
-    let seats = new Map();
-    let laneSeat = null;
-    let openLanes = 0;
-    // The reward authority renames every competitor to its seat position, so the
-    // look of a seat is found by where it sat in the lineup, never by the id the
-    // setup screen happened to generate for that row.
-    function seatFor(playerId) { return seats.get(String(playerId)) || null; }
-    function paint(dt) {
-      const seat = laneSeat || {};
-      Renderer.frame(dt, {
-        bottle: Physics.getBottle(), liquid: Physics.getLiquid(),
-        groundY: Physics.getGroundY(), drag: aim,
-        liquidColor: seat.color, skin: seat.skin || BASE_SKIN,
-        variantId: seat.variantId || null, cosmeticId: seat.cosmeticId || null,
-        playerName: seat.name || 'Player',
-        visualArenaId: visualArenaId || null,
-        awaitingFlick: !airborne,
-        eventRenderState: Physics.getEventRenderState
-          ? Physics.getEventRenderState(reduceMotionActive()) : null,
-        landingLifecycle: Physics.getLandingLifecycle ? Physics.getLandingLifecycle() : null,
-        eventBodies: Physics.getEventBodies ? Physics.getEventBodies() : [],
-        plinkoBoard: null, plinkoSnapshot: null,
-        target: Physics.getTarget ? Physics.getTarget() : null,
-        obstacles: Physics.getObstacles ? Physics.getObstacles() : null,
-        view: Physics.getViewHint ? Physics.getViewHint() : null,
-      });
+    let live = false, frameId = null, lastAt = 0, seats = new Map(), laneCount = 1;
+    let verifiedContacts = 1, matchId = null;
+    const lanes = new Map(), touches = new Set();
+    const touchPad = document.getElementById('battle-touch-pad');
+    touchPad.addEventListener('pointerdown', event => {
+      if (live || event.pointerType !== 'touch') return;
+      touches.add(event.pointerId);
+      try { touchPad.setPointerCapture?.(event.pointerId); } catch (_) {}
+      verifiedContacts = Math.max(verifiedContacts, Math.min(4, touches.size));
+      document.getElementById('battle-touch-status').textContent = `${verifiedContacts} simultaneous touch contacts observed. Display width also limits active lanes.`;
+      battleRoutesController?.refresh();
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) touchPad.addEventListener(type, event => touches.delete(event.pointerId));
+    window.addEventListener('blur', () => touches.clear());
+    function rect(index) { return { left: index * window.innerWidth / laneCount, top: 0, width: window.innerWidth / laneCount, height: window.innerHeight }; }
+    function fit(lane, box) {
+      lane.box = box;
+      if(lane.label)lane.label.style.cssText=`position:absolute;left:${box.left+8}px;top:210px;width:${Math.max(1,box.width-16)}px;pointer-events:none`;
+      lane.canvas.style.cssText = `position:absolute;left:${box.left}px;top:0;width:${box.width}px;height:${box.height}px;pointer-events:none`;
+      if (lane.airborne) { lane.pendingBox = box; return; }
+      lane.width = box.width; lane.height = box.height;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      lane.canvas.width = Math.round(box.width * dpr); lane.canvas.height = Math.round(box.height * dpr);
+      lane.canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+      lane.renderer.resize(box.width, box.height);
+      lane.physics.reflow(box.width, box.height, stageBottomInset());
+      lane.pendingBox = null;
+    }
+    function seed(lane) { return ((lane.turn * 0x9E3779B1) ^ (lane.index * 0x85ebca6b)) >>> 0; }
+    function setTable(lane, playerId) {
+      if (lane.airborne) return;
+      lane.seat = seats.get(playerId) || {};
+      lane.label.textContent=lane.seat.name || 'Waiting';
+      if (!lane.struck && lane.armedFor === playerId && !lane.pendingBox) return;
+      if (lane.pendingBox) fit(lane, lane.pendingBox);
+      lane.physics.setProfile(window.Skins?.physicsFor(lane.seat.skin || BASE_SKIN) || null);
+      lane.physics.resetBottle(); lane.turn++; lane.physics.seedTurn(seed(lane));
+      lane.armedFor = playerId; lane.struck = false;
+    }
+    function paint(lane, dt) {
+      const p = lane.physics, seat = lane.seat || {};
+      lane.renderer.resize(lane.width, lane.height);
+      lane.renderer.setReduceMotion(reduceMotionActive());
+      lane.audio.setMuted(Sound.isMuted());
+      lane.renderer.frame(dt, { bottle:p.getBottle(), liquid:p.getLiquid(), groundY:p.getGroundY(), drag:lane.aim,
+        skin:seat.skin || BASE_SKIN, liquidColor:seat.color, variantId:seat.variantId || null, cosmeticId:seat.cosmeticId || null,
+        playerName:seat.name || 'Player', visualArenaId:visualArenaId || null, awaitingFlick:!!lane.armedFor&&!lane.airborne,
+        eventRenderState:p.getEventRenderState(reduceMotionActive()), eventBodies:p.getEventBodies(),
+        landingLifecycle:p.getLandingLifecycle(), plinkoBoard:null, plinkoSnapshot:null,
+        target:p.getTarget(), obstacles:p.getObstacles(), view:p.getViewHint() });
     }
     function frame(now) {
       if (!live) return;
       frameId = requestAnimationFrame(frame);
-      const dt = Math.min((now - lastAt) / 1000, 0.05);
-      lastAt = now;
-      Physics.step(dt);
-      if (airborne) {
-        const result = Physics.checkLanding();
-        if (result) {
-          const info = Physics.getLastLandingInfo() || {};
+      const dt = Math.min((now-lastAt)/1000,.05); lastAt = now;
+      for (const lane of lanes.values()) {
+        lane.physics.step(dt);
+        if (lane.airborne) {
+          const result = lane.physics.checkLanding();
           if (result === 'NO_CONTEST') {
-            airborne = null;
             battleHost.abandon();
             document.getElementById('battle-message').textContent = 'Plinko could not settle. Battle ended without a scored result. Start again.';
-            announce('Plinko could not settle. Battle ended without awarding this result. Start again.', true);
             return;
           }
-          // The pose is whatever the collider settled into. Nothing here may
-          // upgrade a miss or invent a cap.
-          const pose = result !== 'MAKE' ? 'miss' : (info.onCap ? 'cap' : 'upright');
-          const settled = airborne;
-          airborne = null;
-          // Whatever it landed as, it is lying there now and has to be set up
-          // again before anyone flicks it.
-          struck = true;
-          Sound.play(result === 'MAKE' ? 'make' : 'miss');
-          settled.resolve({ pose, reason: info.reason || null });
+          if (result) {
+            const info = lane.physics.getLastLandingInfo() || {}, pending = lane.airborne;
+            lane.airborne = null; lane.struck = true;
+            lane.audio.play(result === 'MAKE' ? 'make' : 'miss');
+            pending.resolve({ pose:result === 'MAKE' ? info.onCap ? 'cap' : 'upright' : 'miss', reason:info.reason });
+          }
         }
+        paint(lane, dt);
       }
-      paint(dt);
-    }
-    // Set the table for whoever the lane belongs to now: their Flipper, their
-    // colour, an upright bottle and a fresh arena seed. A flip in the air is
-    // never disturbed, and a table already set for the same competitor is left
-    // alone so a waiting bottle does not twitch every frame.
-    function arenaSeed() { return (arenaTurn * 0x9E3779B1) >>> 0; }
-    function setTableFor(playerId) {
-      const seat = seatFor(playerId);
-      if (airborne) return;
-      if (!struck && armedFor === playerId) { laneSeat = seat || laneSeat; return; }
-      laneSeat = seat;
-      if (Physics.setProfile) {
-        Physics.setProfile(window.Skins && Skins.physicsFor
-          ? Skins.physicsFor(seat && seat.skin || BASE_SKIN) : null);
-      }
-      Physics.resetBottle();
-      // Battle keeps its own arena seed. The classic turn counter never advances
-      // during a Battle, so borrowing it would deal every competitor the same
-      // table for the whole series.
-      arenaTurn += 1;
-      if (Physics.seedTurn) Physics.seedTurn(arenaSeed());
-      armedFor = playerId;
-      struck = false;
     }
     return {
-      // One physics surface plays one lane, so the lane covers the whole table
-      // and every competitor takes it in turn. The host measures that lane off
-      // the stage itself, which is the same glass this table is painted on.
-      capacity: 1,
-      measure: () => ({ width: window.innerWidth, observedContacts: 1 }),
-      live: () => live,
-      // The glass changed size, so the table is re-fitted under a bottle that is
-      // only waiting. A flip already in the air keeps the world it was launched
-      // into: Physics holds the reflow back until that flip resolves.
-      reflow() {
-        if (!live) return;
-        Physics.reflow(window.innerWidth, window.innerHeight, stageBottomInset());
-        if (airborne) return;
-        Physics.resetBottle();
-        // Anything the arena seed places belongs to the glass it was placed on.
-        // Re-fitting the world alone moves the floor and leaves a target pad or a
-        // tractor ring at the height it was dealt for the old viewport, so the
-        // same seed is dealt again for the new one. A classic turn does this
-        // through prepareTurnArena; the lane has to do it too.
-        if (Physics.seedTurn) Physics.seedTurn(arenaSeed());
+      capacity:4, measure:()=>({width:window.innerWidth,observedContacts:verifiedContacts}), live:()=>live,
+      remember(defs){seats=new Map(defs.map((def,index)=>['seat-'+(index+1),def]));},
+      reflow(){if(live)for(const lane of lanes.values()){
+        fit(lane,rect(lane.index));
+        if(!lane.airborne){lane.struck=true;setTable(lane,lane.armedFor);}
+      }},
+      cpuLaunch(request){
+        const lane=lanes.get(request.laneId), cpu=window.FlipgameV112Cpu;
+        if(!lane||!cpu)return null;
+        setTable(lane,request.playerId);
+        const profile=window.Skins?.physicsFor(lane.seat.skin||BASE_SKIN)||{};
+        const target=profile.floorResolve?lane.physics.alienTargetForSeed(seed(lane)):null;
+        const view=lane.physics.getViewHint();
+        const intent=cpu.createLaunch({seed:seed(lane),difficulty:chosenDifficulty(),physicsModeId:profile.floorResolve?'alien':'normal',target,
+          arena:{worldW:target?.worldW||view?.worldW||lane.width,viewW:lane.width,viewH:lane.height}});
+        return {vx:intent.vx,vy:intent.vy};
       },
-      remember(defs) { seats = new Map(defs.map((def, index) => ['seat-' + (index + 1), def])); },
-      // A CPU competitor still has to flick something. The intent comes from the
-      // same calibrated module a classic CPU turn uses, off the same seeded
-      // table, so a Battle opponent is exactly as good as one in a normal match
-      // and no better. It reports no pose: the collider decides that.
-      cpuLaunch(request) {
-        const cpu = window.FlipgameV112Cpu;
-        if (!live || !cpu || typeof cpu.createLaunch !== 'function') return null;
-        const playerId = request && request.playerId;
-        setTableFor(playerId);
-        const seat = seatFor(playerId) || {};
-        const profile = (window.Skins && Skins.physicsFor
-          && Skins.physicsFor(seat.skin || BASE_SKIN)) || {};
-        const seed = arenaSeed();
-        // Battle runs no ordinary events, so the only bank-shot table a CPU can
-        // be dealt is one its own Flipper brings.
-        const alien = !!profile.floorResolve;
-        const target = alien && Physics.alienTargetForSeed
-          ? Physics.alienTargetForSeed(seed) : null;
-        const view = Physics.getViewHint ? Physics.getViewHint() : null;
-        const intent = cpu.createLaunch({
-          seed, difficulty: chosenDifficulty(),
-          physicsModeId: alien ? 'alien' : 'normal', target,
-          arena: {
-            worldW: target?.worldW || view?.worldW || window.innerWidth,
-            viewW: target?.viewW || window.innerWidth,
-            viewH: target?.viewH || window.innerHeight,
-          },
+      adapter(context){
+        const index=context.laneIndex, target=index===0&&laneCount===1?canvas:document.createElement('canvas');
+        if(target!==canvas){target.className='battle-live-canvas';target.dataset.lane=context.laneId;target.setAttribute('aria-hidden','true');gameScreen.prepend(target);}
+        const physics=index===0?Physics:Physics.createInstance(), renderer=index===0?Renderer:Renderer.createInstance();
+        const label=document.createElement('p');label.className='battle-table-label';gameScreen.append(label);
+        const lane={index,canvas:target,label,physics,renderer,audio:Sound.createInstance(),airborne:null,aim:null,turn:0,struck:true,armedFor:null};
+        physics.setImpactCallback((kind,speed,x,y)=>{
+          lane.audio.play(kind==='ground'?'thud':'wall');
+          renderer.nudge(Math.min(4,1+speed*.1));
         });
-        return { vx: intent.vx, vy: intent.vy };
+        const box=rect(index);physics.init(box.width,box.height,stageBottomInset());physics.setFeel(chosenFeel());renderer.init(target);fit(lane,box);
+        const driver=FlipgameV112PhysicsDriver.create(physics);lane.driver=driver;
+        const detach=v112App.battle.attachPhysics(matchId,driver);
+        lanes.set(context.laneId,lane);
+        context.resources.bodyState.physics=physics;context.resources.cameraState.renderer=renderer;
+        context.resources.audioState.audio=lane.audio;context.resources.eventState.physics=physics;
+        return {resources:context.resources,
+          destroy(){detach();driver.close();lane.physics.cleanupEvent();lane.audio.close();label.remove();if(target!==canvas)target.remove();lanes.delete(context.laneId);},
+          beginAim(){lane.aim=null;},
+          sampleAim(sample){const point=sample?.sample;if(!point)return;const x=point.clientX-lane.box.left,y=point.clientY;
+            if(!lane.aim)lane.aim={startX:x,startY:y,curX:x,curY:y};else{lane.aim.curX=x;lane.aim.curY=y;}},
+          cancelAim(){lane.aim=null;},
+          onAssignment(assignment){setTable(lane,assignment.playerId);},reset(info){setTable(lane,info.playerId);},
+          launch(launch){lane.aim=null;setTable(lane,launch.playerId);
+            const signal=launch.gesture?.launchSignal||{},power=(launch.powerEffects||[]).find(effect=>effect?.eventAdapterId);
+            if(power)physics.forceSpecialEvent(power.eventAdapterId);
+            const cpu=launch.gesture?.pointerType==='cpu';lane.audio.unlock();lane.audio.setMuted(Sound.isMuted());lane.audio.play('flick');
+            driver.armLaunch({manual:!cpu,attemptId:launch.attemptId});
+            const pending=new Promise(resolve=>{lane.airborne={resolve};});
+            try {
+              physics.applyFlick(Number(signal.vx)||0,Number(signal.vy)||0,cpu?seed(lane):undefined,1,power?'normal':'disabled',false,cpu?{inputFeelMode:'standard'}:{});
+            } catch(error) { lane.airborne=null;driver.cancelArmedLaunch();lane.struck=true;throw error; }
+            return pending;
+          }};
       },
-      adapter(context) {
-        // One physics surface, one bottle, one attempt in the air. A second lane
-        // built here would share all three and report one competitor's pose as
-        // another's, so raising the capacity has to fail loudly instead.
-        if (openLanes) throw new Error('The live table runs one Battle lane at a time');
-        openLanes += 1;
-        return {
-          resources: context.resources,
-          destroy() { openLanes = 0; },
-          // The aim trail is paint only: the runtime's qualifier reads the
-          // pointer samples itself, and nothing here feeds back into a launch.
-          beginAim() { aim = null; },
-          sampleAim(sample) {
-            const point = sample && sample.sample;
-            if (!point) return;
-            if (!aim) aim = { startX: point.clientX, startY: point.clientY, curX: point.clientX, curY: point.clientY };
-            else { aim.curX = point.clientX; aim.curY = point.clientY; }
-          },
-          cancelAim() { aim = null; },
-          launch(launch) {
-            aim = null;
-            setTableFor(launch.playerId);
-            const signal = launch.gesture && launch.gesture.launchSignal || {};
-            const power = (launch.powerEffects || []).find(effect => effect && effect.eventAdapterId);
-            // A stored card is the only event a Battle flick may run: with one
-            // forced adapter the engine rolls nothing of its own.
-            if (power && Physics.forceSpecialEvent) Physics.forceSpecialEvent(power.eventAdapterId);
-            Sound.unlock();
-            Sound.play('flick');
-            // Physics Feel is a human input preference. A CPU tier is calibrated
-            // against the canonical transfer, so letting that preference reach a
-            // CPU launch would quietly change how strong the opponent is.
-            const cpu = launch.gesture && launch.gesture.pointerType === 'cpu';
-            Physics.applyFlick(Number(signal.vx) || 0, Number(signal.vy) || 0,
-              cpu ? arenaSeed() : undefined, 1, power ? 'normal' : 'disabled', false,
-              cpu ? { inputFeelMode: 'standard' } : {});
-            return new Promise(resolve => { airborne = { resolve }; });
-          },
-          // The lane is someone else's now, so the table is set for them before
-          // they touch it. Waiting for their flick would show them the last
-          // bottle lying where it fell, wearing their colour.
-          onAssignment(assignment) { setTableFor(assignment.playerId); },
-          // A resolved attempt leaves the bottle wherever it fell, and the lane
-          // is handed straight back — to the next competitor, or to the same one
-          // for the next volley. Only an assignment change announces itself, so
-          // relying on that alone left whoever leads the next volley staring at
-          // the last bottle lying on its side in their own colour.
-          reset(info) { if (info && info.playerId) setTableFor(info.playerId); },
-        };
+      enter(context){if(live)return;live=true;matchId=context.config.matchId;
+        laneCount=Math.min(context.config.hardware.activeLaneLimit,context.config.formatId==='duel'?2:4);
+        gameScreen.classList.remove('hidden');gameScreen.classList.add('battle-lane');document.body.classList.add('battle-lane-live');
+        canvas.style.display=laneCount>1?'none':'';Input.disable();
+        lastAt=performance.now();frameId=requestAnimationFrame(frame);
       },
-      enter(context) {
-        if (live) return;
-        live = true;
-        airborne = null; aim = null; armedFor = null; struck = true; openLanes = 0;
-        gameScreen.classList.remove('hidden');
-        gameScreen.classList.add('battle-lane');
-        document.body.classList.add('battle-lane-live');
-        // The runtime owns every pointer in a Battle, so the classic flick
-        // router must not be listening to the same glass.
-        if (Input.disable) Input.disable();
-        Renderer.init(canvas);
-        Renderer.setReduceMotion(reduceMotionActive());
-        const roster = ((context && context.config && context.config.players) || [])
-          .map(player => seatFor(player.id)).filter(Boolean);
-        if (window.Skins) Skins.preload(roster.map(seat => ({ id: seat.skin || BASE_SKIN, color: seat.color })));
-        resize();
-        Physics.init(window.innerWidth, window.innerHeight, stageBottomInset());
-        if (Physics.setFeel) Physics.setFeel(chosenFeel());
-        // A first heat opens on the first seat's table; the runtime's own
-        // assignment corrects it the moment it decides who actually leads.
-        setTableFor('seat-1');
-        lastAt = performance.now();
-        frameId = requestAnimationFrame(frame);
-      },
-      exit() {
-        if (!live) return;
-        live = false;
-        if (frameId) cancelAnimationFrame(frameId);
-        frameId = null;
-        // A lane that leaves mid-flight resolves nothing: an attempt with no
-        // reported pose never enters the ledger, so it can never be scored.
-        airborne = null; aim = null; laneSeat = null; armedFor = null; struck = true;
-        openLanes = 0;
-        gameScreen.classList.add('hidden');
-        gameScreen.classList.remove('battle-lane');
-        document.body.classList.remove('battle-lane-live');
-        if (Input.enable) Input.enable();
+      exit(){live=false;if(frameId)cancelAnimationFrame(frameId);frameId=null;
+        gameScreen.classList.add('hidden');gameScreen.classList.remove('battle-lane');document.body.classList.remove('battle-lane-live');
+        canvas.style.display='';canvas.style.cssText='';Input.enable();
       },
     };
   })();
+  let battleRoutesController = null;
   if (window.FlipgameV112BattleRoutes) {
     if (v112App && window.FlipgameV112BattleHost) {
       battleHost = FlipgameV112BattleHost.createBattleHost({
@@ -1724,7 +1631,7 @@
         now: () => performance.now(),
       });
     }
-    FlipgameV112BattleRoutes.mount({ document,
+    battleRoutesController = FlipgameV112BattleRoutes.mount({ document,
       getHost: () => battleHost,
       getPlayers: () => {
         if (firstInvalidSetupName(setupNameInputs())) return [];
