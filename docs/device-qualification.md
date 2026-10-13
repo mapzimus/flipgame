@@ -14,6 +14,11 @@ Local checks passed on the source merged in PR #37:
 These checks do not establish Android WebView behavior, physical simultaneous
 touch contacts, board GPU frame rate, or device audio/lifecycle behavior.
 
+The local debug APK built successfully from `fc398b3`. All 92 tracked runtime
+files matched its packaged assets byte for byte, with no extra assets. Android
+build-tools verified the debug signature, separate qualification app ID and
+version suffix. The generated JSON report records its full source SHA and hash.
+
 ## Build a separate offline test app
 
 In PowerShell 7, from a clean committed checkout:
