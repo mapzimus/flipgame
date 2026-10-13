@@ -15,8 +15,10 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   let driverSerial = 0;
+  const driverSources = new WeakMap();
   const EVENT_IDS = new Set(['rainbow-corkscrew','half-full','power-launch','fizz-jet','golden-flip','bouncy-bottle','earthquake','moon-gravity','ice-slide','alien-invasion','gravity-slam','trampoline','wind-tunnel','shrink-ray','portal-pair','tether-swing','mitosis','double-flip','ceiling-flip','meteor-shower','magnet','heart-rush','black-hole','boomerang','roulette-table','rewind','plinko','mirror-match','cap-toss','life-drain']);
   function create(physics) {
+    physics = physics && typeof physics.observationSource === 'function' ? physics.observationSource() : physics;
     if (!physics || typeof physics.getObservation !== 'function' ||
         typeof physics.subscribeObservations !== 'function') {
       throw new TypeError('PhysicsObservationV1 engine hooks are required');
@@ -43,7 +45,7 @@
           warning = 'Another launch arrived before the observed flip resolved';
           notify(); return;
         }
-        active = { sequence: observation.launchSequence,
+        active = { sequence: observation.launchSequence, attemptId: marker.attemptId,
           launchId: prefix + (++acceptedLaunches), manual: marker.manual, resolved: false };
         warning = null;
       }
@@ -58,6 +60,7 @@
       if (unsupportedReason) warning = unsupportedReason;
       frame = Object.freeze({
         launchId: active.launchId, atMs: observation.atMs, qualified: true,
+        attemptId: active.attemptId || null,
         manual: active.manual, grounded: observation.grounded,
         phase: observation.phase, eventId,
         seed: observation.seed,
@@ -72,14 +75,15 @@
     }
     const unsubscribe = physics.subscribeObservations(observe);
     if (typeof unsubscribe !== 'function') throw new TypeError('Physics observer must supply unsubscribe');
-    return Object.freeze({
+    const driver = Object.freeze({
       schema: 'PhysicsCompositionDriverV1',
       armLaunch(input) {
         if (closed) throw new Error('Physics driver is closed');
         if (!input || typeof input.manual !== 'boolean') throw new TypeError('Launch marker requires an exact manual boolean');
         if (pending) throw new Error('A launch marker is already armed');
         if (active && !active.resolved) throw new Error('Wait for the current flip to resolve');
-        pending = Object.freeze({ manual: input.manual });
+        if (input.attemptId != null && (typeof input.attemptId !== 'string' || !input.attemptId.length || input.attemptId.length > 256)) throw new TypeError('Attempt marker must be a bounded ID');
+        pending = Object.freeze({ manual: input.manual, attemptId: input.attemptId || null });
         return Object.freeze({ armed: true });
       },
       cancelArmedLaunch() { const cancelled = !!pending; pending = null; return cancelled; },
@@ -94,6 +98,9 @@
       close() { if (closed) return; closed = true; pending = null; active = null;
         frame = null; unsubscribe(); listeners.clear(); },
     });
+    driverSources.set(driver, physics);
+    return driver;
   }
-  return Object.freeze({ schema: 'PhysicsCompositionDriverFactoryV1', create });
+  return Object.freeze({ schema: 'PhysicsCompositionDriverFactoryV1', create,
+    isPhysicalDriver: driver => !!globalThis.FlipgamePhysicsObservationSources?.isSource(driverSources.get(driver)) });
 });

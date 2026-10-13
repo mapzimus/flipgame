@@ -157,7 +157,7 @@
         // or an attempt is launched into it.
         if (openLane) { laneOpen = true; openLane({ stage: stage, config: config }); }
         stageElement = stage;
-        var rects = laneRectsFor(stage, config.hardware.activeLaneLimit);
+        var rects = laneRectsFor(stage, Math.min(config.hardware.activeLaneLimit, config.formatId === 'duel' ? 2 : 4));
         runtime = buildRuntime({ matchId: config.matchId, config: config, laneRects: rects,
           laneAdapterFactory: opts.laneAdapterFactory, captureTarget: stage,
           // One clock. The frame clock drives tick(), and a Timed Rush horn is
@@ -297,7 +297,7 @@
       if (!runtime || !stageElement || !reservation) return snapshot();
       try {
         runtime.updateLaneRects(laneRectsFor(stageElement,
-          reservation.config.hardware.activeLaneLimit));
+          Math.min(reservation.config.hardware.activeLaneLimit, reservation.config.formatId === 'duel' ? 2 : 4)));
       } catch (error) {
         message = error && error.message ? error.message : String(error);
       }

@@ -53,6 +53,7 @@ function launch(h, driver, seed, power = 2400, dt = 1 / 60, event = null) {
    try{
     const shot=launch(h,driver,7000+seed,1800+seed*300,1/60,event.id);
     const current=h.app.snapshot();
+    assert.equal(current.session.performanceSample.eligibleShots,0,'Forced event payouts cannot inflate ordinary performance');
     assert.equal(current.session.flipPhase,'resolved',event.id+': '+current.warning);
     assert.equal(current.session.lastLanding.result,shot.result,event.id+' verdict parity');
     assert.equal(current.warning,null,event.id+' has no deferred/error evidence');
@@ -80,6 +81,7 @@ function launch(h, driver, seed, power = 2400, dt = 1 / 60, event = null) {
   if(result==='MAKE')nativeMakes++;
  }
  assert.ok(nativeMakes>0,'Airborne native bank-and-ring MAKE reaches private rules');
+ assert.equal(native.app.snapshot().session.performanceSample.eligibleShots,12,'All genuine native Alien attempts enter the ordinary performance sample');
  native.app.close();nativeDriver.close();
  console.log(JSON.stringify({shots:reports.length,nativeAlienShots:12,nativeMakes,failures},null,2));assert.equal(failures.length,0);
 })().catch(error=>{console.error(error);process.exitCode=1;});

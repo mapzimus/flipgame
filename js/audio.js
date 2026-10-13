@@ -1,6 +1,7 @@
 // audio.js — tiny synthesized WebAudio SFX (no asset files → stays offline-friendly).
 // Must be unlocked from a user gesture (browsers block audio until then).
 const Sound = (() => {
+  function createInstance() {
   let ctx = null, master = null, muted = false;
   let suddenDeathTimer = null;
   let suddenDeathActive = false;
@@ -157,5 +158,10 @@ const Sound = (() => {
     isMuted: () => muted,
     setSuddenDeath,
     stopSuddenDeath,
+    close: () => { stopSuddenDeath(); if (ctx) ctx.close().catch(() => {}); ctx = null; master = null; },
   };
+  }
+  const primary = createInstance();
+  Object.defineProperty(primary, 'createInstance', { value: createInstance });
+  return primary;
 })();

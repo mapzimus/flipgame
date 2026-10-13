@@ -1,7 +1,10 @@
 // renderer.js — canvas draw loop
 
 const Renderer = (() => {
+  // Camera, particles, reactions and drawing context belong to one canvas.
+  function createInstance() {
   let canvas, ctx, W, H;
+  let firstFrame = true;
   const particles = [];
   let reduceMotion = false;   // when on, suppress non-essential motion (particles, shake, pulses)
   // Visual size of every flippable edition (bottle + skins). Physics body stays
@@ -51,6 +54,7 @@ const Renderer = (() => {
   }
 
   function init(cvs) {
+    firstFrame = true;
     canvas = cvs;
     ctx    = canvas.getContext('2d');
     W = canvas.width;
@@ -61,7 +65,7 @@ const Renderer = (() => {
     if (reactionFocus) reactionFocus.reset();
   }
 
-  function resize(w, h) { W = w; H = h; }
+  function resize(w, h) { W = w; H = h; if (firstFrame) { camX = W / 2; camY = H / 2; } }
 
   function projectPoint(x, y, groundY) {
     // Normal flips get a slight visual lift for a more dramatic arc. During
@@ -1674,6 +1678,7 @@ const Renderer = (() => {
   }
 
   function frame(dt, state) {
+    firstFrame = false;
     const plinkoBridge = typeof FlipgameV112PlinkoPresentation !== 'undefined' ? FlipgameV112PlinkoPresentation : null;
     plinkoPresentation = state.plinkoSnapshot && plinkoBridge
       ? plinkoBridge.project(state.plinkoSnapshot, { width: W, height: H }) : null;
@@ -1932,4 +1937,8 @@ const Renderer = (() => {
     init, resize, frame, setReduceMotion, projectPoint, projectBottleCenter,
     bottleDrawScale, drawBottle, drawPreview, drawCosmeticPreview, burst, nudge,
   };
+  }
+  const primary = createInstance();
+  Object.defineProperty(primary, 'createInstance', { value: createInstance });
+  return primary;
 })();

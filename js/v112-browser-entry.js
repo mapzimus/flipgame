@@ -108,6 +108,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       session: session ? { matchId: session.request.matchId, request: session.request,
         status: session.status, rules: session.practice ? null : session.rules.snapshot(),
         play: playState(session.rules.snapshot()),
+        performanceSample: { eligibleShots: session.ordinaryShots.length,
+          perfectMakes: session.ordinaryShots.filter(function (shot) { return shot.made && shot.perfect; }).length,
+          capMakes: session.ordinaryShots.filter(function (shot) { return shot.made && shot.pose === 'cap'; }).length },
         practice: session.practice ? copy(session.practiceScore) : null,
         flipPhase: session.flip ? session.flip.phase : 'ready',
         lastLanding: session.lastLanding, lastRulesOutcome: session.lastRulesOutcome,
@@ -212,8 +215,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var shots = current.ordinaryShots.slice(-24);
     var made = shots.filter(function (shot) { return shot.made; }).length;
     var feel = shots.length ? shots[shots.length - 1].feel : 'standard';
+    var activeLanes = current.config ? Math.min(current.config.hardware.activeLaneLimit, current.config.formatId === 'duel' ? 2 : 4) : 1;
     var expected = Economy.performanceMultiplier({ feel: feel,
-      laneCount: current.config ? current.config.hardware.activeLaneLimit : 1 }).expectedMakeRate;
+      laneCount: activeLanes }).expectedMakeRate;
     function adjusted(rate) { return rate >= expected ? (rate - expected) / (1 - expected) : (rate - expected) / expected; }
     var clutch = shots.filter(function (shot) { return shot.clutch; });
     var groups = Object.create(null);
@@ -234,7 +238,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       ordinaryStreak: shots.length ? shots.filter(function (shot) { return shot.made && shot.streakBefore >= 1; }).length / shots.length : 0,
       clutch: clutch.length ? adjusted(clutch.filter(function (shot) { return shot.made; }).length / clutch.length) : 0,
       teamContribution: teamScores.length ? teamScores.reduce(function (sum, value) { return sum + value; }, 0) / teamScores.length : 0,
-      laneCount: current.config ? current.config.hardware.activeLaneLimit : 1 });
+      laneCount: activeLanes });
     current.performance = performance;
     var telemetry = { completed: true, resolved: true, activityId: current.request.activityId,
       qualifiedManualHumanFlips: current.manualHumanFlips, humanPlayers: humans.length,
@@ -247,6 +251,17 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     if (current.config) telemetry.battleFormatId = current.config.formatId;
     else telemetry.startingLives = current.request.rulesOptions.startingLives;
     return telemetry;
+  }
+  function rememberOrdinaryShot(current, flip, frame, made, pose) {
+    if (!flip.manualHuman) return;
+    var prior = current.ordinaryRuns[flip.player.id] || 0;
+    current.ordinaryRuns[flip.player.id] = made ? prior + 1 : 0;
+    current.ordinaryShots.push({ made: made, pose: pose, perfect: frame.landing.perfect === true,
+      observed: true, nativeAlien: frame.nativeAlien === true,
+      playerId: flip.player.id, feel: flip.feel, streakBefore: prior,
+      clutch: !flip.player.onFire && (flip.player.lives <= flip.before.stake ||
+        (flip.before.suddenDeath && flip.before.suddenDeath.phase === 'sudden-death')) });
+    if (current.ordinaryShots.length > 24) current.ordinaryShots.shift();
   }
   function installSession(request, owner) {
     var practice = request.activityId === 'practice' || request.activityId === 'tutorial';
@@ -327,6 +342,9 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       matchFxp: match ? match.fxpAwarded : null,
       breakdown: match && match.reward ? copy(match.reward.breakdown) : null,
       multiplier: match && match.reward ? match.reward.performanceMultiplier : null,
+      performanceSample: { observedShots: current.ordinaryShots.slice(-24).filter(function (shot) { return shot.observed; }).length,
+        perfectMakes: current.ordinaryShots.slice(-24).filter(function (shot) { return shot.made && shot.perfect; }).length,
+        nativeShots: current.ordinaryShots.slice(-24).filter(function (shot) { return shot.nativeAlien; }).length },
       performance: current.performance ? copy(current.performance) : null });
   }
   function finish() {
@@ -432,6 +450,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var config = Battle.normalizeConfig(request);
     coordinator.start(request);
     battle = { request: request, config: config, state: null, status: 'reserved',
+      physicsEvidence: new Map(),
       owner: coordinator, handle: 'battle-' + request.matchId, message: '',
       resolution: null, finalPromise: null, startedAt: Date.now(),
       testData: progression.snapshot().ownerTestMode === true };
@@ -442,6 +461,21 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     assertOpen();
     if (!battle || battle.handle !== String(handle)) throw new Error('That Battle reservation is not current');
     return battle;
+  }
+  function attachBattlePhysics(matchId, driver) {
+    assertOpen();
+    var current = battle;
+    if (!current || current.request.matchId !== matchId || !driver || typeof driver.subscribe !== 'function' || typeof driver.snapshot !== 'function' || !platform.isPhysicalDriver(driver)) throw new Error('A current Battle physics observer from the actual engine is required');
+    return driver.subscribe(function () {
+      if (battle !== current || ['reserved', 'playing'].indexOf(current.status) < 0) return;
+      var frame = driver.snapshot();
+      if (!frame || !frame.attemptId || !frame.landing || !frame.manual || frame.landing.noContest) return;
+      if (current.physicsEvidence.has(frame.attemptId)) return;
+      current.physicsEvidence.set(frame.attemptId, freeze({ pose: frame.landing.pose,
+        perfect: frame.landing.perfect === true, feel: frame.feel,
+        eventId: frame.eventId, nativeAlien: frame.nativeAlien === true }));
+      if (current.physicsEvidence.size > 256) current.physicsEvidence.delete(current.physicsEvidence.keys().next().value);
+    });
   }
   function startBattle(handle) {
     var current = battleReservation(handle);
@@ -508,11 +542,18 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     current.manualHumanFlips = manual.length;
     var runs = Object.create(null);
     current.ordinaryShots = manual.map(function (attempt) {
+      var evidence = current.physicsEvidence.get(attempt.attemptId);
+      if (evidence && (evidence.pose !== attempt.pose || (evidence.eventId && !evidence.nativeAlien))) {
+        runs[attempt.playerId] = 0;
+        return null;
+      }
       var made = attempt.pose !== 'miss', prior = runs[attempt.playerId] || 0;
       runs[attempt.playerId] = made ? prior + 1 : 0;
       return { made: made, pose: attempt.pose, playerId: attempt.playerId, streakBefore: prior,
-        clutch: attempt.suddenDeath === true, feel: 'standard' };
-    });
+        observed: !!evidence, nativeAlien: !!(evidence && evidence.nativeAlien),
+        perfect: !!(evidence && evidence.perfect), clutch: attempt.suddenDeath === true,
+        feel: evidence && evidence.feel || 'standard' };
+    }).filter(Boolean);
     var outcome = Battle.toMatchOutcomeV2(current.state, {
       telemetry: rewardInput(current, Battle.toMatchOutcomeV2(current.state)) });
     current.finalPromise = current.owner.finalize(outcome).then(function (result) {
@@ -657,6 +698,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       EventKernel.claimSelection(session.eventLane.runtime, selection, frame.eventId, eventClass);
       var claim = EventKernel.issueLaunchClaim(session.eventLane.runtime, selection);
       session.flip = { launchId: launchId, eventClaim: claim, eventId: frame.eventId, phase: 'airborne',
+        feel: ['forgiving', 'standard', 'pro'].indexOf(frame.feel) >= 0 ? frame.feel : 'standard',
         launchedAtMs: frame.atMs, player: copy(player), before: copy(state.currentHeat || state),
         seat: play.currentPlayerIndex, manualHuman: frame.manual === true && player.human === true };
       session.seenLaunchIds.add(launchId);
@@ -682,7 +724,8 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       return;
     }
     session.totalFlips++;
-    if (flip.manualHuman) session.ordinaryRuns[flip.player.id] = 0;
+    if (frame.nativeAlien) rememberOrdinaryShot(session, flip, frame, frame.landing.result === 'MAKE', frame.landing.pose);
+    else if (flip.manualHuman) session.ordinaryRuns[flip.player.id] = 0;
     diagnostics.recordFlip({ request: session.request, launchId: launchId, player: flip.player,
       before: flip.before, seat: flip.seat, launchedAtMs: flip.launchedAtMs,
       firstContactAtMs: frame.atMs, landing: frame.landing,
@@ -781,15 +824,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       before: flip.before, seat: flip.seat, launchedAtMs: flip.launchedAtMs,
       firstContactAtMs: flip.firstContactAt, landing: data, frame: frame,
       after: session.rules.snapshot(), rulesOutcome: transition.outcome, testData: session.testData });
-    if (flip.manualHuman) {
-      var prior = session.ordinaryRuns[flip.player.id] || 0;
-      session.ordinaryRuns[flip.player.id] = made ? prior + 1 : 0;
-      session.ordinaryShots.push({ made: made, pose: pose, perfect: frame.landing.perfect === true,
-        playerId: flip.player.id, feel: flip.feel, streakBefore: prior,
-        clutch: !flip.player.onFire && (flip.player.lives <= flip.before.stake ||
-          (flip.before.suddenDeath && flip.before.suddenDeath.phase === 'sudden-death')) });
-      if (session.ordinaryShots.length > 24) session.ordinaryShots.shift();
-    }
+    rememberOrdinaryShot(session, flip, frame, made, pose);
     if (session.practice) {
       session.practiceScore.flips++; session.practiceScore[made ? 'makes' : 'misses']++;
       if (pose === 'cap') session.practiceScore.caps++;
@@ -841,6 +876,7 @@ function createBrowserApplication(require, platform, sourceIdentity) {
       powerProfiles: ['sport', 'mayhem'],
       observeDisplay: observeBattleDisplay, capabilities: battleCapabilities,
       prepare: prepareBattle, start: startBattle, cancel: cancelBattle,
+      attachPhysics: attachBattlePhysics,
       submitResult: submitBattleResult, snapshot: battleSnapshot,
       abandon: abandonBattle, retryFinalization: finishBattle,
     }),
