@@ -342,6 +342,9 @@
 
     function step() {
       if (phase !== 'active') throw new Error('Live Plinko is not active');
+      // Retain the exact terminal fixed tick until the host consumes no-contest.
+      // A slow paint frame must not integrate beyond the recovery deadline.
+      if (last.timedOut) return snapshot();
       var targetTick = last.tick + 1;
       adapter.step({ targetTick: targetTick });
       var directive = directiveAt(targetTick, seed);

@@ -41,6 +41,7 @@ const Physics = (() => {
         result: observedLanding.result,
         pose: observedLanding.onCap ? 'cap' : observedLanding.result === 'MAKE' ? 'upright' : 'miss',
         reason: observedLanding.reason,
+        noContest: observedLanding.noContest === true,
         perfect: observedLanding.perfect === true,
         stableForMs: measuredStableMs,
         deadlineEvidence: observationDeadlineEvidence,
@@ -103,6 +104,12 @@ const Physics = (() => {
       case 'rewind': facts = { replayCount: flags.replayed ? 1 : 0, correctiveImpulseApplied: !!state.correctionImpulse }; break;
       case 'plinko': {
         const snapshot = getPlinkoSnapshot(), outcome = snapshot && snapshot.outcome;
+        if (snapshot?.timedOut && lastLandingInfo?.noContest) {
+          facts = { objectColliderRef: ref(bottle), slotSensorRef: null, slotIndex: null,
+            dropDurationMs: Math.round(snapshot.elapsedMs - 2400), settled: false, completionKind: 'no-contest',
+            recoveryStartedMs: Math.round(snapshot.recovery.startedAtMs - 2400),
+            recoveryImpulseCount: snapshot.recovery.applied }; break;
+        }
         if (!outcome || outcome.actualSensorContact !== true) return null;
         facts = { objectColliderRef: ref(bottle), slotSensorRef: outcome.sensorRef, slotIndex: outcome.slotIndex, dropDurationMs: snapshot.elapsedMs, settled: true, completionKind: 'engine-sensor', recoveryStartedMs: snapshot.recovery?.startedAtMs ?? null, recoveryImpulseCount: snapshot.recovery?.applied || 0 }; break;
       }
@@ -934,6 +941,19 @@ const Physics = (() => {
   function getPlinko() { return plinko; }
   function getPlinkoSnapshot() { return plinkoLive ? plinkoLive.snapshot() : null; }
 
+  function plinkoNoContest(snapshot) {
+    // MISS is only the EventKernel envelope; its no-contest facts consume a
+    // neutral transition. NO_CONTEST keeps this out of ordinary UI scoring.
+    lastLandingInfo = { result: 'MISS', noContest: true, reason: 'plinko-no-contest',
+      eventId: 'plinko', onCap: false, perfect: false, settled: false,
+      contacts: snapshot.contactCount, actualSensorContact: false, sensorRef: null };
+    eventResultMetadata = { eventId: 'plinko', noContest: true, eventReward: null };
+    landingPhase = 'resolved';
+    if (eventRuntime) eventRuntime.phase = 'resolved';
+    publishObservation('landing');
+    return 'NO_CONTEST';
+  }
+
   // ── Obstacles: deflector wedges + saucers (alien bank shot) ────────────────
   let deflectors = [];
   let saucers = [];      // { body, vx, phase, rx, ry }
@@ -1566,7 +1586,7 @@ const Physics = (() => {
 
   function checkLanding() {
     if (!bottle) return null;
-    if (landingPhase === 'resolved' && lastLandingInfo) return lastLandingInfo.result;
+    if (landingPhase === 'resolved' && lastLandingInfo) return lastLandingInfo.noContest ? 'NO_CONTEST' : lastLandingInfo.result;
     if (eventRuntime && eventRuntime.kind === 'rewind' && eventRuntime.flags.reversing) {
       return null;
     }
@@ -1586,9 +1606,7 @@ const Physics = (() => {
       const authoritative = plinkoLive.snapshot();
       plinko = authoritative.board;
       if (authoritative.outcome) return plinkoVerdict(authoritative);
-      // A timeout is deliberately exposed in getPlinkoSnapshot() as a
-      // no-contest signal for the rules/session owner. It cannot fabricate a
-      // prize or convert elapsed time into MAKE/MISS here.
+      if (authoritative.timedOut) return plinkoNoContest(authoritative);
       return null;
     }
 

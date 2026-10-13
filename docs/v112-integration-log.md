@@ -1503,3 +1503,59 @@ physical Story suite and Node suite were rerun successfully. All 95 script
 suites and 52 Node tests pass. Progression/Tour browser checks were rerun after
 the correction, including the genuine recorded success ghost. Generated bundle
 consistency and diff checks pass.
+
+
+## 2026-10-12 — Plinko pacing and neutral timeout repair
+
+Measured the real Matter adapter before tuning. Its 81-input corpus had a
+12.78s board-drop median, a 14.92s 90th percentile and 62/81 drops in the normal
+10–15s band. A small gravity adjustment (0.00030 to 0.00034) produces an 11.85s
+median, 14.10s 90th percentile and 69/81 in band. All 81 physically settle and
+all nine prizes remain reachable. A 256-run corroborating sweep improved the
+in-band count from 198 to 217 with an 11.82s median. Outliers still continue
+physically; no slot, prize or verdict is selected by elapsed time.
+
+The pacing investigation exposed a disconnected timeout: the live adapter
+reported timedOut but Physics.checkLanding always returned null. The shipping
+page could therefore wait forever on an unrecoverable jam.
+
+The live adapter now retains its actual terminal fixed tick after its four
+scheduled recovery impulses and 30s unresolved board deadline (32.4s including
+the spring transport). Physics publishes neutral Plinko terminal evidence with
+no slot/sensor/prize. Millisecond protocol values are rounded from measured
+fixed ticks to avoid floating-point drift. EventKernel/EventRulesAdapter consume
+the existing no-contest transition rather than applying the envelope's MISS.
+No-contest counts neither participation nor performance and never awards a
+slot effect. Repeated checks are idempotent.
+
+Classic, Cup and Team Clash keep the same actor, lives, stakes, streaks and scores; resolution bookkeeping advances once.
+The page resets the event world and invites the same turn again with visible
+and screen-reader feedback. Practice follows the same neutral path. Battle's
+ledger has no neutral retry protocol yet; if it encounters this rare timeout,
+the Battle is abandoned without a scored result, with visible feedback, rather
+than inventing a loss or leaving its lane permanently airborne.
+
+New tests model an irrecoverable physical jam in the actual Matter chassis,
+allow every real fixed tick and recovery attempt to run, then verify the
+private neutral transition in Classic/Cup/Team Clash, unchanged ownership and
+competitive state, one-use resolution and cleanup before a normal real flip.
+A browser test verifies the same live table/input path, including a late result
+check, visible neutral message and the next keyboard launch. The pacing corpus
+now requires a median near 12s and at least 80% in the normal band.
+
+Still open: simultaneous Battle lanes, Battle-selected-feel/perfect evidence,
+native Alien ordinary performance evidence, broader Story environment art,
+Battle neutral retry and web/APK/hardware qualification.
+
+The regression sweep exposed the engine compatibility variant's inherited
+10s minimum rejecting a genuine 9.7s settled sensor result. Its measured-result
+variant now accepts physical timing outside the normal band after transport
+plus settlement; canonical clean/recovered/no-contest constraints remain
+unchanged. This never clamps measured time or chooses a prize from time.
+
+Validation: all 97 script suites and 52 Node tests pass after updating the
+expected gravity assertion and fixing that compatibility boundary. The failed
+suites were rerun, together with adversarial Kernel, private composition,
+neutral timeout and live browser tests. Battle neutral cancellation is now
+covered by the same real-browser jam test. Bundle consistency and diff checks
+pass. PR #35 was merged before this separate repair batch.

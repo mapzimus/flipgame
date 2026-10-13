@@ -1202,7 +1202,7 @@
       settled: booleanField },
     rewind: { replayCount: integerField(0, 1), correctiveImpulseApplied: booleanField },
     plinko: { objectColliderRef: stringField, slotSensorRef: nullableStringField,
-      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(10000, 32400),
+      slotIndex: nullableIntegerField(0, 8), dropDurationMs: numberField(0, 32400),
       settled: booleanField, completionKind: stringField,
       recoveryStartedMs: nullableIntegerField(22000, 30000),
       recoveryImpulseCount: integerField(0, 1000) },
@@ -1236,10 +1236,11 @@
       }
       if (values.completionKind === 'engine-sensor') {
         // The shipping Matter host includes its 2.4-second spring transport
-        // and can settle later than the new runtime's 10-15 second contract.
+        // and may settle outside the canonical normal band in either direction.
+        // Require transport plus 0.3s settlement before accepting this variant.
         // Preserve the measured time and real sensor result, never clamp it
         // into a fictional clean/recovered result.
-        if (!values.settled || values.slotSensorRef == null || values.slotIndex == null ||
+        if (values.dropDurationMs < 2700 || !values.settled || values.slotSensorRef == null || values.slotIndex == null ||
             (values.recoveryImpulseCount === 0 && values.recoveryStartedMs != null) ||
             (values.recoveryImpulseCount > 0 && (values.recoveryStartedMs == null ||
               values.recoveryStartedMs > values.dropDurationMs))) {

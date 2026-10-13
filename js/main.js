@@ -1519,6 +1519,13 @@
         const result = Physics.checkLanding();
         if (result) {
           const info = Physics.getLastLandingInfo() || {};
+          if (result === 'NO_CONTEST') {
+            airborne = null;
+            battleHost.abandon();
+            document.getElementById('battle-message').textContent = 'Plinko could not settle. Battle ended without a scored result. Start again.';
+            announce('Plinko could not settle. Battle ended without awarding this result. Start again.', true);
+            return;
+          }
           // The pose is whatever the collider settled into. Nothing here may
           // upgrade a miss or invent a cap.
           const pose = result !== 'MAKE' ? 'miss' : (info.onCap ? 'cap' : 'upright');
@@ -2503,6 +2510,15 @@
   function resolveGameFlip(result, landingInfo) {
     const meta = landingMeta(landingInfo);
     bridgeLandingInfo = landingInfo || null;
+    if (result === 'NO_CONTEST' && landingInfo?.noContest === true) {
+      const state = v112OwnsMatch ? v112App.snapshot().session?.rules : null;
+      if (Number.isInteger(state?.attemptCounter)) game.turnCounter = state.attemptCounter;
+      game.state = game.currentPlayer()?.isOnFire ? GAME_STATES.ON_FIRE : GAME_STATES.TURN_START;
+      if (game.state === GAME_STATES.ON_FIRE) onOnFire(); else onTurnStart();
+      streakBannerEl.textContent = 'Plinko could not settle · no lives or points changed · retry this turn';
+      announce('Plinko could not settle. No lives or points changed. Try the same turn again.');
+      return;
+    }
     if (currentMatchOptions.tour && journeyHost) {
       const pose = result === 'MAKE' ? (meta.onCap ? 'cap' : 'upright') : 'miss';
       captureLabTrajectoryPoint(true);

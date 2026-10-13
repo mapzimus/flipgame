@@ -675,7 +675,13 @@ function createBrowserApplication(require, platform, sourceIdentity) {
     var consumed = session.eventConsumer.resolve({ outcome: outcome,
       resolutionIdentity: session.rules.nextResolutionIdentity(flip.eventClaim.claimId) });
     session.lastRulesOutcome = consumed.transition.outcome;
-    flip.phase = 'resolved'; session.lastLanding = copy(outcome); session.totalFlips++;
+    flip.phase = 'resolved'; session.lastLanding = copy(outcome);
+    if (consumed.noContest) {
+      if (flip.manualHuman) session.manualHumanFlips--;
+      emit('event-no-contest');
+      return;
+    }
+    session.totalFlips++;
     if (flip.manualHuman) session.ordinaryRuns[flip.player.id] = 0;
     diagnostics.recordFlip({ request: session.request, launchId: launchId, player: flip.player,
       before: flip.before, seat: flip.seat, launchedAtMs: flip.launchedAtMs,

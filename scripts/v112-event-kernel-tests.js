@@ -758,7 +758,11 @@ function testNarrowDirectiveFrameFactAndSizeSchemas() {
   assert.throws(() => Kernel.normalizeOutcomeFacts('roulette-table', Object.assign({},
     Harness.DEFAULT_FACTS['roulette-table'], { settled: false })), /settled sector evidence/);
   assert.throws(() => Kernel.normalizeOutcomeFacts('plinko', Object.assign({},
-    Harness.DEFAULT_FACTS.plinko, { dropDurationMs: 9999 })), /minimum/);
+    Harness.DEFAULT_FACTS.plinko, { dropDurationMs: 9999 })), /10-15 second/);
+  assert.equal(Kernel.normalizeOutcomeFacts('plinko', Object.assign({},
+    Harness.DEFAULT_FACTS.plinko, { completionKind: 'engine-sensor', dropDurationMs: 9700 })).values.dropDurationMs, 9700);
+  assert.throws(() => Kernel.normalizeOutcomeFacts('plinko', Object.assign({},
+    Harness.DEFAULT_FACTS.plinko, { completionKind: 'engine-sensor', dropDurationMs: 2699 })), /settled sensor/);
   assert.throws(() => Kernel.normalizeOutcomeFacts('cap-toss', {
     bodyColliderRef: 'body:same', topColliderRef: 'body:same',
     bodyLanded: true, topLanded: true }), /distinct/);

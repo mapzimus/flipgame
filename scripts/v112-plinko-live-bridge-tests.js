@@ -251,7 +251,7 @@ function assertPlinkoOwnsAndRestoresGravity() {
   'Plinko must isolate its spring arc from the host gravity profile');
   for (let tick = 1; tick <= 144; tick += 1) live.step();
   assert.deepEqual({ x: engine.gravity.x, y: engine.gravity.y,
-    scale: engine.gravity.scale }, { x: 0, y: 1, scale: 0.0003 },
+    scale: engine.gravity.scale }, { x: 0, y: 1, scale: 0.00034 },
   'the peg field must use the canonical slow-fall gravity');
   assert.equal(live.cleanup().clean, true);
   assert.deepEqual({ x: engine.gravity.x, y: engine.gravity.y,
