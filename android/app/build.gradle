@@ -37,6 +37,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix '.qualification'
+            versionNameSuffix '-qualification'
+        }
         release {
             minifyEnabled false
             if (releaseSigningReady) {
